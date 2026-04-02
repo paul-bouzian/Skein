@@ -254,13 +254,18 @@ function resolveContextMenuPosition(contextMenu: Pick<ContextMenuState, "x" | "y
 function SettingsPanel() {
   const settings = useWorkspaceStore(selectSettings);
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function handleChange(patch: GlobalSettingsPatch) {
     setSaving(true);
     try {
+      setActionError(null);
       await bridge.updateGlobalSettings(patch);
       await refreshSnapshot();
+    } catch (cause: unknown) {
+      const message = cause instanceof Error ? cause.message : "Failed to save settings";
+      setActionError(message);
     } finally {
       setSaving(false);
     }
@@ -273,6 +278,7 @@ function SettingsPanel() {
         {saving && <span className="tree-sidebar__saving">Saving...</span>}
       </div>
       <div className="tree-sidebar__scroll">
+        {actionError && <p className="tree-sidebar__notice">{actionError}</p>}
         {settings ? (
           <SettingsContent settings={settings} onChange={handleChange} />
         ) : (
