@@ -153,3 +153,31 @@ fn stderr_message(buffer: &[u8]) -> String {
         message
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{ensure_branch_name, managed_worktree_path};
+
+    #[test]
+    fn branch_name_is_sanitized_into_a_git_safe_slug() {
+        let slug = ensure_branch_name(" Feature: Plan Mode UI! ").expect("slug should be created");
+        assert_eq!(slug, "feature-plan-mode-ui");
+    }
+
+    #[test]
+    fn branch_name_rejects_empty_values() {
+        let error = ensure_branch_name("   ").expect_err("empty name should fail");
+        assert!(error.to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn managed_worktree_path_is_nested_under_threadex_directory() {
+        let path = managed_worktree_path(Path::new("/tmp/acme/repo"), "feature-plan-mode");
+        assert_eq!(
+            path,
+            Path::new("/tmp/acme/.threadex-worktrees/repo/feature-plan-mode")
+        );
+    }
+}

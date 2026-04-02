@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::process::Stdio;
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use chrono::Utc;
-use tokio::process::{Child, Command};
 
 use crate::domain::workspace::{RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
@@ -83,16 +82,15 @@ impl RuntimeSupervisor {
         command
             .arg("app-server")
             .current_dir(environment_path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         let child = command.spawn()?;
         let status = RuntimeStatusSnapshot {
             environment_id: environment_id.to_string(),
             state: RuntimeState::Running,
-            pid: child.id(),
+            pid: Some(child.id()),
             binary_path: Some(binary_path),
             started_at: Some(Utc::now()),
             last_exit_code: None,
@@ -119,7 +117,7 @@ impl RuntimeSupervisor {
             .map_err(|_| AppError::Runtime("The runtime registry is poisoned.".to_string()))?;
 
         if let Some(mut runtime) = registry.running.remove(environment_id) {
-            runtime.child.start_kill()?;
+            runtime.child.kill()?;
 
             let status = RuntimeStatusSnapshot {
                 environment_id: environment_id.to_string(),
@@ -147,5 +145,52 @@ impl RuntimeSupervisor {
                 started_at: None,
                 last_exit_code: None,
             }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::RuntimeSupervisor;
+
+    #[test]
+    fn supervisor_can_start_and_stop_a_runtime_process() {
+        let unique = format!(
+            "threadex-supervisor-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        let temp_dir = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&temp_dir).expect("temp directory should be created");
+
+        let script_path = temp_dir.join("fake-codex.sh");
+        fs::write(
+            &script_path,
+            "#!/bin/sh\nwhile true; do sleep 1; done\n",
+        )
+        .expect("script should be written");
+        let mut permissions = fs::metadata(&script_path)
+            .expect("script metadata should exist")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("script should be executable");
+
+        let supervisor = RuntimeSupervisor::default();
+        let started = supervisor
+            .start(
+                "env-1",
+                temp_dir.to_str().expect("temp path should be utf-8"),
+                Some(script_path.to_string_lossy().to_string()),
+            )
+            .expect("runtime should start");
+        assert!(started.pid.is_some());
+
+        let stopped = supervisor.stop("env-1").expect("runtime should stop");
+        assert!(matches!(stopped.state, crate::domain::workspace::RuntimeState::Stopped));
+
+        let _ = fs::remove_file(script_path);
+        let _ = fs::remove_dir_all(temp_dir);
     }
 }

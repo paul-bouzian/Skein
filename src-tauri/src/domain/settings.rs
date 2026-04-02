@@ -76,3 +76,56 @@ impl GlobalSettings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch, ReasoningEffort,
+    };
+
+    #[test]
+    fn apply_patch_updates_only_provided_fields() {
+        let mut settings = GlobalSettings::default();
+
+        settings.apply_patch(GlobalSettingsPatch {
+            default_model: Some("gpt-5.3-codex".to_string()),
+            default_reasoning_effort: Some(ReasoningEffort::Medium),
+            default_collaboration_mode: None,
+            default_approval_policy: Some(ApprovalPolicy::FullAccess),
+            codex_binary_path: Some(Some("/opt/homebrew/bin/codex".to_string())),
+        });
+
+        assert_eq!(settings.default_model, "gpt-5.3-codex");
+        assert!(matches!(
+            settings.default_reasoning_effort,
+            ReasoningEffort::Medium
+        ));
+        assert!(matches!(
+            settings.default_collaboration_mode,
+            CollaborationMode::Build
+        ));
+        assert!(matches!(
+            settings.default_approval_policy,
+            ApprovalPolicy::FullAccess
+        ));
+        assert_eq!(
+            settings.codex_binary_path.as_deref(),
+            Some("/opt/homebrew/bin/codex")
+        );
+    }
+
+    #[test]
+    fn apply_patch_can_clear_optional_binary_path() {
+        let mut settings = GlobalSettings {
+            codex_binary_path: Some("/opt/homebrew/bin/codex".to_string()),
+            ..GlobalSettings::default()
+        };
+
+        settings.apply_patch(GlobalSettingsPatch {
+            codex_binary_path: Some(None),
+            ..GlobalSettingsPatch::default()
+        });
+
+        assert_eq!(settings.codex_binary_path, None);
+    }
+}
