@@ -2,6 +2,8 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::domain::git_review::{GitChangeSection, GitReviewScope};
 use crate::error::{AppError, AppResult};
@@ -11,6 +13,8 @@ use super::{
     upstream_branch, validate_relative_path,
     GitEnvironmentContext,
 };
+
+const COMMIT_MESSAGE_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub fn stage_file(repo_root: &Path, path: &str) -> AppResult<()> {
     validate_relative_path(path)?;
@@ -57,6 +61,9 @@ pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> A
     validate_relative_path(path)?;
     match section {
         GitChangeSection::Staged => {
+            if !reference_exists(repo_root, "HEAD") {
+                return unstage_file(repo_root, path);
+            }
             run_git(repo_root, ["restore", "--source=HEAD", "--staged", "--", path])
         }
         GitChangeSection::Unstaged => run_git(repo_root, ["restore", "--worktree", "--", path]),
@@ -196,7 +203,11 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
         stdin.write_all(prompt.as_bytes()).map_err(AppError::from)?;
     }
 
-    let output = child.wait_with_output().map_err(AppError::from)?;
+    let output = wait_for_child_output(
+        child,
+        COMMIT_MESSAGE_TIMEOUT,
+        "Codex timed out while generating a commit message.",
+    )?;
     if !output.status.success() {
         return Err(AppError::Runtime(stderr_message(&output.stderr)));
     }
@@ -229,6 +240,34 @@ fn truncate_diff(diff: &str, limit: usize) -> String {
     truncated
 }
 
+fn wait_for_child_output(
+    mut child: std::process::Child,
+    timeout: Duration,
+    timeout_message: &str,
+) -> AppResult<std::process::Output> {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if child.try_wait().map_err(AppError::from)?.is_some() {
+            return child.wait_with_output().map_err(AppError::from);
+        }
+
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().map_err(AppError::from)?;
+            let details = stderr_message(&output.stderr);
+            let message = if details.is_empty() {
+                timeout_message.to_string()
+            } else {
+                format!("{timeout_message} {details}")
+            };
+            return Err(AppError::Runtime(message));
+        }
+
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn read_command_stdout<I, A>(repo_root: &Path, args: I) -> AppResult<String>
 where
     I: IntoIterator<Item = A>,
@@ -245,8 +284,10 @@ where
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
 
-    use super::{commit, revert_file, stage_file, unstage_all, unstage_file};
+    use super::{commit, revert_file, stage_file, unstage_all, unstage_file, wait_for_child_output};
     use crate::domain::git_review::GitChangeSection;
     use crate::error::AppResult;
 
@@ -313,6 +354,21 @@ mod tests {
     }
 
     #[test]
+    fn revert_staged_without_head_falls_back_to_unstage() -> AppResult<()> {
+        let repo = TestRepo::new()?;
+        let file = repo.path.join("src/app.ts");
+        fs::create_dir_all(file.parent().expect("parent"))?;
+        fs::write(&file, "const answer = 1;\n")?;
+        stage_file(&repo.path, "src/app.ts")?;
+
+        revert_file(&repo.path, "src/app.ts", GitChangeSection::Staged)?;
+
+        assert_eq!(fs::read_to_string(&file)?, "const answer = 1;\n");
+        assert!(repo.stdout(["diff", "--cached", "--", "src/app.ts"])?.is_empty());
+        Ok(())
+    }
+
+    #[test]
     fn revert_all_rejects_repositories_without_head() {
         let repo = TestRepo::new().expect("repo");
         let error = super::revert_all(&repo.path).expect_err("fresh repo should fail");
@@ -323,6 +379,20 @@ mod tests {
     fn truncate_diff_keeps_utf8_boundaries() {
         let truncated = super::truncate_diff("ééé", 1);
         assert!(truncated.ends_with("[diff truncated]"));
+    }
+
+    #[test]
+    fn wait_for_child_output_times_out() {
+        let child = Command::new("sh")
+            .args(["-c", "sleep 1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn");
+
+        let error = wait_for_child_output(child, Duration::from_millis(10), "Timed out")
+            .expect_err("process should time out");
+        assert!(error.to_string().contains("Timed out"));
     }
 
     struct TestRepo {

@@ -152,6 +152,7 @@ export function CommitSection({
         <div className="inspector-commit__editor">
           <textarea
             className="inspector-commit__textarea"
+            aria-label="Commit message"
             placeholder="Write a commit message"
             rows={3}
             value={message}

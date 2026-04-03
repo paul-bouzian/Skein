@@ -115,6 +115,10 @@ function labelForDiffKind(kind: string) {
       return "Renamed";
     case "copied":
       return "Copied";
+    case "typeChanged":
+      return "Type";
+    case "unmerged":
+      return "Conflict";
     default:
       return "Changed";
   }

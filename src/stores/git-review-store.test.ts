@@ -33,6 +33,7 @@ beforeEach(() => {
     commitMessageByEnvironmentId: {},
     loadingByContext: {},
     diffLoadingByContext: {},
+    diffRequestIdByContext: {},
     actionByEnvironmentId: {},
     generatingCommitMessageByEnvironmentId: {},
     errorByEnvironmentId: {},
@@ -87,6 +88,25 @@ describe("git-review-store", () => {
     expect(state.scopeByEnvironmentId["env-1"]).toBe("branch");
     expect(state.selectedFileByContext["env-1:branch"]).toBeNull();
     expect(mockedBridge.getGitFileDiff).not.toHaveBeenCalled();
+  });
+
+  it("does not let a late snapshot overwrite the selected scope", async () => {
+    let resolveUncommitted: ((value: ReturnType<typeof makeGitReviewSnapshot>) => void) | undefined;
+    mockedBridge.getGitReviewSnapshot.mockImplementation(({ scope }) => {
+      if (scope === "uncommitted") {
+        return new Promise((resolve) => {
+          resolveUncommitted = resolve as typeof resolveUncommitted;
+        });
+      }
+      return Promise.resolve(makeGitReviewSnapshot({ scope: "branch" }));
+    });
+
+    const first = useGitReviewStore.getState().loadReview("env-1");
+    await useGitReviewStore.getState().selectScope("env-1", "branch");
+    resolveUncommitted?.(makeGitReviewSnapshot({ scope: "uncommitted" }));
+    await first;
+
+    expect(useGitReviewStore.getState().scopeByEnvironmentId["env-1"]).toBe("branch");
   });
 
   it("stores a generated commit message per environment", async () => {
@@ -234,5 +254,55 @@ describe("git-review-store", () => {
       "unstaged:src/a.ts": expect.objectContaining({ path: "src/a.ts" }),
       "unstaged:src/b.ts": expect.objectContaining({ path: "src/b.ts" }),
     });
+  });
+
+  it("keeps loading true until the latest diff bundle settles", async () => {
+    mockedBridge.getGitReviewSnapshot.mockResolvedValue(
+      makeGitReviewSnapshot({
+        sections: [
+          {
+            id: "unstaged",
+            label: "Unstaged",
+            files: [
+              {
+                path: "src/a.ts",
+                oldPath: null,
+                section: "unstaged",
+                kind: "modified",
+                additions: null,
+                deletions: null,
+                canStage: true,
+                canUnstage: false,
+                canRevert: true,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const resolvers: Array<(value: ReturnType<typeof makeGitFileDiff>) => void> = [];
+    mockedBridge.getGitFileDiff.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve as (value: ReturnType<typeof makeGitFileDiff>) => void);
+        }),
+    );
+
+    await useGitReviewStore.getState().loadReview("env-1");
+    const first = useGitReviewStore
+      .getState()
+      .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
+    const second = useGitReviewStore
+      .getState()
+      .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
+
+    resolvers[0]?.(makeGitFileDiff({ path: "src/a.ts" }));
+    await Promise.resolve();
+    expect(useGitReviewStore.getState().diffLoadingByContext["env-1:uncommitted"]).toBe(true);
+
+    resolvers[1]?.(makeGitFileDiff({ path: "src/a.ts" }));
+    await Promise.all([first, second]);
+    expect(useGitReviewStore.getState().diffLoadingByContext["env-1:uncommitted"]).toBe(false);
   });
 });

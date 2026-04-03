@@ -19,6 +19,7 @@ type GitReviewState = {
   commitMessageByEnvironmentId: Record<string, string>;
   loadingByContext: Record<string, boolean>;
   diffLoadingByContext: Record<string, boolean>;
+  diffRequestIdByContext: Record<string, number>;
   actionByEnvironmentId: Record<string, string | null>;
   generatingCommitMessageByEnvironmentId: Record<string, boolean>;
   errorByEnvironmentId: Record<string, string | null>;
@@ -69,6 +70,7 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   commitMessageByEnvironmentId: {},
   loadingByContext: {},
   diffLoadingByContext: {},
+  diffRequestIdByContext: {},
   actionByEnvironmentId: {},
   generatingCommitMessageByEnvironmentId: {},
   errorByEnvironmentId: {},
@@ -373,10 +375,12 @@ async function applySnapshot(
   const nextSelection = findNextSelectedFile(snapshot, previousFileKey);
 
   set((state) => ({
-    scopeByEnvironmentId: {
-      ...state.scopeByEnvironmentId,
-      [snapshot.environmentId]: snapshot.scope,
-    },
+    scopeByEnvironmentId: state.scopeByEnvironmentId[snapshot.environmentId]
+      ? state.scopeByEnvironmentId
+      : {
+          ...state.scopeByEnvironmentId,
+          [snapshot.environmentId]: snapshot.scope,
+        },
     snapshotsByContext: {
       ...state.snapshotsByContext,
       [contextKey]: snapshot,
@@ -443,10 +447,15 @@ async function loadDiffBundle(
     return;
   }
 
+  const requestId = (get().diffRequestIdByContext[contextKey] ?? 0) + 1;
   set((state) => ({
     diffLoadingByContext: {
       ...state.diffLoadingByContext,
       [contextKey]: true,
+    },
+    diffRequestIdByContext: {
+      ...state.diffRequestIdByContext,
+      [contextKey]: requestId,
     },
     diffErrorByContext: {
       ...state.diffErrorByContext,
@@ -479,27 +488,35 @@ async function loadDiffBundle(
     }
 
     set((state) => ({
-      diffErrorByContext: {
-        ...state.diffErrorByContext,
-        [contextKey]: null,
-      },
-      diffLoadingByContext: {
-        ...state.diffLoadingByContext,
-        [contextKey]: false,
-      },
+      ...(state.diffRequestIdByContext[contextKey] === requestId
+        ? {
+            diffErrorByContext: {
+              ...state.diffErrorByContext,
+              [contextKey]: null,
+            },
+            diffLoadingByContext: {
+              ...state.diffLoadingByContext,
+              [contextKey]: false,
+            },
+          }
+        : {}),
     }));
   } catch (cause: unknown) {
     const message =
       cause instanceof Error ? cause.message : "Failed to load the file diff";
     set((state) => ({
-      diffLoadingByContext: {
-        ...state.diffLoadingByContext,
-        [contextKey]: false,
-      },
-      diffErrorByContext: {
-        ...state.diffErrorByContext,
-        [contextKey]: message,
-      },
+      ...(state.diffRequestIdByContext[contextKey] === requestId
+        ? {
+            diffLoadingByContext: {
+              ...state.diffLoadingByContext,
+              [contextKey]: false,
+            },
+            diffErrorByContext: {
+              ...state.diffErrorByContext,
+              [contextKey]: message,
+            },
+          }
+        : {}),
     }));
   }
 }
