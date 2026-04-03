@@ -199,6 +199,8 @@ export function InspectorPanel() {
             />
             {error ? <p className="inspector__error">{error}</p> : null}
           </>
+        ) : error ? (
+          <p className="inspector__error">{error}</p>
         ) : (
           <p className="inspector__empty">
             {loading ? "Loading review…" : "No review data yet."}

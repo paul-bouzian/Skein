@@ -20,6 +20,23 @@ const REVIEW_SCOPE_OPTIONS = [
   { id: "branch", label: "Branch" },
 ] as const;
 
+function isPrimaryActionDisabled(
+  actionPending: boolean,
+  primaryMode: "commit" | "push" | "idle",
+  message: string,
+) {
+  if (actionPending) {
+    return true;
+  }
+  if (primaryMode === "commit") {
+    return message.trim().length === 0;
+  }
+  if (primaryMode === "push") {
+    return false;
+  }
+  return true;
+}
+
 export function ReviewSummarySection({
   environmentName,
   loading,
@@ -37,7 +54,7 @@ export function ReviewSummarySection({
     <section className="inspector-section">
       <div className="inspector-section__header">
         <h4 className="inspector-section__label">Repository</h4>
-        <div className="inspector-scope-switch">
+        <div className="inspector-scope-switch" role="group" aria-label="Review scope">
           {REVIEW_SCOPE_OPTIONS.map((option) => {
             const disabled = loading || (option.id === "branch" && !summary.baseBranch);
             return (
@@ -48,6 +65,7 @@ export function ReviewSummarySection({
                   scope === option.id ? "inspector-scope-switch__button--active" : ""
                 }`}
                 disabled={disabled}
+                aria-pressed={scope === option.id}
                 onClick={() => onSelectScope(option.id)}
               >
                 {option.label}
@@ -98,13 +116,7 @@ export function CommitSection({
     : summary.ahead > 0
       ? "push"
       : "idle";
-  const primaryDisabled =
-    actionPending ||
-    (primaryMode === "commit"
-      ? message.trim().length === 0
-      : primaryMode === "push"
-        ? false
-        : true);
+  const primaryDisabled = isPrimaryActionDisabled(actionPending, primaryMode, message);
 
   return (
     <section className="inspector-section">

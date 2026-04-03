@@ -12,8 +12,11 @@ import { useGitReviewStore } from "../../stores/git-review-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { GitDiffPanel } from "./GitDiffPanel";
 
+let currentContextKey = "env-1:uncommitted";
+
 beforeEach(() => {
   const environment = makeEnvironment();
+  currentContextKey = `${environment.id}:uncommitted`;
   useWorkspaceStore.setState((state) => ({
     ...state,
     snapshot: makeWorkspaceSnapshot({
@@ -26,12 +29,14 @@ beforeEach(() => {
     error: null,
   }));
   useGitReviewStore.setState({
-    scopeByEnvironmentId: { "env-1": "uncommitted" },
-    snapshotsByContext: { "env-1:uncommitted": makeGitReviewSnapshot() },
-    selectedFileByContext: { "env-1:uncommitted": "staged:src/app.ts" },
+    scopeByEnvironmentId: { [environment.id]: "uncommitted" },
+    snapshotsByContext: {
+      [currentContextKey]: makeGitReviewSnapshot({ environmentId: environment.id }),
+    },
+    selectedFileByContext: { [currentContextKey]: "staged:src/app.ts" },
     diffsByContext: {
-      "env-1:uncommitted": {
-        "staged:src/app.ts": makeGitFileDiff(),
+      [currentContextKey]: {
+        "staged:src/app.ts": makeGitFileDiff({ environmentId: environment.id }),
       },
     },
     diffErrorByContext: {},
@@ -53,6 +58,7 @@ describe("GitDiffPanel", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /hide diff/i }));
 
-    expect(useGitReviewStore.getState().selectedFileByContext["env-1:uncommitted"]).toBeNull();
+    expect(useGitReviewStore.getState().selectedFileByContext[currentContextKey]).toBeNull();
+    expect(useGitReviewStore.getState().diffsByContext[currentContextKey]).toBeDefined();
   });
 });

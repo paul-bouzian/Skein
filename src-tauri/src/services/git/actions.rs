@@ -65,6 +65,11 @@ pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> A
 }
 
 pub fn revert_all(repo_root: &Path) -> AppResult<()> {
+    if !reference_exists(repo_root, "HEAD") {
+        return Err(AppError::Validation(
+            "Cannot revert all changes in a repository without commits.".to_string(),
+        ));
+    }
     run_git(
         repo_root,
         ["restore", "--source=HEAD", "--staged", "--worktree", "--", "."],
@@ -305,6 +310,13 @@ mod tests {
         let error = revert_file(Path::new("."), "src/app.ts", GitChangeSection::Branch)
             .expect_err("branch changes should be rejected");
         assert!(error.to_string().contains("cannot be reverted"));
+    }
+
+    #[test]
+    fn revert_all_rejects_repositories_without_head() {
+        let repo = TestRepo::new().expect("repo");
+        let error = super::revert_all(&repo.path).expect_err("fresh repo should fail");
+        assert!(error.to_string().contains("without commits"));
     }
 
     #[test]

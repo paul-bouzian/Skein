@@ -32,6 +32,7 @@ type GitReviewState = {
     section: GitChangeSection,
     path: string,
   ) => Promise<void>;
+  closeDiff: (environmentId: string, scope?: GitReviewScope) => void;
   clearSelectedFile: (environmentId: string, scope?: GitReviewScope) => void;
   updateCommitMessage: (environmentId: string, message: string) => void;
   generateCommitMessage: (environmentId: string) => Promise<void>;
@@ -131,6 +132,17 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
       },
     }));
     await loadDiffBundle(environmentId, scope, section, path, set, get);
+  },
+
+  closeDiff: (environmentId, explicitScope) => {
+    const scope = explicitScope ?? get().scopeByEnvironmentId[environmentId] ?? "uncommitted";
+    const contextKey = reviewContextKey(environmentId, scope);
+    set((state) => ({
+      selectedFileByContext: {
+        ...state.selectedFileByContext,
+        [contextKey]: null,
+      },
+    }));
   },
 
   clearSelectedFile: (environmentId, explicitScope) => {

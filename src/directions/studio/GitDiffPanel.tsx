@@ -36,7 +36,7 @@ export function GitDiffPanel() {
         ? state.diffLoadingByContext[`${selectedEnvironmentId}:${scope}`]
         : false) ?? false,
   );
-  const clearSelectedFile = useGitReviewStore((state) => state.clearSelectedFile);
+  const closeDiff = useGitReviewStore((state) => state.closeDiff);
 
   const files = snapshot?.sections.flatMap((section) => section.files) ?? [];
 
@@ -63,7 +63,7 @@ export function GitDiffPanel() {
           className="git-diff-panel__close"
           aria-label="Hide diff"
           title="Hide diff"
-          onClick={() => clearSelectedFile(selectedEnvironmentId, scope)}
+          onClick={() => closeDiff(selectedEnvironmentId, scope)}
         >
           <CloseIcon size={12} />
         </button>
