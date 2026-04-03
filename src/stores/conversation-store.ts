@@ -1,0 +1,192 @@
+import { create } from "zustand";
+
+import * as bridge from "../lib/bridge";
+import type {
+  ConversationComposerSettings,
+  EnvironmentCapabilitiesSnapshot,
+  ThreadConversationSnapshot,
+} from "../lib/types";
+import { useWorkspaceStore } from "./workspace-store";
+
+type ConversationState = {
+  snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
+  capabilitiesByEnvironmentId: Record<string, EnvironmentCapabilitiesSnapshot>;
+  composerByThreadId: Record<string, ConversationComposerSettings>;
+  loadingByThreadId: Record<string, boolean>;
+  errorByThreadId: Record<string, string | null>;
+  listenerReady: boolean;
+
+  initializeListener: () => Promise<void>;
+  openThread: (threadId: string) => Promise<void>;
+  updateComposer: (
+    threadId: string,
+    patch: Partial<ConversationComposerSettings>,
+  ) => void;
+  sendMessage: (threadId: string, text: string) => Promise<void>;
+  interruptThread: (threadId: string) => Promise<void>;
+};
+
+let unlistenConversationEvents: null | (() => void) = null;
+
+export const useConversationStore = create<ConversationState>((set, get) => ({
+  snapshotsByThreadId: {},
+  capabilitiesByEnvironmentId: {},
+  composerByThreadId: {},
+  loadingByThreadId: {},
+  errorByThreadId: {},
+  listenerReady: false,
+
+  initializeListener: async () => {
+    if (get().listenerReady) return;
+    unlistenConversationEvents = await bridge.listenToConversationEvents((payload) => {
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [payload.threadId]: payload.snapshot,
+        },
+        capabilitiesByEnvironmentId: state.capabilitiesByEnvironmentId,
+        composerByThreadId: state.composerByThreadId[payload.threadId]
+          ? state.composerByThreadId
+          : {
+              ...state.composerByThreadId,
+              [payload.threadId]: payload.snapshot.composer,
+            },
+        loadingByThreadId: {
+          ...state.loadingByThreadId,
+          [payload.threadId]: false,
+        },
+        errorByThreadId: {
+          ...state.errorByThreadId,
+          [payload.threadId]: null,
+        },
+      }));
+    });
+    set({ listenerReady: true });
+  },
+
+  openThread: async (threadId) => {
+    if (get().loadingByThreadId[threadId]) return;
+    set((state) => ({
+      loadingByThreadId: { ...state.loadingByThreadId, [threadId]: true },
+      errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
+    }));
+    try {
+      const response = await bridge.openThreadConversation(threadId);
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: response.snapshot,
+        },
+        capabilitiesByEnvironmentId: {
+          ...state.capabilitiesByEnvironmentId,
+          [response.capabilities.environmentId]: response.capabilities,
+        },
+        composerByThreadId: {
+          ...state.composerByThreadId,
+          [threadId]: response.snapshot.composer,
+        },
+        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+      }));
+      await useWorkspaceStore.getState().refreshSnapshot();
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to open conversation";
+      set((state) => ({
+        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
+      }));
+    }
+  },
+
+  updateComposer: (threadId, patch) =>
+    set((state) => ({
+      composerByThreadId: {
+        ...state.composerByThreadId,
+        [threadId]: {
+          ...(state.composerByThreadId[threadId] ??
+            state.snapshotsByThreadId[threadId]?.composer),
+          ...patch,
+        },
+      },
+    })),
+
+  sendMessage: async (threadId, text) => {
+    set((state) => ({
+      errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
+    }));
+    const composer =
+      get().composerByThreadId[threadId] ??
+      get().snapshotsByThreadId[threadId]?.composer;
+    try {
+      const snapshot = await bridge.sendThreadMessage({
+        threadId,
+        text,
+        composer,
+      });
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: snapshot,
+        },
+        composerByThreadId: {
+          ...state.composerByThreadId,
+          [threadId]: snapshot.composer,
+        },
+      }));
+      await useWorkspaceStore.getState().refreshSnapshot();
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to send message";
+      set((state) => ({
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
+      }));
+    }
+  },
+
+  interruptThread: async (threadId) => {
+    try {
+      const snapshot = await bridge.interruptThreadTurn(threadId);
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: snapshot,
+        },
+      }));
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to stop the active turn";
+      set((state) => ({
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
+      }));
+    }
+  },
+}));
+
+export function selectConversationSnapshot(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.snapshotsByThreadId[threadId] : null) ?? null;
+}
+
+export function selectConversationComposer(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.composerByThreadId[threadId] : null) ??
+    (threadId ? state.snapshotsByThreadId[threadId]?.composer : null) ??
+    null;
+}
+
+export function selectConversationCapabilities(
+  environmentId: string | null,
+) {
+  return (state: ConversationState) =>
+    (environmentId ? state.capabilitiesByEnvironmentId[environmentId] : null) ?? null;
+}
+
+export function selectConversationError(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.errorByThreadId[threadId] : null) ?? null;
+}
+
+export function teardownConversationListener() {
+  unlistenConversationEvents?.();
+  unlistenConversationEvents = null;
+}

@@ -21,8 +21,10 @@ pub struct BootstrapStatus {
 }
 
 #[tauri::command]
-pub fn get_bootstrap_status(state: State<'_, AppState>) -> Result<BootstrapStatus, crate::error::CommandError> {
-    let runtime_statuses = state.runtime.refresh_statuses()?;
+pub async fn get_bootstrap_status(
+    state: State<'_, AppState>,
+) -> Result<BootstrapStatus, crate::error::CommandError> {
+    let runtime_statuses = state.runtime.refresh_statuses().await?;
     let snapshot = state.workspace.snapshot(runtime_statuses)?;
     let environment_count = snapshot
         .projects

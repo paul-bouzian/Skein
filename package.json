@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
@@ -17,7 +19,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:debug": "tauri build --debug",
-    "verify": "bun run lint && bun run typecheck && bun run build && bun run check:rust && bun run lint:rust"
+    "verify": "bun run lint && bun run typecheck && bun run test && bun run build && bun run check:rust && bun run lint:rust"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -33,6 +35,9 @@
   "devDependencies": {
     "@eslint/js": "^9.36.0",
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
@@ -40,8 +45,10 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
+    "jsdom": "^29.0.1",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.44.1",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.2"
   }
 }

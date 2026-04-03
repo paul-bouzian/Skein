@@ -7,7 +7,6 @@ use crate::infrastructure::database::AppDatabase;
 use crate::runtime::supervisor::RuntimeSupervisor;
 use crate::services::workspace::WorkspaceService;
 
-#[derive(Debug)]
 pub struct AppState {
     pub workspace: WorkspaceService,
     pub runtime: RuntimeSupervisor,
@@ -24,7 +23,10 @@ impl AppState {
 
         Ok(Self {
             workspace: WorkspaceService::new(database),
-            runtime: RuntimeSupervisor::default(),
+            runtime: RuntimeSupervisor::new(
+                app.clone(),
+                env!("CARGO_PKG_VERSION").to_string(),
+            ),
             app_data_dir,
         })
     }

@@ -82,9 +82,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }),
 
   selectEnvironment: (id) =>
-    set({ selectedEnvironmentId: id, selectedThreadId: null }),
+    set((state) => selectEnvironmentState(state.snapshot, id)),
 
-  selectThread: (id) => set({ selectedThreadId: id }),
+  selectThread: (id) =>
+    set((state) => {
+      if (!id || !state.snapshot) {
+        return { selectedThreadId: id };
+      }
+
+      const selectedThread = findThread(state.snapshot, id);
+      if (!selectedThread) {
+        return { selectedThreadId: null };
+      }
+
+      return {
+        selectedProjectId: selectedThread.project.id,
+        selectedEnvironmentId: selectedThread.environment.id,
+        selectedThreadId: selectedThread.thread.id,
+      };
+    }),
 }));
 
 /* ── Derived selectors ── */
@@ -141,6 +157,9 @@ function reconcileSelection(
 ) {
   const selectedEnvironment = findEnvironment(snapshot, state.selectedEnvironmentId);
   const selectedThread = findThread(snapshot, state.selectedThreadId);
+  const fallbackThread = selectedEnvironment
+    ? findLatestActiveThread(selectedEnvironment.environment)
+    : null;
 
   const selectedProjectId =
     findProject(snapshot, state.selectedProjectId)?.id ??
@@ -153,12 +172,38 @@ function reconcileSelection(
     selectedThread?.environment.id ??
     null;
 
-  const selectedThreadId = selectedThread?.thread.id ?? null;
+  const selectedThreadId = selectedThread?.thread.id ?? fallbackThread?.id ?? null;
 
   return {
     selectedProjectId,
     selectedEnvironmentId,
     selectedThreadId,
+  };
+}
+
+function selectEnvironmentState(
+  snapshot: WorkspaceSnapshot | null,
+  environmentId: string | null,
+) {
+  if (!snapshot || !environmentId) {
+    return {
+      selectedEnvironmentId: environmentId,
+      selectedThreadId: null,
+    };
+  }
+
+  const selectedEnvironment = findEnvironment(snapshot, environmentId);
+  if (!selectedEnvironment) {
+    return {
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    };
+  }
+
+  return {
+    selectedProjectId: selectedEnvironment.project.id,
+    selectedEnvironmentId: selectedEnvironment.environment.id,
+    selectedThreadId: findLatestActiveThread(selectedEnvironment.environment)?.id ?? null,
   };
 }
 
@@ -176,6 +221,12 @@ function findEnvironment(snapshot: WorkspaceSnapshot, environmentId: string | nu
     }
   }
   return null;
+}
+
+function findLatestActiveThread(environment: EnvironmentRecord) {
+  return [...environment.threads]
+    .filter((thread) => thread.status === "active")
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0] ?? null;
 }
 
 function findThread(snapshot: WorkspaceSnapshot, threadId: string | null) {

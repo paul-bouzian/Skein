@@ -6,6 +6,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
     EnvironmentKind, EnvironmentRecord, ProjectRecord, RuntimeState, RuntimeStatusSnapshot,
@@ -63,6 +64,16 @@ pub struct ArchiveThreadRequest {
 #[derive(Debug, Clone)]
 pub struct WorkspaceService {
     database: AppDatabase,
+}
+
+#[derive(Debug, Clone)]
+pub struct ThreadRuntimeContext {
+    pub thread_id: String,
+    pub environment_id: String,
+    pub environment_path: String,
+    pub codex_thread_id: Option<String>,
+    pub composer: ConversationComposerSettings,
+    pub codex_binary_path: Option<String>,
 }
 
 impl WorkspaceService {
@@ -362,6 +373,107 @@ impl WorkspaceService {
         let settings = self.read_or_seed_settings(&connection)?;
 
         Ok((environment_path, settings.codex_binary_path))
+    }
+
+    pub fn thread_runtime_context(&self, thread_id: &str) -> AppResult<ThreadRuntimeContext> {
+        let connection = self.database.open()?;
+        let settings = self.read_or_seed_settings(&connection)?;
+        connection
+            .query_row(
+                "
+                SELECT
+                  threads.id,
+                  threads.environment_id,
+                  environments.path,
+                  threads.codex_thread_id,
+                  threads.overrides_json
+                FROM threads
+                JOIN environments ON environments.id = threads.environment_id
+                WHERE threads.id = ?1
+                ",
+                params![thread_id],
+                |row| {
+                    let overrides_json = row.get::<_, String>(4)?;
+                    let overrides = serde_json::from_str::<ThreadOverrides>(&overrides_json)
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                overrides_json.len(),
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?;
+
+                    Ok(ThreadRuntimeContext {
+                        thread_id: row.get(0)?,
+                        environment_id: row.get(1)?,
+                        environment_path: row.get(2)?,
+                        codex_thread_id: row.get(3)?,
+                        composer: ConversationComposerSettings {
+                            model: overrides
+                                .model
+                                .unwrap_or_else(|| settings.default_model.clone()),
+                            reasoning_effort: overrides
+                                .reasoning_effort
+                                .unwrap_or(settings.default_reasoning_effort),
+                            collaboration_mode: overrides
+                                .collaboration_mode
+                                .unwrap_or(settings.default_collaboration_mode),
+                            approval_policy: overrides
+                                .approval_policy
+                                .unwrap_or(settings.default_approval_policy),
+                        },
+                        codex_binary_path: settings.codex_binary_path.clone(),
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))
+    }
+
+    pub fn persist_codex_thread_id(&self, thread_id: &str, codex_thread_id: &str) -> AppResult<()> {
+        let affected = self.database.open()?.execute(
+            "
+            UPDATE threads
+            SET codex_thread_id = ?1, updated_at = ?2
+            WHERE id = ?3
+            ",
+            params![codex_thread_id, Utc::now(), thread_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Thread not found.".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub fn persist_thread_composer_settings(
+        &self,
+        thread_id: &str,
+        composer: &ConversationComposerSettings,
+    ) -> AppResult<()> {
+        let overrides = ThreadOverrides {
+            model: Some(composer.model.clone()),
+            reasoning_effort: Some(composer.reasoning_effort),
+            collaboration_mode: Some(composer.collaboration_mode),
+            approval_policy: Some(composer.approval_policy),
+        };
+        let overrides_json = serde_json::to_string(&overrides)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
+        let affected = self.database.open()?.execute(
+            "
+            UPDATE threads
+            SET overrides_json = ?1, updated_at = ?2
+            WHERE id = ?3
+            ",
+            params![overrides_json, Utc::now(), thread_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Thread not found.".to_string()));
+        }
+
+        Ok(())
     }
 
     fn project_by_id(

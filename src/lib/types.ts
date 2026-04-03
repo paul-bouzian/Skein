@@ -6,6 +6,20 @@ export type RuntimeState = "running" | "stopped" | "exited";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
+export type ConversationStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "interrupted"
+  | "failed"
+  | "waitingForExternalAction";
+export type ConversationItemStatus =
+  | "inProgress"
+  | "completed"
+  | "failed"
+  | "declined";
+export type ConversationRole = "user" | "assistant";
+export type ConversationTone = "info" | "warning" | "error";
 
 /* ── Domain records ── */
 
@@ -88,6 +102,128 @@ export type BootstrapStatus = {
   threadCount: number;
 };
 
+/* ── Conversation ── */
+
+export type ConversationComposerSettings = {
+  model: string;
+  reasoningEffort: ReasoningEffort;
+  collaborationMode: CollaborationMode;
+  approvalPolicy: ApprovalPolicy;
+};
+
+export type ModelOption = {
+  id: string;
+  displayName: string;
+  description: string;
+  defaultReasoningEffort: ReasoningEffort;
+  supportedReasoningEfforts: ReasoningEffort[];
+  isDefault: boolean;
+};
+
+export type CollaborationModeOption = {
+  id: CollaborationMode;
+  label: string;
+  mode: CollaborationMode;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
+export type EnvironmentCapabilitiesSnapshot = {
+  environmentId: string;
+  models: ModelOption[];
+  collaborationModes: CollaborationModeOption[];
+};
+
+export type TokenUsageBreakdown = {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+};
+
+export type ThreadTokenUsageSnapshot = {
+  total: TokenUsageBreakdown;
+  last: TokenUsageBreakdown;
+  modelContextWindow?: number | null;
+};
+
+export type BlockedInteractionSnapshot = {
+  method: string;
+  title: string;
+  message: string;
+};
+
+export type ConversationErrorSnapshot = {
+  message: string;
+  codexErrorInfo?: string | null;
+  additionalDetails?: string | null;
+};
+
+export type ConversationMessageItem = {
+  kind: "message";
+  id: string;
+  role: ConversationRole;
+  text: string;
+  isStreaming: boolean;
+};
+
+export type ConversationReasoningItem = {
+  kind: "reasoning";
+  id: string;
+  summary: string;
+  content: string;
+  isStreaming: boolean;
+};
+
+export type ConversationToolItem = {
+  kind: "tool";
+  id: string;
+  toolType: string;
+  title: string;
+  status: ConversationItemStatus;
+  summary?: string | null;
+  output: string;
+};
+
+export type ConversationSystemItem = {
+  kind: "system";
+  id: string;
+  tone: ConversationTone;
+  title: string;
+  body: string;
+};
+
+export type ConversationItem =
+  | ConversationMessageItem
+  | ConversationReasoningItem
+  | ConversationToolItem
+  | ConversationSystemItem;
+
+export type ThreadConversationSnapshot = {
+  threadId: string;
+  environmentId: string;
+  codexThreadId?: string | null;
+  status: ConversationStatus;
+  activeTurnId?: string | null;
+  items: ConversationItem[];
+  tokenUsage?: ThreadTokenUsageSnapshot | null;
+  blockedInteraction?: BlockedInteractionSnapshot | null;
+  error?: ConversationErrorSnapshot | null;
+  composer: ConversationComposerSettings;
+};
+
+export type ThreadConversationOpenResponse = {
+  snapshot: ThreadConversationSnapshot;
+  capabilities: EnvironmentCapabilitiesSnapshot;
+};
+
+export type ConversationEventPayload = {
+  threadId: string;
+  environmentId: string;
+  snapshot: ThreadConversationSnapshot;
+};
+
 /* ── Command requests ── */
 
 export type AddProjectRequest = {
@@ -121,6 +257,12 @@ export type RenameThreadRequest = {
 
 export type ArchiveThreadRequest = {
   threadId: string;
+};
+
+export type SendThreadMessageInput = {
+  threadId: string;
+  text: string;
+  composer?: ConversationComposerSettings;
 };
 
 export type GlobalSettingsPatch = {

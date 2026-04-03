@@ -43,7 +43,6 @@ function ProjectsTree() {
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
-  const selectThread = useWorkspaceStore((s) => s.selectThread);
   const { error, clearError, importProject, isImporting } = useProjectImport();
   const [actionError, setActionError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -83,11 +82,9 @@ function ProjectsTree() {
     selectProject(projectId);
   }
 
-  function handleEnvironmentSelect(projectId: string, environment: EnvironmentRecord) {
+  function handleEnvironmentSelect(environmentId: string) {
     resetMessages();
-    selectProject(projectId);
-    selectEnvironment(environment.id);
-    selectThread(findLatestActiveThreadId(environment));
+    selectEnvironment(environmentId);
   }
 
   async function handleRemoveProject(projectId: string, projectName: string) {
@@ -168,7 +165,7 @@ function ProjectsTree() {
                     className={`environment-item ${
                       selectedEnvironmentId === environment.id ? "environment-item--selected" : ""
                     }`}
-                    onClick={() => handleEnvironmentSelect(project.id, environment)}
+                    onClick={() => handleEnvironmentSelect(environment.id)}
                   >
                     <span className="environment-item__primary">
                       <span className="environment-item__name-row">
@@ -230,14 +227,6 @@ function buildContextMenuState(
   y: number,
 ): ContextMenuState {
   return { projectId, projectName, x, y };
-}
-
-function findLatestActiveThreadId(environment: EnvironmentRecord) {
-  const latestThread = [...environment.threads]
-    .filter((thread) => thread.status === "active")
-    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
-
-  return latestThread?.id ?? null;
 }
 
 function resolveContextMenuPosition(contextMenu: Pick<ContextMenuState, "x" | "y">) {

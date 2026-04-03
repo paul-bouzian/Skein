@@ -16,7 +16,6 @@ export function useProjectImport() {
   const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const selectProject = useWorkspaceStore((state) => state.selectProject);
   const selectEnvironment = useWorkspaceStore((state) => state.selectEnvironment);
-  const selectThread = useWorkspaceStore((state) => state.selectThread);
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,9 +54,12 @@ export function useProjectImport() {
   }
 
   function selectImportedProject(projectId: string, environmentId: string | null) {
+    if (environmentId) {
+      selectEnvironment(environmentId);
+      return;
+    }
+
     selectProject(projectId);
-    selectEnvironment(environmentId);
-    selectThread(null);
   }
 
   return {

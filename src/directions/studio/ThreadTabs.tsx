@@ -1,4 +1,5 @@
 import { useWorkspaceStore, selectSelectedEnvironment } from "../../stores/workspace-store";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
 import type { ThreadRecord } from "../../lib/types";
@@ -24,10 +25,17 @@ export function ThreadTabs() {
   }
 
   async function handleArchiveThread(thread: ThreadRecord) {
+    const confirmed = await confirm("Are you sure you want to archive this thread?", {
+      title: "Archive Thread",
+      kind: "warning",
+      okLabel: "Archive",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
+
     await bridge.archiveThread({ threadId: thread.id });
     if (selectedThreadId === thread.id) {
-      const remaining = activeThreads.filter((t) => t.id !== thread.id);
-      selectThread(remaining.length > 0 ? remaining[0].id : null);
+      selectThread(null);
     }
     await refreshSnapshot();
   }
@@ -51,7 +59,8 @@ export function ThreadTabs() {
             <button
               type="button"
               className="thread-tab__close"
-              title={`Close ${thread.title}`}
+              aria-label={`Archive ${thread.title}`}
+              title={`Archive ${thread.title}`}
               onClick={() => void handleArchiveThread(thread)}
             >
               <CloseIcon size={10} />

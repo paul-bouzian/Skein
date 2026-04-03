@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useConversationStore } from "./stores/conversation-store";
 import { useWorkspaceStore } from "./stores/workspace-store";
 import { LoadingState } from "./shared/LoadingState";
 import { StudioShell } from "./directions/studio/StudioShell";
@@ -8,10 +9,17 @@ function App() {
   const initialize = useWorkspaceStore((s) => s.initialize);
   const loadingState = useWorkspaceStore((s) => s.loadingState);
   const error = useWorkspaceStore((s) => s.error);
+  const initializeConversationListener = useConversationStore(
+    (s) => s.initializeListener,
+  );
 
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    void initializeConversationListener();
+  }, [initializeConversationListener]);
 
   if (loadingState === "idle" || loadingState === "loading") {
     return (

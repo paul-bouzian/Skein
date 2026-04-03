@@ -5,6 +5,10 @@ import {
   selectSelectedThread,
   selectSettings,
 } from "../../stores/workspace-store";
+import {
+  useConversationStore,
+  selectConversationSnapshot,
+} from "../../stores/conversation-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import type {
@@ -149,11 +153,19 @@ function EnvironmentInspector({ environment }: { environment: EnvironmentRecord 
 }
 
 function ThreadInspector({ thread }: { thread: ThreadRecord }) {
+  const snapshot = useConversationStore(selectConversationSnapshot(thread.id));
+
   return (
     <>
       <InspectorSection label="Thread">
         <InspectorRow label="Title" value={thread.title} />
         <InspectorRow label="Status" value={thread.status} />
+        <InspectorRow
+          label="Codex ID"
+          value={snapshot?.codexThreadId ?? thread.codexThreadId ?? "pending"}
+        />
+        <InspectorRow label="Conversation" value={snapshot?.status ?? "idle"} />
+        <InspectorRow label="Turn" value={snapshot?.activeTurnId ?? "none"} />
         <InspectorRow
           label="Created"
           value={new Date(thread.createdAt).toLocaleDateString()}
@@ -169,6 +181,38 @@ function ThreadInspector({ thread }: { thread: ThreadRecord }) {
         <InspectorRow label="Mode" value={thread.overrides.collaborationMode ?? "default"} />
         <InspectorRow label="Approval" value={thread.overrides.approvalPolicy ?? "default"} />
       </InspectorSection>
+      {snapshot ? (
+        <>
+          <InspectorSection label="Runtime">
+            <InspectorRow label="Items" value={snapshot.items.length} />
+            <InspectorRow
+              label="Tokens"
+              value={snapshot.tokenUsage?.total.totalTokens.toLocaleString() ?? "pending"}
+            />
+            <InspectorRow
+              label="Last output"
+              value={snapshot.tokenUsage?.last.outputTokens.toLocaleString() ?? "pending"}
+            />
+          </InspectorSection>
+          {snapshot.blockedInteraction ? (
+            <InspectorSection label="Blocked">
+              <InspectorRow label="Method" value={snapshot.blockedInteraction.method} />
+              <InspectorRow label="State" value={snapshot.blockedInteraction.title} />
+            </InspectorSection>
+          ) : null}
+          {snapshot.error ? (
+            <InspectorSection label="Error">
+              <InspectorRow label="Message" value={snapshot.error.message} />
+              {snapshot.error.additionalDetails ? (
+                <InspectorRow
+                  label="Details"
+                  value={snapshot.error.additionalDetails}
+                />
+              ) : null}
+            </InspectorSection>
+          ) : null}
+        </>
+      ) : null}
     </>
   );
 }

@@ -12,8 +12,10 @@ use crate::services::workspace::{
 use crate::state::AppState;
 
 #[tauri::command]
-pub fn get_workspace_snapshot(state: State<'_, AppState>) -> Result<WorkspaceSnapshot, CommandError> {
-    let runtime_statuses = state.runtime.refresh_statuses()?;
+pub async fn get_workspace_snapshot(
+    state: State<'_, AppState>,
+) -> Result<WorkspaceSnapshot, CommandError> {
+    let runtime_statuses = state.runtime.refresh_statuses().await?;
     Ok(state.workspace.snapshot(runtime_statuses)?)
 }
 
@@ -42,13 +44,13 @@ pub fn rename_project(
 }
 
 #[tauri::command]
-pub fn remove_project(
+pub async fn remove_project(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     let environment_ids = state.workspace.project_environment_ids(&project_id)?;
     for environment_id in environment_ids {
-        state.runtime.stop(&environment_id)?;
+        state.runtime.stop(&environment_id).await?;
     }
     state.workspace.remove_project(&project_id)?;
     Ok(())
@@ -87,7 +89,7 @@ pub fn archive_thread(
 }
 
 #[tauri::command]
-pub fn start_environment_runtime(
+pub async fn start_environment_runtime(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
@@ -95,13 +97,14 @@ pub fn start_environment_runtime(
         state.workspace.environment_runtime_target(&environment_id)?;
     Ok(state
         .runtime
-        .start(&environment_id, &environment_path, codex_binary_path)?)
+        .start(&environment_id, &environment_path, codex_binary_path)
+        .await?)
 }
 
 #[tauri::command]
-pub fn stop_environment_runtime(
+pub async fn stop_environment_runtime(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
-    Ok(state.runtime.stop(&environment_id)?)
+    Ok(state.runtime.stop(&environment_id).await?)
 }

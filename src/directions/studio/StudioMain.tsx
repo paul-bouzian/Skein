@@ -9,8 +9,9 @@ import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { PanelRightIcon } from "../../shared/Icons";
 import { ThreadTabs } from "./ThreadTabs";
+import { ThreadConversation } from "./ThreadConversation";
 import { StudioWelcome } from "./StudioWelcome";
-import type { EnvironmentRecord, ProjectRecord, ThreadRecord } from "../../lib/types";
+import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
 import "./StudioMain.css";
 
 type Props = {
@@ -23,12 +24,15 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const selectedThread = useWorkspaceStore(selectSelectedThread);
+  const isThreadView = Boolean(selectedThread && selectedEnvironment);
 
   let content;
   if (projects.length === 0) {
     content = <StudioWelcome />;
-  } else if (selectedThread) {
-    content = <ThreadView thread={selectedThread} />;
+  } else if (selectedThread && selectedEnvironment) {
+    content = (
+      <ThreadConversation environment={selectedEnvironment} thread={selectedThread} />
+    );
   } else if (selectedEnvironment) {
     content = <EnvironmentView environment={selectedEnvironment} />;
   } else if (selectedProject) {
@@ -52,7 +56,11 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
           <PanelRightIcon size={14} />
         </button>
       </div>
-      <div className="studio-main__content">{content}</div>
+      <div
+        className={`studio-main__content ${isThreadView ? "studio-main__content--thread" : ""}`}
+      >
+        {content}
+      </div>
     </main>
   );
 }
@@ -156,20 +164,6 @@ function EnvironmentView({ environment }: { environment: EnvironmentRecord }) {
       <p className="studio-env-view__hint">
         Create a new thread using the + button in the tab bar above.
       </p>
-    </div>
-  );
-}
-
-function ThreadView({ thread }: { thread: ThreadRecord }) {
-  return (
-    <div className="studio-thread-view">
-      <div className="studio-thread-view__placeholder">
-        <h2>{thread.title}</h2>
-        <p>Conversation view coming soon.</p>
-        <p className="studio-thread-view__hint">
-          The Codex conversation protocol will render here once connected.
-        </p>
-      </div>
     </div>
   );
 }
