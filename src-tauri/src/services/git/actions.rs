@@ -48,9 +48,9 @@ pub fn unstage_all(repo_root: &Path) -> AppResult<()> {
 }
 
 pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> AppResult<()> {
-    if matches!(section, GitChangeSection::Untracked) {
+    if matches!(section, GitChangeSection::Untracked | GitChangeSection::Branch) {
         return Err(AppError::Validation(
-            "Untracked files cannot be reverted from ThreadEx yet.".to_string(),
+            "This change type cannot be reverted from ThreadEx yet.".to_string(),
         ));
     }
 
@@ -298,6 +298,13 @@ mod tests {
             .stdout(["diff", "--cached", "--", "src/app.ts"])?
             .contains("+const answer = 2;"));
         Ok(())
+    }
+
+    #[test]
+    fn revert_branch_rejects_with_validation_error() {
+        let error = revert_file(Path::new("."), "src/app.ts", GitChangeSection::Branch)
+            .expect_err("branch changes should be rejected");
+        assert!(error.to_string().contains("cannot be reverted"));
     }
 
     #[test]
