@@ -296,9 +296,8 @@ impl RuntimeSession {
         interaction_id: &str,
         response: ApprovalResponseInput,
     ) -> AppResult<ThreadConversationSnapshot> {
-        let pending = self.take_pending_server_request(thread_id, interaction_id).await?;
-
         let payload = approval_response_payload(response)?;
+        let pending = self.take_pending_server_request(thread_id, interaction_id).await?;
         if let Err(error) = self.send_server_response(pending.json_rpc_id.clone(), payload).await {
             self.restore_pending_server_request(interaction_id, pending).await;
             return Err(error);

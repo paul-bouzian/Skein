@@ -494,6 +494,83 @@ async fn user_input_requests_can_be_answered() {
 }
 
 #[tokio::test]
+async fn invalid_approval_payload_keeps_the_request_pending() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-approval",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Run the risky command".to_string(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_request(
+            "item/commandExecution/requestApproval",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "itemId": "command-approval-1",
+                "command": "rm -rf build",
+                "proposedExecpolicyAmendment": ["allow rm -rf build"]
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let open = session
+        .open_thread(context(
+            "thread-local-approval",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen");
+    let interaction_id = match &open.snapshot.pending_interactions[0] {
+        crate::domain::conversation::ConversationInteraction::Approval(interaction) => {
+            interaction.id.clone()
+        }
+        other => panic!("expected approval interaction, got {other:?}"),
+    };
+
+    let error = session
+        .respond_to_approval_request(
+            "thread-local-approval",
+            &interaction_id,
+            crate::domain::conversation::ApprovalResponseInput::CommandExecution {
+                decision:
+                    crate::domain::conversation::CommandApprovalDecisionInput::AcceptWithExecpolicyAmendment,
+                execpolicy_amendment: None,
+                network_policy_amendment: None,
+            },
+        )
+        .await
+        .expect_err("invalid approval payload should fail");
+    assert!(error
+        .to_string()
+        .contains("execpolicy amendment is required"));
+
+    let snapshot = session
+        .open_thread(context(
+            "thread-local-approval",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should still reopen")
+        .snapshot;
+    assert_eq!(snapshot.pending_interactions.len(), 1);
+}
+
+#[tokio::test]
 async fn answering_the_same_request_twice_fails_after_the_first_response() {
     let (session, harness) = FakeCodexHarness::new().await;
 

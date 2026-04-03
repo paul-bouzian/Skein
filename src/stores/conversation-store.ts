@@ -303,4 +303,5 @@ export function teardownConversationListener() {
   unlistenConversationEvents?.();
   unlistenConversationEvents = null;
   listenerInitialization = null;
+  useConversationStore.setState({ listenerReady: false });
 }

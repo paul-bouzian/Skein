@@ -155,4 +155,15 @@ describe("conversation store", () => {
 
     expect(useConversationStore.getState().composerByThreadId["thread-missing"]).toBeUndefined();
   });
+
+  it("resets listener readiness on teardown", async () => {
+    mockedBridge.listenToConversationEvents.mockResolvedValue(() => undefined);
+
+    await useConversationStore.getState().initializeListener();
+    expect(useConversationStore.getState().listenerReady).toBe(true);
+
+    teardownConversationListener();
+
+    expect(useConversationStore.getState().listenerReady).toBe(false);
+  });
 });
