@@ -130,8 +130,8 @@ function PlanMarkdown({ markdown }: { markdown: string }) {
         if (block.kind === "unorderedList") {
           return (
             <ul key={`${block.kind}-${index}`} className="tx-plan-card__markdown-list">
-              {block.items.map((item) => (
-                <li key={item}>{renderInlineText(item)}</li>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${item}-${itemIndex}`}>{renderInlineText(item)}</li>
               ))}
             </ul>
           );
@@ -140,8 +140,8 @@ function PlanMarkdown({ markdown }: { markdown: string }) {
         if (block.kind === "orderedList") {
           return (
             <ol key={`${block.kind}-${index}`} className="tx-plan-card__markdown-list">
-              {block.items.map((item) => (
-                <li key={item}>{renderInlineText(item)}</li>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${item}-${itemIndex}`}>{renderInlineText(item)}</li>
               ))}
             </ol>
           );
@@ -183,28 +183,20 @@ function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
     }
 
     if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length) {
-        const candidate = lines[index]?.trim() ?? "";
-        const match = candidate.match(/^[-*]\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
-        index += 1;
+      const [items, nextIndex] = consumeListItems(lines, index, /^[-*]\s*(.*)$/);
+      index = nextIndex;
+      if (items.length > 0) {
+        blocks.push({ kind: "unorderedList", items });
       }
-      blocks.push({ kind: "unorderedList", items });
       continue;
     }
 
     if (/^\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length) {
-        const candidate = lines[index]?.trim() ?? "";
-        const match = candidate.match(/^\d+\.\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
-        index += 1;
+      const [items, nextIndex] = consumeListItems(lines, index, /^\d+\.\s*(.*)$/);
+      index = nextIndex;
+      if (items.length > 0) {
+        blocks.push({ kind: "orderedList", items });
       }
-      blocks.push({ kind: "orderedList", items });
       continue;
     }
 
@@ -221,6 +213,26 @@ function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
   }
 
   return blocks;
+}
+
+function consumeListItems(lines: string[], startIndex: number, pattern: RegExp) {
+  const items: string[] = [];
+  let index = startIndex;
+
+  while (index < lines.length) {
+    const candidate = lines[index]?.trim() ?? "";
+    const match = candidate.match(pattern);
+    if (!match) {
+      break;
+    }
+    const item = match[1]?.trim() ?? "";
+    if (item) {
+      items.push(item);
+    }
+    index += 1;
+  }
+
+  return [items, index] as const;
 }
 
 function renderInlineText(text: string) {

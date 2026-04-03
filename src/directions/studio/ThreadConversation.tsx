@@ -181,6 +181,10 @@ export function ThreadConversation({ environment, thread }: Props) {
         isBusy={isRunning || isPending}
         isRefiningPlan={isRefiningPlan}
         modelOptions={capabilities?.models ?? []}
+        onCancelRefine={() => {
+          setDraft("");
+          setIsRefiningPlan(false);
+        }}
         onChangeDraft={setDraft}
         onInterrupt={() => void interruptThread(thread.id)}
         onSend={() => void handleSend()}
@@ -204,6 +208,7 @@ function ConversationComposer({
   isBusy,
   isRefiningPlan,
   modelOptions,
+  onCancelRefine,
   onChangeDraft,
   onInterrupt,
   onSend,
@@ -217,6 +222,7 @@ function ConversationComposer({
   isBusy: boolean;
   isRefiningPlan: boolean;
   modelOptions: ModelOption[];
+  onCancelRefine: () => void;
   onChangeDraft: (value: string) => void;
   onInterrupt: () => void;
   onSend: () => void;
@@ -304,7 +310,7 @@ function ConversationComposer({
             onKeyDown={(event) => {
               if (event.key === "Escape" && isRefiningPlan) {
                 event.preventDefault();
-                onChangeDraft("");
+                onCancelRefine();
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {

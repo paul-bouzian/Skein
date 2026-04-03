@@ -494,6 +494,89 @@ async fn user_input_requests_can_be_answered() {
 }
 
 #[tokio::test]
+async fn answering_the_same_request_twice_fails_after_the_first_response() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-dup",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Investigate".to_string(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_request(
+            "item/tool/requestUserInput",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "itemId": "user-input-dup",
+                "questions": [{
+                    "id": "scope",
+                    "header": "Scope",
+                    "question": "Which scope should Codex use?",
+                    "options": [{ "label": "Frontend", "description": "Recommended" }],
+                    "isOther": false
+                }]
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let open = session
+        .open_thread(context(
+            "thread-local-dup",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen");
+    let interaction_id = match &open.snapshot.pending_interactions[0] {
+        crate::domain::conversation::ConversationInteraction::UserInput(interaction) => {
+            interaction.id.clone()
+        }
+        other => panic!("expected user input interaction, got {other:?}"),
+    };
+
+    let snapshot = session
+        .respond_to_user_input_request(
+            crate::domain::conversation::RespondToUserInputRequestInput {
+                thread_id: "thread-local-dup".to_string(),
+                interaction_id: interaction_id.clone(),
+                answers: std::collections::HashMap::from([(
+                    "scope".to_string(),
+                    vec!["Frontend".to_string()],
+                )]),
+            },
+        )
+        .await
+        .expect("first answer should succeed");
+    assert!(snapshot.pending_interactions.is_empty());
+
+    let error = session
+        .respond_to_user_input_request(
+            crate::domain::conversation::RespondToUserInputRequestInput {
+                thread_id: "thread-local-dup".to_string(),
+                interaction_id,
+                answers: std::collections::HashMap::from([(
+                    "scope".to_string(),
+                    vec!["Frontend".to_string()],
+                )]),
+            },
+        )
+        .await
+        .expect_err("the same request should not be answerable twice");
+    assert!(error.to_string().contains("Interactive request not found"));
+}
+
+#[tokio::test]
 async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode() {
     let (session, harness) = FakeCodexHarness::new().await;
 

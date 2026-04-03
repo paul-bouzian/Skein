@@ -33,9 +33,6 @@ pub async fn send_thread_message(
 ) -> Result<ThreadConversationSnapshot, CommandError> {
     let mut context = state.workspace.thread_runtime_context(&input.thread_id)?;
     if let Some(composer) = input.composer.clone() {
-        state
-            .workspace
-            .persist_thread_composer_settings(&input.thread_id, &composer)?;
         context.composer = composer;
     }
     let result = state
@@ -92,9 +89,6 @@ pub async fn submit_plan_decision(
 ) -> Result<ThreadConversationSnapshot, CommandError> {
     let mut context = state.workspace.thread_runtime_context(&input.thread_id)?;
     if let Some(composer) = input.composer.clone() {
-        state
-            .workspace
-            .persist_thread_composer_settings(&input.thread_id, &composer)?;
         context.composer = composer;
     }
 

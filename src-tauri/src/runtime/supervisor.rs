@@ -59,16 +59,21 @@ impl RuntimeSupervisor {
         let mut exited = Vec::new();
         for (environment_id, session, status) in sessions {
             if let Some(last_exit_code) = session.try_wait().await? {
-                exited.push((environment_id, status, last_exit_code));
+                exited.push((environment_id, session, status, last_exit_code));
             }
         }
 
         if !exited.is_empty() {
             let mut registry = self.registry.lock().await;
-            for (environment_id, mut status, last_exit_code) in exited {
-                if registry.running.remove(&environment_id).is_none() {
+            for (environment_id, session, mut status, last_exit_code) in exited {
+                let should_remove = registry
+                    .running
+                    .get(&environment_id)
+                    .is_some_and(|runtime| Arc::ptr_eq(&runtime.session, &session));
+                if !should_remove {
                     continue;
                 }
+                registry.running.remove(&environment_id);
                 status.state = RuntimeState::Exited;
                 status.pid = None;
                 status.started_at = None;

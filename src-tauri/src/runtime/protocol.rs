@@ -926,16 +926,18 @@ pub fn complete_proposed_plan(
     item_id: &str,
     value: Option<&Value>,
 ) {
-    plan.item_id = Some(item_id.to_string());
+    let mut markdown = plan.markdown.clone();
     if let Some(value) = value {
-        let markdown = rich_text_field(value, "text");
-        if !markdown.is_empty() {
-            plan.markdown = markdown;
+        let next_markdown = rich_text_field(value, "text");
+        if !next_markdown.is_empty() {
+            markdown = next_markdown;
         }
     }
-    if plan.markdown.trim().is_empty() && plan.steps.is_empty() {
+    if markdown.trim().is_empty() && plan.steps.is_empty() {
         return;
     }
+    plan.item_id = Some(item_id.to_string());
+    plan.markdown = markdown;
     plan.status = ProposedPlanStatus::Ready;
     plan.is_awaiting_decision = true;
 }

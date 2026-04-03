@@ -1,7 +1,8 @@
 use serde_json::json;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, ConversationInteraction, ConversationItem, ProposedPlanStatus,
+    ConversationComposerSettings, ConversationInteraction, ConversationItem, ProposedPlanSnapshot,
+    ProposedPlanStatus,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
@@ -9,7 +10,8 @@ use super::protocol::{
     CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
     ModelWire, ReasoningEffortOptionWire, ThreadWire, approval_policy_value,
     build_history_snapshot, collaboration_mode_options_from_response, model_options_from_response,
-    normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
+    complete_proposed_plan, normalize_server_interaction, parse_incoming_message,
+    proposed_plan_from_item,
     sandbox_policy_value, ServerRequestEnvelope,
 };
 
@@ -212,6 +214,32 @@ fn proposed_plan_from_item_marks_ready_plans_as_actionable() {
 
     assert!(plan.is_awaiting_decision);
     assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+}
+
+#[test]
+fn complete_proposed_plan_leaves_empty_plans_unchanged() {
+    let mut plan = ProposedPlanSnapshot {
+        turn_id: "turn-1".to_string(),
+        item_id: None,
+        explanation: String::new(),
+        steps: Vec::new(),
+        markdown: String::new(),
+        status: ProposedPlanStatus::Streaming,
+        is_awaiting_decision: false,
+    };
+
+    complete_proposed_plan(
+        &mut plan,
+        "plan-item-1",
+        Some(&json!({
+            "text": []
+        })),
+    );
+
+    assert_eq!(plan.item_id, None);
+    assert!(plan.markdown.is_empty());
+    assert!(matches!(plan.status, ProposedPlanStatus::Streaming));
+    assert!(!plan.is_awaiting_decision);
 }
 
 #[test]

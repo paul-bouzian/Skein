@@ -296,23 +296,13 @@ impl RuntimeSession {
         interaction_id: &str,
         response: ApprovalResponseInput,
     ) -> AppResult<ThreadConversationSnapshot> {
-        let json_rpc_id = {
-            let state = self.state.lock().await;
-            let pending = state
-                .pending_server_requests
-                .get(interaction_id)
-                .cloned()
-                .ok_or_else(|| AppError::NotFound("Approval request not found.".to_string()))?;
-            if pending.thread_id != thread_id {
-                return Err(AppError::Validation(
-                    "Approval request does not belong to the selected thread.".to_string(),
-                ));
-            }
-            pending.json_rpc_id
-        };
+        let pending = self.take_pending_server_request(thread_id, interaction_id).await?;
 
         let payload = approval_response_payload(response)?;
-        self.send_server_response(json_rpc_id, payload).await?;
+        if let Err(error) = self.send_server_response(pending.json_rpc_id.clone(), payload).await {
+            self.restore_pending_server_request(interaction_id, pending).await;
+            return Err(error);
+        }
         self.complete_interaction(thread_id, interaction_id).await
     }
 
@@ -326,20 +316,9 @@ impl RuntimeSession {
             ));
         }
 
-        let json_rpc_id = {
-            let state = self.state.lock().await;
-            let pending = state
-                .pending_server_requests
-                .get(&input.interaction_id)
-                .cloned()
-                .ok_or_else(|| AppError::NotFound("User input request not found.".to_string()))?;
-            if pending.thread_id != input.thread_id {
-                return Err(AppError::Validation(
-                    "User input request does not belong to the selected thread.".to_string(),
-                ));
-            }
-            pending.json_rpc_id
-        };
+        let pending = self
+            .take_pending_server_request(&input.thread_id, &input.interaction_id)
+            .await?;
 
         let answers = input
             .answers
@@ -353,8 +332,17 @@ impl RuntimeSession {
                 )
             })
             .collect::<serde_json::Map<String, serde_json::Value>>();
-        self.send_server_response(json_rpc_id, serde_json::json!({ "answers": answers }))
-            .await?;
+        if let Err(error) = self
+            .send_server_response(
+                pending.json_rpc_id.clone(),
+                serde_json::json!({ "answers": answers }),
+            )
+            .await
+        {
+            self.restore_pending_server_request(&input.interaction_id, pending)
+                .await;
+            return Err(error);
+        }
         self.complete_interaction(&input.thread_id, &input.interaction_id)
             .await
     }
@@ -583,7 +571,36 @@ impl RuntimeSession {
                     "collaborationMode": collaboration_mode_payload(&context.composer),
                 }),
             )
-            .await?;
+            .await;
+
+        let turn_response = match turn_response {
+            Ok(response) => response,
+            Err(error) => {
+                let snapshot = {
+                    let mut state = self.state.lock().await;
+                    let snapshot = state
+                        .snapshots_by_thread
+                        .get_mut(&context.thread_id)
+                        .ok_or_else(|| {
+                            AppError::Runtime(
+                                "Conversation snapshot disappeared unexpectedly.".to_string(),
+                            )
+                        })?;
+                    snapshot.active_turn_id = None;
+                    snapshot.error =
+                        Some(crate::domain::conversation::ConversationErrorSnapshot {
+                            message: error.to_string(),
+                            codex_error_info: None,
+                            additional_details: None,
+                        });
+                    clear_streaming_flags(&mut snapshot.items);
+                    reconcile_snapshot_status(snapshot);
+                    snapshot.clone()
+                };
+                self.emit_snapshot(&snapshot);
+                return Err(error);
+            }
+        };
 
         let snapshot = {
             let mut state = self.state.lock().await;
@@ -628,7 +645,6 @@ impl RuntimeSession {
     ) -> AppResult<ThreadConversationSnapshot> {
         let snapshot = {
             let mut state = self.state.lock().await;
-            state.pending_server_requests.remove(interaction_id);
             let snapshot = state
                 .snapshots_by_thread
                 .get_mut(thread_id)
@@ -641,6 +657,36 @@ impl RuntimeSession {
         };
         self.emit_snapshot(&snapshot);
         Ok(snapshot)
+    }
+
+    async fn take_pending_server_request(
+        &self,
+        thread_id: &str,
+        interaction_id: &str,
+    ) -> AppResult<PendingServerRequest> {
+        let mut state = self.state.lock().await;
+        let Some(pending) = state.pending_server_requests.get(interaction_id).cloned() else {
+            return Err(AppError::NotFound("Interactive request not found.".to_string()));
+        };
+        if pending.thread_id != thread_id {
+            return Err(AppError::Validation(
+                "Interactive request does not belong to the selected thread.".to_string(),
+            ));
+        }
+        state.pending_server_requests.remove(interaction_id);
+        Ok(pending)
+    }
+
+    async fn restore_pending_server_request(
+        &self,
+        interaction_id: &str,
+        request: PendingServerRequest,
+    ) {
+        self.state
+            .lock()
+            .await
+            .pending_server_requests
+            .insert(interaction_id.to_string(), request);
     }
 
     async fn mark_plan_state<F>(&self, thread_id: &str, mutate: F) -> AppResult<()>
@@ -762,6 +808,7 @@ impl RuntimeSession {
             warn!("failed to emit conversation snapshot: {error}");
         }
     }
+
 }
 
 fn spawn_stdout_task<R>(

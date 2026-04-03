@@ -42,6 +42,7 @@ type ConversationState = {
 };
 
 let unlistenConversationEvents: null | (() => void) = null;
+let listenerInitialization: Promise<void> | null = null;
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
   snapshotsByThreadId: {},
@@ -53,30 +54,44 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   initializeListener: async () => {
     if (get().listenerReady) return;
-    unlistenConversationEvents = await bridge.listenToConversationEvents((payload) => {
-      set((state) => ({
-        snapshotsByThreadId: {
-          ...state.snapshotsByThreadId,
-          [payload.threadId]: payload.snapshot,
-        },
-        capabilitiesByEnvironmentId: state.capabilitiesByEnvironmentId,
-        composerByThreadId: state.composerByThreadId[payload.threadId]
-          ? state.composerByThreadId
-          : {
-              ...state.composerByThreadId,
-              [payload.threadId]: payload.snapshot.composer,
-            },
-        loadingByThreadId: {
-          ...state.loadingByThreadId,
-          [payload.threadId]: false,
-        },
-        errorByThreadId: {
-          ...state.errorByThreadId,
-          [payload.threadId]: null,
-        },
-      }));
-    });
-    set({ listenerReady: true });
+    if (listenerInitialization) {
+      await listenerInitialization;
+      return;
+    }
+
+    listenerInitialization = bridge
+      .listenToConversationEvents((payload) => {
+        set((state) => ({
+          snapshotsByThreadId: {
+            ...state.snapshotsByThreadId,
+            [payload.threadId]: payload.snapshot,
+          },
+          capabilitiesByEnvironmentId: state.capabilitiesByEnvironmentId,
+          composerByThreadId: state.composerByThreadId[payload.threadId]
+            ? state.composerByThreadId
+            : {
+                ...state.composerByThreadId,
+                [payload.threadId]: payload.snapshot.composer,
+              },
+          loadingByThreadId: {
+            ...state.loadingByThreadId,
+            [payload.threadId]: false,
+          },
+          errorByThreadId: {
+            ...state.errorByThreadId,
+            [payload.threadId]: null,
+          },
+        }));
+      })
+      .then((unlisten) => {
+        unlistenConversationEvents = unlisten;
+        set({ listenerReady: true });
+      })
+      .finally(() => {
+        listenerInitialization = null;
+      });
+
+    await listenerInitialization;
   },
 
   openThread: async (threadId) => {
@@ -280,4 +295,5 @@ export function selectConversationError(threadId: string | null) {
 export function teardownConversationListener() {
   unlistenConversationEvents?.();
   unlistenConversationEvents = null;
+  listenerInitialization = null;
 }

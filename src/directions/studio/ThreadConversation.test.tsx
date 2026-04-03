@@ -18,6 +18,7 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
+import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ThreadConversation } from "./ThreadConversation";
 
 vi.mock("../../lib/bridge", () => ({
@@ -229,6 +230,27 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("leaves refine mode on Escape", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Refine" }));
+    const input = screen.getByPlaceholderText("Refine the proposed plan...");
+    await userEvent.type(input, "Need rollback notes");
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByPlaceholderText("Refine the proposed plan...")).toBeNull();
+    expect(screen.getByPlaceholderText("Message ThreadEx...")).toBeInTheDocument();
+  });
+
   it("renders approval actions and sends the selected approval response", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -294,5 +316,19 @@ describe("ThreadConversation", () => {
         }),
       });
     });
+  });
+
+  it("renders plan markdown even when markdown contains empty list markers", () => {
+    render(
+      <ConversationPlanCard
+        plan={makeProposedPlan({
+          markdown: "## Proposed plan\n\n- \n- Keep the second item",
+        })}
+        onApprove={() => undefined}
+        onRefine={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Keep the second item")).toBeInTheDocument();
   });
 });

@@ -128,4 +128,23 @@ describe("conversation store", () => {
     expect(state.loadingByThreadId["thread-1"]).toBe(false);
     expect(state.errorByThreadId["thread-1"]).toBeNull();
   });
+
+  it("initializes the runtime listener only once across concurrent calls", async () => {
+    let resolveListener: ((value: () => void) => void) | null = null;
+    mockedBridge.listenToConversationEvents.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveListener = resolve;
+        }),
+    );
+
+    const first = useConversationStore.getState().initializeListener();
+    const second = useConversationStore.getState().initializeListener();
+
+    expect(mockedBridge.listenToConversationEvents).toHaveBeenCalledTimes(1);
+    resolveListener?.(() => undefined);
+    await Promise.all([first, second]);
+
+    expect(useConversationStore.getState().listenerReady).toBe(true);
+  });
 });
