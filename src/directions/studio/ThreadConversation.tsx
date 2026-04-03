@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type {
   ConversationComposerSettings,
   ConversationItem,
+  ThreadTokenUsageSnapshot,
   EnvironmentRecord,
   ModelOption,
   ThreadRecord,
@@ -20,6 +21,8 @@ import { ComposerPicker } from "./ComposerPicker";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
+import { ContextWindowMeter } from "./ContextWindowMeter";
+import { SubagentStrip } from "./SubagentStrip";
 import "./ThreadConversation.css";
 
 type Props = {
@@ -36,6 +39,7 @@ export function ThreadConversation({ environment, thread }: Props) {
   const loading = useConversationStore((state) => state.loadingByThreadId[thread.id] ?? false);
   const storeError = useConversationStore(selectConversationError(thread.id));
   const openThread = useConversationStore((state) => state.openThread);
+  const refreshThread = useConversationStore((state) => state.refreshThread);
   const updateComposer = useConversationStore((state) => state.updateComposer);
   const sendMessage = useConversationStore((state) => state.sendMessage);
   const interruptThread = useConversationStore((state) => state.interruptThread);
@@ -50,6 +54,7 @@ export function ThreadConversation({ environment, thread }: Props) {
   const [isRefiningPlan, setIsRefiningPlan] = useState(false);
   const [isPending, startTransition] = useTransition();
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
     void openThread(thread.id);
@@ -71,6 +76,25 @@ export function ThreadConversation({ environment, thread }: Props) {
       setIsRefiningPlan(false);
     }
   }, [isRefiningPlan, snapshot?.proposedPlan?.isAwaitingDecision]);
+
+  useEffect(() => {
+    if (!snapshot?.activeTurnId || !snapshot.codexThreadId) {
+      refreshInFlightRef.current = false;
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      if (refreshInFlightRef.current) {
+        return;
+      }
+      refreshInFlightRef.current = true;
+      void refreshThread(thread.id).finally(() => {
+        refreshInFlightRef.current = false;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [refreshThread, snapshot?.activeTurnId, snapshot?.codexThreadId, thread.id]);
 
   if (!snapshot && loading) {
     return <ConversationLoading />;
@@ -172,6 +196,7 @@ export function ThreadConversation({ environment, thread }: Props) {
           respondToUserInput(thread.id, interaction?.id ?? "", answers)
         }
       />
+      <SubagentStrip subagents={snapshot.subagents} />
       <ConversationComposer
         composer={resolvedComposer}
         collaborationModes={capabilities?.collaborationModes ?? []}
@@ -181,6 +206,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         isBusy={isRunning || isPending}
         isRefiningPlan={isRefiningPlan}
         modelOptions={capabilities?.models ?? []}
+        tokenUsage={snapshot.tokenUsage}
         onCancelRefine={() => {
           setDraft("");
           setIsRefiningPlan(false);
@@ -208,6 +234,7 @@ function ConversationComposer({
   isBusy,
   isRefiningPlan,
   modelOptions,
+  tokenUsage,
   onCancelRefine,
   onChangeDraft,
   onInterrupt,
@@ -222,6 +249,7 @@ function ConversationComposer({
   isBusy: boolean;
   isRefiningPlan: boolean;
   modelOptions: ModelOption[];
+  tokenUsage?: ThreadTokenUsageSnapshot | null;
   onCancelRefine: () => void;
   onChangeDraft: (value: string) => void;
   onInterrupt: () => void;
@@ -243,59 +271,62 @@ function ConversationComposer({
   return (
     <div className="tx-composer">
       <div className="tx-composer__controls">
-        <ComposerPicker
-          label="Model"
-          value={composer.model}
-          options={modelOptions.map((option) => ({
-            label: option.displayName,
-            value: option.id,
-          }))}
-          disabled={controlsDisabled}
-          onChange={(value) => onUpdateComposer({ model: value })}
-        />
-        <ComposerPicker
-          label="Thinking"
-          value={composer.reasoningEffort}
-          options={effortOptions.map((effort) => ({
-            label: effortLabel(effort),
-            value: effort,
-          }))}
-          disabled={controlsDisabled}
-          onChange={(value) =>
-            onUpdateComposer({
-              reasoningEffort: value as ConversationComposerSettings["reasoningEffort"],
-            })
-          }
-        />
-        <ComposerPicker
-          label="Mode"
-          value={composer.collaborationMode}
-          tone={composer.collaborationMode === "plan" ? "accent" : "default"}
-          options={collaborationModes.map((option) => ({
-            label: option.label,
-            value: option.id,
-          }))}
-          disabled={controlsDisabled}
-          onChange={(value) =>
-            onUpdateComposer({
-              collaborationMode: value as ConversationComposerSettings["collaborationMode"],
-            })
-          }
-        />
-        <ComposerPicker
-          label="Access"
-          value={composer.approvalPolicy}
-          options={[
-            { label: "Ask to Edit", value: "askToEdit" },
-            { label: "Full Access", value: "fullAccess" },
-          ]}
-          disabled={controlsDisabled}
-          onChange={(value) =>
-            onUpdateComposer({
-              approvalPolicy: value as ConversationComposerSettings["approvalPolicy"],
-            })
-          }
-        />
+        <div className="tx-composer__controls-group">
+          <ComposerPicker
+            label="Model"
+            value={composer.model}
+            options={modelOptions.map((option) => ({
+              label: option.displayName,
+              value: option.id,
+            }))}
+            disabled={controlsDisabled}
+            onChange={(value) => onUpdateComposer({ model: value })}
+          />
+          <ComposerPicker
+            label="Thinking"
+            value={composer.reasoningEffort}
+            options={effortOptions.map((effort) => ({
+              label: effortLabel(effort),
+              value: effort,
+            }))}
+            disabled={controlsDisabled}
+            onChange={(value) =>
+              onUpdateComposer({
+                reasoningEffort: value as ConversationComposerSettings["reasoningEffort"],
+              })
+            }
+          />
+          <ComposerPicker
+            label="Mode"
+            value={composer.collaborationMode}
+            tone={composer.collaborationMode === "plan" ? "accent" : "default"}
+            options={collaborationModes.map((option) => ({
+              label: option.label,
+              value: option.id,
+            }))}
+            disabled={controlsDisabled}
+            onChange={(value) =>
+              onUpdateComposer({
+                collaborationMode: value as ConversationComposerSettings["collaborationMode"],
+              })
+            }
+          />
+          <ComposerPicker
+            label="Access"
+            value={composer.approvalPolicy}
+            options={[
+              { label: "Ask to Edit", value: "askToEdit" },
+              { label: "Full Access", value: "fullAccess" },
+            ]}
+            disabled={controlsDisabled}
+            onChange={(value) =>
+              onUpdateComposer({
+                approvalPolicy: value as ConversationComposerSettings["approvalPolicy"],
+              })
+            }
+          />
+        </div>
+        <ContextWindowMeter usage={tokenUsage} />
       </div>
       <div className="tx-composer__body">
         <div className="tx-composer__input-row">

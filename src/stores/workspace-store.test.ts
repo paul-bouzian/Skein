@@ -22,6 +22,52 @@ beforeEach(() => {
 });
 
 describe("workspace store", () => {
+  it("maps project selection to the local environment and latest active thread", () => {
+    const snapshot = makeWorkspaceSnapshot({
+      projects: [
+        makeProject({
+          environments: [
+            makeEnvironment({
+              id: "env-local",
+              kind: "local",
+              isDefault: true,
+              threads: [
+                makeThread({
+                  id: "thread-local-older",
+                  environmentId: "env-local",
+                  updatedAt: "2026-04-03T08:00:00Z",
+                }),
+                makeThread({
+                  id: "thread-local-latest",
+                  environmentId: "env-local",
+                  updatedAt: "2026-04-03T09:30:00Z",
+                }),
+              ],
+            }),
+            makeEnvironment({
+              id: "env-worktree",
+              kind: "managedWorktree",
+              isDefault: false,
+              threads: [],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot,
+    }));
+
+    useWorkspaceStore.getState().selectProject("project-1");
+
+    const state = useWorkspaceStore.getState();
+    expect(state.selectedProjectId).toBe("project-1");
+    expect(state.selectedEnvironmentId).toBe("env-local");
+    expect(state.selectedThreadId).toBe("thread-local-latest");
+  });
+
   it("selects the most recent active thread when an environment is chosen", () => {
     const snapshot = makeWorkspaceSnapshot({
       projects: [

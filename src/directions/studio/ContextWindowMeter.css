@@ -1,0 +1,108 @@
+.tx-context-meter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.tx-context-meter__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: var(--tx-text-secondary);
+  transition:
+    color var(--tx-transition-fast),
+    opacity var(--tx-transition-fast);
+}
+
+.tx-context-meter__trigger:hover {
+  color: var(--tx-text-primary);
+}
+
+.tx-context-meter__visual {
+  position: relative;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+}
+
+.tx-context-meter__ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.tx-context-meter__track,
+.tx-context-meter__progress {
+  fill: none;
+  stroke-width: 3;
+}
+
+.tx-context-meter__track {
+  stroke: color-mix(in srgb, var(--tx-text-muted) 22%, transparent);
+}
+
+.tx-context-meter__progress {
+  stroke: var(--tx-text-primary);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 180ms ease-out;
+}
+
+.tx-context-meter__value {
+  position: relative;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: var(--tx-weight-semibold);
+  color: var(--tx-text-primary);
+}
+
+.tx-context-meter__tooltip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: 280px;
+  padding: var(--tx-space-md);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-lg);
+  background: color-mix(in srgb, var(--tx-bg-raised) 94%, transparent);
+  box-shadow: var(--tx-shadow-lg);
+  color: var(--tx-text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity var(--tx-transition-fast),
+    transform var(--tx-transition-fast);
+  backdrop-filter: blur(16px);
+}
+
+.tx-context-meter:hover .tx-context-meter__tooltip,
+.tx-context-meter__trigger:focus-visible + .tx-context-meter__tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tx-context-meter__tooltip-label {
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tx-text-muted);
+}
+
+.tx-context-meter__tooltip-line {
+  margin-top: var(--tx-space-sm);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+}
+
+.tx-context-meter__tooltip-muted {
+  margin-top: var(--tx-space-xs);
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-secondary);
+}

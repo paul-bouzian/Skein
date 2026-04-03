@@ -10,6 +10,7 @@ import {
   makeConversationSnapshot,
   makeEnvironment,
   makeProposedPlan,
+  makeSubagent,
   makeThread,
   makeUserInputRequest,
 } from "../../test/fixtures/conversation";
@@ -23,6 +24,7 @@ import { ThreadConversation } from "./ThreadConversation";
 
 vi.mock("../../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
+  refreshThreadConversation: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
   respondToApprovalRequest: vi.fn(),
@@ -81,6 +83,41 @@ describe("ThreadConversation", () => {
       screen.getByText("Looking through package.json and the runtime service."),
     ).toBeInTheDocument();
     expect(screen.getByText("3 tests passed")).toBeInTheDocument();
+  });
+
+  it("renders the subagent strip and context meter for active turns", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        subagents: [
+          makeSubagent(),
+          makeSubagent({
+            threadId: "subagent-2",
+            nickname: "Atlas",
+            role: "worker",
+            depth: 2,
+            status: "completed",
+          }),
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.refreshThreadConversation.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        subagents: [makeSubagent()],
+      }),
+    );
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    expect(await screen.findByText(/2 subagents \(1 running\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Context window 0.3% used")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Subagents/i }));
+    expect(screen.getByText("Scout")).toBeInTheDocument();
+    expect(screen.getByText("Atlas")).toBeInTheDocument();
   });
 
   it("renders the interaction panel and paginates request-user-input questions", async () => {

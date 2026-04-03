@@ -2,6 +2,7 @@ import type {
   PendingApprovalRequest,
   PendingUserInputRequest,
   ProposedPlanSnapshot,
+  SubagentThreadSnapshot,
   ConversationComposerSettings,
   EnvironmentCapabilitiesSnapshot,
   EnvironmentRecord,
@@ -151,6 +152,7 @@ export function makeConversationSnapshot(
         isStreaming: false,
       },
     ],
+    subagents: [],
     tokenUsage: {
       total: {
         totalTokens: 1024,
@@ -172,6 +174,19 @@ export function makeConversationSnapshot(
     proposedPlan: null,
     error: null,
     composer: baseComposer,
+    ...overrides,
+  };
+}
+
+export function makeSubagent(
+  overrides: Partial<SubagentThreadSnapshot> = {},
+): SubagentThreadSnapshot {
+  return {
+    threadId: "subagent-1",
+    nickname: "Scout",
+    role: "explorer",
+    depth: 1,
+    status: "running",
     ...overrides,
   };
 }

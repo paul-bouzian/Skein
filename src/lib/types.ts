@@ -3,6 +3,7 @@
 export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
+export type SubagentStatus = "running" | "completed" | "failed";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
@@ -160,6 +161,14 @@ export type ThreadTokenUsageSnapshot = {
   modelContextWindow?: number | null;
 };
 
+export type SubagentThreadSnapshot = {
+  threadId: string;
+  nickname?: string | null;
+  role?: string | null;
+  depth: number;
+  status: SubagentStatus;
+};
+
 export type ProposedPlanStep = {
   step: string;
   status: ProposedPlanStepStatus;
@@ -312,6 +321,7 @@ export type ThreadConversationSnapshot = {
   status: ConversationStatus;
   activeTurnId?: string | null;
   items: ConversationItem[];
+  subagents: SubagentThreadSnapshot[];
   tokenUsage?: ThreadTokenUsageSnapshot | null;
   pendingInteractions: ConversationInteraction[];
   proposedPlan?: ProposedPlanSnapshot | null;

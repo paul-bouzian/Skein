@@ -24,6 +24,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::conversation::open_thread_conversation,
+            commands::conversation::refresh_thread_conversation,
             commands::conversation::send_thread_message,
             commands::conversation::interrupt_thread_turn,
             commands::conversation::respond_to_approval_request,

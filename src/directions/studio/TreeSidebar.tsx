@@ -155,10 +155,13 @@ function ProjectsTree() {
                 <ProjectIcon name={project.name} rootPath={project.rootPath} size="sm" />
                 <span className="project-group__meta">
                   <span className="project-group__name">{project.name}</span>
+                  {renderProjectLocalSummary(project)}
                 </span>
               </button>
               <div className="project-group__environments">
-                {project.environments.map((environment) => (
+                {project.environments
+                  .filter((environment) => environment.kind !== "local")
+                  .map((environment) => (
                   <button
                     key={environment.id}
                     type="button"
@@ -218,6 +221,28 @@ function ProjectsTree() {
 function formatThreadCount(environment: EnvironmentRecord) {
   const count = environment.threads.filter((thread) => thread.status === "active").length;
   return `${count} thread${count === 1 ? "" : "s"}`;
+}
+
+function renderProjectLocalSummary(project: {
+  environments: EnvironmentRecord[];
+}) {
+  const environment =
+    project.environments.find((candidate) => candidate.kind === "local") ??
+    project.environments.find((candidate) => candidate.isDefault) ??
+    project.environments[0];
+  if (!environment) return null;
+
+  return (
+    <span className="project-group__summary">
+      {environment.gitBranch ? (
+        <span className="project-group__branch" title={environment.gitBranch}>
+          {environment.gitBranch}
+        </span>
+      ) : null}
+      <span className="project-group__threads">{formatThreadCount(environment)}</span>
+      <RuntimeIndicator state={environment.runtime.state} />
+    </span>
+  );
 }
 
 function buildContextMenuState(

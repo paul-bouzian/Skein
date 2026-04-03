@@ -193,6 +193,61 @@ fn spawn_fake_codex(
                         }]
                     }
                 }),
+                "thread/loaded/list" => json!({
+                    "data": ["thr-existing", "thr-new", "subagent-child", "subagent-grandchild"]
+                }),
+                "thread/list" => json!({
+                    "data": [
+                        {
+                            "id": "subagent-child",
+                            "agentNickname": "Scout",
+                            "agentRole": "explorer",
+                            "source": {
+                                "subAgent": {
+                                    "thread_spawn": {
+                                        "parent_thread_id": "thr-existing",
+                                        "depth": 1,
+                                        "agent_nickname": "Scout",
+                                        "agent_role": "explorer"
+                                    }
+                                }
+                            },
+                            "status": { "type": "active" }
+                        },
+                        {
+                            "id": "subagent-grandchild",
+                            "agentNickname": "Atlas",
+                            "agentRole": "worker",
+                            "source": {
+                                "subAgent": {
+                                    "thread_spawn": {
+                                        "parent_thread_id": "subagent-child",
+                                        "depth": 2,
+                                        "agent_nickname": "Atlas",
+                                        "agent_role": "worker"
+                                    }
+                                }
+                            },
+                            "status": { "type": "idle" }
+                        },
+                        {
+                            "id": "subagent-new",
+                            "agentNickname": "Builder",
+                            "agentRole": "worker",
+                            "source": {
+                                "subAgent": {
+                                    "thread_spawn": {
+                                        "parent_thread_id": "thr-new",
+                                        "depth": 1,
+                                        "agent_nickname": "Builder",
+                                        "agent_role": "worker"
+                                    }
+                                }
+                            },
+                            "status": { "type": "active" }
+                        }
+                    ]
+                }),
                 "thread/resume" => json!({}),
                 "thread/start" => json!({
                     "thread": { "id": "thr-new" }
@@ -305,6 +360,24 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
     assert_eq!(turn_start.params["sandboxPolicy"]["type"], "workspaceWrite");
     assert_eq!(turn_start.params["collaborationMode"]["mode"], "default");
     assert_eq!(turn_start.params["input"][0]["text"], "Run the test suite");
+}
+
+#[tokio::test]
+async fn refresh_thread_discovers_loaded_subagents_for_the_active_thread() {
+    let (session, _harness) = FakeCodexHarness::new().await;
+
+    let open = session
+        .open_thread(context(
+            "thread-local-subagents",
+            Some("thr-existing"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("thread should open");
+    assert_eq!(open.snapshot.subagents.len(), 2);
+    assert_eq!(open.snapshot.subagents[0].nickname.as_deref(), Some("Scout"));
+    assert_eq!(open.snapshot.subagents[1].nickname.as_deref(), Some("Atlas"));
 }
 
 #[tokio::test]
@@ -814,4 +887,138 @@ async fn streamed_notifications_update_the_open_snapshot() {
         crate::domain::conversation::ConversationItem::Tool(tool)
             if tool.id == "tool-1" && tool.output == "ok\n"
     )));
+}
+
+#[tokio::test]
+async fn submit_plan_decision_requires_an_actionable_plan_before_sending() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .open_thread(context(
+            "thread-local-no-plan",
+            None,
+            CollaborationMode::Plan,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("thread should open");
+
+    let error = session
+        .submit_plan_decision(
+            context(
+                "thread-local-no-plan",
+                None,
+                CollaborationMode::Plan,
+                ApprovalPolicy::AskToEdit,
+            ),
+            crate::domain::conversation::SubmitPlanDecisionInput {
+                thread_id: "thread-local-no-plan".to_string(),
+                action: crate::domain::conversation::PlanDecisionAction::Approve,
+                composer: None,
+                feedback: None,
+            },
+        )
+        .await
+        .expect_err("approving without a plan should fail");
+    assert!(error
+        .to_string()
+        .contains("There is no proposed plan to update"));
+
+    let requests = harness.requests().await;
+    assert!(!requests.iter().any(|request| request.method == "turn/start"));
+}
+
+#[tokio::test]
+async fn collab_agent_notifications_update_subagent_strip_without_timeline_noise() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-7",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Spawn a few helpers".to_string(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "item/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "collab-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "senderThreadId": "thr-new",
+                    "receiverThreadIds": ["subagent-child", "subagent-grandchild"],
+                    "agentsStates": {
+                        "subagent-child": { "status": "running" },
+                        "subagent-grandchild": { "status": "pendingInit" }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let snapshot = session
+        .open_thread(context(
+            "thread-local-7",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen")
+        .snapshot;
+
+    assert_eq!(snapshot.subagents.len(), 2);
+    assert!(snapshot.items.iter().all(|item| !matches!(
+        item,
+        crate::domain::conversation::ConversationItem::System(system)
+            if system.title == "Unsupported item"
+    )));
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "collab-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "senderThreadId": "thr-new",
+                    "receiverThreadIds": ["subagent-child", "subagent-grandchild"],
+                    "agentsStates": {
+                        "subagent-child": { "status": "completed" },
+                        "subagent-grandchild": { "status": "completed" }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let completed_snapshot = session
+        .open_thread(context(
+            "thread-local-7",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen after completion")
+        .snapshot;
+
+    assert!(completed_snapshot.subagents.is_empty());
 }

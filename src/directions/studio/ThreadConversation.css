@@ -487,7 +487,16 @@
 }
 
 .tx-composer__controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--tx-space-sm);
+}
+
+.tx-composer__controls-group {
   display: grid;
+  flex: 1;
+  min-width: 0;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--tx-space-sm);
 }
@@ -761,7 +770,7 @@
 }
 
 @media (max-width: 1160px) {
-  .tx-composer__controls {
+  .tx-composer__controls-group {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -780,7 +789,13 @@
   }
 
   .tx-composer__controls {
+    align-items: stretch;
+  }
+
+  .tx-composer__controls-group,
+  .tx-composer__controls {
     grid-template-columns: 1fr;
+    display: grid;
   }
 
   .tx-composer__input-row {

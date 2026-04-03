@@ -41,6 +41,14 @@ export function openThreadConversation(
   });
 }
 
+export function refreshThreadConversation(
+  threadId: string,
+): Promise<ThreadConversationSnapshot> {
+  return invoke<ThreadConversationSnapshot>("refresh_thread_conversation", {
+    threadId,
+  });
+}
+
 export function sendThreadMessage(
   input: SendThreadMessageInput,
 ): Promise<ThreadConversationSnapshot> {

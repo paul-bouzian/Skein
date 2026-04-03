@@ -20,6 +20,7 @@ type ConversationState = {
 
   initializeListener: () => Promise<void>;
   openThread: (threadId: string) => Promise<void>;
+  refreshThread: (threadId: string) => Promise<void>;
   updateComposer: (
     threadId: string,
     patch: Partial<ConversationComposerSettings>,
@@ -133,6 +134,25 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         cause instanceof Error ? cause.message : "Failed to open conversation";
       set((state) => ({
         loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
+      }));
+    }
+  },
+
+  refreshThread: async (threadId) => {
+    try {
+      const snapshot = await bridge.refreshThreadConversation(threadId);
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: snapshot,
+        },
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
+      }));
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to refresh conversation";
+      set((state) => ({
         errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
       }));
     }

@@ -112,6 +112,7 @@ function OverviewView({ projects }: { projects: ProjectRecord[] }) {
 
 function ProjectView({ project }: { project: ProjectRecord }) {
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
+  const worktrees = project.environments.filter((environment) => environment.kind !== "local");
 
   return (
     <div className="studio-project-view">
@@ -120,8 +121,11 @@ function ProjectView({ project }: { project: ProjectRecord }) {
         <span className="studio-project-view__path">{project.rootPath}</span>
       </div>
       <div className="studio-project-view__envs">
-        <h3 className="studio-section-label">Environments</h3>
-        {project.environments.map((env) => (
+        <h3 className="studio-section-label">Worktrees</h3>
+        {worktrees.length === 0 ? (
+          <p className="studio-env-view__hint">No worktrees yet for this project.</p>
+        ) : null}
+        {worktrees.map((env) => (
           <button
             key={env.id}
             className="studio-env-row"

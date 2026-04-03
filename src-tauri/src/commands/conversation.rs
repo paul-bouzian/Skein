@@ -27,6 +27,15 @@ pub async fn open_thread_conversation(
 }
 
 #[tauri::command]
+pub async fn refresh_thread_conversation(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<ThreadConversationSnapshot, CommandError> {
+    let context = state.workspace.thread_runtime_context(&thread_id)?;
+    Ok(state.runtime.refresh_thread(context).await?)
+}
+
+#[tauri::command]
 pub async fn send_thread_message(
     input: SendThreadMessageInput,
     state: State<'_, AppState>,

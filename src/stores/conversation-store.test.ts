@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "./workspace-store";
 
 vi.mock("../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
+  refreshThreadConversation: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
   listenToConversationEvents: vi.fn(),
@@ -110,6 +111,28 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
       nextSnapshot,
     );
+  });
+
+  it("refreshes a thread snapshot without reopening the conversation", async () => {
+    const snapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-live-1",
+      subagents: [
+        {
+          threadId: "subagent-1",
+          nickname: "Scout",
+          role: "explorer",
+          depth: 1,
+          status: "running",
+        },
+      ],
+    });
+    mockedBridge.refreshThreadConversation.mockResolvedValue(snapshot);
+
+    await useConversationStore.getState().refreshThread("thread-1");
+
+    expect(mockedBridge.refreshThreadConversation).toHaveBeenCalledWith("thread-1");
+    expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(snapshot);
   });
 
   it("applies conversation events from the runtime stream", async () => {

@@ -8,10 +8,11 @@ use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort
 
 use super::protocol::{
     CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
-    ModelWire, ReasoningEffortOptionWire, ThreadWire, approval_policy_value,
-    build_history_snapshot, collaboration_mode_options_from_response, model_options_from_response,
-    complete_proposed_plan, normalize_server_interaction, parse_incoming_message,
-    proposed_plan_from_item,
+    ModelWire, ReasoningEffortOptionWire, ThreadListEntryWire, ThreadStatusWire, ThreadWire,
+    approval_policy_value,
+    build_history_snapshot, collaboration_mode_options_from_response, loaded_subagents_for_primary,
+    model_options_from_response, complete_proposed_plan, normalize_server_interaction,
+    parse_incoming_message, proposed_plan_from_item, subagents_from_collab_item,
     sandbox_policy_value, ServerRequestEnvelope,
 };
 
@@ -28,7 +29,13 @@ fn composer() -> ConversationComposerSettings {
 fn parses_json_rpc_responses_and_notifications() {
     let response = parse_incoming_message(r#"{"jsonrpc":"2.0","id":7,"result":{"ok":true}}"#)
         .expect("response should parse");
-    assert!(matches!(response, IncomingMessage::Response(envelope) if envelope.id == 7));
+    assert!(matches!(
+        response,
+        IncomingMessage::Response(envelope)
+            if envelope.id == 7
+                && envelope.error.is_none()
+                && envelope.result["ok"] == json!(true)
+    ));
 
     let notification = parse_incoming_message(
         r#"{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thr_1"}}"#,
@@ -37,6 +44,24 @@ fn parses_json_rpc_responses_and_notifications() {
     assert!(matches!(
         notification,
         IncomingMessage::Notification(envelope) if envelope.method == "turn/started"
+    ));
+}
+
+#[test]
+fn preserves_json_rpc_error_responses_for_pending_requests() {
+    let response = parse_incoming_message(
+        r#"{"jsonrpc":"2.0","id":9,"error":{"message":"request failed"}}"#,
+    )
+    .expect("error response should parse");
+
+    assert!(matches!(
+        response,
+        IncomingMessage::Response(envelope)
+            if envelope.id == 9
+                && envelope
+                    .error
+                    .as_ref()
+                    .is_some_and(|error| error.contains("request failed"))
     ));
 }
 
@@ -163,6 +188,136 @@ fn history_snapshot_ignores_historical_plans_once_a_later_turn_exists() {
         item,
         ConversationItem::Message(message) if message.text == "Implementation started"
     )));
+}
+
+#[test]
+fn discovers_loaded_subagent_descendants_for_a_primary_thread() {
+    let subagents = loaded_subagents_for_primary(
+        "thr-parent",
+        &["thr-child".to_string(), "thr-grandchild".to_string()],
+        vec![
+            ThreadListEntryWire {
+                id: "thr-child".to_string(),
+                agent_nickname: Some("Scout".to_string()),
+                agent_role: Some("explorer".to_string()),
+                source: json!({
+                    "subAgent": {
+                        "thread_spawn": {
+                            "parent_thread_id": "thr-parent",
+                            "depth": 1,
+                            "agent_nickname": "Scout",
+                            "agent_role": "explorer"
+                        }
+                    }
+                }),
+                status: ThreadStatusWire {
+                    kind: "active".to_string(),
+                },
+            },
+            ThreadListEntryWire {
+                id: "thr-grandchild".to_string(),
+                agent_nickname: Some("Atlas".to_string()),
+                agent_role: Some("worker".to_string()),
+                source: json!({
+                    "subAgent": {
+                        "thread_spawn": {
+                            "parent_thread_id": "thr-child",
+                            "depth": 2,
+                            "agent_nickname": "Atlas",
+                            "agent_role": "worker"
+                        }
+                    }
+                }),
+                status: ThreadStatusWire {
+                    kind: "idle".to_string(),
+                },
+            },
+            ThreadListEntryWire {
+                id: "thr-other".to_string(),
+                agent_nickname: Some("Other".to_string()),
+                agent_role: Some("reviewer".to_string()),
+                source: json!({
+                    "subAgent": {
+                        "thread_spawn": {
+                            "parent_thread_id": "thr-unrelated",
+                            "depth": 1,
+                            "agent_nickname": "Other",
+                            "agent_role": "reviewer"
+                        }
+                    }
+                }),
+                status: ThreadStatusWire {
+                    kind: "active".to_string(),
+                },
+            },
+        ],
+    );
+
+    assert_eq!(subagents.len(), 2);
+    assert_eq!(subagents[0].thread_id, "thr-child");
+    assert_eq!(subagents[0].status, crate::domain::conversation::SubagentStatus::Running);
+    assert_eq!(subagents[1].thread_id, "thr-grandchild");
+    assert_eq!(
+        subagents[1].status,
+        crate::domain::conversation::SubagentStatus::Completed
+    );
+}
+
+#[test]
+fn discovers_loaded_subagents_from_camel_case_spawn_fields() {
+    let subagents = loaded_subagents_for_primary(
+        "thr-parent",
+        &["thr-child".to_string()],
+        vec![ThreadListEntryWire {
+            id: "thr-child".to_string(),
+            agent_nickname: Some("Scout".to_string()),
+            agent_role: Some("explorer".to_string()),
+            source: json!({
+                "subAgent": {
+                    "threadSpawn": {
+                        "parentThreadId": "thr-parent",
+                        "depth": 1,
+                        "agentNickname": "Scout",
+                        "agentRole": "explorer"
+                    }
+                }
+            }),
+            status: ThreadStatusWire {
+                kind: "active".to_string(),
+            },
+        }],
+    );
+
+    assert_eq!(subagents.len(), 1);
+    assert_eq!(subagents[0].nickname.as_deref(), Some("Scout"));
+}
+
+#[test]
+fn extracts_subagents_from_collab_agent_tool_items() {
+    let subagents = subagents_from_collab_item(&json!({
+        "id": "collab-1",
+        "type": "collabAgentToolCall",
+        "tool": "spawnAgent",
+        "status": "inProgress",
+        "senderThreadId": "thr-parent",
+        "receiverThreadIds": ["thr-child-1", "thr-child-2"],
+        "agentsStates": {
+            "thr-child-1": { "status": "running" },
+            "thr-child-2": { "status": "completed" }
+        }
+    }));
+
+    assert_eq!(subagents.len(), 2);
+    assert_eq!(subagents[0].thread_id, "thr-child-1");
+    assert_eq!(
+        subagents[0].status,
+        crate::domain::conversation::SubagentStatus::Running
+    );
+    assert_eq!(subagents[1].thread_id, "thr-child-2");
+    assert_eq!(
+        subagents[1].status,
+        crate::domain::conversation::SubagentStatus::Completed
+    );
 }
 
 #[test]

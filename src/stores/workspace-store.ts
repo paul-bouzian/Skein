@@ -75,11 +75,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   selectProject: (id) =>
-    set({
-      selectedProjectId: id,
-      selectedEnvironmentId: null,
-      selectedThreadId: null,
-    }),
+    set((state) => selectProjectState(state.snapshot, id)),
 
   selectEnvironment: (id) =>
     set((state) => selectEnvironmentState(state.snapshot, id)),
@@ -155,14 +151,20 @@ function reconcileSelection(
     "selectedProjectId" | "selectedEnvironmentId" | "selectedThreadId"
   >,
 ) {
+  const selectedProject = findProject(snapshot, state.selectedProjectId);
   const selectedEnvironment = findEnvironment(snapshot, state.selectedEnvironmentId);
   const selectedThread = findThread(snapshot, state.selectedThreadId);
+  const fallbackEnvironment = selectedProject
+    ? findPrimaryEnvironment(selectedProject)
+    : null;
   const fallbackThread = selectedEnvironment
     ? findLatestActiveThread(selectedEnvironment.environment)
+    : fallbackEnvironment
+      ? findLatestActiveThread(fallbackEnvironment)
     : null;
 
   const selectedProjectId =
-    findProject(snapshot, state.selectedProjectId)?.id ??
+    selectedProject?.id ??
     selectedEnvironment?.project.id ??
     selectedThread?.project.id ??
     null;
@@ -170,6 +172,7 @@ function reconcileSelection(
   const selectedEnvironmentId =
     selectedEnvironment?.environment.id ??
     selectedThread?.environment.id ??
+    fallbackEnvironment?.id ??
     null;
 
   const selectedThreadId = selectedThread?.thread.id ?? fallbackThread?.id ?? null;
@@ -178,6 +181,27 @@ function reconcileSelection(
     selectedProjectId,
     selectedEnvironmentId,
     selectedThreadId,
+  };
+}
+
+function selectProjectState(
+  snapshot: WorkspaceSnapshot | null,
+  projectId: string | null,
+) {
+  if (!snapshot || !projectId) {
+    return {
+      selectedProjectId: projectId,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    };
+  }
+
+  const project = findProject(snapshot, projectId);
+  const environment = project ? findPrimaryEnvironment(project) : null;
+  return {
+    selectedProjectId: project?.id ?? null,
+    selectedEnvironmentId: environment?.id ?? null,
+    selectedThreadId: environment ? findLatestActiveThread(environment)?.id ?? null : null,
   };
 }
 
@@ -210,6 +234,15 @@ function selectEnvironmentState(
 function findProject(snapshot: WorkspaceSnapshot, projectId: string | null) {
   if (!projectId) return null;
   return snapshot.projects.find((project) => project.id === projectId) ?? null;
+}
+
+function findPrimaryEnvironment(project: ProjectRecord) {
+  return (
+    project.environments.find((environment) => environment.kind === "local") ??
+    project.environments.find((environment) => environment.isDefault) ??
+    project.environments[0] ??
+    null
+  );
 }
 
 function findEnvironment(snapshot: WorkspaceSnapshot, environmentId: string | null) {

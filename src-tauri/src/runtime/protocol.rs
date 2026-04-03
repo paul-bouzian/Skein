@@ -10,8 +10,9 @@ use crate::domain::conversation::{
     NetworkPolicyAmendmentSnapshot, NetworkPolicyRuleAction, PendingApprovalRequest,
     PendingUserInputOption, PendingUserInputQuestion, PendingUserInputRequest,
     PermissionProfileSnapshot, ProposedPlanSnapshot, ProposedPlanStatus, ProposedPlanStep,
-    ProposedPlanStepStatus, ThreadConversationSnapshot, ThreadTokenUsageSnapshot,
-    TokenUsageBreakdown, UnsupportedInteractionRequest,
+    ProposedPlanStepStatus, SubagentStatus, SubagentThreadSnapshot,
+    ThreadConversationSnapshot, ThreadTokenUsageSnapshot, TokenUsageBreakdown,
+    UnsupportedInteractionRequest,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 use crate::error::{AppError, AppResult};
@@ -29,6 +30,7 @@ pub enum IncomingMessage {
 pub struct ResponseEnvelope {
     pub id: u64,
     pub result: Value,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,10 +66,58 @@ pub struct ThreadReadResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ThreadLoadedListResponse {
+    pub data: Vec<String>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadListResponse {
+    pub data: Vec<ThreadListEntryWire>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThreadWire {
     pub id: String,
     #[serde(default)]
     pub turns: Vec<TurnWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadListEntryWire {
+    pub id: String,
+    #[serde(default)]
+    pub agent_nickname: Option<String>,
+    #[serde(default)]
+    pub agent_role: Option<String>,
+    pub source: Value,
+    pub status: ThreadStatusWire,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadStatusWire {
+    #[serde(rename = "type")]
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ThreadSpawnSourceWire {
+    #[serde(alias = "parentThreadId")]
+    pub parent_thread_id: String,
+    pub depth: i32,
+    #[serde(default)]
+    #[serde(alias = "agentNickname")]
+    pub agent_nickname: Option<String>,
+    #[serde(default)]
+    #[serde(alias = "agentRole")]
+    pub agent_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -387,17 +437,16 @@ pub fn parse_incoming_message(line: &str) -> AppResult<IncomingMessage> {
         .id
         .as_u64()
         .ok_or_else(|| AppError::Runtime("App-server response id is not numeric.".to_string()))?;
-
-    if let Some(error) = response.error {
-        return Err(AppError::Runtime(match error.message {
-            Some(message) => message,
-            None => "App-server returned an unknown error.".to_string(),
-        }));
-    }
+    let error = response.error.map(|error| {
+        error
+            .message
+            .unwrap_or_else(|| "App-server returned an unknown error.".to_string())
+    });
 
     Ok(IncomingMessage::Response(ResponseEnvelope {
         id,
         result: response.result.unwrap_or(Value::Null),
+        error,
     }))
 }
 
@@ -568,6 +617,115 @@ pub fn conversation_status_from_turn_status(status: &str) -> ConversationStatus 
     }
 }
 
+pub fn loaded_subagents_for_primary(
+    primary_thread_id: &str,
+    loaded_thread_ids: &[String],
+    threads: Vec<ThreadListEntryWire>,
+) -> Vec<SubagentThreadSnapshot> {
+    if primary_thread_id.is_empty() || loaded_thread_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let loaded_ids = loaded_thread_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    let descendants = threads
+        .into_iter()
+        .filter_map(|thread| {
+            let spawn = thread_spawn_source(&thread.source)?;
+            let spawn_data = (
+                spawn.parent_thread_id.clone(),
+                spawn.depth,
+                spawn.agent_nickname.clone(),
+                spawn.agent_role.clone(),
+            );
+            Some((
+                thread,
+                spawn_data.0,
+                spawn_data.1,
+                spawn_data.2,
+                spawn_data.3,
+            ))
+        })
+        .filter(|(thread, ..)| loaded_ids.contains(thread.id.as_str()))
+        .collect::<Vec<_>>();
+
+    let mut queue = vec![primary_thread_id.to_string()];
+    let mut visited = std::collections::HashSet::from([primary_thread_id.to_string()]);
+    let mut subagents = Vec::new();
+
+    while let Some(parent_thread_id) = queue.pop() {
+        for (thread, _, depth, spawn_nickname, spawn_role) in descendants
+            .iter()
+            .filter(|(_, parent_id, ..)| *parent_id == parent_thread_id)
+        {
+            if !visited.insert(thread.id.clone()) {
+                continue;
+            }
+            queue.push(thread.id.clone());
+            subagents.push(SubagentThreadSnapshot {
+                thread_id: thread.id.clone(),
+                nickname: thread
+                    .agent_nickname
+                    .clone()
+                    .or_else(|| spawn_nickname.clone()),
+                role: thread.agent_role.clone().or_else(|| spawn_role.clone()),
+                depth: *depth,
+                status: subagent_status_from_thread_status(&thread.status),
+            });
+        }
+    }
+
+    subagents.sort_by(|left, right| {
+        left.depth
+            .cmp(&right.depth)
+            .then_with(|| label_for_subagent(left).cmp(label_for_subagent(right)))
+            .then_with(|| left.thread_id.cmp(&right.thread_id))
+    });
+    subagents
+}
+
+pub fn subagents_from_collab_item(value: &Value) -> Vec<SubagentThreadSnapshot> {
+    match value.get("type").and_then(Value::as_str) {
+        Some("collabAgentToolCall") | Some("collabToolCall") => {}
+        _ => return Vec::new(),
+    }
+
+    let fallback_status = subagent_status_from_collab_tool_status(
+        value.get("status").and_then(Value::as_str),
+    );
+    let receiver_ids = value
+        .get("receiverThreadIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let agent_states = value.get("agentsStates").and_then(Value::as_object);
+
+    receiver_ids
+        .into_iter()
+        .map(|thread_id| {
+            let state = agent_states.and_then(|states| states.get(thread_id.as_str()));
+            let status = state
+                .and_then(|state| state.get("status"))
+                .and_then(Value::as_str)
+                .map(subagent_status_from_collab_state)
+                .unwrap_or(fallback_status);
+
+            SubagentThreadSnapshot {
+                thread_id,
+                nickname: None,
+                role: None,
+                depth: 1,
+                status,
+            }
+        })
+        .collect()
+}
+
 pub fn item_status_from_wire(status: Option<&str>) -> ConversationItemStatus {
     match status {
         Some("completed") => ConversationItemStatus::Completed,
@@ -663,17 +821,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
             )),
             output: rich_text_field(value, "result"),
         })),
-        "collabToolCall" => Some(ConversationItem::Tool(ConversationToolItem {
-            id,
-            tool_type: "collabToolCall".to_string(),
-            title: "Multi-agent".to_string(),
-            status: item_status_from_wire(value.get("status").and_then(Value::as_str)),
-            summary: value
-                .get("tool")
-                .and_then(Value::as_str)
-                .map(ToString::to_string),
-            output: rich_text_field(value, "prompt"),
-        })),
+        "collabToolCall" | "collabAgentToolCall" => None,
         "webSearch" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
             tool_type: "webSearch".to_string(),
@@ -1323,6 +1471,50 @@ fn user_content_to_text(value: &Value) -> String {
 
 fn is_hidden_control_message(text: &str) -> bool {
     text == plan_approval_message()
+}
+
+fn thread_spawn_source(source: &Value) -> Option<ThreadSpawnSourceWire> {
+    let subagent = source.get("subAgent")?;
+    let thread_spawn = subagent
+        .get("thread_spawn")
+        .or_else(|| subagent.get("threadSpawn"))?;
+
+    serde_json::from_value::<ThreadSpawnSourceWire>(
+        thread_spawn.clone(),
+    )
+    .ok()
+}
+
+fn subagent_status_from_thread_status(status: &ThreadStatusWire) -> SubagentStatus {
+    match status.kind.as_str() {
+        "active" => SubagentStatus::Running,
+        "systemError" => SubagentStatus::Failed,
+        _ => SubagentStatus::Completed,
+    }
+}
+
+fn subagent_status_from_collab_state(status: &str) -> SubagentStatus {
+    match status {
+        "pendingInit" | "running" => SubagentStatus::Running,
+        "errored" | "interrupted" | "notFound" => SubagentStatus::Failed,
+        _ => SubagentStatus::Completed,
+    }
+}
+
+fn subagent_status_from_collab_tool_status(status: Option<&str>) -> SubagentStatus {
+    match status {
+        Some("inProgress") => SubagentStatus::Running,
+        Some("failed") => SubagentStatus::Failed,
+        _ => SubagentStatus::Completed,
+    }
+}
+
+fn label_for_subagent(subagent: &SubagentThreadSnapshot) -> &str {
+    subagent
+        .nickname
+        .as_deref()
+        .or(subagent.role.as_deref())
+        .unwrap_or(subagent.thread_id.as_str())
 }
 
 fn item_id(item: &ConversationItem) -> &str {

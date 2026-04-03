@@ -98,6 +98,24 @@ pub struct ThreadTokenUsageSnapshot {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum SubagentStatus {
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentThreadSnapshot {
+    pub thread_id: String,
+    pub nickname: Option<String>,
+    pub role: Option<String>,
+    pub depth: i32,
+    pub status: SubagentStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum ConversationApprovalKind {
     CommandExecution,
     FileChange,
@@ -399,6 +417,7 @@ pub struct ThreadConversationSnapshot {
     pub status: ConversationStatus,
     pub active_turn_id: Option<String>,
     pub items: Vec<ConversationItem>,
+    pub subagents: Vec<SubagentThreadSnapshot>,
     pub token_usage: Option<ThreadTokenUsageSnapshot>,
     pub pending_interactions: Vec<ConversationInteraction>,
     pub proposed_plan: Option<ProposedPlanSnapshot>,
@@ -420,6 +439,7 @@ impl ThreadConversationSnapshot {
             status: ConversationStatus::Idle,
             active_turn_id: None,
             items: Vec::new(),
+            subagents: Vec::new(),
             token_usage: None,
             pending_interactions: Vec::new(),
             proposed_plan: None,
