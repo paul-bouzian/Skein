@@ -32,6 +32,7 @@ beforeEach(() => {
     diffErrorByContext: {},
     commitMessageByEnvironmentId: {},
     loadingByContext: {},
+    reviewRequestIdByContext: {},
     diffLoadingByContext: {},
     diffRequestIdByContext: {},
     actionByEnvironmentId: {},
@@ -107,6 +108,57 @@ describe("git-review-store", () => {
     await first;
 
     expect(useGitReviewStore.getState().scopeByEnvironmentId["env-1"]).toBe("branch");
+  });
+
+  it("ignores stale snapshot responses for the same context", async () => {
+    let resolveFirst: ((value: ReturnType<typeof makeGitReviewSnapshot>) => void) | undefined;
+    mockedBridge.getGitReviewSnapshot.mockImplementation(() => {
+      if (!resolveFirst) {
+        return new Promise((resolve) => {
+          resolveFirst = resolve as typeof resolveFirst;
+        });
+      }
+      return Promise.resolve(
+        makeGitReviewSnapshot({
+          summary: {
+            environmentId: "env-1",
+            repoPath: "/tmp/env-1",
+            branch: "main",
+            baseBranch: "main",
+            dirty: true,
+            ahead: 2,
+            behind: 0,
+            hasStagedChanges: false,
+            hasUnstagedChanges: true,
+            hasUntrackedChanges: false,
+          },
+        }),
+      );
+    });
+
+    const first = useGitReviewStore.getState().loadReview("env-1");
+    await useGitReviewStore.getState().refreshReview("env-1");
+    resolveFirst?.(
+      makeGitReviewSnapshot({
+        summary: {
+          environmentId: "env-1",
+          repoPath: "/tmp/env-1",
+          branch: "main",
+          baseBranch: "main",
+          dirty: false,
+          ahead: 0,
+          behind: 0,
+          hasStagedChanges: false,
+          hasUnstagedChanges: false,
+          hasUntrackedChanges: false,
+        },
+      }),
+    );
+    await first;
+
+    expect(
+      useGitReviewStore.getState().snapshotsByContext["env-1:uncommitted"]?.summary.ahead,
+    ).toBe(2);
   });
 
   it("stores a generated commit message per environment", async () => {
@@ -304,5 +356,45 @@ describe("git-review-store", () => {
     resolvers[1]?.(makeGitFileDiff({ path: "src/a.ts" }));
     await Promise.all([first, second]);
     expect(useGitReviewStore.getState().diffLoadingByContext["env-1:uncommitted"]).toBe(false);
+  });
+
+  it("invalidates cached diffs when a fresh snapshot lands", async () => {
+    mockedBridge.getGitReviewSnapshot.mockResolvedValue(makeGitReviewSnapshot());
+    mockedBridge.getGitFileDiff.mockResolvedValue(makeGitFileDiff());
+
+    await useGitReviewStore.getState().loadReview("env-1");
+    await useGitReviewStore
+      .getState()
+      .selectFile("env-1", "uncommitted", "unstaged", "src/lib.ts");
+
+    const initialCalls = mockedBridge.getGitFileDiff.mock.calls.length;
+
+    mockedBridge.getGitReviewSnapshot.mockResolvedValue(
+      makeGitReviewSnapshot({
+        sections: [
+          {
+            id: "unstaged",
+            label: "Unstaged",
+            files: [
+              {
+                path: "src/lib.ts",
+                oldPath: null,
+                section: "unstaged",
+                kind: "modified",
+                additions: null,
+                deletions: null,
+                canStage: true,
+                canUnstage: false,
+                canRevert: true,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await useGitReviewStore.getState().refreshReview("env-1");
+
+    expect(mockedBridge.getGitFileDiff.mock.calls.length).toBeGreaterThan(initialCalls);
   });
 });

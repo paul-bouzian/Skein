@@ -111,12 +111,17 @@ export function CommitSection({
   onPush: () => void;
 }) {
   const actionPending = Boolean(action);
+  const draftLocked = generating || action === "commit";
   const primaryMode = summary.hasStagedChanges
     ? "commit"
     : summary.ahead > 0
       ? "push"
       : "idle";
-  const primaryDisabled = isPrimaryActionDisabled(actionPending, primaryMode, message);
+  const primaryDisabled = isPrimaryActionDisabled(
+    actionPending || generating,
+    primaryMode,
+    message,
+  );
 
   return (
     <section className="inspector-section">
@@ -126,7 +131,7 @@ export function CommitSection({
           <button
             type="button"
             className="inspector-inline-action"
-            disabled={actionPending}
+            disabled={actionPending || generating}
             onClick={onFetch}
           >
             Fetch
@@ -134,7 +139,7 @@ export function CommitSection({
           <button
             type="button"
             className="inspector-inline-action"
-            disabled={actionPending}
+            disabled={actionPending || generating}
             onClick={onPull}
           >
             {summary.behind > 0 ? (
@@ -153,6 +158,7 @@ export function CommitSection({
           <textarea
             className="inspector-commit__textarea"
             aria-label="Commit message"
+            readOnly={draftLocked}
             placeholder="Write a commit message"
             rows={3}
             value={message}

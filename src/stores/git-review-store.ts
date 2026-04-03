@@ -18,6 +18,7 @@ type GitReviewState = {
   diffErrorByContext: Record<string, string | null>;
   commitMessageByEnvironmentId: Record<string, string>;
   loadingByContext: Record<string, boolean>;
+  reviewRequestIdByContext: Record<string, number>;
   diffLoadingByContext: Record<string, boolean>;
   diffRequestIdByContext: Record<string, number>;
   actionByEnvironmentId: Record<string, string | null>;
@@ -69,6 +70,7 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   diffErrorByContext: {},
   commitMessageByEnvironmentId: {},
   loadingByContext: {},
+  reviewRequestIdByContext: {},
   diffLoadingByContext: {},
   diffRequestIdByContext: {},
   actionByEnvironmentId: {},
@@ -78,10 +80,15 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   loadReview: async (environmentId, explicitScope) => {
     const scope = explicitScope ?? get().scopeByEnvironmentId[environmentId] ?? "uncommitted";
     const contextKey = reviewContextKey(environmentId, scope);
+    const requestId = nextRequestId(get().reviewRequestIdByContext[contextKey]);
     set((state) => ({
       scopeByEnvironmentId: {
         ...state.scopeByEnvironmentId,
         [environmentId]: scope,
+      },
+      reviewRequestIdByContext: {
+        ...state.reviewRequestIdByContext,
+        [contextKey]: requestId,
       },
       loadingByContext: {
         ...state.loadingByContext,
@@ -95,19 +102,23 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
 
     try {
       const snapshot = await bridge.getGitReviewSnapshot({ environmentId, scope });
-      await applySnapshot(snapshot, set, get);
+      await applySnapshot(snapshot, contextKey, requestId, set, get);
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to load Git review";
       set((state) => ({
-        loadingByContext: {
-          ...state.loadingByContext,
-          [contextKey]: false,
-        },
-        errorByEnvironmentId: {
-          ...state.errorByEnvironmentId,
-          [environmentId]: message,
-        },
+        ...(state.reviewRequestIdByContext[contextKey] === requestId
+          ? {
+              loadingByContext: {
+                ...state.loadingByContext,
+                [contextKey]: false,
+              },
+              errorByEnvironmentId: {
+                ...state.errorByEnvironmentId,
+                [environmentId]: message,
+              },
+            }
+          : {}),
       }));
     }
   },
@@ -133,7 +144,7 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
         [contextKey]: null,
       },
     }));
-    await loadDiffBundle(environmentId, scope, section, path, set, get);
+    await loadDiffBundle(environmentId, scope, section, path, null, set, get);
   },
 
   closeDiff: (environmentId, explicitScope) => {
@@ -330,10 +341,16 @@ async function runReviewMutation(
   get: () => GitReviewState,
 ): Promise<boolean> {
   const scope = get().scopeByEnvironmentId[environmentId] ?? "uncommitted";
+  const contextKey = reviewContextKey(environmentId, scope);
+  const requestId = nextRequestId(get().reviewRequestIdByContext[contextKey]);
   set((state) => ({
     actionByEnvironmentId: {
       ...state.actionByEnvironmentId,
       [environmentId]: action,
+    },
+    reviewRequestIdByContext: {
+      ...state.reviewRequestIdByContext,
+      [contextKey]: requestId,
     },
     errorByEnvironmentId: {
       ...state.errorByEnvironmentId,
@@ -343,16 +360,20 @@ async function runReviewMutation(
 
   try {
     const snapshot = await operation(scope);
-    await applySnapshot(snapshot, set, get);
+    await applySnapshot(snapshot, contextKey, requestId, set, get);
     return true;
   } catch (cause: unknown) {
     const message =
       cause instanceof Error ? cause.message : "Git action failed";
     set((state) => ({
-      errorByEnvironmentId: {
-        ...state.errorByEnvironmentId,
-        [environmentId]: message,
-      },
+      ...(state.reviewRequestIdByContext[contextKey] === requestId
+        ? {
+            errorByEnvironmentId: {
+              ...state.errorByEnvironmentId,
+              [environmentId]: message,
+            },
+          }
+        : {}),
     }));
     return false;
   } finally {
@@ -367,12 +388,17 @@ async function runReviewMutation(
 
 async function applySnapshot(
   snapshot: GitReviewSnapshot,
+  contextKey: string,
+  requestId: number,
   set: GitReviewSetter,
   get: () => GitReviewState,
 ) {
-  const contextKey = reviewContextKey(snapshot.environmentId, snapshot.scope);
+  if (get().reviewRequestIdByContext[contextKey] !== requestId) {
+    return;
+  }
   const previousFileKey = get().selectedFileByContext[contextKey];
   const nextSelection = findNextSelectedFile(snapshot, previousFileKey);
+  const nextDiffRequestId = nextRequestId(get().diffRequestIdByContext[contextKey]);
 
   set((state) => ({
     scopeByEnvironmentId: state.scopeByEnvironmentId[snapshot.environmentId]
@@ -384,6 +410,18 @@ async function applySnapshot(
     snapshotsByContext: {
       ...state.snapshotsByContext,
       [contextKey]: snapshot,
+    },
+    diffsByContext: {
+      ...state.diffsByContext,
+      [contextKey]: {},
+    },
+    diffErrorByContext: {
+      ...state.diffErrorByContext,
+      [contextKey]: null,
+    },
+    diffRequestIdByContext: {
+      ...state.diffRequestIdByContext,
+      [contextKey]: nextDiffRequestId,
     },
     selectedFileByContext: {
       ...state.selectedFileByContext,
@@ -403,6 +441,7 @@ async function applySnapshot(
       snapshot.scope,
       nextSelection.section,
       nextSelection.path,
+      nextDiffRequestId,
       set,
       get,
     );
@@ -426,6 +465,7 @@ async function loadDiffBundle(
   scope: GitReviewScope,
   section: GitChangeSection,
   path: string,
+  existingRequestId: number | null,
   set: GitReviewSetter,
   get: () => GitReviewState,
 ) {
@@ -447,7 +487,7 @@ async function loadDiffBundle(
     return;
   }
 
-  const requestId = (get().diffRequestIdByContext[contextKey] ?? 0) + 1;
+  const requestId = existingRequestId ?? nextRequestId(get().diffRequestIdByContext[contextKey]);
   set((state) => ({
     diffLoadingByContext: {
       ...state.diffLoadingByContext,
@@ -476,6 +516,9 @@ async function loadDiffBundle(
         section: file.section,
         path: file.path,
       });
+      if (get().diffRequestIdByContext[contextKey] !== requestId) {
+        return;
+      }
       set((state) => ({
         diffsByContext: {
           ...state.diffsByContext,
@@ -570,4 +613,8 @@ function reviewContextKey(environmentId: string, scope: GitReviewScope) {
 
 function changedFileKey(section: GitChangeSection, path: string) {
   return `${section}:${path}`;
+}
+
+function nextRequestId(current: number | undefined) {
+  return (current ?? 0) + 1;
 }

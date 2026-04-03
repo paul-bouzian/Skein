@@ -77,6 +77,11 @@ pub fn revert_all(repo_root: &Path) -> AppResult<()> {
             "Cannot revert all changes in a repository without commits.".to_string(),
         ));
     }
+    if has_untracked_files(repo_root)? {
+        return Err(AppError::Validation(
+            "Cannot revert all changes while untracked files are present.".to_string(),
+        ));
+    }
     run_git(
         repo_root,
         ["restore", "--source=HEAD", "--staged", "--worktree", "--", "."],
@@ -200,7 +205,11 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
 
     let mut child = command.spawn().map_err(AppError::from)?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(prompt.as_bytes()).map_err(AppError::from)?;
+        if let Err(error) = stdin.write_all(prompt.as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(AppError::from(error));
+        }
     }
 
     let output = wait_for_child_output(
@@ -238,6 +247,15 @@ fn truncate_diff(diff: &str, limit: usize) -> String {
     let mut truncated = diff[..truncate_at].to_string();
     truncated.push_str("\n\n[diff truncated]");
     truncated
+}
+
+fn has_untracked_files(repo_root: &Path) -> AppResult<bool> {
+    Ok(!read_command_stdout(
+        repo_root,
+        ["ls-files", "--others", "--exclude-standard"],
+    )?
+    .trim()
+    .is_empty())
 }
 
 fn wait_for_child_output(
@@ -376,6 +394,23 @@ mod tests {
     }
 
     #[test]
+    fn revert_all_rejects_repositories_with_untracked_files() -> AppResult<()> {
+        let repo = TestRepo::new()?;
+        let tracked = repo.path.join("tracked.txt");
+        fs::write(&tracked, "tracked\n")?;
+        stage_file(&repo.path, "tracked.txt")?;
+        repo.run(["commit", "-m", "feat: add tracked file"])?;
+
+        fs::write(repo.path.join("untracked.txt"), "orphan\n")?;
+
+        let error = super::revert_all(&repo.path).expect_err("untracked files should fail");
+        assert!(error
+            .to_string()
+            .contains("while untracked files are present"));
+        Ok(())
+    }
+
+    #[test]
     fn truncate_diff_keeps_utf8_boundaries() {
         let truncated = super::truncate_diff("ééé", 1);
         assert!(truncated.ends_with("[diff truncated]"));
@@ -383,8 +418,9 @@ mod tests {
 
     #[test]
     fn wait_for_child_output_times_out() {
-        let child = Command::new("sh")
-            .args(["-c", "sleep 1"])
+        let child = Command::new("git")
+            .args(["hash-object", "--stdin"])
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
