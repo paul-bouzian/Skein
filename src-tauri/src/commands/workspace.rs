@@ -70,6 +70,9 @@ pub async fn delete_worktree_environment(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
+    state
+        .workspace
+        .ensure_worktree_environment_can_be_deleted(&environment_id)?;
     state.runtime.stop(&environment_id).await?;
     Ok(state
         .workspace

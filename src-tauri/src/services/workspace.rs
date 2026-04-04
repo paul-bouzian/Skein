@@ -357,12 +357,7 @@ impl WorkspaceService {
     }
 
     pub fn delete_worktree_environment(&self, environment_id: &str) -> AppResult<()> {
-        let metadata = self.worktree_environment_metadata(environment_id)?;
-        if matches!(metadata.kind, EnvironmentKind::Local) {
-            return Err(AppError::Validation(
-                "The local environment cannot be deleted.".to_string(),
-            ));
-        }
+        let metadata = self.deletable_worktree_environment_metadata(environment_id)?;
 
         if metadata.project_root.is_dir() {
             git::remove_worktree(&metadata.project_root, &metadata.environment_path)?;
@@ -385,6 +380,14 @@ impl WorkspaceService {
             return Err(AppError::NotFound("Environment not found.".to_string()));
         }
 
+        Ok(())
+    }
+
+    pub fn ensure_worktree_environment_can_be_deleted(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<()> {
+        self.deletable_worktree_environment_metadata(environment_id)?;
         Ok(())
     }
 
@@ -798,6 +801,20 @@ impl WorkspaceService {
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
+    }
+
+    fn deletable_worktree_environment_metadata(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<WorktreeEnvironmentMetadata> {
+        let metadata = self.worktree_environment_metadata(environment_id)?;
+        if matches!(metadata.kind, EnvironmentKind::Local) {
+            return Err(AppError::Validation(
+                "The local environment cannot be deleted.".to_string(),
+            ));
+        }
+
+        Ok(metadata)
     }
 
     fn ensure_local_environment(

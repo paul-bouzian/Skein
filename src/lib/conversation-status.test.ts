@@ -115,4 +115,16 @@ describe("conversation status helpers", () => {
 
     expect(deriveEnvironmentConversationStatus(environment, {})).toBe("running");
   });
+
+  it("keeps stopped environments neutral when active threads have no snapshots yet", () => {
+    const environment = makeEnvironment({
+      runtime: {
+        environmentId: "env-1",
+        state: "stopped",
+      },
+      threads: [makeThread()],
+    });
+
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
+  });
 });

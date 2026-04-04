@@ -109,19 +109,16 @@ export function deriveEnvironmentConversationStatus(
     return "idle";
   }
 
-  return fallbackConversationStatus(environment.runtime.state, activeThreadIds.length > 0);
+  return fallbackConversationStatus(environment.runtime.state);
 }
 
-function fallbackConversationStatus(
-  runtimeState: RuntimeState,
-  hasActiveThreads: boolean,
-): ConversationStatus {
+function fallbackConversationStatus(runtimeState: RuntimeState): ConversationStatus {
   switch (runtimeState) {
     case "running":
       return "running";
     case "exited":
       return "interrupted";
     case "stopped":
-      return hasActiveThreads ? "completed" : "idle";
+      return "idle";
   }
 }

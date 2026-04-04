@@ -56,8 +56,13 @@ fn first_meaningful_line(message: &str) -> Option<String> {
     message
         .lines()
         .map(str::trim)
-        .find(|line| !line.is_empty() && *line != "```")
+        .find(|line| !line.is_empty() && !is_fenced_code_marker(line))
         .map(ToOwned::to_owned)
+}
+
+fn is_fenced_code_marker(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("```") || trimmed.starts_with("~~~")
 }
 
 fn strip_markdown_prefixes(line: &str) -> String {
@@ -118,5 +123,20 @@ mod tests {
         .expect("title should exist");
 
         assert_eq!(title, "Investigate why the environment status...");
+    }
+
+    #[test]
+    fn skips_fenced_code_markers_when_deriving_titles() {
+        let title =
+            derive_thread_title_from_message("```ts\nconst status = compute(env);\n```")
+                .expect("title should exist");
+
+        assert_eq!(title, "const status = compute(env)");
+    }
+
+    #[test]
+    fn ignores_messages_that_only_contain_code_fences() {
+        assert_eq!(derive_thread_title_from_message("```bash\n```"), None);
+        assert_eq!(derive_thread_title_from_message("~~~python\n~~~"), None);
     }
 }
