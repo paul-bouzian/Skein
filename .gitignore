@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local-only planning and agent notes
+docs/engineering-standards.md
+docs/project-brief.md

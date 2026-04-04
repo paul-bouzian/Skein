@@ -2,7 +2,7 @@
   "name": "threadex",
   "private": true,
   "version": "0.1.0",
-  "description": "Temporary private working repo for a Codex-first macOS desktop app",
+  "description": "Local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
   "packageManager": "bun@1.2.19",
   "type": "module",
   "scripts": {

@@ -75,9 +75,9 @@ Do not clone another app visually. Reuse behavior and product framing, not brand
 
 ### Local docs
 
-- `docs/engineering-standards.md`
-- `docs/project-brief.md`
 - `.codex/skills/threadex-standards/SKILL.md`
+
+Local-only engineering or project notes may exist in `docs/`, but they are not part of the public repository contract and should not be assumed to be tracked.
 
 If protocol details are unclear, generate the local schema:
 
