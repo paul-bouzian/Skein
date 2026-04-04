@@ -54,9 +54,11 @@ jobs:
             prerelease=true
           fi
 
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -94,9 +96,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
-          git commit -m "chore(release): cut v$RELEASE_VERSION
-
-Co-authored-by: Codex <noreply@openai.com>"
+          git commit \
+            -m "chore(release): cut v$RELEASE_VERSION" \
+            -m "Co-authored-by: Codex <noreply@openai.com>"
           git push origin HEAD:main
 
       - name: Install dependencies
@@ -122,9 +124,11 @@ Co-authored-by: Codex <noreply@openai.com>"
           set -euo pipefail
           key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID_VALUE}.p8"
           printf '%s' "$APPLE_API_PRIVATE_KEY" > "$key_path"
-          echo "path=$key_path" >> "$GITHUB_OUTPUT"
-          echo "key_id=$APPLE_API_KEY_ID_VALUE" >> "$GITHUB_OUTPUT"
-          echo "issuer=$APPLE_API_ISSUER_VALUE" >> "$GITHUB_OUTPUT"
+          {
+            echo "path=$key_path"
+            echo "key_id=$APPLE_API_KEY_ID_VALUE"
+            echo "issuer=$APPLE_API_ISSUER_VALUE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Ensure release tag exists on current main
         shell: bash
