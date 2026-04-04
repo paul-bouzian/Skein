@@ -101,3 +101,47 @@ pub struct ManagedWorktreeCreateResult {
     pub environment: EnvironmentRecord,
     pub thread: ThreadRecord,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexPlanType {
+    Free,
+    Go,
+    Plus,
+    Pro,
+    Team,
+    SelfServeBusinessUsageBased,
+    Business,
+    EnterpriseCbpUsageBased,
+    Enterprise,
+    Edu,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexCreditsSnapshot {
+    pub balance: Option<String>,
+    pub has_credits: bool,
+    pub unlimited: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexRateLimitWindow {
+    pub resets_at: Option<i64>,
+    pub used_percent: i32,
+    pub window_duration_mins: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexRateLimitSnapshot {
+    pub credits: Option<CodexCreditsSnapshot>,
+    pub limit_id: Option<String>,
+    pub limit_name: Option<String>,
+    pub plan_type: Option<CodexPlanType>,
+    pub primary: Option<CodexRateLimitWindow>,
+    pub secondary: Option<CodexRateLimitWindow>,
+}

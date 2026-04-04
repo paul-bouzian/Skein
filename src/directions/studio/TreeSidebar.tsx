@@ -21,6 +21,7 @@ import type {
   ReasoningEffort,
   ThreadConversationSnapshot,
 } from "../../lib/types";
+import { SidebarUsagePanel } from "./SidebarUsagePanel";
 import { useProjectImport } from "./useProjectImport";
 import "./TreeSidebar.css";
 
@@ -298,6 +299,9 @@ function ProjectsTree() {
             </section>
           ))
         )}
+      </div>
+      <div className="tree-sidebar__footer">
+        <SidebarUsagePanel />
       </div>
       {contextMenu &&
         createPortal(

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -21,6 +22,7 @@ use crate::domain::conversation::{
     ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
+use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
 use crate::runtime::protocol::{
     append_agent_delta, append_plan_delta, append_reasoning_boundary, append_reasoning_content,
@@ -32,11 +34,12 @@ use crate::runtime::protocol::{
     normalize_server_interaction, parse_incoming_message, plan_approval_message,
     proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
     subagents_from_collab_item, token_usage_snapshot, upsert_item, user_input_payload,
-    CollaborationModeListResponse, ErrorNotification, IncomingMessage, ItemDeltaNotification,
-    ItemNotification, ModelListResponse, PlanDeltaNotification, ReasoningBoundaryNotification,
-    ThreadListResponse, ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
+    AccountRateLimitsReadResponse, CollaborationModeListResponse, ErrorNotification,
+    IncomingMessage, ItemDeltaNotification, ItemNotification, ModelListResponse,
+    PlanDeltaNotification, ReasoningBoundaryNotification, ThreadListResponse,
+    ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
     TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
-    TurnStartedNotification, CONVERSATION_EVENT_NAME,
+    TurnStartedNotification, CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
 };
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -96,6 +99,32 @@ impl RuntimeSession {
         binary_path: String,
         app_version: String,
     ) -> AppResult<Self> {
+        Self::spawn_with_app(
+            Some(app),
+            environment_id,
+            environment_path,
+            binary_path,
+            app_version,
+        )
+        .await
+    }
+
+    pub async fn spawn_headless(
+        environment_id: String,
+        environment_path: String,
+        binary_path: String,
+        app_version: String,
+    ) -> AppResult<Self> {
+        Self::spawn_with_app(None, environment_id, environment_path, binary_path, app_version).await
+    }
+
+    async fn spawn_with_app(
+        app: Option<AppHandle>,
+        environment_id: String,
+        environment_path: String,
+        binary_path: String,
+        app_version: String,
+    ) -> AppResult<Self> {
         let mut command = Command::new(&binary_path);
         command
             .arg("app-server")
@@ -116,7 +145,7 @@ impl RuntimeSession {
         })?;
 
         Self::from_transport(
-            Some(app),
+            app,
             environment_id,
             app_version,
             SessionTransport {
@@ -513,6 +542,16 @@ impl RuntimeSession {
     pub async fn pid(&self) -> Option<u32> {
         let child = self.child.as_ref()?;
         child.lock().await.id()
+    }
+
+    pub async fn read_account_rate_limits(&self) -> AppResult<CodexRateLimitSnapshot> {
+        Ok(self
+            .request_typed::<AccountRateLimitsReadResponse>(
+                "account/rateLimits/read",
+                serde_json::json!({}),
+            )
+            .await?
+            .rate_limits)
     }
 
     async fn ensure_capabilities(&self) -> AppResult<EnvironmentCapabilitiesSnapshot> {
@@ -1011,6 +1050,7 @@ impl RuntimeSession {
             warn!("failed to emit conversation snapshot: {error}");
         }
     }
+
 }
 
 fn spawn_stdout_task<R>(
@@ -1369,6 +1409,9 @@ async fn handle_notification(
                 .await;
             }
         }
+        "account/rateLimits/updated" => {
+            emit_usage_from_handle(app, environment_id, &notification.params);
+        }
         "error" => {
             if let Ok(event) = serde_json::from_value::<ErrorNotification>(notification.params) {
                 if let Some(thread_id) = event.thread_id {
@@ -1686,6 +1729,30 @@ fn emit_snapshot_from_handle(app: &Option<AppHandle>, snapshot: ThreadConversati
     }
 }
 
+fn emit_usage_from_handle(
+    app: &Option<AppHandle>,
+    environment_id: &str,
+    params: &Value,
+) {
+    let Some(app) = app.as_ref() else {
+        return;
+    };
+    let Some(payload) = usage_event_payload(environment_id, params) else {
+        return;
+    };
+    if let Err(error) = app.emit(CODEX_USAGE_EVENT_NAME, payload) {
+        warn!("failed to emit codex usage snapshot: {error}");
+    }
+}
+
+fn usage_event_payload(environment_id: &str, params: &Value) -> Option<Value> {
+    let rate_limits = params.get("rateLimits")?.clone();
+    Some(json!({
+        "environmentId": environment_id,
+        "rateLimits": rate_limits,
+    }))
+}
+
 fn mark_item_streaming(item: ConversationItem) -> ConversationItem {
     match item {
         ConversationItem::Reasoning(mut reasoning) => {
@@ -1733,6 +1800,31 @@ mod tests {
         reconcile_snapshot_status(&mut snapshot);
 
         assert!(matches!(snapshot.status, ConversationStatus::Failed));
+    }
+
+    #[test]
+    fn usage_event_payload_preserves_partial_rate_limit_updates() {
+        let payload = usage_event_payload(
+            "env-1",
+            &json!({
+                "rateLimits": {
+                    "primary": {
+                        "resetsAt": 1_775_306_400
+                    }
+                }
+            }),
+        )
+        .expect("rate limits payload should be emitted");
+
+        assert_eq!(payload["environmentId"], json!("env-1"));
+        assert_eq!(payload["rateLimits"]["primary"]["resetsAt"], json!(1_775_306_400));
+        assert!(payload["rateLimits"]["primary"].get("usedPercent").is_none());
+        assert!(payload["rateLimits"].get("secondary").is_none());
+    }
+
+    #[test]
+    fn usage_event_payload_requires_rate_limits_object() {
+        assert!(usage_event_payload("env-1", &json!({})).is_none());
     }
 
     #[tokio::test]

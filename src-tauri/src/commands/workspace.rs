@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord,
+    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord,
     WorkspaceSnapshot,
 };
 use crate::error::CommandError;
@@ -123,4 +123,18 @@ pub async fn stop_environment_runtime(
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
     Ok(state.runtime.stop(&environment_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_environment_codex_rate_limits(
+    environment_id: String,
+    state: State<'_, AppState>,
+) -> Result<CodexRateLimitSnapshot, CommandError> {
+    let (environment_path, codex_binary_path) = state
+        .workspace
+        .environment_runtime_target(&environment_id)?;
+    Ok(state
+        .runtime
+        .read_account_rate_limits(&environment_id, &environment_path, codex_binary_path)
+        .await?)
 }

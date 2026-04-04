@@ -10,10 +10,10 @@ use super::protocol::{
     approval_policy_value, build_history_snapshot, collaboration_mode_options_from_response,
     complete_proposed_plan, loaded_subagents_for_primary, model_options_from_response,
     normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
-    sandbox_policy_value, subagents_from_collab_item, CollaborationModeListResponse,
-    CollaborationModeWire, IncomingMessage, ModelListResponse, ModelWire,
-    ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire, ThreadStatusWire,
-    ThreadWire,
+    sandbox_policy_value, subagents_from_collab_item, AccountRateLimitsReadResponse,
+    CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
+    ModelWire, ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire,
+    ThreadStatusWire, ThreadWire,
 };
 
 fn composer() -> ConversationComposerSettings {
@@ -45,6 +45,55 @@ fn parses_json_rpc_responses_and_notifications() {
         notification,
         IncomingMessage::Notification(envelope) if envelope.method == "turn/started"
     ));
+}
+
+#[test]
+fn decodes_account_rate_limit_payloads() {
+    let response = serde_json::from_value::<AccountRateLimitsReadResponse>(json!({
+        "rateLimits": {
+            "planType": "pro",
+            "primary": {
+                "usedPercent": 38,
+                "windowDurationMins": 300,
+                "resetsAt": 1_775_306_400
+            },
+            "secondary": {
+                "usedPercent": 12,
+                "windowDurationMins": 10_080,
+                "resetsAt": 1_775_910_400
+            }
+        }
+    }))
+    .expect("account rate limit response should decode");
+
+    assert_eq!(response.rate_limits.primary.as_ref().map(|window| window.used_percent), Some(38));
+    assert_eq!(
+        response
+            .rate_limits
+            .secondary
+            .as_ref()
+            .and_then(|window| window.window_duration_mins),
+        Some(10_080),
+    );
+
+}
+
+#[test]
+fn unknown_plan_types_fall_back_to_unknown() {
+    let response = serde_json::from_value::<AccountRateLimitsReadResponse>(json!({
+        "rateLimits": {
+            "planType": "brand_new_plan",
+            "primary": {
+                "usedPercent": 25
+            }
+        }
+    }))
+    .expect("unknown plan types should still decode");
+
+    assert_eq!(
+        response.rate_limits.plan_type,
+        Some(crate::domain::workspace::CodexPlanType::Unknown)
+    );
 }
 
 #[test]

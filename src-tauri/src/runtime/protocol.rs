@@ -14,9 +14,11 @@ use crate::domain::conversation::{
     ThreadTokenUsageSnapshot, TokenUsageBreakdown, UnsupportedInteractionRequest,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
+use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
 
 pub const CONVERSATION_EVENT_NAME: &str = "threadex://conversation-event";
+pub const CODEX_USAGE_EVENT_NAME: &str = "threadex://codex-usage-event";
 
 #[derive(Debug, Clone)]
 pub enum IncomingMessage {
@@ -371,6 +373,12 @@ pub struct ReasoningEffortOptionWire {
 #[serde(rename_all = "camelCase")]
 pub struct CollaborationModeListResponse {
     pub data: Vec<CollaborationModeWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountRateLimitsReadResponse {
+    pub rate_limits: CodexRateLimitSnapshot,
 }
 
 #[derive(Debug, Clone, Deserialize)]

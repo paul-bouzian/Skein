@@ -118,6 +118,45 @@ export type ManagedWorktreeCreateResult = {
   thread: ThreadRecord;
 };
 
+export type CodexPlanType =
+  | "free"
+  | "go"
+  | "plus"
+  | "pro"
+  | "team"
+  | "self_serve_business_usage_based"
+  | "business"
+  | "enterprise_cbp_usage_based"
+  | "enterprise"
+  | "edu"
+  | "unknown";
+
+export type CodexCreditsSnapshot = {
+  balance?: string | null;
+  hasCredits: boolean;
+  unlimited: boolean;
+};
+
+export type CodexRateLimitWindow = {
+  resetsAt?: number | null;
+  usedPercent: number;
+  windowDurationMins?: number | null;
+};
+
+export type CodexRateLimitSnapshot = {
+  credits?: CodexCreditsSnapshot | null;
+  limitId?: string | null;
+  limitName?: string | null;
+  planType?: CodexPlanType | null;
+  primary?: CodexRateLimitWindow | null;
+  secondary?: CodexRateLimitWindow | null;
+};
+
+export type CodexUsageEventPayload = {
+  environmentId: string;
+  rateLimits: CodexRateLimitSnapshot;
+};
+
 /* ── Git review ── */
 
 export type GitRepoSummary = {

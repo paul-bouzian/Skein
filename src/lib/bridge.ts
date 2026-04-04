@@ -6,6 +6,8 @@ import type {
   ArchiveThreadRequest,
   BootstrapStatus,
   CommitGitInput,
+  CodexRateLimitSnapshot,
+  CodexUsageEventPayload,
   ConversationEventPayload,
   CreateThreadRequest,
   GitFileDiff,
@@ -170,6 +172,23 @@ export function listenToConversationEvents(
 ): Promise<UnlistenFn> {
   return listen<ConversationEventPayload>(
     "threadex://conversation-event",
+    (event) => callback(event.payload),
+  );
+}
+
+export function getEnvironmentCodexRateLimits(
+  environmentId: string,
+): Promise<CodexRateLimitSnapshot> {
+  return invoke<CodexRateLimitSnapshot>("get_environment_codex_rate_limits", {
+    environmentId,
+  });
+}
+
+export function listenToCodexUsageEvents(
+  callback: (payload: CodexUsageEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<CodexUsageEventPayload>(
+    "threadex://codex-usage-event",
     (event) => callback(event.payload),
   );
 }

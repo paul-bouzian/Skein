@@ -34,6 +34,10 @@ vi.mock("./useProjectImport", () => ({
   }),
 }));
 
+vi.mock("./SidebarUsagePanel", () => ({
+  SidebarUsagePanel: () => <div data-testid="sidebar-usage-panel" />,
+}));
+
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   confirm: (...args: unknown[]) => confirmMock(...args),
 }));
