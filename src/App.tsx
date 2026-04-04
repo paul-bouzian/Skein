@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useConversationStore } from "./stores/conversation-store";
+import { useCodexUsageStore } from "./stores/codex-usage-store";
 import { useAppUpdateStore } from "./stores/app-update-store";
 import { useWorkspaceStore } from "./stores/workspace-store";
 import { LoadingState } from "./shared/LoadingState";
@@ -13,6 +14,9 @@ function App() {
   const initializeConversationListener = useConversationStore(
     (s) => s.initializeListener,
   );
+  const initializeCodexUsageListener = useCodexUsageStore(
+    (s) => s.initializeListener,
+  );
   const initializeUpdates = useAppUpdateStore((s) => s.initialize);
 
   useEffect(() => {
@@ -22,6 +26,10 @@ function App() {
   useEffect(() => {
     void initializeConversationListener();
   }, [initializeConversationListener]);
+
+  useEffect(() => {
+    void initializeCodexUsageListener();
+  }, [initializeCodexUsageListener]);
 
   useEffect(() => {
     void initializeUpdates();

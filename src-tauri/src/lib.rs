@@ -62,6 +62,7 @@ pub fn run() {
             commands::workspace::archive_thread,
             commands::workspace::start_environment_runtime,
             commands::workspace::stop_environment_runtime,
+            commands::workspace::get_environment_codex_rate_limits,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

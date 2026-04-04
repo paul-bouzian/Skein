@@ -255,6 +255,20 @@ fn spawn_fake_codex(
                 "turn/start" => json!({
                     "turn": { "id": "turn-live-1", "status": "inProgress", "error": null }
                 }),
+                "account/rateLimits/read" => json!({
+                    "rateLimits": {
+                        "primary": {
+                            "usedPercent": 64,
+                            "windowDurationMins": 300,
+                            "resetsAt": 1_775_306_400
+                        },
+                        "secondary": {
+                            "usedPercent": 22,
+                            "windowDurationMins": 10_080,
+                            "resetsAt": 1_775_910_400
+                        }
+                    }
+                }),
                 "turn/interrupt" => json!({}),
                 _ => json!({}),
             };
@@ -426,6 +440,35 @@ async fn interrupt_thread_marks_the_snapshot_interrupted() {
         .expect("turn/interrupt should be issued");
     assert_eq!(interrupt.params["threadId"], "thr-new");
     assert_eq!(interrupt.params["turnId"], "turn-live-1");
+}
+
+#[tokio::test]
+async fn read_account_rate_limits_uses_the_official_app_server_method() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    let rate_limits = session
+        .read_account_rate_limits()
+        .await
+        .expect("rate limits should load");
+
+    assert_eq!(
+        rate_limits.primary.as_ref().map(|window| window.used_percent),
+        Some(64),
+    );
+    assert_eq!(
+        rate_limits
+            .secondary
+            .as_ref()
+            .and_then(|window| window.window_duration_mins),
+        Some(10_080),
+    );
+
+    let requests = harness.requests().await;
+    let read_request = requests
+        .iter()
+        .find(|request| request.method == "account/rateLimits/read")
+        .expect("account/rateLimits/read should be issued");
+    assert_eq!(read_request.params, json!({}));
 }
 
 #[tokio::test]

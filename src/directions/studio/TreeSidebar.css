@@ -55,6 +55,13 @@
   padding: var(--tx-space-sm) 0;
 }
 
+.tree-sidebar__footer {
+  flex-shrink: 0;
+  padding: var(--tx-space-md);
+  border-top: 1px solid var(--tx-border-subtle);
+  background: color-mix(in srgb, var(--tx-bg-base) 82%, transparent);
+}
+
 .tree-sidebar__notice {
   margin: 0 var(--tx-space-lg) var(--tx-space-sm);
   padding: var(--tx-space-sm) var(--tx-space-md);
