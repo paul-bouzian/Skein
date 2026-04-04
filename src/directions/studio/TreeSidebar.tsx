@@ -5,28 +5,29 @@ import {
   deriveEnvironmentConversationStatus,
   indicatorToneForConversationStatus,
 } from "../../lib/conversation-status";
-import { useWorkspaceStore, selectProjects, selectSettings } from "../../stores/workspace-store";
+import {
+  useWorkspaceStore,
+  selectProjects,
+} from "../../stores/workspace-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { GitBranchIcon, PlusIcon } from "../../shared/Icons";
-import type { RailSection } from "./StudioShell";
 import type {
-  ApprovalPolicy,
-  CollaborationMode,
   EnvironmentRecord,
-  GlobalSettings,
-  GlobalSettingsPatch,
-  ReasoningEffort,
   ThreadConversationSnapshot,
 } from "../../lib/types";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
+import { SidebarUtilityActions } from "./SidebarUtilityActions";
+import type { Theme } from "./StudioShell";
 import { useProjectImport } from "./useProjectImport";
 import "./TreeSidebar.css";
 
 type Props = {
-  activeSection: RailSection;
+  theme: Theme;
+  onOpenSettings: () => void;
+  onToggleTheme: () => void;
 };
 
 type ContextMenuState = {
@@ -43,17 +44,15 @@ type ContextMenuState = {
   y: number;
 };
 
-export function TreeSidebar({ activeSection }: Props) {
-  if (activeSection === "settings") return <SettingsPanel />;
-  if (activeSection === "search") return <SearchPanel />;
-  return <ProjectsTree />;
-}
-
-function ProjectsTree() {
+export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const projects = useWorkspaceStore(selectProjects);
-  const snapshotsByThreadId = useConversationStore((state) => state.snapshotsByThreadId);
+  const snapshotsByThreadId = useConversationStore(
+    (state) => state.snapshotsByThreadId,
+  );
   const selectedProjectId = useWorkspaceStore((s) => s.selectedProjectId);
-  const selectedEnvironmentId = useWorkspaceStore((s) => s.selectedEnvironmentId);
+  const selectedEnvironmentId = useWorkspaceStore(
+    (s) => s.selectedEnvironmentId,
+  );
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
@@ -61,7 +60,9 @@ function ProjectsTree() {
   const { error, clearError, importProject, isImporting } = useProjectImport();
   const [actionError, setActionError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [creatingWorktreeProjectId, setCreatingWorktreeProjectId] = useState<string | null>(null);
+  const [creatingWorktreeProjectId, setCreatingWorktreeProjectId] = useState<
+    string | null
+  >(null);
   const notice = actionError ?? error;
 
   useEffect(() => {
@@ -141,7 +142,11 @@ function ProjectsTree() {
   }
 
   async function handleDeleteWorktree(menu: ContextMenuState) {
-    if (menu.kind !== "environment" || !menu.environmentId || !menu.environmentName) {
+    if (
+      menu.kind !== "environment" ||
+      !menu.environmentId ||
+      !menu.environmentName
+    ) {
       return;
     }
 
@@ -205,7 +210,9 @@ function ProjectsTree() {
             <section
               key={project.id}
               className={`project-group ${
-                project.id === selectedProjectId ? "project-group--selected" : ""
+                project.id === selectedProjectId
+                  ? "project-group--selected"
+                  : ""
               }`}
             >
               <div
@@ -228,7 +235,11 @@ function ProjectsTree() {
                   className="project-group__header"
                   onClick={() => handleProjectSelect(project.id)}
                 >
-                  <ProjectIcon name={project.name} rootPath={project.rootPath} size="sm" />
+                  <ProjectIcon
+                    name={project.name}
+                    rootPath={project.rootPath}
+                    size="sm"
+                  />
                   <span className="project-group__meta">
                     <span className="project-group__name">{project.name}</span>
                     {renderProjectLocalSummary(project, snapshotsByThreadId)}
@@ -260,41 +271,57 @@ function ProjectsTree() {
                 {project.environments
                   .filter((environment) => environment.kind !== "local")
                   .map((environment) => (
-                  <button
-                    key={environment.id}
-                    type="button"
-                    className={`environment-item ${
-                      selectedEnvironmentId === environment.id ? "environment-item--selected" : ""
-                    }`}
-                    onClick={() => handleEnvironmentSelect(environment.id)}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      handleEnvironmentSelect(environment.id);
-                      setContextMenu(
-                        buildEnvironmentContextMenuState(
-                          environment,
-                          event.clientX,
-                          event.clientY,
-                        ),
-                      );
-                    }}
-                  >
-                    <span className="environment-item__primary">
-                      <span className="environment-item__name-row">
-                        <GitBranchIcon size={13} className="environment-item__icon" />
-                        <span className="environment-item__name">{environment.name}</span>
-                      </span>
-                      {environment.gitBranch && environment.gitBranch !== environment.name && (
-                        <span className="environment-item__branch" title={environment.gitBranch}>
-                          {environment.gitBranch}
+                    <button
+                      key={environment.id}
+                      type="button"
+                      className={`environment-item ${
+                        selectedEnvironmentId === environment.id
+                          ? "environment-item--selected"
+                          : ""
+                      }`}
+                      onClick={() => handleEnvironmentSelect(environment.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        handleEnvironmentSelect(environment.id);
+                        setContextMenu(
+                          buildEnvironmentContextMenuState(
+                            environment,
+                            event.clientX,
+                            event.clientY,
+                          ),
+                        );
+                      }}
+                    >
+                      <span className="environment-item__primary">
+                        <span className="environment-item__name-row">
+                          <GitBranchIcon
+                            size={13}
+                            className="environment-item__icon"
+                          />
+                          <span className="environment-item__name">
+                            {environment.name}
+                          </span>
                         </span>
-                      )}
-                    </span>
-                    <span className="environment-item__secondary">
-                      <RuntimeIndicator tone={environmentIndicatorTone(environment, snapshotsByThreadId)} />
-                    </span>
-                  </button>
-                ))}
+                        {environment.gitBranch &&
+                          environment.gitBranch !== environment.name && (
+                            <span
+                              className="environment-item__branch"
+                              title={environment.gitBranch}
+                            >
+                              {environment.gitBranch}
+                            </span>
+                          )}
+                      </span>
+                      <span className="environment-item__secondary">
+                        <RuntimeIndicator
+                          tone={environmentIndicatorTone(
+                            environment,
+                            snapshotsByThreadId,
+                          )}
+                        />
+                      </span>
+                    </button>
+                  ))}
               </div>
             </section>
           ))
@@ -302,6 +329,11 @@ function ProjectsTree() {
       </div>
       <div className="tree-sidebar__footer">
         <SidebarUsagePanel />
+        <SidebarUtilityActions
+          theme={theme}
+          onOpenSettings={onOpenSettings}
+          onToggleTheme={onToggleTheme}
+        />
       </div>
       {contextMenu &&
         createPortal(
@@ -359,7 +391,9 @@ function renderProjectLocalSummary(
           {environment.gitBranch}
         </span>
       ) : null}
-      <RuntimeIndicator tone={environmentIndicatorTone(environment, snapshotsByThreadId)} />
+      <RuntimeIndicator
+        tone={environmentIndicatorTone(environment, snapshotsByThreadId)}
+      />
     </span>
   );
 }
@@ -397,195 +431,32 @@ function buildEnvironmentContextMenuState(
     environmentName: environment.name,
     branchName: environment.gitBranch,
     path: environment.path,
-    activeThreadCount: environment.threads.filter((thread) => thread.status === "active").length,
-    archivedThreadCount: environment.threads.filter((thread) => thread.status === "archived").length,
+    activeThreadCount: environment.threads.filter(
+      (thread) => thread.status === "active",
+    ).length,
+    archivedThreadCount: environment.threads.filter(
+      (thread) => thread.status === "archived",
+    ).length,
     x,
     y,
   };
 }
 
-function resolveContextMenuPosition(contextMenu: Pick<ContextMenuState, "x" | "y">) {
+function resolveContextMenuPosition(
+  contextMenu: Pick<ContextMenuState, "x" | "y">,
+) {
   const menuWidth = 220;
   const menuHeight = 56;
   const margin = 12;
 
   return {
-    left: Math.max(margin, Math.min(contextMenu.x, window.innerWidth - menuWidth - margin)),
-    top: Math.max(margin, Math.min(contextMenu.y, window.innerHeight - menuHeight - margin)),
+    left: Math.max(
+      margin,
+      Math.min(contextMenu.x, window.innerWidth - menuWidth - margin),
+    ),
+    top: Math.max(
+      margin,
+      Math.min(contextMenu.y, window.innerHeight - menuHeight - margin),
+    ),
   };
-}
-
-function SettingsPanel() {
-  const settings = useWorkspaceStore(selectSettings);
-  const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  async function handleChange(patch: GlobalSettingsPatch) {
-    setSaving(true);
-    try {
-      setActionError(null);
-      await bridge.updateGlobalSettings(patch);
-      await refreshSnapshot();
-    } catch (cause: unknown) {
-      const message = cause instanceof Error ? cause.message : "Failed to save settings";
-      setActionError(message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <aside className="tree-sidebar">
-      <div className="tree-sidebar__header">
-        <span className="tree-sidebar__title">Settings</span>
-        {saving && <span className="tree-sidebar__saving">Saving...</span>}
-      </div>
-      <div className="tree-sidebar__scroll">
-        {actionError && <p className="tree-sidebar__notice">{actionError}</p>}
-        {settings ? (
-          <SettingsContent settings={settings} onChange={handleChange} />
-        ) : (
-          <p className="tree-sidebar__empty">Loading...</p>
-        )}
-      </div>
-    </aside>
-  );
-}
-
-const MODEL_OPTIONS = [
-  "gpt-5.4",
-  "gpt-5.3-codex",
-  "gpt-5",
-  "o4-mini",
-  "o3",
-  "codex-mini-latest",
-];
-
-const REASONING_OPTIONS: { value: ReasoningEffort; label: string }[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Extra High" },
-];
-
-const COLLABORATION_OPTIONS: { value: CollaborationMode; label: string }[] = [
-  { value: "build", label: "Build" },
-  { value: "plan", label: "Plan" },
-];
-
-const APPROVAL_OPTIONS: { value: ApprovalPolicy; label: string }[] = [
-  { value: "askToEdit", label: "Ask to edit" },
-  { value: "fullAccess", label: "Full access" },
-];
-
-function SettingsContent({
-  settings,
-  onChange,
-}: {
-  settings: GlobalSettings;
-  onChange: (patch: GlobalSettingsPatch) => void;
-}) {
-  return (
-    <div className="settings-list">
-      <SettingsSelect
-        label="Model"
-        value={settings.defaultModel}
-        options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
-        onChange={(v) => onChange({ defaultModel: v })}
-      />
-      <SettingsSelect
-        label="Reasoning"
-        value={settings.defaultReasoningEffort}
-        options={REASONING_OPTIONS}
-        onChange={(v) => onChange({ defaultReasoningEffort: v as ReasoningEffort })}
-      />
-      <SettingsSelect
-        label="Mode"
-        value={settings.defaultCollaborationMode}
-        options={COLLABORATION_OPTIONS}
-        onChange={(v) => onChange({ defaultCollaborationMode: v as CollaborationMode })}
-      />
-      <SettingsSelect
-        label="Approval"
-        value={settings.defaultApprovalPolicy}
-        options={APPROVAL_OPTIONS}
-        onChange={(v) => onChange({ defaultApprovalPolicy: v as ApprovalPolicy })}
-      />
-      <SettingsInput
-        label="Codex binary"
-        value={settings.codexBinaryPath ?? ""}
-        placeholder="auto-detect"
-        onChange={(v) => onChange({ codexBinaryPath: v || null })}
-      />
-    </div>
-  );
-}
-
-function SettingsSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="settings-field">
-      <label className="settings-field__label">{label}</label>
-      <select
-        className="settings-field__select"
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function SettingsInput({
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="settings-field">
-      <label className="settings-field__label">{label}</label>
-      <input
-        className="settings-field__input"
-        type="text"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => onChange(e.target.value)}
-      />
-    </div>
-  );
-}
-
-function SearchPanel() {
-  return (
-    <aside className="tree-sidebar">
-      <div className="tree-sidebar__header">
-        <span className="tree-sidebar__title">Search</span>
-      </div>
-      <div className="tree-sidebar__scroll">
-        <p className="tree-sidebar__empty">Search coming soon</p>
-      </div>
-    </aside>
-  );
 }

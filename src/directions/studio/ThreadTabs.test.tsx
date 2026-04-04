@@ -29,7 +29,7 @@ beforeEach(() => {
     selectedProjectId: "project-1",
     selectedEnvironmentId: "env-1",
     selectedThreadId: "thread-1",
-    refreshSnapshot: vi.fn(async () => {}),
+    refreshSnapshot: vi.fn(async () => true),
   }));
 });
 
@@ -53,7 +53,7 @@ describe("ThreadTabs", () => {
   it("archives the thread after confirmation", async () => {
     confirmMock.mockResolvedValue(true);
     mockedBridge.archiveThread.mockResolvedValue(makeEnvironment().threads[0]);
-    const refreshSnapshot = vi.fn(async () => {});
+    const refreshSnapshot = vi.fn(async () => true);
     useWorkspaceStore.setState((state) => ({
       ...state,
       refreshSnapshot,
