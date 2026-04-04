@@ -18,6 +18,12 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { ComposerPicker } from "./ComposerPicker";
+import {
+  APPROVAL_OPTIONS,
+  composerModelOptions,
+  labelForCollaborationMode,
+  reasoningOptionsFor,
+} from "./composerOptions";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
@@ -291,20 +297,14 @@ function ConversationComposer({
           <ComposerPicker
             label="Model"
             value={composer.model}
-            options={modelOptions.map((option) => ({
-              label: option.displayName,
-              value: option.id,
-            }))}
+            options={composerModelOptions(modelOptions, composer.model)}
             disabled={controlsDisabled}
             onChange={(value) => onUpdateComposer({ model: value })}
           />
           <ComposerPicker
             label="Thinking"
             value={composer.reasoningEffort}
-            options={effortOptions.map((effort) => ({
-              label: effortLabel(effort),
-              value: effort,
-            }))}
+            options={reasoningOptionsFor(effortOptions)}
             disabled={controlsDisabled}
             onChange={(value) =>
               onUpdateComposer({
@@ -317,7 +317,7 @@ function ConversationComposer({
             value={composer.collaborationMode}
             tone={composer.collaborationMode === "plan" ? "accent" : "default"}
             options={collaborationModes.map((option) => ({
-              label: option.label,
+              label: labelForCollaborationMode(option.id, option.label),
               value: option.id,
             }))}
             disabled={controlsDisabled}
@@ -330,10 +330,7 @@ function ConversationComposer({
           <ComposerPicker
             label="Access"
             value={composer.approvalPolicy}
-            options={[
-              { label: "Ask to Edit", value: "askToEdit" },
-              { label: "Full Access", value: "fullAccess" },
-            ]}
+            options={APPROVAL_OPTIONS}
             disabled={controlsDisabled}
             onChange={(value) =>
               onUpdateComposer({
@@ -515,11 +512,6 @@ function ConversationEmpty() {
       <p>Codex is connected. Use Build or Plan mode to start the next turn.</p>
     </div>
   );
-}
-
-function effortLabel(value: string) {
-  if (value === "xhigh") return "Extra High";
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function labelForItemStatus(status: string) {

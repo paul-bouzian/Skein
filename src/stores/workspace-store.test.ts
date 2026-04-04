@@ -175,4 +175,14 @@ describe("workspace store", () => {
     expect(state.selectedEnvironmentId).toBe("env-local");
     expect(state.selectedThreadId).toBe("thread-local");
   });
+
+  it("returns false and stores an error when refresh fails", async () => {
+    mockedBridge.getWorkspaceSnapshot.mockRejectedValue(new Error("snapshot unavailable"));
+
+    await expect(useWorkspaceStore.getState().refreshSnapshot()).resolves.toBe(
+      false,
+    );
+
+    expect(useWorkspaceStore.getState().error).toBe("snapshot unavailable");
+  });
 });

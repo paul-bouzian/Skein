@@ -66,7 +66,7 @@ beforeEach(() => {
     selectedProjectId: "project-1",
     selectedEnvironmentId: "env-1",
     selectedThreadId: "thread-1",
-    refreshSnapshot: vi.fn(async () => {}),
+    refreshSnapshot: vi.fn(async () => true),
   }));
 });
 
@@ -117,6 +117,7 @@ describe("TreeSidebar", () => {
         ...state,
         snapshot: updatedSnapshot,
       }));
+      return true;
     });
     useWorkspaceStore.setState((state) => ({
       ...state,
@@ -139,9 +140,11 @@ describe("TreeSidebar", () => {
       );
     });
     expect(refreshSnapshot).toHaveBeenCalled();
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe(
-      "thread-worktree-new",
-    );
+    await waitFor(() => {
+      expect(useWorkspaceStore.getState().selectedThreadId).toBe(
+        "thread-worktree-new",
+      );
+    });
   });
 
   it("shows a destructive confirmation before deleting a worktree", async () => {

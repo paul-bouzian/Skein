@@ -32,7 +32,7 @@ export function ComposerPicker({
   value,
   options,
   disabled = false,
-  menuZIndex = 30,
+  menuZIndex = 50,
   tone = "default",
   onChange,
 }: Props) {

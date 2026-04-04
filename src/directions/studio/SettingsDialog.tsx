@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import * as bridge from "../../lib/bridge";
 import type {
@@ -9,11 +9,21 @@ import type {
   ReasoningEffort,
 } from "../../lib/types";
 import {
+  selectConversationCapabilities,
+  useConversationStore,
+} from "../../stores/conversation-store";
+import {
   selectSettings,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { CloseIcon } from "../../shared/Icons";
 import { ComposerPicker, type ComposerPickerOption } from "./ComposerPicker";
+import {
+  APPROVAL_OPTIONS,
+  COLLABORATION_OPTIONS,
+  REASONING_OPTIONS,
+  settingsModelOptions,
+} from "./composerOptions";
 import "./SettingsDialog.css";
 
 type Props = {
@@ -22,37 +32,26 @@ type Props = {
 };
 
 const SETTINGS_PICKER_Z_INDEX = 1310;
-
-const MODEL_OPTIONS: ComposerPickerOption[] = [
-  { value: "gpt-5.4", label: "gpt-5.4" },
-  { value: "gpt-5.3-codex", label: "gpt-5.3-codex" },
-  { value: "gpt-5", label: "gpt-5" },
-  { value: "o4-mini", label: "o4-mini" },
-  { value: "o3", label: "o3" },
-  { value: "codex-mini-latest", label: "codex-mini-latest" },
-];
-
-const REASONING_OPTIONS: ComposerPickerOption<ReasoningEffort>[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Extra High" },
-];
-
-const COLLABORATION_OPTIONS: ComposerPickerOption<CollaborationMode>[] = [
-  { value: "build", label: "Build" },
-  { value: "plan", label: "Plan" },
-];
-
-const APPROVAL_OPTIONS: ComposerPickerOption<ApprovalPolicy>[] = [
-  { value: "askToEdit", label: "Ask to edit" },
-  { value: "fullAccess", label: "Full access" },
-];
+const SETTINGS_REFRESH_ERROR =
+  "Settings were saved, but the workspace snapshot could not be refreshed.";
 
 export function SettingsDialog({ open, onClose }: Props) {
   const settings = useWorkspaceStore(selectSettings);
+  const selectedEnvironmentId = useWorkspaceStore(
+    (state) => state.selectedEnvironmentId,
+  );
+  const capabilities = useConversationStore(
+    selectConversationCapabilities(selectedEnvironmentId),
+  );
   const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const [actionError, setActionError] = useState<string | null>(null);
+  const modelOptions = useMemo(
+    () =>
+      settings
+        ? settingsModelOptions(capabilities?.models ?? [], settings.defaultModel)
+        : [],
+    [capabilities?.models, settings],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -62,10 +61,16 @@ export function SettingsDialog({ open, onClose }: Props) {
     const previousOverflow = document.body.style.overflow;
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.key !== "Escape") return;
+      if (event.key !== "Escape") return;
 
-      event.preventDefault();
-      onClose();
+      queueMicrotask(() => {
+        if (event.defaultPrevented) {
+          return;
+        }
+
+        event.preventDefault();
+        onClose();
+      });
     }
 
     document.body.style.overflow = "hidden";
@@ -87,7 +92,10 @@ export function SettingsDialog({ open, onClose }: Props) {
     try {
       setActionError(null);
       await bridge.updateGlobalSettings(patch);
-      await refreshSnapshot();
+      const refreshed = await refreshSnapshot();
+      if (!refreshed) {
+        throw new Error(SETTINGS_REFRESH_ERROR);
+      }
     } catch (cause: unknown) {
       setActionError(
         cause instanceof Error ? cause.message : "Failed to save settings",
@@ -134,7 +142,11 @@ export function SettingsDialog({ open, onClose }: Props) {
             <p className="settings-dialog__notice">{actionError}</p>
           ) : null}
           {settings ? (
-            <SettingsContent settings={settings} onChange={handleChange} />
+            <SettingsContent
+              settings={settings}
+              modelOptions={modelOptions}
+              onChange={handleChange}
+            />
           ) : (
             <p className="settings-dialog__empty">Loading...</p>
           )}
@@ -147,9 +159,11 @@ export function SettingsDialog({ open, onClose }: Props) {
 
 function SettingsContent({
   settings,
+  modelOptions,
   onChange,
 }: {
   settings: GlobalSettings;
+  modelOptions: ComposerPickerOption[];
   onChange: (patch: GlobalSettingsPatch) => void;
 }) {
   return (
@@ -157,7 +171,7 @@ function SettingsContent({
       <SettingsSelect
         label="Default model"
         value={settings.defaultModel}
-        options={MODEL_OPTIONS}
+        options={modelOptions}
         onChange={(value) => onChange({ defaultModel: value })}
       />
       <SettingsSelect
@@ -227,16 +241,27 @@ function SettingsInput({
   placeholder: string;
   onChange: (value: string) => void;
 }) {
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
   return (
     <div className="settings-field">
       <label className="settings-field__label">{label}</label>
       <input
         className="settings-field__input"
         type="text"
-        value={value}
+        value={draftValue}
         placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={(event) => onChange(event.target.value)}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={(event) => {
+          const nextValue = event.target.value;
+          if (nextValue !== value) {
+            onChange(nextValue);
+          }
+        }}
       />
     </div>
   );

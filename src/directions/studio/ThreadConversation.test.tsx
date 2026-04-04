@@ -53,7 +53,7 @@ function resetStores() {
     bootstrapStatus: null,
     loadingState: "ready",
     error: null,
-    refreshSnapshot: vi.fn(async () => {}),
+    refreshSnapshot: vi.fn(async () => true),
   }));
 }
 
@@ -353,6 +353,52 @@ describe("ThreadConversation", () => {
         }),
       });
     });
+  });
+
+  it("renders canonical model ids in the composer even when Codex returns display names", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        composer: { ...baseComposer, model: "gpt-5.4-mini" },
+      }),
+      capabilities: {
+        ...capabilitiesFixture,
+        models: [
+          {
+            id: "gpt-5.4-mini",
+            displayName: "GPT-5.4-mini",
+            description: "Mini Codex model",
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+            isDefault: true,
+          },
+          {
+            id: "gpt-5.4",
+            displayName: "GPT-5.4",
+            description: "Primary Codex model",
+            defaultReasoningEffort: "high",
+            supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+            isDefault: false,
+          },
+        ],
+      },
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const modelPicker = await screen.findByRole("button", { name: "Model picker" });
+    expect(modelPicker).toHaveTextContent("gpt-5.4-mini");
+
+    await userEvent.click(modelPicker);
+
+    expect(
+      screen.getByRole("option", { name: "gpt-5.4-mini" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "GPT-5.4-mini" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("listbox", { name: "Model options" }),
+    ).toHaveStyle({ zIndex: "50" });
   });
 
   it("renders plan markdown even when markdown contains empty list markers", () => {

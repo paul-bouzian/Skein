@@ -23,7 +23,7 @@ type WorkspaceState = {
   selectedThreadId: string | null;
 
   initialize: () => Promise<void>;
-  refreshSnapshot: () => Promise<void>;
+  refreshSnapshot: () => Promise<boolean>;
   selectProject: (id: string | null) => void;
   selectEnvironment: (id: string | null) => void;
   selectThread: (id: string | null) => void;
@@ -67,10 +67,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         snapshot,
         ...reconcileSelection(snapshot, state),
       }));
+      return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to refresh workspace";
       set({ error: message });
+      return false;
     }
   },
 
