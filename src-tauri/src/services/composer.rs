@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::conversation::{
-    ComposerAppOption, ComposerFileSearchResult, ComposerPromptArgumentMode, ComposerPromptOption,
+    ComposerAppOption, ComposerFileSearchResult, ComposerMentionBindingInput,
+    ComposerMentionBindingKind, ComposerPromptArgumentMode, ComposerPromptOption,
     ComposerSkillOption, ThreadComposerCatalog,
 };
 use crate::error::{AppError, AppResult};
@@ -183,6 +184,7 @@ pub fn resolve_composer_text(
     prompts: &[PromptDefinition],
     skills: &[SkillBinding],
     apps: &[AppBinding],
+    explicit_mention_bindings: &[ComposerMentionBindingInput],
 ) -> AppResult<ResolvedComposerText> {
     let prompt_map = prompts
         .iter()
@@ -216,12 +218,20 @@ pub fn resolve_composer_text(
     }
     text.push_str(&visible_text[last_index..]);
 
+    let (skills, mentions) = resolve_dollar_mentions(
+        visible_text,
+        skills,
+        apps,
+        explicit_mention_bindings,
+        &ignored_ranges,
+    );
+
     Ok(ResolvedComposerText {
         visible_text: visible_text.to_string(),
         text,
         text_elements,
-        skills: resolve_skill_mentions(visible_text, skills, &ignored_ranges),
-        mentions: resolve_app_mentions(visible_text, apps, &ignored_ranges),
+        skills,
+        mentions,
     })
 }
 
@@ -718,36 +728,17 @@ fn expand_positional_placeholders(content: &str, arguments: &[String]) -> String
     output
 }
 
-fn resolve_skill_mentions(
+fn resolve_dollar_mentions(
     text: &str,
     skills: &[SkillBinding],
+    apps: &[AppBinding],
+    explicit_bindings: &[ComposerMentionBindingInput],
     ignored_ranges: &[std::ops::Range<usize>],
-) -> Vec<SkillBinding> {
+) -> (Vec<SkillBinding>, Vec<AppBinding>) {
     let skill_map = skills
         .iter()
         .map(|skill| (skill.name.to_ascii_lowercase(), skill))
         .collect::<HashMap<_, _>>();
-    let mut seen = HashSet::new();
-    let mut resolved = Vec::new();
-
-    for token in collect_dollar_tokens(text, ignored_ranges) {
-        let normalized = token.to_ascii_lowercase();
-        let Some(skill) = skill_map.get(&normalized) else {
-            continue;
-        };
-        if seen.insert(skill.path.clone()) {
-            resolved.push((*skill).clone());
-        }
-    }
-
-    resolved
-}
-
-fn resolve_app_mentions(
-    text: &str,
-    apps: &[AppBinding],
-    ignored_ranges: &[std::ops::Range<usize>],
-) -> Vec<AppBinding> {
     let mut app_map = HashMap::<String, &AppBinding>::new();
     let mut duplicates = HashSet::new();
     for app in apps {
@@ -757,22 +748,82 @@ fn resolve_app_mentions(
         }
     }
 
-    let mut seen = HashSet::new();
-    let mut resolved = Vec::new();
+    let mut explicit_by_name = HashMap::<String, VecDeque<&ComposerMentionBindingInput>>::new();
+    for binding in explicit_bindings {
+        explicit_by_name
+            .entry(binding.mention.to_ascii_lowercase())
+            .or_default()
+            .push_back(binding);
+    }
+
+    let mut seen_skill_paths = HashSet::new();
+    let mut resolved_skills = Vec::new();
+    let mut seen_app_paths = HashSet::new();
+    let mut resolved_apps = Vec::new();
+
     for token in collect_dollar_tokens(text, ignored_ranges) {
         let normalized = token.to_ascii_lowercase();
-        if duplicates.contains(&normalized) {
-            continue;
+        if let Some(binding) = explicit_by_name
+            .get_mut(&normalized)
+            .and_then(VecDeque::pop_front)
+        {
+            match binding.kind {
+                ComposerMentionBindingKind::Skill => {
+                    let explicit_skill = skills
+                        .iter()
+                        .find(|skill| {
+                            skill.path == binding.path
+                                || skill.name.eq_ignore_ascii_case(&binding.mention)
+                        })
+                        .cloned();
+                    if let Some(skill) = explicit_skill {
+                        if seen_skill_paths.insert(skill.path.clone()) {
+                            resolved_skills.push(skill);
+                        }
+                        continue;
+                    }
+                }
+                ComposerMentionBindingKind::App => {
+                    let explicit_app = apps
+                        .iter()
+                        .find(|app| {
+                            app.path == binding.path
+                                || app.slug.eq_ignore_ascii_case(&binding.mention)
+                        })
+                        .cloned();
+                    if let Some(app) = explicit_app {
+                        if seen_app_paths.insert(app.path.clone()) {
+                            resolved_apps.push(app);
+                        }
+                        continue;
+                    }
+                }
+            }
         }
-        let Some(app) = app_map.get(&normalized) else {
-            continue;
+
+        let inferred_skill = skill_map.get(&normalized).copied();
+        let inferred_app = if duplicates.contains(&normalized) {
+            None
+        } else {
+            app_map.get(&normalized).copied()
         };
-        if seen.insert(app.path.clone()) {
-            resolved.push((*app).clone());
+
+        match (inferred_skill, inferred_app) {
+            (Some(skill), None) => {
+                if seen_skill_paths.insert(skill.path.clone()) {
+                    resolved_skills.push(skill.clone());
+                }
+            }
+            (None, Some(app)) => {
+                if seen_app_paths.insert(app.path.clone()) {
+                    resolved_apps.push(app.clone());
+                }
+            }
+            _ => {}
         }
     }
 
-    resolved
+    (resolved_skills, resolved_apps)
 }
 
 fn collect_dollar_tokens(text: &str, ignored_ranges: &[std::ops::Range<usize>]) -> Vec<String> {
@@ -867,6 +918,7 @@ mod tests {
             &prompts,
             &[],
             &[],
+            &[],
         )
         .expect("prompts should resolve");
 
@@ -886,6 +938,7 @@ mod tests {
         let resolved = resolve_composer_text(
             "Hello /prompts:unknown()",
             &[prompt("review", "Review")],
+            &[],
             &[],
             &[],
         )
@@ -912,6 +965,7 @@ mod tests {
                 slug: "github".to_string(),
                 path: "app://app-1".to_string(),
             }],
+            &[],
         )
         .expect("unknown prompts should remain literal while mentions still resolve");
 
@@ -930,6 +984,7 @@ mod tests {
             &[prompt("review", "Review $PATH and $FOCUS")],
             &[],
             &[],
+            &[],
         )
         .expect_err("missing named argument should fail");
 
@@ -941,6 +996,7 @@ mod tests {
         let error = resolve_composer_text(
             "/prompts:review(\"src/lib.rs\")",
             &[prompt("review", "Review $1 with focus on $2")],
+            &[],
             &[],
             &[],
         )
@@ -966,6 +1022,7 @@ mod tests {
                 slug: "github".to_string(),
                 path: "app://app-1".to_string(),
             }],
+            &[],
         )
         .expect("mentions should resolve");
 
@@ -973,6 +1030,70 @@ mod tests {
         assert_eq!(resolved.mentions.len(), 1);
         assert_eq!(resolved.skills[0].path, "/tmp/skill");
         assert_eq!(resolved.mentions[0].path, "app://app-1");
+    }
+
+    #[test]
+    fn explicit_bindings_disambiguate_colliding_skill_and_app_tokens() {
+        let github_skill = SkillBinding {
+            name: "github".to_string(),
+            description: "Skill".to_string(),
+            path: "/tmp/skills/github/SKILL.md".to_string(),
+        };
+        let github_app = AppBinding {
+            id: "app-1".to_string(),
+            name: "GitHub".to_string(),
+            description: Some("Connector".to_string()),
+            slug: "github".to_string(),
+            path: "app://github".to_string(),
+        };
+
+        let resolved = resolve_composer_text(
+            "Use $github and then $github again.",
+            &[],
+            std::slice::from_ref(&github_skill),
+            std::slice::from_ref(&github_app),
+            &[
+                ComposerMentionBindingInput {
+                    mention: "github".to_string(),
+                    kind: ComposerMentionBindingKind::App,
+                    path: github_app.path.clone(),
+                },
+                ComposerMentionBindingInput {
+                    mention: "github".to_string(),
+                    kind: ComposerMentionBindingKind::Skill,
+                    path: github_skill.path.clone(),
+                },
+            ],
+        )
+        .expect("explicit mention bindings should disambiguate collisions");
+
+        assert_eq!(resolved.mentions, vec![github_app]);
+        assert_eq!(resolved.skills, vec![github_skill]);
+    }
+
+    #[test]
+    fn ambiguous_manual_collisions_do_not_resolve_twice() {
+        let resolved = resolve_composer_text(
+            "Use $github",
+            &[],
+            &[SkillBinding {
+                name: "github".to_string(),
+                description: "Skill".to_string(),
+                path: "/tmp/skills/github/SKILL.md".to_string(),
+            }],
+            &[AppBinding {
+                id: "app-1".to_string(),
+                name: "GitHub".to_string(),
+                description: Some("Connector".to_string()),
+                slug: "github".to_string(),
+                path: "app://github".to_string(),
+            }],
+            &[],
+        )
+        .expect("ambiguous manual mention should remain text only");
+
+        assert!(resolved.skills.is_empty());
+        assert!(resolved.mentions.is_empty());
     }
 
     #[test]
@@ -1003,6 +1124,7 @@ mod tests {
         let resolved = resolve_composer_text(
             "/prompts:named(PATH=\"src/lib.rs\") /prompts:positional(\"value\")",
             &prompts,
+            &[],
             &[],
             &[],
         )

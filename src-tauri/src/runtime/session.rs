@@ -14,12 +14,13 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::domain::conversation::{
-    ApprovalResponseInput, CommandApprovalDecisionInput, ConversationEventPayload,
-    ConversationInteraction, ConversationItem, ConversationMessageItem, ConversationRole,
-    ConversationStatus, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
-    PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
+    ConversationEventPayload, ConversationInteraction, ConversationItem,
+    ConversationMessageItem, ConversationRole, ConversationStatus,
+    EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput, PermissionGrantScope,
+    PermissionsApprovalDecisionInput, PlanDecisionAction, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
+    ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
 use crate::domain::workspace::CodexRateLimitSnapshot;
@@ -351,12 +352,23 @@ impl RuntimeSession {
         self.refresh_thread_metadata(context, None).await
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn send_message(
         &self,
         context: ThreadRuntimeContext,
         text: String,
     ) -> AppResult<SendMessageResult> {
-        self.send_message_with_visibility(context, text, true).await
+        self.send_message_with_bindings(context, text, Vec::new()).await
+    }
+
+    pub async fn send_message_with_bindings(
+        &self,
+        context: ThreadRuntimeContext,
+        text: String,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
+    ) -> AppResult<SendMessageResult> {
+        self.send_message_with_visibility(context, text, true, mention_bindings)
+            .await
     }
 
     pub async fn respond_to_approval_request(
@@ -440,6 +452,7 @@ impl RuntimeSession {
                         context,
                         plan_approval_message().to_string(),
                         false,
+                        Vec::new(),
                     )
                     .await?;
                 self.mark_plan_state(&result.snapshot.thread_id, mark_plan_approved)
@@ -463,7 +476,12 @@ impl RuntimeSession {
                     ));
                 }
                 let mut result = self
-                    .send_message_with_visibility(context, trimmed.to_string(), true)
+                    .send_message_with_visibility(
+                        context,
+                        trimmed.to_string(),
+                        true,
+                        input.mention_bindings.unwrap_or_default(),
+                    )
                     .await?;
                 result.snapshot = self
                     .mark_plan_state(&result.snapshot.thread_id, mark_plan_superseded)
@@ -632,6 +650,7 @@ impl RuntimeSession {
         &self,
         context: &ThreadRuntimeContext,
         visible_text: &str,
+        mention_bindings: &[ComposerMentionBindingInput],
     ) -> AppResult<OutgoingUserInputPayload> {
         if !visible_text.contains("/prompts:") && !visible_text.contains('$') {
             return Ok(OutgoingUserInputPayload {
@@ -660,7 +679,13 @@ impl RuntimeSession {
                 warn!("Failed to load apps for composer resolution: {error}");
                 Vec::new()
             });
-        let resolved = resolve_composer_text(visible_text, &prompts, &skills, &apps)?;
+        let resolved = resolve_composer_text(
+            visible_text,
+            &prompts,
+            &skills,
+            &apps,
+            mention_bindings,
+        )?;
 
         Ok(OutgoingUserInputPayload {
             text: resolved.text,
@@ -697,12 +722,15 @@ impl RuntimeSession {
         context: ThreadRuntimeContext,
         text: String,
         visible_to_user: bool,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Err(AppError::Validation("Message cannot be empty.".to_string()));
         }
-        let outgoing_input = self.resolve_outgoing_user_input(&context, trimmed).await?;
+        let outgoing_input = self
+            .resolve_outgoing_user_input(&context, trimmed, &mention_bindings)
+            .await?;
 
         let mut open = self.open_thread(context.clone()).await?;
         let mut rollback_snapshot = open.snapshot.clone();

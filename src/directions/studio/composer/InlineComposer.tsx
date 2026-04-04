@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { getThreadComposerCatalog, searchThreadFiles } from "../../../lib/bridge";
 import type {
+  ComposerMentionBindingInput,
   ComposerFileSearchResult,
   ConversationComposerSettings,
   ModelOption,
@@ -18,6 +19,12 @@ import {
   reasoningOptionsFor,
 } from "../composerOptions";
 import { ComposerAutocompleteMenu } from "./ComposerAutocompleteMenu";
+import {
+  addComposerMentionBinding,
+  prepareComposerMentionBindingsForSend,
+  rebaseComposerMentionBindings,
+  type ComposerDraftMentionBinding,
+} from "./composer-mention-bindings";
 import { ComposerTextMirror } from "./ComposerTextMirror";
 import {
   buildAutocompleteItems,
@@ -42,7 +49,7 @@ type Props = {
   onCancelRefine: () => void;
   onChangeDraft: (value: string) => void;
   onInterrupt: () => void;
-  onSend: () => void;
+  onSend: (text: string, mentionBindings: ComposerMentionBindingInput[]) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
 };
 
@@ -68,8 +75,10 @@ export function InlineComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const fileSearchRequestRef = useRef(0);
+  const previousDraftRef = useRef(draft);
   const [catalog, setCatalog] = useState<ThreadComposerCatalog | null>(null);
   const [fileResults, setFileResults] = useState<ComposerFileSearchResult[]>([]);
+  const [mentionBindings, setMentionBindings] = useState<ComposerDraftMentionBinding[]>([]);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [scrollTop, setScrollTop] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -127,6 +136,21 @@ export function InlineComposer({
       setDismissedTokenKey(null);
     }
   }, [activeTokenKey, dismissedTokenKey]);
+
+  useEffect(() => {
+    if (previousDraftRef.current === draft) {
+      return;
+    }
+    setMentionBindings((current) =>
+      rebaseComposerMentionBindings(previousDraftRef.current, draft, current),
+    );
+    previousDraftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    previousDraftRef.current = "";
+    setMentionBindings([]);
+  }, [threadId]);
 
   useEffect(() => {
     if (!activeToken || activeToken.kind !== "file") {
@@ -212,6 +236,10 @@ export function InlineComposer({
       return;
     }
     const replacement = replaceComposerToken(draft, activeToken, item);
+    const rebasedBindings = rebaseComposerMentionBindings(draft, replacement.text, mentionBindings);
+    const nextBindings = addComposerMentionBinding(rebasedBindings, item, activeToken.start);
+    setMentionBindings(nextBindings);
+    previousDraftRef.current = replacement.text;
     onChangeDraft(replacement.text);
     setPendingCursor(replacement.cursor);
     setDismissedTokenKey(null);
@@ -299,7 +327,12 @@ export function InlineComposer({
               placeholder={placeholder}
               disabled={inputDisabled}
               onChange={(event) => {
-                onChangeDraft(event.target.value);
+                const nextDraft = event.target.value;
+                setMentionBindings((current) =>
+                  rebaseComposerMentionBindings(draft, nextDraft, current),
+                );
+                previousDraftRef.current = nextDraft;
+                onChangeDraft(nextDraft);
                 setSelection({
                   start: event.target.selectionStart ?? 0,
                   end: event.target.selectionEnd ?? 0,
@@ -346,7 +379,10 @@ export function InlineComposer({
                 }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  onSend();
+                  onSend(
+                    draft,
+                    prepareComposerMentionBindingsForSend(draft, mentionBindings),
+                  );
                 }
               }}
             />
@@ -367,7 +403,12 @@ export function InlineComposer({
               className="tx-composer__icon-button"
               aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
               disabled={draft.trim().length === 0 || inputDisabled}
-              onClick={onSend}
+              onClick={() =>
+                onSend(
+                  draft,
+                  prepareComposerMentionBindingsForSend(draft, mentionBindings),
+                )
+              }
             >
               <SendIcon size={14} />
             </button>

@@ -1012,6 +1012,7 @@ async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode(
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 feedback: None,
                 composer: None,
+                mention_bindings: None,
             },
         )
         .await
@@ -1154,6 +1155,7 @@ async fn submit_plan_decision_requires_an_actionable_plan_before_sending() {
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 composer: None,
                 feedback: None,
+                mention_bindings: None,
             },
         )
         .await

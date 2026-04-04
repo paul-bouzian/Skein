@@ -3,6 +3,7 @@ import { create } from "zustand";
 import * as bridge from "../lib/bridge";
 import type {
   ApprovalResponseInput,
+  ComposerMentionBindingInput,
   ConversationComposerSettings,
   EnvironmentCapabilitiesSnapshot,
   SubmitPlanDecisionInput,
@@ -29,7 +30,11 @@ type ConversationState = {
     threadId: string,
     patch: Partial<ConversationComposerSettings>,
   ) => void;
-  sendMessage: (threadId: string, text: string) => Promise<boolean>;
+  sendMessage: (
+    threadId: string,
+    text: string,
+    mentionBindings?: ComposerMentionBindingInput[],
+  ) => Promise<boolean>;
   interruptThread: (threadId: string) => Promise<void>;
   respondToApprovalRequest: (
     threadId: string,
@@ -181,7 +186,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       };
     }),
 
-  sendMessage: async (threadId, text) => {
+  sendMessage: async (threadId, text, mentionBindings = []) => {
     set((state) => ({
       errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
     }));
@@ -193,6 +198,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         threadId,
         text,
         composer,
+        ...(mentionBindings.length > 0 ? { mentionBindings } : {}),
       });
       set((state) => ({
         snapshotsByThreadId: {

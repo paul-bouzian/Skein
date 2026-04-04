@@ -2,9 +2,9 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::domain::conversation::{
-    ComposerFileSearchResult, ConversationComposerSettings, RespondToApprovalRequestInput,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ComposerFileSearchResult, ComposerMentionBindingInput, ConversationComposerSettings,
+    RespondToApprovalRequestInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -15,6 +15,7 @@ pub struct SendThreadMessageInput {
     pub thread_id: String,
     pub text: String,
     pub composer: Option<ConversationComposerSettings>,
+    pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,7 +79,11 @@ pub async fn send_thread_message(
     }
     let result = state
         .runtime
-        .send_thread_message(context, message_text.clone())
+        .send_thread_message(
+            context,
+            message_text.clone(),
+            input.mention_bindings.unwrap_or_default(),
+        )
         .await?;
 
     if should_auto_rename {

@@ -7,8 +7,9 @@ use tokio::sync::Mutex;
 use tracing::warn;
 
 use crate::domain::conversation::{
-    ApprovalResponseInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ApprovalResponseInput, ComposerMentionBindingInput, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
+    ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
@@ -289,9 +290,12 @@ impl RuntimeSupervisor {
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let session = self.ensure_runtime(&context).await?;
-        session.send_message(context, text).await
+        session
+            .send_message_with_bindings(context, text, mention_bindings)
+            .await
     }
 
     pub async fn refresh_thread(

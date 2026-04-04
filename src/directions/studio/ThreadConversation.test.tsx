@@ -501,6 +501,62 @@ describe("ThreadConversation", () => {
     expect(input).toHaveValue("Use $create-pr now");
   });
 
+  it("preserves the selected app binding when a $token collides with a skill name", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+      prompts: [],
+      skills: [
+        {
+          name: "github",
+          description: "GitHub CLI skill",
+          path: "/tmp/threadex/.codex/skills/github/SKILL.md",
+        },
+      ],
+      apps: [
+        {
+          id: "github-app",
+          name: "GitHub",
+          description: "GitHub connector",
+          slug: "github",
+          path: "app://github",
+        },
+      ],
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+      }),
+    );
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await user.type(input, "Use $git");
+    await user.keyboard("{ArrowDown}{Tab}{Enter}");
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        text: "Use $github",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+        mentionBindings: [
+          {
+            mention: "github",
+            kind: "app",
+            path: "app://github",
+          },
+        ],
+      });
+    });
+  });
+
   it("keeps refine mode and draft content when approving a plan fails", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({

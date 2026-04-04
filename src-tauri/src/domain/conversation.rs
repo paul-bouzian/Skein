@@ -402,6 +402,22 @@ pub struct SubmitPlanDecisionInput {
     pub action: PlanDecisionAction,
     pub feedback: Option<String>,
     pub composer: Option<ConversationComposerSettings>,
+    pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerMentionBindingInput {
+    pub mention: String,
+    pub kind: ComposerMentionBindingKind,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ComposerMentionBindingKind {
+    Skill,
+    App,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

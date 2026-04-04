@@ -575,6 +575,13 @@ export type SendThreadMessageInput = {
   threadId: string;
   text: string;
   composer?: ConversationComposerSettings | null;
+  mentionBindings?: ComposerMentionBindingInput[] | null;
+};
+
+export type ComposerMentionBindingInput = {
+  mention: string;
+  kind: "skill" | "app";
+  path: string;
 };
 
 export type ApprovalResponseInput =
@@ -621,6 +628,7 @@ export type SubmitPlanDecisionInput = {
   action: "approve" | "refine";
   feedback?: string;
   composer?: ConversationComposerSettings | null;
+  mentionBindings?: ComposerMentionBindingInput[] | null;
 };
 
 export type GlobalSettingsPatch = {

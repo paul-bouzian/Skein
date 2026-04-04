@@ -1,4 +1,5 @@
 import type {
+  ComposerMentionBindingInput,
   ComposerPromptArgumentMode,
   ComposerPromptOption,
   ThreadComposerCatalog,
@@ -23,6 +24,7 @@ export type ComposerAutocompleteItem = {
   insertText: string;
   cursorOffset?: number;
   appendSpace?: boolean;
+  mentionBinding?: ComposerMentionBindingInput;
 };
 
 export type ComposerMirrorPart = {
@@ -198,6 +200,11 @@ export function buildAutocompleteItems(
         description: skill.description,
         insertText: `$${skill.name}`,
         appendSpace: true,
+        mentionBinding: {
+          mention: skill.name,
+          kind: "skill",
+          path: skill.path,
+        },
       }));
     const apps = (catalog?.apps ?? [])
       .filter((app) => {
@@ -217,6 +224,11 @@ export function buildAutocompleteItems(
         description: app.description ?? app.name,
         insertText: `$${app.slug}`,
         appendSpace: true,
+        mentionBinding: {
+          mention: app.slug,
+          kind: "app",
+          path: app.path,
+        },
       }));
     return [...skills, ...apps];
   }

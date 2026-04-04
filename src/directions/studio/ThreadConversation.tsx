@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import type {
+  ComposerMentionBindingInput,
   ConversationItem,
   EnvironmentRecord,
   ThreadRecord,
@@ -127,9 +128,12 @@ export function ThreadConversation({ environment, thread }: Props) {
   const sendDisabled =
     draft.trim().length === 0 || isRunning || isMutating || (composerLocked && !isRefiningPlan);
 
-  async function handleSend() {
+  async function handleSend(
+    text: string,
+    mentionBindings: ComposerMentionBindingInput[],
+  ) {
     if (sendDisabled || submitInFlightRef.current) return;
-    const message = draft.trim();
+    const message = text.trim();
     submitInFlightRef.current = true;
     setIsSubmitting(true);
     try {
@@ -139,6 +143,7 @@ export function ThreadConversation({ environment, thread }: Props) {
           action: "refine",
           feedback: message,
           composer: { ...resolvedComposer, collaborationMode: "plan" },
+          ...(mentionBindings.length > 0 ? { mentionBindings } : {}),
         });
         if (sent) {
           startTransition(() => setDraft(""));
@@ -146,7 +151,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         }
         return;
       }
-      const sent = await sendMessage(thread.id, message);
+      const sent = await sendMessage(thread.id, message, mentionBindings);
       if (sent) {
         startTransition(() => setDraft(""));
       }
@@ -237,7 +242,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         }}
         onChangeDraft={setDraft}
         onInterrupt={() => void interruptThread(thread.id)}
-        onSend={() => void handleSend()}
+        onSend={(text, mentionBindings) => void handleSend(text, mentionBindings)}
         onUpdateComposer={(patch) => {
           if (patch.collaborationMode === "build") {
             setIsRefiningPlan(false);
