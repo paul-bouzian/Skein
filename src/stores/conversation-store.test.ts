@@ -54,7 +54,7 @@ beforeEach(() => {
     selectedProjectId: null,
     selectedEnvironmentId: null,
     selectedThreadId: null,
-    refreshSnapshot: vi.fn(async () => {}),
+    refreshSnapshot: vi.fn(async () => true),
   }));
 });
 
@@ -111,6 +111,44 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
       nextSnapshot,
     );
+  });
+
+  it("sends the selected model and reasoning effort to the backend", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-2",
+      composer: {
+        ...initialSnapshot.composer,
+        model: "gpt-5.3-codex",
+        reasoningEffort: "low",
+      },
+    });
+
+    mockedBridge.sendThreadMessage.mockResolvedValue(nextSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: {
+        "thread-1": {
+          ...initialSnapshot.composer,
+          model: "gpt-5.3-codex",
+          reasoningEffort: "low",
+        },
+      },
+    }));
+
+    await useConversationStore.getState().sendMessage("thread-1", "Use the configured model");
+
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      text: "Use the configured model",
+      composer: {
+        ...initialSnapshot.composer,
+        model: "gpt-5.3-codex",
+        reasoningEffort: "low",
+      },
+    });
   });
 
   it("refreshes a thread snapshot without reopening the conversation", async () => {

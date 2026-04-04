@@ -352,17 +352,17 @@ async fn open_thread_hydrates_history_and_capabilities() {
 #[tokio::test]
 async fn send_message_starts_new_codex_thread_with_real_turn_params() {
     let (session, harness) = FakeCodexHarness::new().await;
+    let mut runtime_context = context(
+        "thread-local-2",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.composer.model = "gpt-5.3-codex".to_string();
+    runtime_context.composer.reasoning_effort = ReasoningEffort::Low;
 
     let result = session
-        .send_message(
-            context(
-                "thread-local-2",
-                None,
-                CollaborationMode::Build,
-                ApprovalPolicy::AskToEdit,
-            ),
-            "Run the test suite".to_string(),
-        )
+        .send_message(runtime_context, "Run the test suite".to_string())
         .await
         .expect("message should send");
 
@@ -380,6 +380,14 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
     assert_eq!(turn_start.params["approvalPolicy"], "on-request");
     assert_eq!(turn_start.params["sandboxPolicy"]["type"], "workspaceWrite");
     assert_eq!(turn_start.params["collaborationMode"]["mode"], "default");
+    assert_eq!(
+        turn_start.params["collaborationMode"]["settings"]["model"],
+        "gpt-5.3-codex"
+    );
+    assert_eq!(
+        turn_start.params["collaborationMode"]["settings"]["reasoning_effort"],
+        "low"
+    );
     assert_eq!(turn_start.params["input"][0]["text"], "Run the test suite");
 }
 

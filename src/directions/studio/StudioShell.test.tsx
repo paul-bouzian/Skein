@@ -1,0 +1,314 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import * as bridge from "../../lib/bridge";
+import { makeWorkspaceSnapshot } from "../../test/fixtures/conversation";
+import { useCodexUsageStore } from "../../stores/codex-usage-store";
+import { useConversationStore } from "../../stores/conversation-store";
+import { useGitReviewStore } from "../../stores/git-review-store";
+import { useWorkspaceStore } from "../../stores/workspace-store";
+import { StudioShell } from "./StudioShell";
+
+const storageState = new Map<string, string>();
+
+vi.mock("./StudioMain", () => ({
+  StudioMain: () => <div data-testid="studio-main" />,
+}));
+
+vi.mock("./InspectorPanel", () => ({
+  InspectorPanel: () => <div data-testid="inspector-panel" />,
+}));
+
+vi.mock("./GitDiffPanel", () => ({
+  GitDiffPanel: () => <div data-testid="git-diff-panel" />,
+}));
+
+vi.mock("./AppUpdateNotice", () => ({
+  AppUpdateNotice: () => null,
+}));
+
+vi.mock("./StudioStatusBar", () => ({
+  StudioStatusBar: () => (
+    <div className="studio-statusbar" data-testid="studio-statusbar" />
+  ),
+}));
+
+vi.mock("./SidebarUsagePanel", () => ({
+  SidebarUsagePanel: () => <div data-testid="sidebar-usage-panel" />,
+}));
+
+vi.mock("./useProjectImport", () => ({
+  useProjectImport: () => ({
+    error: null,
+    clearError: vi.fn(),
+    importProject: vi.fn(),
+    isImporting: false,
+  }),
+}));
+
+vi.mock("../../shared/ProjectIcon", () => ({
+  ProjectIcon: ({ name }: { name: string }) => <span>{name.slice(0, 1)}</span>,
+}));
+
+vi.mock("../../lib/bridge", () => ({
+  updateGlobalSettings: vi.fn(),
+}));
+
+const mockedBridge = vi.mocked(bridge);
+
+beforeEach(() => {
+  storageState.clear();
+  mockedBridge.updateGlobalSettings.mockReset();
+  mockedBridge.updateGlobalSettings.mockResolvedValue({
+    defaultModel: "gpt-5.4",
+    defaultReasoningEffort: "high",
+    defaultCollaborationMode: "build",
+    defaultApprovalPolicy: "askToEdit",
+    codexBinaryPath: "/opt/homebrew/bin/codex",
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => storageState.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storageState.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        storageState.delete(key);
+      },
+      clear: () => {
+        storageState.clear();
+      },
+    },
+  });
+  document.documentElement.removeAttribute("data-theme");
+
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    snapshot: makeWorkspaceSnapshot(),
+    bootstrapStatus: null,
+    loadingState: "ready",
+    error: null,
+    selectedProjectId: "project-1",
+    selectedEnvironmentId: "env-1",
+    selectedThreadId: "thread-1",
+    refreshSnapshot: vi.fn(async () => true),
+  }));
+  useConversationStore.setState((state) => ({
+    ...state,
+    snapshotsByThreadId: {},
+    capabilitiesByEnvironmentId: {},
+    composerByThreadId: {},
+    loadingByThreadId: {},
+    errorByThreadId: {},
+    listenerReady: false,
+  }));
+  useCodexUsageStore.setState((state) => ({
+    ...state,
+    snapshotsByEnvironmentId: {},
+    loadingByEnvironmentId: {},
+    errorByEnvironmentId: {},
+    lastFetchedAtByEnvironmentId: {},
+    listenerReady: false,
+    ensureEnvironmentUsage: vi.fn(async () => {}),
+  }));
+  useGitReviewStore.setState((state) => ({
+    ...state,
+    scopeByEnvironmentId: {},
+    snapshotsByContext: {},
+    selectedFileByContext: {},
+    diffsByContext: {},
+    diffErrorByContext: {},
+    commitMessageByEnvironmentId: {},
+    loadingByContext: {},
+    reviewRequestIdByContext: {},
+    diffLoadingByContext: {},
+    diffRequestIdByContext: {},
+    actionByEnvironmentId: {},
+    generatingCommitMessageByEnvironmentId: {},
+    errorByContext: {},
+  }));
+});
+
+describe("StudioShell", () => {
+  it("opens the settings dialog from the sidebar and closes it with all supported interactions", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Codex binary")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Close settings" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const backdrop = document.querySelector(".settings-dialog__backdrop");
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop as Element);
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("toggles theme from the sidebar footer and persists the selected theme", async () => {
+    render(<StudioShell />);
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    });
+    expect(localStorage.getItem("threadex-theme")).toBe("dark");
+
+    await userEvent.click(screen.getByRole("button", { name: "Light mode" }));
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    });
+    expect(localStorage.getItem("threadex-theme")).toBe("light");
+    expect(
+      screen.getByRole("button", { name: "Dark mode" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders settings picker menus above the modal backdrop", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Default model picker" }),
+    );
+
+    const menu = screen.getByRole("listbox", {
+      name: "Default model options",
+    });
+    expect(menu).toBeInTheDocument();
+    expect(menu).toHaveStyle({ zIndex: "1310" });
+  });
+
+  it("closes an open settings picker before dismissing the modal on Escape", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Default model picker" }),
+    );
+    expect(
+      screen.getByRole("listbox", { name: "Default model options" }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("listbox", { name: "Default model options" }),
+      ).toBeNull();
+    });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("saves the Codex binary path only once on blur", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const input = screen.getByPlaceholderText("auto-detect");
+    await userEvent.clear(input);
+    await userEvent.type(input, "/usr/local/bin/codex");
+
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+      codexBinaryPath: "/usr/local/bin/codex",
+    });
+  });
+
+  it("shows an error when settings save succeeds but the workspace refresh fails", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot: vi.fn(async () => false),
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Default approval picker" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: "Full access" }));
+
+    expect(
+      await screen.findByText(
+        "Settings were saved, but the workspace snapshot could not be refreshed.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("reuses Codex model ids in settings when runtime capabilities are available", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          defaultModel: "gpt-5.4-mini",
+        },
+      }),
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      capabilitiesByEnvironmentId: {
+        "env-1": {
+          environmentId: "env-1",
+          models: [
+            {
+              id: "gpt-5.4-mini",
+              displayName: "GPT-5.4-mini",
+              description: "Mini Codex model",
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: ["low", "medium", "high"],
+              isDefault: true,
+            },
+          ],
+          collaborationModes: [],
+        },
+      },
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const modelPicker = screen.getByRole("button", {
+      name: "Default model picker",
+    });
+    expect(modelPicker).toHaveTextContent("gpt-5.4-mini");
+
+    await userEvent.click(modelPicker);
+
+    expect(
+      screen.getByRole("option", { name: "gpt-5.4-mini" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "GPT-5.4-mini" }),
+    ).toBeNull();
+  });
+});
