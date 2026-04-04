@@ -153,7 +153,7 @@ jobs:
           git push origin "${RELEASE_TAG}"
 
       - name: Build and publish signed release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12_B64 }}
