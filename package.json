@@ -1,7 +1,7 @@
 {
   "name": "threadex",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
   "packageManager": "bun@1.2.19",
   "type": "module",

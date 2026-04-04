@@ -1,6 +1,6 @@
 [package]
 name = "threadex"
-version = "0.1.0"
+version = "0.1.1"
 description = "Temporary private working repo for a Codex-first macOS desktop app"
 authors = ["Paul Bouzian"]
 edition = "2021"
