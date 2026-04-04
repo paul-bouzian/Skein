@@ -26,3 +26,6 @@ dist-ssr
 # Local-only planning and agent notes
 docs/engineering-standards.md
 docs/project-brief.md
+
+# Local release outputs
+release-artifacts/
