@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, duplex};
+use serde_json::{json, Value};
+use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::sync::Mutex;
 
 use crate::domain::conversation::ConversationComposerSettings;
@@ -279,10 +279,7 @@ async fn write_server_message(writer: &Arc<Mutex<DuplexStream>>, payload: Value)
         .write_all(encoded.as_bytes())
         .await
         .expect("message should write");
-    writer
-        .write_all(b"\n")
-        .await
-        .expect("newline should write");
+    writer.write_all(b"\n").await.expect("newline should write");
     writer.flush().await.expect("flush should succeed");
 }
 
@@ -321,14 +318,21 @@ async fn open_thread_hydrates_history_and_capabilities() {
         .await
         .expect("thread should open");
 
-    assert_eq!(response.snapshot.codex_thread_id.as_deref(), Some("thr-existing"));
+    assert_eq!(
+        response.snapshot.codex_thread_id.as_deref(),
+        Some("thr-existing")
+    );
     assert_eq!(response.snapshot.items.len(), 2);
     assert_eq!(response.capabilities.models.len(), 1);
     assert_eq!(response.capabilities.collaboration_modes.len(), 2);
 
     let requests = harness.requests().await;
-    assert!(requests.iter().any(|request| request.method == "thread/read"));
-    assert!(requests.iter().any(|request| request.method == "thread/resume"));
+    assert!(requests
+        .iter()
+        .any(|request| request.method == "thread/read"));
+    assert!(requests
+        .iter()
+        .any(|request| request.method == "thread/resume"));
 }
 
 #[tokio::test]
@@ -349,7 +353,10 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         .expect("message should send");
 
     assert_eq!(result.new_codex_thread_id.as_deref(), Some("thr-new"));
-    assert_eq!(result.snapshot.active_turn_id.as_deref(), Some("turn-live-1"));
+    assert_eq!(
+        result.snapshot.active_turn_id.as_deref(),
+        Some("turn-live-1")
+    );
 
     let requests = harness.requests().await;
     let turn_start = requests
@@ -376,8 +383,14 @@ async fn refresh_thread_discovers_loaded_subagents_for_the_active_thread() {
         .await
         .expect("thread should open");
     assert_eq!(open.snapshot.subagents.len(), 2);
-    assert_eq!(open.snapshot.subagents[0].nickname.as_deref(), Some("Scout"));
-    assert_eq!(open.snapshot.subagents[1].nickname.as_deref(), Some("Atlas"));
+    assert_eq!(
+        open.snapshot.subagents[0].nickname.as_deref(),
+        Some("Scout")
+    );
+    assert_eq!(
+        open.snapshot.subagents[1].nickname.as_deref(),
+        Some("Atlas")
+    );
 }
 
 #[tokio::test]
@@ -481,7 +494,10 @@ async fn plan_mode_starts_a_real_plan_turn() {
         .await
         .expect("plan mode should now be supported");
 
-    assert_eq!(result.snapshot.active_turn_id.as_deref(), Some("turn-live-1"));
+    assert_eq!(
+        result.snapshot.active_turn_id.as_deref(),
+        Some("turn-live-1")
+    );
     let requests = harness.requests().await;
     let turn_start = requests
         .iter()
@@ -796,17 +812,29 @@ async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode(
         snapshot.proposed_plan.as_ref().map(|plan| plan.status),
         Some(crate::domain::conversation::ProposedPlanStatus::Approved)
     ));
-    assert!(matches!(snapshot.composer.collaboration_mode, CollaborationMode::Build));
+    assert!(matches!(
+        snapshot.composer.collaboration_mode,
+        CollaborationMode::Build
+    ));
 
     let requests = harness.requests().await;
-    assert!(requests.iter().filter(|request| request.method == "turn/start").count() >= 2);
+    assert!(
+        requests
+            .iter()
+            .filter(|request| request.method == "turn/start")
+            .count()
+            >= 2
+    );
     let build_turn = requests
         .iter()
         .rev()
         .find(|request| request.method == "turn/start")
         .expect("a build continuation turn should exist");
     assert_eq!(build_turn.params["collaborationMode"]["mode"], "default");
-    assert_eq!(build_turn.params["input"][0]["text"], super::protocol::plan_approval_message());
+    assert_eq!(
+        build_turn.params["input"][0]["text"],
+        super::protocol::plan_approval_message()
+    );
 }
 
 #[tokio::test]
@@ -925,7 +953,9 @@ async fn submit_plan_decision_requires_an_actionable_plan_before_sending() {
         .contains("There is no proposed plan to update"));
 
     let requests = harness.requests().await;
-    assert!(!requests.iter().any(|request| request.method == "turn/start"));
+    assert!(!requests
+        .iter()
+        .any(|request| request.method == "turn/start"));
 }
 
 #[tokio::test]

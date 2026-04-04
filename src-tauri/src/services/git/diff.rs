@@ -7,7 +7,9 @@ use crate::domain::git_review::{
 };
 use crate::error::{AppError, AppResult};
 
-use super::{command_output, resolve_base_reference, validate_relative_path, GitEnvironmentContext};
+use super::{
+    command_output, resolve_base_reference, validate_relative_path, GitEnvironmentContext,
+};
 
 pub(super) fn read_file_diff(
     context: &GitEnvironmentContext,
@@ -27,19 +29,24 @@ pub(super) fn read_file_diff(
 
     let repo_root = Path::new(&context.environment_path);
     let diff = match section {
-        GitChangeSection::Untracked => synthetic_untracked_diff(
-            repo_root,
-            &context.environment_id,
-            scope,
-            change,
-        )?,
+        GitChangeSection::Untracked => {
+            synthetic_untracked_diff(repo_root, &context.environment_id, scope, change)?
+        }
         GitChangeSection::Staged => parse_git_diff_output(
             &context.environment_id,
             scope,
             change,
             command_output(
                 repo_root,
-                ["diff", "--cached", "--no-ext-diff", "--no-color", "--unified=3", "--", path],
+                [
+                    "diff",
+                    "--cached",
+                    "--no-ext-diff",
+                    "--no-color",
+                    "--unified=3",
+                    "--",
+                    path,
+                ],
             )?,
         )?,
         GitChangeSection::Unstaged => parse_git_diff_output(
@@ -48,12 +55,21 @@ pub(super) fn read_file_diff(
             change,
             command_output(
                 repo_root,
-                ["diff", "--no-ext-diff", "--no-color", "--unified=3", "--", path],
+                [
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-color",
+                    "--unified=3",
+                    "--",
+                    path,
+                ],
             )?,
         )?,
         GitChangeSection::Branch => {
             let base_reference = resolve_base_reference(repo_root, context.base_branch.as_deref())
-                .ok_or_else(|| AppError::Git("No base branch available for branch diff.".to_string()))?;
+                .ok_or_else(|| {
+                    AppError::Git("No base branch available for branch diff.".to_string())
+                })?;
             parse_git_diff_output(
                 &context.environment_id,
                 scope,
@@ -213,10 +229,15 @@ fn parse_unified_diff(diff_text: &str) -> Vec<GitDiffHunk> {
             continue;
         }
 
-        if current_hunk.is_none() || line.starts_with("diff --git") || line.starts_with("index ")
-            || line.starts_with("--- ") || line.starts_with("+++ ")
-            || line.starts_with("new file mode") || line.starts_with("deleted file mode")
-            || line.starts_with("similarity index") || line.starts_with("rename from ")
+        if current_hunk.is_none()
+            || line.starts_with("diff --git")
+            || line.starts_with("index ")
+            || line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("new file mode")
+            || line.starts_with("deleted file mode")
+            || line.starts_with("similarity index")
+            || line.starts_with("rename from ")
             || line.starts_with("rename to ")
         {
             continue;
@@ -308,7 +329,9 @@ mod tests {
 
     #[test]
     fn only_marks_true_binary_diff_headers_as_binary() {
-        assert!(is_binary_diff_output("Binary files a/test.png and b/test.png differ\n"));
+        assert!(is_binary_diff_output(
+            "Binary files a/test.png and b/test.png differ\n"
+        ));
         assert!(!is_binary_diff_output(
             "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n+const msg = \"Binary files differ\";\n",
         ));

@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { createPortal } from "react-dom";
+import {
+  deriveEnvironmentConversationStatus,
+  indicatorToneForConversationStatus,
+} from "../../lib/conversation-status";
 import { useWorkspaceStore, selectProjects, selectSettings } from "../../stores/workspace-store";
+import { useConversationStore } from "../../stores/conversation-store";
 import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
-import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { PlusIcon } from "../../shared/Icons";
+import { GitBranchIcon, PlusIcon } from "../../shared/Icons";
 import type { RailSection } from "./StudioShell";
 import type {
   ApprovalPolicy,
@@ -15,6 +19,7 @@ import type {
   GlobalSettings,
   GlobalSettingsPatch,
   ReasoningEffort,
+  ThreadConversationSnapshot,
 } from "../../lib/types";
 import { useProjectImport } from "./useProjectImport";
 import "./TreeSidebar.css";
@@ -24,8 +29,15 @@ type Props = {
 };
 
 type ContextMenuState = {
-  projectId: string;
-  projectName: string;
+  kind: "project" | "environment";
+  projectId?: string;
+  projectName?: string;
+  environmentId?: string;
+  environmentName?: string;
+  branchName?: string;
+  path?: string;
+  activeThreadCount?: number;
+  archivedThreadCount?: number;
   x: number;
   y: number;
 };
@@ -38,14 +50,17 @@ export function TreeSidebar({ activeSection }: Props) {
 
 function ProjectsTree() {
   const projects = useWorkspaceStore(selectProjects);
+  const snapshotsByThreadId = useConversationStore((state) => state.snapshotsByThreadId);
   const selectedProjectId = useWorkspaceStore((s) => s.selectedProjectId);
   const selectedEnvironmentId = useWorkspaceStore((s) => s.selectedEnvironmentId);
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
+  const selectThread = useWorkspaceStore((s) => s.selectThread);
   const { error, clearError, importProject, isImporting } = useProjectImport();
   const [actionError, setActionError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [creatingWorktreeProjectId, setCreatingWorktreeProjectId] = useState<string | null>(null);
   const notice = actionError ?? error;
 
   useEffect(() => {
@@ -106,8 +121,58 @@ function ProjectsTree() {
       await bridge.removeProject(projectId);
       await refreshSnapshot();
     } catch (cause: unknown) {
-      const message = cause instanceof Error ? cause.message : "Failed to remove project";
-      setActionError(message);
+      setActionError(actionErrorMessage(cause, "Failed to remove project"));
+    }
+  }
+
+  async function handleCreateManagedWorktree(projectId: string) {
+    setCreatingWorktreeProjectId(projectId);
+    try {
+      resetMessages();
+      const result = await bridge.createManagedWorktree(projectId);
+      await refreshSnapshot();
+      selectThread(result.thread.id);
+    } catch (cause: unknown) {
+      setActionError(actionErrorMessage(cause, "Failed to create worktree"));
+    } finally {
+      setCreatingWorktreeProjectId(null);
+    }
+  }
+
+  async function handleDeleteWorktree(menu: ContextMenuState) {
+    if (menu.kind !== "environment" || !menu.environmentId || !menu.environmentName) {
+      return;
+    }
+
+    setContextMenu(null);
+    const activeCount = menu.activeThreadCount ?? 0;
+    const archivedCount = menu.archivedThreadCount ?? 0;
+    const warningLines = [
+      `Delete the worktree "${menu.environmentName}"?`,
+      "",
+      "This permanently deletes:",
+      `- ${activeCount} active thread${activeCount === 1 ? "" : "s"}`,
+      `- ${archivedCount} archived thread${archivedCount === 1 ? "" : "s"}`,
+      menu.branchName ? `- branch ${menu.branchName}` : null,
+      menu.path ? `- ${menu.path}` : null,
+    ].filter(Boolean);
+    const approved = await confirm(warningLines.join("\n"), {
+      title: "Delete worktree",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    });
+
+    if (!approved) {
+      return;
+    }
+
+    try {
+      resetMessages();
+      await bridge.deleteWorktreeEnvironment(menu.environmentId);
+      await refreshSnapshot();
+    } catch (cause: unknown) {
+      setActionError(actionErrorMessage(cause, "Failed to delete worktree"));
     }
   }
 
@@ -142,22 +207,54 @@ function ProjectsTree() {
                 project.id === selectedProjectId ? "project-group--selected" : ""
               }`}
             >
-              <button
-                type="button"
-                className="project-group__header"
-                onClick={() => handleProjectSelect(project.id)}
+              <div
+                className="project-group__header-shell"
                 onContextMenu={(event) => {
                   event.preventDefault();
                   handleProjectSelect(project.id);
-                  setContextMenu(buildContextMenuState(project.id, project.name, event.clientX, event.clientY));
+                  setContextMenu(
+                    buildProjectContextMenuState(
+                      project.id,
+                      project.name,
+                      event.clientX,
+                      event.clientY,
+                    ),
+                  );
                 }}
               >
-                <ProjectIcon name={project.name} rootPath={project.rootPath} size="sm" />
-                <span className="project-group__meta">
-                  <span className="project-group__name">{project.name}</span>
-                  {renderProjectLocalSummary(project)}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="project-group__header"
+                  onClick={() => handleProjectSelect(project.id)}
+                >
+                  <ProjectIcon name={project.name} rootPath={project.rootPath} size="sm" />
+                  <span className="project-group__meta">
+                    <span className="project-group__name">{project.name}</span>
+                    {renderProjectLocalSummary(project, snapshotsByThreadId)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="project-group__create"
+                  aria-label={`Create worktree for ${project.name}`}
+                  title={`Create worktree for ${project.name}`}
+                  disabled={creatingWorktreeProjectId === project.id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleCreateManagedWorktree(project.id);
+                  }}
+                >
+                  <PlusIcon
+                    size={12}
+                    className={
+                      creatingWorktreeProjectId === project.id
+                        ? "project-group__create-icon project-group__create-icon--spinning"
+                        : "project-group__create-icon"
+                    }
+                  />
+                </button>
+              </div>
               <div className="project-group__environments">
                 {project.environments
                   .filter((environment) => environment.kind !== "local")
@@ -169,23 +266,31 @@ function ProjectsTree() {
                       selectedEnvironmentId === environment.id ? "environment-item--selected" : ""
                     }`}
                     onClick={() => handleEnvironmentSelect(environment.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      handleEnvironmentSelect(environment.id);
+                      setContextMenu(
+                        buildEnvironmentContextMenuState(
+                          environment,
+                          event.clientX,
+                          event.clientY,
+                        ),
+                      );
+                    }}
                   >
                     <span className="environment-item__primary">
                       <span className="environment-item__name-row">
+                        <GitBranchIcon size={13} className="environment-item__icon" />
                         <span className="environment-item__name">{environment.name}</span>
-                        <EnvironmentKindBadge kind={environment.kind} />
                       </span>
-                      {environment.gitBranch && (
+                      {environment.gitBranch && environment.gitBranch !== environment.name && (
                         <span className="environment-item__branch" title={environment.gitBranch}>
                           {environment.gitBranch}
                         </span>
                       )}
                     </span>
                     <span className="environment-item__secondary">
-                      <span className="environment-item__threads">
-                        {formatThreadCount(environment)}
-                      </span>
-                      <RuntimeIndicator state={environment.runtime.state} />
+                      <RuntimeIndicator tone={environmentIndicatorTone(environment, snapshotsByThreadId)} />
                     </span>
                   </button>
                 ))}
@@ -202,15 +307,28 @@ function ProjectsTree() {
             onPointerDown={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.preventDefault()}
           >
-            <button
-              type="button"
-              className="tree-sidebar__context-item tree-sidebar__context-item--danger"
-              onClick={() =>
-                void handleRemoveProject(contextMenu.projectId, contextMenu.projectName)
-              }
-            >
-              Remove from ThreadEx
-            </button>
+            {contextMenu.kind === "project" ? (
+              <button
+                type="button"
+                className="tree-sidebar__context-item tree-sidebar__context-item--danger"
+                onClick={() =>
+                  void handleRemoveProject(
+                    contextMenu.projectId ?? "",
+                    contextMenu.projectName ?? "Project",
+                  )
+                }
+              >
+                Remove from ThreadEx
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="tree-sidebar__context-item tree-sidebar__context-item--danger"
+                onClick={() => void handleDeleteWorktree(contextMenu)}
+              >
+                Delete worktree
+              </button>
+            )}
           </div>,
           document.body,
         )}
@@ -218,14 +336,12 @@ function ProjectsTree() {
   );
 }
 
-function formatThreadCount(environment: EnvironmentRecord) {
-  const count = environment.threads.filter((thread) => thread.status === "active").length;
-  return `${count} thread${count === 1 ? "" : "s"}`;
-}
-
-function renderProjectLocalSummary(project: {
-  environments: EnvironmentRecord[];
-}) {
+function renderProjectLocalSummary(
+  project: {
+    environments: EnvironmentRecord[];
+  },
+  snapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
+) {
   const environment =
     project.environments.find((candidate) => candidate.kind === "local") ??
     project.environments.find((candidate) => candidate.isDefault) ??
@@ -239,19 +355,49 @@ function renderProjectLocalSummary(project: {
           {environment.gitBranch}
         </span>
       ) : null}
-      <span className="project-group__threads">{formatThreadCount(environment)}</span>
-      <RuntimeIndicator state={environment.runtime.state} />
+      <RuntimeIndicator tone={environmentIndicatorTone(environment, snapshotsByThreadId)} />
     </span>
   );
 }
 
-function buildContextMenuState(
+function environmentIndicatorTone(
+  environment: EnvironmentRecord,
+  snapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
+) {
+  return indicatorToneForConversationStatus(
+    deriveEnvironmentConversationStatus(environment, snapshotsByThreadId),
+  );
+}
+
+function actionErrorMessage(cause: unknown, fallback: string) {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+function buildProjectContextMenuState(
   projectId: string,
   projectName: string,
   x: number,
   y: number,
 ): ContextMenuState {
-  return { projectId, projectName, x, y };
+  return { kind: "project", projectId, projectName, x, y };
+}
+
+function buildEnvironmentContextMenuState(
+  environment: EnvironmentRecord,
+  x: number,
+  y: number,
+): ContextMenuState {
+  return {
+    kind: "environment",
+    environmentId: environment.id,
+    environmentName: environment.name,
+    branchName: environment.gitBranch,
+    path: environment.path,
+    activeThreadCount: environment.threads.filter((thread) => thread.status === "active").length,
+    archivedThreadCount: environment.threads.filter((thread) => thread.status === "archived").length,
+    x,
+    y,
+  };
 }
 
 function resolveContextMenuPosition(contextMenu: Pick<ContextMenuState, "x" | "y">) {

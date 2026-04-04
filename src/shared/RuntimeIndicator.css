@@ -24,12 +24,34 @@
   box-shadow: 0 0 6px var(--tx-runtime-running);
 }
 
-.runtime-indicator__dot--stopped {
+.runtime-indicator__dot--progress {
+  background: var(--tx-progress);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tx-progress) 75%, transparent);
+}
+
+.runtime-indicator__dot--stopped,
+.runtime-indicator__dot--neutral {
   background: var(--tx-runtime-stopped);
 }
 
-.runtime-indicator__dot--exited {
+.runtime-indicator__dot--exited,
+.runtime-indicator__dot--warning {
   background: var(--tx-runtime-exited);
+}
+
+.runtime-indicator__dot--completed {
+  background: var(--tx-success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tx-success) 75%, transparent);
+}
+
+.runtime-indicator__dot--failed {
+  background: var(--tx-danger);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tx-danger) 75%, transparent);
+}
+
+.runtime-indicator__dot--waiting {
+  background: var(--tx-info);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--tx-info) 75%, transparent);
 }
 
 .runtime-indicator__label {

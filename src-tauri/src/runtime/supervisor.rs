@@ -132,7 +132,9 @@ impl RuntimeSupervisor {
         let binary_path = match codex_binary_path {
             Some(path) => path,
             None => which::which("codex")
-                .map_err(|_| AppError::Runtime("Unable to resolve the Codex CLI binary.".to_string()))?
+                .map_err(|_| {
+                    AppError::Runtime("Unable to resolve the Codex CLI binary.".to_string())
+                })?
                 .to_string_lossy()
                 .to_string(),
         };
@@ -295,7 +297,10 @@ impl RuntimeSupervisor {
             })
     }
 
-    async fn ensure_runtime(&self, context: &ThreadRuntimeContext) -> AppResult<Arc<RuntimeSession>> {
+    async fn ensure_runtime(
+        &self,
+        context: &ThreadRuntimeContext,
+    ) -> AppResult<Arc<RuntimeSession>> {
         Ok(self
             .ensure_running_runtime(
                 &context.environment_id,

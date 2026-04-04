@@ -203,6 +203,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         disabled={composerLocked && !isRefiningPlan}
         draft={draft}
         effortOptions={effortOptions}
+        focusKey={thread.id}
         isBusy={isRunning || isPending}
         isRefiningPlan={isRefiningPlan}
         modelOptions={capabilities?.models ?? []}
@@ -231,6 +232,7 @@ function ConversationComposer({
   disabled,
   draft,
   effortOptions,
+  focusKey,
   isBusy,
   isRefiningPlan,
   modelOptions,
@@ -246,6 +248,7 @@ function ConversationComposer({
   disabled: boolean;
   draft: string;
   effortOptions: Array<"low" | "medium" | "high" | "xhigh">;
+  focusKey: string;
   isBusy: boolean;
   isRefiningPlan: boolean;
   modelOptions: ModelOption[];
@@ -267,6 +270,19 @@ function ConversationComposer({
     element.style.height = `${Math.max(nextHeight, 46)}px`;
     element.style.overflowY = element.scrollHeight > 240 ? "auto" : "hidden";
   }, [draft]);
+
+  useEffect(() => {
+    const element = textareaRef.current;
+    if (!element || element.disabled) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      element.focus();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusKey]);
 
   return (
     <div className="tx-composer">

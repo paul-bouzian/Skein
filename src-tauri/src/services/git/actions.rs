@@ -11,8 +11,7 @@ use crate::error::{AppError, AppResult};
 
 use super::{
     command_output, current_branch, reference_exists, run_git, stderr_message, stdout_message,
-    upstream_branch, validate_relative_path,
-    GitEnvironmentContext,
+    upstream_branch, validate_relative_path, GitEnvironmentContext,
 };
 
 const COMMIT_MESSAGE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -29,7 +28,10 @@ pub fn stage_all(repo_root: &Path) -> AppResult<()> {
 pub fn unstage_file(repo_root: &Path, path: &str) -> AppResult<()> {
     validate_relative_path(path)?;
     if !reference_exists(repo_root, "HEAD") {
-        return run_git(repo_root, ["rm", "--cached", "--quiet", "--force", "--", path]);
+        return run_git(
+            repo_root,
+            ["rm", "--cached", "--quiet", "--force", "--", path],
+        );
     }
     run_git(repo_root, ["restore", "--staged", "--", path])
 }
@@ -53,7 +55,10 @@ pub fn unstage_all(repo_root: &Path) -> AppResult<()> {
 }
 
 pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> AppResult<()> {
-    if matches!(section, GitChangeSection::Untracked | GitChangeSection::Branch) {
+    if matches!(
+        section,
+        GitChangeSection::Untracked | GitChangeSection::Branch
+    ) {
         return Err(AppError::Validation(
             "This change type cannot be reverted from ThreadEx yet.".to_string(),
         ));
@@ -65,7 +70,10 @@ pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> A
             if !reference_exists(repo_root, "HEAD") {
                 return unstage_file(repo_root, path);
             }
-            run_git(repo_root, ["restore", "--source=HEAD", "--staged", "--", path])
+            run_git(
+                repo_root,
+                ["restore", "--source=HEAD", "--staged", "--", path],
+            )
         }
         GitChangeSection::Unstaged => run_git(repo_root, ["restore", "--worktree", "--", path]),
         GitChangeSection::Untracked | GitChangeSection::Branch => unreachable!(),
@@ -85,7 +93,14 @@ pub fn revert_all(repo_root: &Path) -> AppResult<()> {
     }
     run_git(
         repo_root,
-        ["restore", "--source=HEAD", "--staged", "--worktree", "--", "."],
+        [
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            ".",
+        ],
     )
 }
 
@@ -133,12 +148,31 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
     }
 
     let diff_args = if has_staged {
-        vec!["diff", "--cached", "--no-ext-diff", "--no-color", "--stat=120,80", "--summary"]
+        vec![
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--no-color",
+            "--stat=120,80",
+            "--summary",
+        ]
     } else {
-        vec!["diff", "--no-ext-diff", "--no-color", "--stat=120,80", "--summary"]
+        vec![
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--stat=120,80",
+            "--summary",
+        ]
     };
     let patch_args = if has_staged {
-        vec!["diff", "--cached", "--no-ext-diff", "--no-color", "--unified=3"]
+        vec![
+            "diff",
+            "--cached",
+            "--no-ext-diff",
+            "--no-color",
+            "--unified=3",
+        ]
     } else {
         vec!["diff", "--no-ext-diff", "--no-color", "--unified=3"]
     };
@@ -170,9 +204,17 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
          Diff summary:\n{}\n\n\
          Untracked files:\n{}\n\n\
          Unified diff:\n{}\n",
-        if diff_stat.is_empty() { "(no diff summary available)" } else { &diff_stat },
+        if diff_stat.is_empty() {
+            "(no diff summary available)"
+        } else {
+            &diff_stat
+        },
         untracked_paths.as_deref().unwrap_or("(none)"),
-        if patch.is_empty() { "(no unified diff available)" } else { &patch },
+        if patch.is_empty() {
+            "(no unified diff available)"
+        } else {
+            &patch
+        },
     );
 
     let binary = context
@@ -253,12 +295,11 @@ fn truncate_diff(diff: &str, limit: usize) -> String {
 }
 
 fn has_untracked_files(repo_root: &Path) -> AppResult<bool> {
-    Ok(!read_command_stdout(
-        repo_root,
-        ["ls-files", "--others", "--exclude-standard"],
-    )?
-    .trim()
-    .is_empty())
+    Ok(
+        !read_command_stdout(repo_root, ["ls-files", "--others", "--exclude-standard"])?
+            .trim()
+            .is_empty(),
+    )
 }
 
 struct TempFileGuard {
@@ -459,7 +500,9 @@ mod tests {
         revert_file(&repo.path, "src/app.ts", GitChangeSection::Staged)?;
 
         assert_eq!(fs::read_to_string(&file)?, "const answer = 1;\n");
-        assert!(repo.stdout(["diff", "--cached", "--", "src/app.ts"])?.is_empty());
+        assert!(repo
+            .stdout(["diff", "--cached", "--", "src/app.ts"])?
+            .is_empty());
         Ok(())
     }
 
@@ -504,9 +547,8 @@ mod tests {
             .expect("spawn");
         let readers = ChildPipeReaders::spawn(&mut child);
 
-        let error =
-            wait_for_child_output(child, readers, Duration::from_millis(10), "Timed out")
-                .expect_err("process should time out");
+        let error = wait_for_child_output(child, readers, Duration::from_millis(10), "Timed out")
+            .expect_err("process should time out");
         assert!(error.to_string().contains("Timed out"));
     }
 
@@ -542,12 +584,7 @@ mod tests {
             .expect("spawn");
         let readers = ChildPipeReaders::spawn(&mut child);
 
-        let output = wait_for_child_output(
-            child,
-            readers,
-            Duration::from_secs(2),
-            "Timed out",
-        )?;
+        let output = wait_for_child_output(child, readers, Duration::from_secs(2), "Timed out")?;
         let _ = fs::remove_dir_all(&fixture_dir);
 
         assert_eq!(output.status.code(), Some(1));
@@ -561,10 +598,8 @@ mod tests {
 
     impl TestRepo {
         fn new() -> AppResult<Self> {
-            let path = std::env::temp_dir().join(format!(
-                "threadex-git-actions-{}",
-                uuid::Uuid::now_v7()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("threadex-git-actions-{}", uuid::Uuid::now_v7()));
             fs::create_dir_all(&path)?;
             let repo = Self { path };
             repo.run(["init", "--initial-branch=main"])?;
@@ -578,7 +613,9 @@ mod tests {
         }
 
         fn stdout<const N: usize>(&self, args: [&str; N]) -> AppResult<String> {
-            Ok(super::stdout_message(&super::command_output(&self.path, args)?.stdout))
+            Ok(super::stdout_message(
+                &super::command_output(&self.path, args)?.stdout,
+            ))
         }
     }
 

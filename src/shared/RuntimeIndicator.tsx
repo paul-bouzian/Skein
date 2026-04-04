@@ -1,10 +1,21 @@
 import type { RuntimeState } from "../lib/types";
 import "./RuntimeIndicator.css";
 
+type RuntimeIndicatorTone =
+  | "neutral"
+  | "running"
+  | "progress"
+  | "completed"
+  | "warning"
+  | "failed"
+  | "waiting";
+
 type Props = {
-  state: RuntimeState;
+  state?: RuntimeState;
+  tone?: RuntimeIndicatorTone;
   size?: "sm" | "md";
   label?: boolean;
+  labelText?: string;
 };
 
 const labels: Record<RuntimeState, string> = {
@@ -13,13 +24,31 @@ const labels: Record<RuntimeState, string> = {
   exited: "Exited",
 };
 
-export function RuntimeIndicator({ state, size = "sm", label = false }: Props) {
+function toneFromRuntimeState(state: RuntimeState): RuntimeIndicatorTone {
+  switch (state) {
+    case "running":
+      return "running";
+    case "stopped":
+      return "neutral";
+    case "exited":
+      return "warning";
+  }
+}
+
+export function RuntimeIndicator({
+  state = "stopped",
+  tone,
+  size = "sm",
+  label = false,
+  labelText,
+}: Props) {
+  const resolvedTone = tone ?? toneFromRuntimeState(state);
+  const resolvedLabel = labelText ?? labels[state];
+
   return (
     <span className={`runtime-indicator runtime-indicator--${size}`}>
-      <span className={`runtime-indicator__dot runtime-indicator__dot--${state}`} />
-      {label && (
-        <span className="runtime-indicator__label">{labels[state]}</span>
-      )}
+      <span className={`runtime-indicator__dot runtime-indicator__dot--${resolvedTone}`} />
+      {label ? <span className="runtime-indicator__label">{resolvedLabel}</span> : null}
     </span>
   );
 }

@@ -8,8 +8,6 @@ import type {
   CommitGitInput,
   ConversationEventPayload,
   CreateThreadRequest,
-  CreateWorktreeRequest,
-  EnvironmentRecord,
   GitFileDiff,
   GitFileDiffInput,
   GitFileInput,
@@ -18,6 +16,7 @@ import type {
   GitScopeInput,
   GlobalSettings,
   GlobalSettingsPatch,
+  ManagedWorktreeCreateResult,
   ProjectRecord,
   RespondToApprovalRequestInput,
   RespondToUserInputRequestInput,
@@ -197,10 +196,16 @@ export function removeProject(projectId: string): Promise<void> {
   return invoke<void>("remove_project", { projectId });
 }
 
-export function createWorktreeEnvironment(
-  input: CreateWorktreeRequest,
-): Promise<EnvironmentRecord> {
-  return invoke<EnvironmentRecord>("create_worktree_environment", { input });
+export function createManagedWorktree(
+  projectId: string,
+): Promise<ManagedWorktreeCreateResult> {
+  return invoke<ManagedWorktreeCreateResult>("create_managed_worktree", { projectId });
+}
+
+export function deleteWorktreeEnvironment(
+  environmentId: string,
+): Promise<void> {
+  return invoke<void>("delete_worktree_environment", { environmentId });
 }
 
 export function createThread(

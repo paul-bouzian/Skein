@@ -2,12 +2,13 @@ use tauri::State;
 
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    EnvironmentRecord, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord, WorkspaceSnapshot,
+    ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord,
+    WorkspaceSnapshot,
 };
 use crate::error::CommandError;
 use crate::services::workspace::{
-    AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, CreateWorktreeRequest,
-    RenameProjectRequest, RenameThreadRequest,
+    AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
+    RenameThreadRequest,
 };
 use crate::state::AppState;
 
@@ -57,11 +58,25 @@ pub async fn remove_project(
 }
 
 #[tauri::command]
-pub fn create_worktree_environment(
-    input: CreateWorktreeRequest,
+pub fn create_managed_worktree(
+    project_id: String,
     state: State<'_, AppState>,
-) -> Result<EnvironmentRecord, CommandError> {
-    Ok(state.workspace.create_worktree(input)?)
+) -> Result<ManagedWorktreeCreateResult, CommandError> {
+    Ok(state.workspace.create_managed_worktree(&project_id)?)
+}
+
+#[tauri::command]
+pub async fn delete_worktree_environment(
+    environment_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    state
+        .workspace
+        .ensure_worktree_environment_can_be_deleted(&environment_id)?;
+    state.runtime.stop(&environment_id).await?;
+    Ok(state
+        .workspace
+        .delete_worktree_environment(&environment_id)?)
 }
 
 #[tauri::command]
@@ -93,8 +108,9 @@ pub async fn start_environment_runtime(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
-    let (environment_path, codex_binary_path) =
-        state.workspace.environment_runtime_target(&environment_id)?;
+    let (environment_path, codex_binary_path) = state
+        .workspace
+        .environment_runtime_target(&environment_id)?;
     Ok(state
         .runtime
         .start(&environment_id, &environment_path, codex_binary_path)

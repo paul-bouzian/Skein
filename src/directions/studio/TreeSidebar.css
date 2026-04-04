@@ -115,21 +115,33 @@
   margin-top: var(--tx-space-xs);
 }
 
-.project-group__header {
+.project-group__header-shell {
   display: flex;
   align-items: center;
-  gap: var(--tx-space-sm);
   width: 100%;
-  padding: var(--tx-space-sm);
+  padding: 2px;
   border-radius: var(--tx-radius-lg);
-  text-align: left;
   transition:
     background var(--tx-transition-fast),
     border-color var(--tx-transition-fast);
 }
 
+.project-group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--tx-space-sm);
+  flex: 1;
+  min-width: 0;
+  padding: calc(var(--tx-space-sm) - 2px) var(--tx-space-sm);
+  border-radius: calc(var(--tx-radius-lg) - 2px);
+  text-align: left;
+  background: transparent;
+}
+
 .project-group__header,
 .project-group__header *,
+.project-group__header-shell,
+.project-group__header-shell *,
 .environment-item,
 .environment-item *,
 .tree-sidebar__context-item {
@@ -137,12 +149,39 @@
   -webkit-user-select: none;
 }
 
-.project-group__header:hover {
+.project-group__header-shell:hover {
   background: var(--tx-bg-hover);
 }
 
-.project-group--selected .project-group__header {
+.project-group--selected .project-group__header-shell {
   background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
+}
+
+.project-group__create {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--tx-radius-md);
+  color: var(--tx-text-muted);
+  margin-right: 4px;
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    opacity var(--tx-transition-fast);
+}
+
+.project-group__create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tx-bg-hover) 92%, transparent);
+  color: var(--tx-text-primary);
+}
+
+.project-group__create:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.project-group__create-icon--spinning {
+  animation: tree-sidebar-spin 0.9s linear infinite;
 }
 
 .project-group__meta {
@@ -167,8 +206,7 @@
   min-width: 0;
 }
 
-.project-group__branch,
-.project-group__threads {
+.project-group__branch {
   font-size: var(--tx-text-xs);
   color: var(--tx-text-secondary);
 }
@@ -182,33 +220,48 @@
 }
 
 .project-group__environments {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-left: calc(24px + var(--tx-space-sm));
+  margin-left: 18px;
+  padding-left: 10px;
+}
+
+.project-group__environments::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--tx-border-subtle) 84%, transparent);
 }
 
 .environment-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--tx-space-md);
+  gap: var(--tx-space-sm);
   width: 100%;
-  padding: 9px var(--tx-space-md);
+  padding: 7px var(--tx-space-md);
   border-radius: var(--tx-radius-md);
   text-align: left;
-  background: transparent;
+  background: color-mix(in srgb, var(--tx-bg-raised) 28%, transparent);
+  border: 1px solid transparent;
   transition:
     background var(--tx-transition-fast),
     border-color var(--tx-transition-fast);
 }
 
 .environment-item:hover {
-  background: var(--tx-bg-hover);
+  background: color-mix(in srgb, var(--tx-bg-hover) 88%, var(--tx-bg-raised));
+  border-color: var(--tx-border-subtle);
 }
 
 .environment-item--selected {
-  background: color-mix(in srgb, var(--tx-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
+  border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
 }
 
 .environment-item__primary,
@@ -221,22 +274,36 @@
 
 .environment-item__primary {
   flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
 }
 
 .environment-item__name-row {
   display: flex;
   align-items: center;
   gap: var(--tx-space-xs);
+  width: 100%;
   min-width: 0;
+}
+
+.environment-item__icon {
+  flex-shrink: 0;
+  color: var(--tx-text-muted);
 }
 
 .environment-item__name {
   font-size: var(--tx-text-sm);
   font-weight: var(--tx-weight-medium);
   color: var(--tx-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .environment-item__branch {
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -249,9 +316,9 @@
   flex-shrink: 0;
 }
 
-.environment-item__threads {
-  font-size: var(--tx-text-xs);
-  color: var(--tx-text-secondary);
+@keyframes tree-sidebar-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Settings */

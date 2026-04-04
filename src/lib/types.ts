@@ -113,6 +113,11 @@ export type WorkspaceSnapshot = {
   projects: ProjectRecord[];
 };
 
+export type ManagedWorktreeCreateResult = {
+  environment: EnvironmentRecord;
+  thread: ThreadRecord;
+};
+
 /* ── Git review ── */
 
 export type GitRepoSummary = {
@@ -444,14 +449,6 @@ export type AddProjectRequest = {
 export type RenameProjectRequest = {
   projectId: string;
   name: string;
-};
-
-export type CreateWorktreeRequest = {
-  projectId: string;
-  name: string;
-  branchName?: string;
-  baseBranch?: string;
-  permanent: boolean;
 };
 
 export type CreateThreadRequest = {

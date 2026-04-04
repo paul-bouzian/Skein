@@ -1,4 +1,8 @@
 import type { EnvironmentRecord, ThreadConversationSnapshot, ThreadRecord } from "../../lib/types";
+import {
+  labelForConversationStatus,
+  toneForConversationStatus,
+} from "../../lib/conversation-status";
 
 type Props = {
   environment: EnvironmentRecord;
@@ -17,8 +21,8 @@ export function ConversationMeta({ environment, snapshot, thread }: Props) {
         </p>
       </div>
       <div className="tx-conversation__status-group">
-        <span className={`tx-pill tx-pill--${snapshot.status}`}>
-          {labelForStatus(snapshot.status)}
+        <span className={`tx-pill tx-pill--${toneForConversationStatus(snapshot.status)}`}>
+          {labelForConversationStatus(snapshot.status)}
         </span>
         {snapshot.tokenUsage ? (
           <span className="tx-pill tx-pill--neutral">
@@ -28,9 +32,4 @@ export function ConversationMeta({ environment, snapshot, thread }: Props) {
       </div>
     </div>
   );
-}
-
-function labelForStatus(status: string) {
-  if (status === "waitingForExternalAction") return "Waiting";
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }

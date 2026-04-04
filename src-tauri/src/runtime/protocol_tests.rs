@@ -7,13 +7,13 @@ use crate::domain::conversation::{
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
 use super::protocol::{
-    CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
-    ModelWire, ReasoningEffortOptionWire, ThreadListEntryWire, ThreadStatusWire, ThreadWire,
-    approval_policy_value,
-    build_history_snapshot, collaboration_mode_options_from_response, loaded_subagents_for_primary,
-    model_options_from_response, complete_proposed_plan, normalize_server_interaction,
-    parse_incoming_message, proposed_plan_from_item, subagents_from_collab_item,
-    sandbox_policy_value, ServerRequestEnvelope,
+    approval_policy_value, build_history_snapshot, collaboration_mode_options_from_response,
+    complete_proposed_plan, loaded_subagents_for_primary, model_options_from_response,
+    normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
+    sandbox_policy_value, subagents_from_collab_item, CollaborationModeListResponse,
+    CollaborationModeWire, IncomingMessage, ModelListResponse, ModelWire,
+    ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire, ThreadStatusWire,
+    ThreadWire,
 };
 
 fn composer() -> ConversationComposerSettings {
@@ -49,10 +49,9 @@ fn parses_json_rpc_responses_and_notifications() {
 
 #[test]
 fn preserves_json_rpc_error_responses_for_pending_requests() {
-    let response = parse_incoming_message(
-        r#"{"jsonrpc":"2.0","id":9,"error":{"message":"request failed"}}"#,
-    )
-    .expect("error response should parse");
+    let response =
+        parse_incoming_message(r#"{"jsonrpc":"2.0","id":9,"error":{"message":"request failed"}}"#)
+            .expect("error response should parse");
 
     assert!(matches!(
         response,
@@ -102,7 +101,10 @@ fn builds_history_snapshot_from_thread_turns() {
     );
 
     assert_eq!(snapshot.codex_thread_id.as_deref(), Some("thr-existing"));
-    assert!(matches!(snapshot.status, crate::domain::conversation::ConversationStatus::Completed));
+    assert!(matches!(
+        snapshot.status,
+        crate::domain::conversation::ConversationStatus::Completed
+    ));
     assert!(snapshot.items.iter().any(|item| matches!(
         item,
         ConversationItem::Message(message) if message.text == "Inspect the repo"
@@ -255,7 +257,10 @@ fn discovers_loaded_subagent_descendants_for_a_primary_thread() {
 
     assert_eq!(subagents.len(), 2);
     assert_eq!(subagents[0].thread_id, "thr-child");
-    assert_eq!(subagents[0].status, crate::domain::conversation::SubagentStatus::Running);
+    assert_eq!(
+        subagents[0].status,
+        crate::domain::conversation::SubagentStatus::Running
+    );
     assert_eq!(subagents[1].thread_id, "thr-grandchild");
     assert_eq!(
         subagents[1].status,
@@ -462,7 +467,10 @@ fn normalizes_collaboration_modes_and_sandbox_mapping() {
     assert_eq!(modes.len(), 2);
     assert_eq!(modes[0].id, "build");
     assert_eq!(modes[1].id, "plan");
-    assert_eq!(approval_policy_value(ApprovalPolicy::AskToEdit), "on-request");
+    assert_eq!(
+        approval_policy_value(ApprovalPolicy::AskToEdit),
+        "on-request"
+    );
     assert_eq!(
         sandbox_policy_value(ApprovalPolicy::AskToEdit, "/tmp/threadex")["type"],
         "workspaceWrite"

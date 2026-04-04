@@ -7,8 +7,8 @@ use crate::domain::git_review::{
 use crate::error::{AppError, AppResult};
 
 use super::{
-    command_output, current_branch, resolve_base_reference, stderr_message, upstream_branch,
-    stdout_message, GitEnvironmentContext,
+    command_output, current_branch, resolve_base_reference, stderr_message, stdout_message,
+    upstream_branch, GitEnvironmentContext,
 };
 
 pub(super) fn read_review_snapshot(
@@ -68,7 +68,13 @@ fn build_repo_summary(
 
     let status_output = command_output(
         repo_root,
-        ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"],
+        [
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+            "-z",
+        ],
     )?;
     if !status_output.status.success() {
         return Err(AppError::Git(stderr_message(&status_output.stderr)));
@@ -83,7 +89,9 @@ fn build_repo_summary(
         upstream_branch: upstream_branch_name,
         ahead,
         behind,
-        dirty: flags.has_staged_changes || flags.has_unstaged_changes || flags.has_untracked_changes,
+        dirty: flags.has_staged_changes
+            || flags.has_unstaged_changes
+            || flags.has_untracked_changes,
         has_staged_changes: flags.has_staged_changes,
         has_unstaged_changes: flags.has_unstaged_changes,
         has_untracked_changes: flags.has_untracked_changes,
@@ -93,7 +101,13 @@ fn build_repo_summary(
 fn read_uncommitted_sections(repo_root: &Path) -> AppResult<Vec<GitChangeSectionSnapshot>> {
     let output = command_output(
         repo_root,
-        ["status", "--porcelain=v2", "--branch", "--untracked-files=all", "-z"],
+        [
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+            "-z",
+        ],
     )?;
     if !output.status.success() {
         return Err(AppError::Git(stderr_message(&output.stderr)));
@@ -177,7 +191,12 @@ fn read_branch_sections(
 
     let output = command_output(
         repo_root,
-        ["diff", "--name-status", "--find-renames=50%", &format!("{base_branch}...HEAD")],
+        [
+            "diff",
+            "--name-status",
+            "--find-renames=50%",
+            &format!("{base_branch}...HEAD"),
+        ],
     )?;
     if !output.status.success() {
         return Err(AppError::Git(stderr_message(&output.stderr)));
@@ -407,20 +426,13 @@ mod tests {
 
     #[test]
     fn parses_porcelain_xy_flags_into_change_kinds() {
-        assert_eq!(
-            parse_xy("M."),
-            (Some(GitChangeKind::Modified), None)
-        );
-        assert_eq!(
-            parse_xy(".A"),
-            (None, Some(GitChangeKind::Added))
-        );
+        assert_eq!(parse_xy("M."), (Some(GitChangeKind::Modified), None));
+        assert_eq!(parse_xy(".A"), (None, Some(GitChangeKind::Added)));
     }
 
     #[test]
     fn parses_branch_name_status_rename_lines() {
-        let change =
-            parse_branch_name_status_line("R100\tsrc/old.ts\tsrc/new.ts").expect("change");
+        let change = parse_branch_name_status_line("R100\tsrc/old.ts\tsrc/new.ts").expect("change");
         assert_eq!(change.path, "src/new.ts");
         assert_eq!(change.old_path.as_deref(), Some("src/old.ts"));
         assert_eq!(change.kind, GitChangeKind::Renamed);

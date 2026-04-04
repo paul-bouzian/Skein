@@ -2,9 +2,8 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, RespondToApprovalRequestInput,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadConversationOpenResponse,
-    ThreadConversationSnapshot,
+    ConversationComposerSettings, RespondToApprovalRequestInput, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -41,14 +40,21 @@ pub async fn send_thread_message(
     state: State<'_, AppState>,
 ) -> Result<ThreadConversationSnapshot, CommandError> {
     let mut context = state.workspace.thread_runtime_context(&input.thread_id)?;
+    let should_auto_rename = state.workspace.thread_needs_auto_title(&input.thread_id)?;
+    let message_text = input.text;
     if let Some(composer) = input.composer.clone() {
         context.composer = composer;
     }
     let result = state
         .runtime
-        .send_thread_message(context, input.text)
+        .send_thread_message(context, message_text.clone())
         .await?;
 
+    if should_auto_rename {
+        state
+            .workspace
+            .auto_rename_thread_from_message(&input.thread_id, &message_text)?;
+    }
     if let Some(codex_thread_id) = result.new_codex_thread_id {
         state
             .workspace

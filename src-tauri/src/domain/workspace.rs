@@ -94,3 +94,10 @@ pub struct WorkspaceSnapshot {
     pub settings: GlobalSettings,
     pub projects: Vec<ProjectRecord>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedWorktreeCreateResult {
+    pub environment: EnvironmentRecord,
+    pub thread: ThreadRecord,
+}

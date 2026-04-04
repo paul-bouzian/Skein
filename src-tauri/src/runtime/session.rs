@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{error, warn};
@@ -23,21 +23,20 @@ use crate::domain::conversation::{
 use crate::domain::settings::CollaborationMode;
 use crate::error::{AppError, AppResult};
 use crate::runtime::protocol::{
-    CONVERSATION_EVENT_NAME, CollaborationModeListResponse, ErrorNotification, IncomingMessage,
-    ItemDeltaNotification, ItemNotification, ModelListResponse, PlanDeltaNotification,
-    ReasoningBoundaryNotification, ThreadListResponse, ThreadLoadedListResponse,
-    ThreadReadResponse, ThreadStartResponse, TokenUsageNotification,
-    TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
-    TurnStartedNotification, append_agent_delta, append_plan_delta,
-    append_reasoning_boundary, append_reasoning_content, append_reasoning_summary,
-    append_tool_output, approval_policy_value, build_history_snapshot,
-    clear_streaming_flags, collaboration_mode_options_from_response,
-    collaboration_mode_payload, complete_proposed_plan, conversation_status_from_turn_status,
-    error_snapshot, initialize_params, initialized_notification, loaded_subagents_for_primary,
-    mark_plan_approved, mark_plan_superseded, model_options_from_response, normalize_item,
+    append_agent_delta, append_plan_delta, append_reasoning_boundary, append_reasoning_content,
+    append_reasoning_summary, append_tool_output, approval_policy_value, build_history_snapshot,
+    clear_streaming_flags, collaboration_mode_options_from_response, collaboration_mode_payload,
+    complete_proposed_plan, conversation_status_from_turn_status, error_snapshot,
+    initialize_params, initialized_notification, loaded_subagents_for_primary, mark_plan_approved,
+    mark_plan_superseded, model_options_from_response, normalize_item,
     normalize_server_interaction, parse_incoming_message, plan_approval_message,
     proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
     subagents_from_collab_item, token_usage_snapshot, upsert_item, user_input_payload,
+    CollaborationModeListResponse, ErrorNotification, IncomingMessage, ItemDeltaNotification,
+    ItemNotification, ModelListResponse, PlanDeltaNotification, ReasoningBoundaryNotification,
+    ThreadListResponse, ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
+    TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
+    TurnStartedNotification, CONVERSATION_EVENT_NAME,
 };
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -106,10 +105,9 @@ impl RuntimeSession {
             .stderr(std::process::Stdio::piped());
 
         let mut child = command.spawn()?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| AppError::Runtime("Codex app-server stdin is unavailable.".to_string()))?;
+        let stdin = child.stdin.take().ok_or_else(|| {
+            AppError::Runtime("Codex app-server stdin is unavailable.".to_string())
+        })?;
         let stdout = child.stdout.take().ok_or_else(|| {
             AppError::Runtime("Codex app-server stdout is unavailable.".to_string())
         })?;
@@ -236,7 +234,10 @@ impl RuntimeSession {
             let snapshot = self
                 .refresh_thread_metadata(context.clone(), Some(snapshot))
                 .await?;
-            return Ok(ThreadConversationOpenResponse { snapshot, capabilities });
+            return Ok(ThreadConversationOpenResponse {
+                snapshot,
+                capabilities,
+            });
         }
 
         let snapshot = match context.codex_thread_id.clone() {
@@ -295,7 +296,10 @@ impl RuntimeSession {
             .refresh_thread_metadata(context, Some(snapshot))
             .await?;
 
-        Ok(ThreadConversationOpenResponse { snapshot, capabilities })
+        Ok(ThreadConversationOpenResponse {
+            snapshot,
+            capabilities,
+        })
     }
 
     pub async fn refresh_thread(
@@ -320,9 +324,15 @@ impl RuntimeSession {
         response: ApprovalResponseInput,
     ) -> AppResult<ThreadConversationSnapshot> {
         let payload = approval_response_payload(response)?;
-        let pending = self.take_pending_server_request(thread_id, interaction_id).await?;
-        if let Err(error) = self.send_server_response(pending.json_rpc_id.clone(), payload).await {
-            self.restore_pending_server_request(interaction_id, pending).await;
+        let pending = self
+            .take_pending_server_request(thread_id, interaction_id)
+            .await?;
+        if let Err(error) = self
+            .send_server_response(pending.json_rpc_id.clone(), payload)
+            .await
+        {
+            self.restore_pending_server_request(interaction_id, pending)
+                .await;
             return Err(error);
         }
         self.complete_interaction(thread_id, interaction_id).await
@@ -650,8 +660,8 @@ impl RuntimeSession {
                 })?;
             let status = conversation_status_from_turn_status(&turn_response.turn.status);
             snapshot.composer = context.composer.clone();
-            snapshot.active_turn_id = matches!(status, ConversationStatus::Running)
-                .then_some(turn_response.turn.id);
+            snapshot.active_turn_id =
+                matches!(status, ConversationStatus::Running).then_some(turn_response.turn.id);
             snapshot.status = status;
             snapshot.error = turn_response.turn.error.map(error_snapshot);
             reconcile_snapshot_status(snapshot);
@@ -688,7 +698,9 @@ impl RuntimeSession {
             let snapshot = state
                 .snapshots_by_thread
                 .get_mut(thread_id)
-                .ok_or_else(|| AppError::NotFound("Thread conversation is not open.".to_string()))?;
+                .ok_or_else(|| {
+                    AppError::NotFound("Thread conversation is not open.".to_string())
+                })?;
             snapshot
                 .pending_interactions
                 .retain(|interaction| interaction_id_for(interaction) != interaction_id);
@@ -706,7 +718,9 @@ impl RuntimeSession {
     ) -> AppResult<PendingServerRequest> {
         let mut state = self.state.lock().await;
         let Some(pending) = state.pending_server_requests.get(interaction_id).cloned() else {
-            return Err(AppError::NotFound("Interactive request not found.".to_string()));
+            return Err(AppError::NotFound(
+                "Interactive request not found.".to_string(),
+            ));
         };
         if pending.thread_id != thread_id {
             return Err(AppError::Validation(
@@ -749,9 +763,10 @@ impl RuntimeSession {
 
     async fn ensure_pending_plan(&self, thread_id: &str) -> AppResult<()> {
         let state = self.state.lock().await;
-        let snapshot = state.snapshots_by_thread.get(thread_id).ok_or_else(|| {
-            AppError::NotFound("Thread conversation is not open.".to_string())
-        })?;
+        let snapshot = state
+            .snapshots_by_thread
+            .get(thread_id)
+            .ok_or_else(|| AppError::NotFound("Thread conversation is not open.".to_string()))?;
         let plan = snapshot.proposed_plan.as_ref().ok_or_else(|| {
             AppError::Validation("There is no proposed plan to update.".to_string())
         })?;
@@ -796,9 +811,12 @@ impl RuntimeSession {
     {
         let snapshot = {
             let mut state = self.state.lock().await;
-            let snapshot = state.snapshots_by_thread.get_mut(thread_id).ok_or_else(|| {
-                AppError::NotFound("Thread conversation is not open.".to_string())
-            })?;
+            let snapshot = state
+                .snapshots_by_thread
+                .get_mut(thread_id)
+                .ok_or_else(|| {
+                    AppError::NotFound("Thread conversation is not open.".to_string())
+                })?;
             mutate(snapshot)?;
             reconcile_snapshot_status(snapshot);
             snapshot.clone()
@@ -821,11 +839,16 @@ impl RuntimeSession {
                 .snapshots_by_thread
                 .get(&context.thread_id)
                 .cloned()
-                .ok_or_else(|| AppError::NotFound("Thread conversation is not open.".to_string()))?,
+                .ok_or_else(|| {
+                    AppError::NotFound("Thread conversation is not open.".to_string())
+                })?,
         };
 
         let subagents = self
-            .load_subagents(snapshot.codex_thread_id.as_deref(), &context.environment_path)
+            .load_subagents(
+                snapshot.codex_thread_id.as_deref(),
+                &context.environment_path,
+            )
             .await?;
 
         self.mutate_snapshot(&context.thread_id, |snapshot| {
@@ -988,7 +1011,6 @@ impl RuntimeSession {
             warn!("failed to emit conversation snapshot: {error}");
         }
     }
-
 }
 
 fn spawn_stdout_task<R>(
@@ -1066,10 +1088,7 @@ async fn handle_server_request(
     let snapshot = {
         let mut state = state.lock().await;
         let codex_thread_id = interaction_thread_id(&interaction);
-        let Some(local_thread_id) = state
-            .local_thread_by_codex_id
-            .get(codex_thread_id)
-            .cloned()
+        let Some(local_thread_id) = state.local_thread_by_codex_id.get(codex_thread_id).cloned()
         else {
             return;
         };
@@ -1104,7 +1123,8 @@ async fn handle_notification(
 ) {
     match notification.method.as_str() {
         "turn/started" => {
-            if let Ok(event) = serde_json::from_value::<TurnStartedNotification>(notification.params)
+            if let Ok(event) =
+                serde_json::from_value::<TurnStartedNotification>(notification.params)
             {
                 update_snapshot_for_codex_thread(
                     state,
@@ -1135,8 +1155,15 @@ async fn handle_notification(
                         snapshot.error = event.turn.error.clone().map(error_snapshot);
                         clear_streaming_flags(&mut snapshot.items);
                         if let Some(plan) = snapshot.proposed_plan.as_mut() {
-                            if plan.turn_id == event.turn.id && plan.status == crate::domain::conversation::ProposedPlanStatus::Streaming {
-                                complete_proposed_plan(plan, plan.item_id.clone().unwrap_or_default().as_str(), None);
+                            if plan.turn_id == event.turn.id
+                                && plan.status
+                                    == crate::domain::conversation::ProposedPlanStatus::Streaming
+                            {
+                                complete_proposed_plan(
+                                    plan,
+                                    plan.item_id.clone().unwrap_or_default().as_str(),
+                                    None,
+                                );
                             }
                         }
                         reconcile_snapshot_status(snapshot);
@@ -1172,7 +1199,8 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        if event.item.get("type").and_then(serde_json::Value::as_str) == Some("plan")
+                        if event.item.get("type").and_then(serde_json::Value::as_str)
+                            == Some("plan")
                         {
                             let existing = snapshot.proposed_plan.as_ref();
                             snapshot.proposed_plan = proposed_plan_from_item(
@@ -1187,7 +1215,8 @@ async fn handle_notification(
                             .or_else(|| existing.cloned());
                             if let Some(plan) = snapshot.proposed_plan.as_mut() {
                                 if is_started {
-                                    plan.status = crate::domain::conversation::ProposedPlanStatus::Streaming;
+                                    plan.status =
+                                        crate::domain::conversation::ProposedPlanStatus::Streaming;
                                     plan.is_awaiting_decision = false;
                                 } else {
                                     complete_proposed_plan(
@@ -1249,7 +1278,8 @@ async fn handle_notification(
             }
         }
         "item/agentMessage/delta" => {
-            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params) {
+            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
+            {
                 update_snapshot_for_codex_thread(
                     state,
                     &event.thread_id,
@@ -1263,7 +1293,8 @@ async fn handle_notification(
             }
         }
         "item/reasoning/summaryTextDelta" => {
-            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params) {
+            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
+            {
                 update_snapshot_for_codex_thread(
                     state,
                     &event.thread_id,
@@ -1293,7 +1324,8 @@ async fn handle_notification(
             }
         }
         "item/reasoning/textDelta" => {
-            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params) {
+            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
+            {
                 update_snapshot_for_codex_thread(
                     state,
                     &event.thread_id,
@@ -1307,7 +1339,8 @@ async fn handle_notification(
             }
         }
         "item/commandExecution/outputDelta" | "item/fileChange/outputDelta" => {
-            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params) {
+            if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
+            {
                 update_snapshot_for_codex_thread(
                     state,
                     &event.thread_id,
@@ -1327,7 +1360,8 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        snapshot.token_usage = Some(token_usage_snapshot(event.token_usage.clone()));
+                        snapshot.token_usage =
+                            Some(token_usage_snapshot(event.token_usage.clone()));
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -1371,7 +1405,8 @@ async fn update_snapshot_for_codex_thread<F>(
 {
     let maybe_snapshot = {
         let mut state = state.lock().await;
-        let Some(local_thread_id) = state.local_thread_by_codex_id.get(codex_thread_id).cloned() else {
+        let Some(local_thread_id) = state.local_thread_by_codex_id.get(codex_thread_id).cloned()
+        else {
             return;
         };
         let Some(snapshot) = state.snapshots_by_thread.get_mut(&local_thread_id) else {
@@ -1469,9 +1504,7 @@ fn apply_subagent_updates(
     }
 }
 
-fn has_live_subagents(
-    subagents: &[crate::domain::conversation::SubagentThreadSnapshot],
-) -> bool {
+fn has_live_subagents(subagents: &[crate::domain::conversation::SubagentThreadSnapshot]) -> bool {
     subagents.iter().any(|subagent| {
         matches!(
             subagent.status,
@@ -1480,9 +1513,7 @@ fn has_live_subagents(
     })
 }
 
-fn subagent_sort_label(
-    subagent: &crate::domain::conversation::SubagentThreadSnapshot,
-) -> &str {
+fn subagent_sort_label(subagent: &crate::domain::conversation::SubagentThreadSnapshot) -> &str {
     subagent
         .nickname
         .as_deref()
@@ -1690,12 +1721,14 @@ mod tests {
         );
         snapshot.status = ConversationStatus::Failed;
         snapshot.error = None;
-        snapshot.items.push(ConversationItem::Message(ConversationMessageItem {
-            id: "assistant-1".to_string(),
-            role: ConversationRole::Assistant,
-            text: "Something went wrong".to_string(),
-            is_streaming: false,
-        }));
+        snapshot
+            .items
+            .push(ConversationItem::Message(ConversationMessageItem {
+                id: "assistant-1".to_string(),
+                role: ConversationRole::Assistant,
+                text: "Something went wrong".to_string(),
+                is_streaming: false,
+            }));
 
         reconcile_snapshot_status(&mut snapshot);
 

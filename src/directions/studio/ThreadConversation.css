@@ -233,7 +233,7 @@
 }
 
 .tx-plan-card__step-marker--inProgress {
-  color: var(--tx-accent);
+  color: var(--tx-progress);
 }
 
 .tx-plan-card__step-title {
@@ -738,13 +738,18 @@
 
 .tx-pill--running,
 .tx-pill--inProgress {
-  background: color-mix(in srgb, var(--tx-accent) 18%, transparent);
-  color: var(--tx-accent);
+  background: color-mix(in srgb, var(--tx-progress) 18%, transparent);
+  color: var(--tx-progress);
 }
 
 .tx-pill--completed {
   background: color-mix(in srgb, var(--tx-success) 18%, transparent);
   color: var(--tx-success);
+}
+
+.tx-pill--waiting {
+  background: color-mix(in srgb, var(--tx-info) 18%, transparent);
+  color: var(--tx-info);
 }
 
 .tx-pill--interrupted,
@@ -753,8 +758,7 @@
   color: var(--tx-warning);
 }
 
-.tx-pill--failed,
-.tx-pill--waitingForExternalAction {
+.tx-pill--failed {
   background: color-mix(in srgb, var(--tx-danger) 18%, transparent);
   color: var(--tx-danger);
 }

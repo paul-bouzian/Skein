@@ -5,9 +5,7 @@ mod status;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
 
-use crate::domain::git_review::{
-    GitChangeSection, GitFileDiff, GitReviewScope, GitReviewSnapshot,
-};
+use crate::domain::git_review::{GitChangeSection, GitFileDiff, GitReviewScope, GitReviewSnapshot};
 use crate::error::{AppError, AppResult};
 
 pub use actions::{
@@ -75,42 +73,58 @@ pub fn create_worktree(
     )
 }
 
-pub fn ensure_branch_name(name: &str) -> AppResult<String> {
-    let slug = name
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|character| match character {
-            'a'..='z' | '0'..='9' => character,
-            '/' | '-' => character,
-            _ => '-',
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if slug.is_empty() {
-        return Err(AppError::Validation(
-            "The worktree or branch name cannot be empty.".to_string(),
-        ));
-    }
-
-    Ok(slug)
+pub fn remove_worktree(repo_root: &Path, destination: &Path) -> AppResult<()> {
+    run_git(
+        repo_root,
+        [
+            "worktree",
+            "remove",
+            "--force",
+            &destination.to_string_lossy(),
+        ],
+    )
 }
 
-pub fn managed_worktree_path(repo_root: &Path, branch_name: &str) -> PathBuf {
-    let project_name = repo_root
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("project");
-    let parent = repo_root.parent().unwrap_or(repo_root);
+pub fn delete_branch(repo_root: &Path, branch_name: &str) -> AppResult<()> {
+    if !branch_exists(repo_root, branch_name)? {
+        return Ok(());
+    }
 
-    parent
-        .join(".threadex-worktrees")
-        .join(project_name)
-        .join(branch_name)
+    run_git(repo_root, ["branch", "-D", branch_name])
+}
+
+pub fn sanitize_path_component(value: &str, fallback: &str) -> String {
+    let mut result = String::new();
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+            result.push(character.to_ascii_lowercase());
+        } else {
+            result.push('-');
+        }
+    }
+    let trimmed = result.trim_matches('-');
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub fn managed_worktree_path(
+    managed_root: &Path,
+    project_slug: &str,
+    project_id: &str,
+    worktree_name: &str,
+) -> PathBuf {
+    let project_directory = format!(
+        "{}-{}",
+        sanitize_path_component(project_slug, "project"),
+        short_identifier(project_id)
+    );
+
+    managed_root
+        .join(project_directory)
+        .join(sanitize_path_component(worktree_name, "worktree"))
 }
 
 pub fn git_review_snapshot(
@@ -151,10 +165,7 @@ pub(crate) fn validate_relative_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub(crate) fn resolve_base_reference(
-    repo_root: &Path,
-    preferred: Option<&str>,
-) -> Option<String> {
+pub(crate) fn resolve_base_reference(repo_root: &Path, preferred: Option<&str>) -> Option<String> {
     if let Some(preferred) = preferred.filter(|value| !value.trim().is_empty()) {
         return Some(preferred.to_string());
     }
@@ -163,12 +174,10 @@ pub(crate) fn resolve_base_reference(
         return Some(upstream);
     }
 
-    if let Ok(origin_head) = run_git_for_output(repo_root, ["symbolic-ref", "refs/remotes/origin/HEAD"]) {
-        return Some(
-            origin_head
-                .trim_start_matches("refs/remotes/")
-                .to_string(),
-        );
+    if let Ok(origin_head) =
+        run_git_for_output(repo_root, ["symbolic-ref", "refs/remotes/origin/HEAD"])
+    {
+        return Some(origin_head.trim_start_matches("refs/remotes/").to_string());
     }
 
     ["origin/main", "origin/master", "main", "master"]
@@ -180,12 +189,45 @@ pub(crate) fn resolve_base_reference(
 pub(crate) fn upstream_branch(repo_root: &Path) -> AppResult<String> {
     run_git_for_output(
         repo_root,
-        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        ],
     )
 }
 
 pub(crate) fn reference_exists(repo_root: &Path, reference: &str) -> bool {
     run_git(repo_root, ["rev-parse", "--verify", "--quiet", reference]).is_ok()
+}
+
+pub fn list_branch_refs(repo_root: &Path) -> AppResult<Vec<String>> {
+    let output = command_output(
+        repo_root,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )?;
+
+    if !output.status.success() {
+        return Err(AppError::Git(stderr_message(&output.stderr)));
+    }
+
+    Ok(stdout_message_lines(&output.stdout))
+}
+
+pub fn branch_exists(repo_root: &Path, branch_name: &str) -> AppResult<bool> {
+    let needle = branch_name.trim();
+    Ok(list_branch_refs(repo_root)?.into_iter().any(|reference| {
+        reference == needle
+            || reference
+                .split_once('/')
+                .is_some_and(|(_, remote_branch)| remote_branch == needle)
+    }))
 }
 
 pub(crate) fn run_git<P, I, A>(path: P, args: I) -> AppResult<()>
@@ -251,30 +293,44 @@ pub(crate) fn stderr_message(buffer: &[u8]) -> String {
     }
 }
 
+fn stdout_message_lines(buffer: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(buffer)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn short_identifier(value: &str) -> &str {
+    value.get(..8).unwrap_or(value)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::{ensure_branch_name, managed_worktree_path, validate_relative_path};
+    use super::{managed_worktree_path, sanitize_path_component, validate_relative_path};
 
     #[test]
-    fn branch_name_is_sanitized_into_a_git_safe_slug() {
-        let slug = ensure_branch_name(" Feature: Plan Mode UI! ").expect("slug should be created");
-        assert_eq!(slug, "feature-plan-mode-ui");
+    fn path_component_sanitization_removes_unsafe_characters() {
+        assert_eq!(
+            sanitize_path_component("ThreadEx Workspace!", "fallback"),
+            "threadex-workspace"
+        );
     }
 
     #[test]
-    fn branch_name_rejects_empty_values() {
-        let error = ensure_branch_name("   ").expect_err("empty name should fail");
-        assert!(error.to_string().contains("cannot be empty"));
-    }
-
-    #[test]
-    fn managed_worktree_path_is_nested_under_threadex_directory() {
-        let path = managed_worktree_path(Path::new("/tmp/acme/repo"), "feature-plan-mode");
+    fn managed_worktree_path_is_nested_under_threadex_home_directory() {
+        let path = managed_worktree_path(
+            Path::new("/Users/test/.threadex/worktrees"),
+            "Acme Repo",
+            "12345678-aaaa-bbbb-cccc-ddddeeeeffff",
+            "feature-plan-mode",
+        );
         assert_eq!(
             path,
-            Path::new("/tmp/acme/.threadex-worktrees/repo/feature-plan-mode")
+            Path::new("/Users/test/.threadex/worktrees/acme-repo-12345678/feature-plan-mode")
         );
     }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as bridge from "../lib/bridge";
 import { makeEnvironment, makeProject, makeThread, makeWorkspaceSnapshot } from "../test/fixtures/conversation";
 import { useWorkspaceStore } from "./workspace-store";
 
@@ -8,7 +9,10 @@ vi.mock("../lib/bridge", () => ({
   getWorkspaceSnapshot: vi.fn(),
 }));
 
+const mockedBridge = vi.mocked(bridge);
+
 beforeEach(() => {
+  vi.clearAllMocks();
   useWorkspaceStore.setState((state) => ({
     ...state,
     snapshot: null,
@@ -118,5 +122,57 @@ describe("workspace store", () => {
     expect(state.selectedProjectId).toBe("project-1");
     expect(state.selectedEnvironmentId).toBe("env-1");
     expect(state.selectedThreadId).toBeNull();
+  });
+
+  it("falls back to the local environment when a selected worktree disappears on refresh", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+                threads: [makeThread({ id: "thread-local", environmentId: "env-local" })],
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                threads: [makeThread({ id: "thread-worktree", environmentId: "env-worktree" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-worktree",
+      selectedThreadId: "thread-worktree",
+    }));
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+      makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+                threads: [makeThread({ id: "thread-local", environmentId: "env-local" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await useWorkspaceStore.getState().refreshSnapshot();
+
+    const state = useWorkspaceStore.getState();
+    expect(state.selectedProjectId).toBe("project-1");
+    expect(state.selectedEnvironmentId).toBe("env-local");
+    expect(state.selectedThreadId).toBe("thread-local");
   });
 });

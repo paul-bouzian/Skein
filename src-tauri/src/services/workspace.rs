@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -9,28 +9,19 @@ use uuid::Uuid;
 use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    EnvironmentKind, EnvironmentRecord, ProjectRecord, RuntimeState, RuntimeStatusSnapshot,
-    ThreadOverrides, ThreadRecord, ThreadStatus, WorkspaceSnapshot,
+    EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord, RuntimeState,
+    RuntimeStatusSnapshot, ThreadOverrides, ThreadRecord, ThreadStatus, WorkspaceSnapshot,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
 use crate::services::git::{self, GitEnvironmentContext};
+use crate::services::{thread_titles, worktree_names};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddProjectRequest {
     pub path: String,
     pub name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorktreeRequest {
-    pub project_id: String,
-    pub name: String,
-    pub branch_name: Option<String>,
-    pub base_branch: Option<String>,
-    pub permanent: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,6 +55,7 @@ pub struct ArchiveThreadRequest {
 #[derive(Debug, Clone)]
 pub struct WorkspaceService {
     database: AppDatabase,
+    managed_worktrees_root: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -77,15 +69,21 @@ pub struct ThreadRuntimeContext {
 }
 
 impl WorkspaceService {
-    pub fn new(database: AppDatabase) -> Self {
-        Self { database }
+    pub fn new(database: AppDatabase, managed_worktrees_root: PathBuf) -> Self {
+        Self {
+            database,
+            managed_worktrees_root,
+        }
     }
 
     pub fn database_path(&self) -> PathBuf {
         self.database.path().to_path_buf()
     }
 
-    pub fn snapshot(&self, runtime_statuses: Vec<RuntimeStatusSnapshot>) -> AppResult<WorkspaceSnapshot> {
+    pub fn snapshot(
+        &self,
+        runtime_statuses: Vec<RuntimeStatusSnapshot>,
+    ) -> AppResult<WorkspaceSnapshot> {
         let connection = self.database.open()?;
         let settings = self.read_or_seed_settings(&connection)?;
         let runtime_map = runtime_statuses
@@ -193,6 +191,26 @@ impl WorkspaceService {
             return Err(AppError::NotFound("Project not found.".to_string()));
         }
 
+        let has_worktrees = connection
+            .query_row(
+                "
+                SELECT 1
+                FROM environments
+                WHERE project_id = ?1 AND kind != 'local'
+                LIMIT 1
+                ",
+                params![project_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+
+        if has_worktrees {
+            return Err(AppError::Validation(
+                "Delete this project's worktrees before removing it from ThreadEx.".to_string(),
+            ));
+        }
+
         let mut statement = connection.prepare(
             "
             SELECT id
@@ -208,6 +226,26 @@ impl WorkspaceService {
 
     pub fn remove_project(&self, project_id: &str) -> AppResult<()> {
         let connection = self.database.open()?;
+        let has_worktrees = connection
+            .query_row(
+                "
+                SELECT 1
+                FROM environments
+                WHERE project_id = ?1 AND kind != 'local'
+                LIMIT 1
+                ",
+                params![project_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+
+        if has_worktrees {
+            return Err(AppError::Validation(
+                "Delete this project's worktrees before removing it from ThreadEx.".to_string(),
+            ));
+        }
+
         let affected = connection.execute(
             "DELETE FROM projects WHERE id = ?1 AND archived_at IS NULL",
             params![project_id],
@@ -220,57 +258,137 @@ impl WorkspaceService {
         Ok(())
     }
 
-    pub fn create_worktree(&self, input: CreateWorktreeRequest) -> AppResult<EnvironmentRecord> {
-        let project = self.project_metadata(&input.project_id)?;
-        let branch_name = git::ensure_branch_name(
-            input
-                .branch_name
-                .as_deref()
-                .unwrap_or(input.name.as_str()),
+    pub fn create_managed_worktree(
+        &self,
+        project_id: &str,
+    ) -> AppResult<ManagedWorktreeCreateResult> {
+        let project = self.project_metadata(project_id)?;
+        let base_branch = git::current_branch(&project.root_path)?
+            .or_else(|| git::resolve_base_reference(&project.root_path, None))
+            .ok_or_else(|| {
+                AppError::Git("Unable to determine a base branch for this project.".to_string())
+            })?;
+        let candidate = self.next_managed_worktree_candidate(project_id, &project)?;
+        git::create_worktree(
+            &project.root_path,
+            &candidate.destination,
+            &candidate.branch_name,
+            &base_branch,
         )?;
-        let base_branch = match input.base_branch {
-            Some(base_branch) => base_branch,
-            None => git::current_branch(&project.root_path)?.unwrap_or_else(|| "main".to_string()),
-        };
-        let destination = git::managed_worktree_path(&project.root_path, &branch_name);
-        git::create_worktree(&project.root_path, &destination, &branch_name, &base_branch)?;
 
         let now = Utc::now();
         let environment_id = Uuid::now_v7().to_string();
-        let kind = if input.permanent {
-            EnvironmentKind::PermanentWorktree
-        } else {
-            EnvironmentKind::ManagedWorktree
-        };
+        let thread_id = Uuid::now_v7().to_string();
+        let mut connection = self.database.open()?;
+        let transaction_result = (|| -> AppResult<()> {
+            let transaction = connection.transaction()?;
+            let environment_insert = transaction.execute(
+                "
+                INSERT INTO environments (
+                  id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
+                ",
+                params![
+                    environment_id,
+                    project_id,
+                    candidate.branch_name.as_str(),
+                    environment_kind_value(EnvironmentKind::ManagedWorktree),
+                    candidate.destination.to_string_lossy().to_string(),
+                    candidate.branch_name.as_str(),
+                    base_branch.as_str(),
+                    now,
+                    now,
+                ],
+            )?;
+            debug_assert_eq!(environment_insert, 1);
+
+            let overrides_json = serde_json::to_string(&ThreadOverrides::default())
+                .map_err(|error| AppError::Validation(error.to_string()))?;
+            let thread_insert = transaction.execute(
+                "
+                INSERT INTO threads (
+                  id, environment_id, title, status, codex_thread_id, overrides_json, created_at, updated_at, archived_at
+                ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL)
+                ",
+                params![
+                    thread_id,
+                    environment_id,
+                    "Thread 1",
+                    thread_status_value(ThreadStatus::Active),
+                    overrides_json,
+                    now,
+                    now,
+                ],
+            )?;
+            debug_assert_eq!(thread_insert, 1);
+
+            transaction.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = transaction_result {
+            let cleanup_result = git::remove_worktree(&project.root_path, &candidate.destination)
+                .and_then(|_| git::delete_branch(&project.root_path, &candidate.branch_name));
+            if let Err(cleanup_error) = cleanup_result {
+                tracing::error!(
+                    environment_id,
+                    branch = candidate.branch_name,
+                    path = %candidate.destination.display(),
+                    "failed to clean up worktree after database error: {cleanup_error}"
+                );
+            }
+            return Err(error);
+        }
+
+        Ok(ManagedWorktreeCreateResult {
+            environment: self.environment_by_id(
+                &environment_id,
+                RuntimeStatusSnapshot {
+                    environment_id: environment_id.clone(),
+                    state: RuntimeState::Stopped,
+                    pid: None,
+                    binary_path: None,
+                    started_at: None,
+                    last_exit_code: None,
+                },
+            )?,
+            thread: self.thread_by_id(&thread_id)?,
+        })
+    }
+
+    pub fn delete_worktree_environment(&self, environment_id: &str) -> AppResult<()> {
+        let metadata = self.deletable_worktree_environment_metadata(environment_id)?;
+
+        if metadata.project_root.is_dir() {
+            git::remove_worktree(&metadata.project_root, &metadata.environment_path)?;
+            git::delete_branch(&metadata.project_root, &metadata.branch_name)?;
+        } else if metadata.environment_path.exists() {
+            std::fs::remove_dir_all(&metadata.environment_path)?;
+        }
 
         let connection = self.database.open()?;
         connection.execute(
-            "
-            INSERT INTO environments (
-              id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
-            ",
-            params![
-                environment_id,
-                input.project_id,
-                input.name.trim(),
-                environment_kind_value(kind),
-                destination.to_string_lossy().to_string(),
-                branch_name,
-                base_branch,
-                now,
-                now,
-            ],
+            "DELETE FROM threads WHERE environment_id = ?1",
+            params![environment_id],
+        )?;
+        let affected = connection.execute(
+            "DELETE FROM environments WHERE id = ?1",
+            params![environment_id],
         )?;
 
-        self.environment_by_id(&environment_id, RuntimeStatusSnapshot {
-            environment_id: environment_id.clone(),
-            state: RuntimeState::Stopped,
-            pid: None,
-            binary_path: None,
-            started_at: None,
-            last_exit_code: None,
-        })
+        if affected == 0 {
+            return Err(AppError::NotFound("Environment not found.".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub fn ensure_worktree_environment_can_be_deleted(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<()> {
+        self.deletable_worktree_environment_metadata(environment_id)?;
+        Ok(())
     }
 
     pub fn create_thread(&self, input: CreateThreadRequest) -> AppResult<ThreadRecord> {
@@ -338,6 +456,45 @@ impl WorkspaceService {
         self.thread_by_id(&input.thread_id)
     }
 
+    pub fn thread_needs_auto_title(&self, thread_id: &str) -> AppResult<bool> {
+        let connection = self.database.open()?;
+        let maybe_thread = connection
+            .query_row(
+                "SELECT title, codex_thread_id FROM threads WHERE id = ?1",
+                params![thread_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .optional()?;
+
+        let Some((title, codex_thread_id)) = maybe_thread else {
+            return Err(AppError::NotFound("Thread not found.".to_string()));
+        };
+
+        Ok(codex_thread_id.is_none() && thread_titles::is_auto_generated_thread_title(&title))
+    }
+
+    pub fn auto_rename_thread_from_message(
+        &self,
+        thread_id: &str,
+        message: &str,
+    ) -> AppResult<Option<ThreadRecord>> {
+        let Some(next_title) = thread_titles::derive_thread_title_from_message(message) else {
+            return Ok(None);
+        };
+
+        let connection = self.database.open()?;
+        let affected = connection.execute(
+            "UPDATE threads SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            params![next_title, Utc::now(), thread_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Thread not found.".to_string()));
+        }
+
+        self.thread_by_id(thread_id).map(Some)
+    }
+
     pub fn archive_thread(&self, input: ArchiveThreadRequest) -> AppResult<ThreadRecord> {
         let now = Utc::now();
         let connection = self.database.open()?;
@@ -347,7 +504,12 @@ impl WorkspaceService {
             SET status = ?1, archived_at = ?2, updated_at = ?3
             WHERE id = ?4
             ",
-            params![thread_status_value(ThreadStatus::Archived), now, now, input.thread_id],
+            params![
+                thread_status_value(ThreadStatus::Archived),
+                now,
+                now,
+                input.thread_id
+            ],
         )?;
 
         if affected == 0 {
@@ -375,7 +537,10 @@ impl WorkspaceService {
         Ok((environment_path, settings.codex_binary_path))
     }
 
-    pub fn environment_git_context(&self, environment_id: &str) -> AppResult<GitEnvironmentContext> {
+    pub fn environment_git_context(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<GitEnvironmentContext> {
         let connection = self.database.open()?;
         let settings = self.read_or_seed_settings(&connection)?;
 
@@ -547,12 +712,109 @@ impl WorkspaceService {
             .query_row(
                 "SELECT root_path FROM projects WHERE id = ?1 AND archived_at IS NULL",
                 params![project_id],
-                |row| Ok(ProjectMetadata {
-                    root_path: PathBuf::from(row.get::<_, String>(0)?),
-                }),
+                |row| {
+                    Ok(ProjectMetadata {
+                        root_path: PathBuf::from(row.get::<_, String>(0)?),
+                    })
+                },
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))
+    }
+
+    fn next_managed_worktree_candidate(
+        &self,
+        project_id: &str,
+        project: &ProjectMetadata,
+    ) -> AppResult<ManagedWorktreeCandidate> {
+        let connection = self.database.open()?;
+        let mut statement = connection.prepare(
+            "
+            SELECT name
+            FROM environments
+            WHERE project_id = ?1
+            ",
+        )?;
+        let environment_names = statement
+            .query_map(params![project_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        let branch_refs = git::list_branch_refs(&project.root_path)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let project_slug =
+            git::sanitize_path_component(&infer_project_name(&project.root_path), "project");
+
+        let branch_name = worktree_names::generate_unique_worktree_name(|candidate| {
+            let lower_candidate = candidate.to_ascii_lowercase();
+            let path = git::managed_worktree_path(
+                &self.managed_worktrees_root,
+                &project_slug,
+                project_id,
+                candidate,
+            );
+            environment_names.contains(&lower_candidate)
+                || branch_ref_exists(&branch_refs, candidate)
+                || path.exists()
+        });
+        let destination = git::managed_worktree_path(
+            &self.managed_worktrees_root,
+            &project_slug,
+            project_id,
+            &branch_name,
+        );
+
+        Ok(ManagedWorktreeCandidate {
+            branch_name,
+            destination,
+        })
+    }
+
+    fn worktree_environment_metadata(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<WorktreeEnvironmentMetadata> {
+        let connection = self.database.open()?;
+        connection
+            .query_row(
+                "
+                SELECT environments.kind, environments.path, environments.git_branch, projects.root_path
+                FROM environments
+                JOIN projects ON projects.id = environments.project_id
+                WHERE environments.id = ?1 AND projects.archived_at IS NULL
+                ",
+                params![environment_id],
+                |row| {
+                    Ok(WorktreeEnvironmentMetadata {
+                        kind: environment_kind_from_str(&row.get::<_, String>(0)?)?,
+                        environment_path: PathBuf::from(row.get::<_, String>(1)?),
+                        branch_name: row.get::<_, Option<String>>(2)?.ok_or_else(|| {
+                            rusqlite::Error::InvalidParameterName(
+                                "Environment branch is missing.".to_string(),
+                            )
+                        })?,
+                        project_root: PathBuf::from(row.get::<_, String>(3)?),
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
+    }
+
+    fn deletable_worktree_environment_metadata(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<WorktreeEnvironmentMetadata> {
+        let metadata = self.worktree_environment_metadata(environment_id)?;
+        if matches!(metadata.kind, EnvironmentKind::Local) {
+            return Err(AppError::Validation(
+                "The local environment cannot be deleted.".to_string(),
+            ));
+        }
+
+        Ok(metadata)
     }
 
     fn ensure_local_environment(
@@ -639,17 +901,16 @@ impl WorkspaceService {
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 threads: thread_map.remove(&environment_id).unwrap_or_default(),
-                runtime: runtime_map
-                    .get(&environment_id)
-                    .cloned()
-                    .unwrap_or(RuntimeStatusSnapshot {
+                runtime: runtime_map.get(&environment_id).cloned().unwrap_or(
+                    RuntimeStatusSnapshot {
                         environment_id,
                         state: RuntimeState::Stopped,
                         pid: None,
                         binary_path: None,
                         started_at: None,
                         last_exit_code: None,
-                    }),
+                    },
+                ),
             })
         })?;
 
@@ -675,13 +936,14 @@ impl WorkspaceService {
         )?;
         let rows = statement.query_map([], |row| {
             let overrides_json = row.get::<_, String>(5)?;
-            let overrides = serde_json::from_str::<ThreadOverrides>(&overrides_json).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    overrides_json.len(),
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
+            let overrides =
+                serde_json::from_str::<ThreadOverrides>(&overrides_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        overrides_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
             Ok(ThreadRecord {
                 id: row.get(0)?,
                 environment_id: row.get(1)?,
@@ -742,12 +1004,35 @@ struct ProjectMetadata {
     root_path: PathBuf,
 }
 
+#[derive(Debug)]
+struct ManagedWorktreeCandidate {
+    branch_name: String,
+    destination: PathBuf,
+}
+
+#[derive(Debug)]
+struct WorktreeEnvironmentMetadata {
+    kind: EnvironmentKind,
+    environment_path: PathBuf,
+    branch_name: String,
+    project_root: PathBuf,
+}
+
 fn infer_project_name(root_path: &std::path::Path) -> String {
     root_path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("Project")
         .to_string()
+}
+
+fn branch_ref_exists(branch_refs: &HashSet<String>, branch_name: &str) -> bool {
+    branch_refs.iter().any(|reference| {
+        reference == branch_name
+            || reference
+                .split_once('/')
+                .is_some_and(|(_, remote_branch)| remote_branch == branch_name)
+    })
 }
 
 fn environment_kind_value(kind: EnvironmentKind) -> &'static str {
