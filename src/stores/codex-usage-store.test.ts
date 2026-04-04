@@ -153,6 +153,45 @@ describe("codex usage store", () => {
     expect(snapshot?.secondary?.usedPercent).toBe(44);
   });
 
+  it("ignores stale fetch failures after a newer live update", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-04T10:00:00Z"));
+
+    const deferred = deferredPromise<never>();
+    let callback: ((payload: CodexUsageEventPayload) => void) | null = null;
+
+    mockedBridge.getEnvironmentCodexRateLimits.mockReturnValue(deferred.promise);
+    mockedBridge.listenToCodexUsageEvents.mockImplementation(async (handler) => {
+      callback = handler;
+      return () => undefined;
+    });
+
+    await useCodexUsageStore.getState().initializeListener();
+
+    const refreshPromise = useCodexUsageStore
+      .getState()
+      .refreshEnvironmentUsage("env-1");
+
+    vi.setSystemTime(new Date("2026-04-04T10:00:01Z"));
+    callback!({
+      environmentId: "env-1",
+      rateLimits: {
+        primary: { usedPercent: 72, windowDurationMins: 300 },
+        secondary: { usedPercent: 44, windowDurationMins: 10_080 },
+      },
+    });
+
+    deferred.reject(new Error("temporary failure"));
+    await refreshPromise;
+
+    const state = useCodexUsageStore.getState();
+    expect(state.snapshotsByEnvironmentId["env-1"]?.primary?.usedPercent).toBe(72);
+    expect(state.errorByEnvironmentId["env-1"]).toBeNull();
+    expect(state.lastFetchedAtByEnvironmentId["env-1"]).toBe(
+      new Date("2026-04-04T10:00:01Z").valueOf(),
+    );
+  });
+
   it("merges partial live usage updates into the existing snapshot", async () => {
     let callback: ((payload: CodexUsageEventPayload) => void) | null = null;
     mockedBridge.listenToCodexUsageEvents.mockImplementation(async (handler) => {

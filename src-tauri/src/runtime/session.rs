@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -21,7 +22,7 @@ use crate::domain::conversation::{
     ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
-use crate::domain::workspace::{CodexRateLimitSnapshot, CodexUsageEventPayload};
+use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
 use crate::runtime::protocol::{
     append_agent_delta, append_plan_delta, append_reasoning_boundary, append_reasoning_content,
@@ -33,10 +34,10 @@ use crate::runtime::protocol::{
     normalize_server_interaction, parse_incoming_message, plan_approval_message,
     proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
     subagents_from_collab_item, token_usage_snapshot, upsert_item, user_input_payload,
-    AccountRateLimitsReadResponse, AccountRateLimitsUpdatedNotification,
-    CollaborationModeListResponse, ErrorNotification, IncomingMessage, ItemDeltaNotification,
-    ItemNotification, ModelListResponse, PlanDeltaNotification, ReasoningBoundaryNotification,
-    ThreadListResponse, ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
+    AccountRateLimitsReadResponse, CollaborationModeListResponse, ErrorNotification,
+    IncomingMessage, ItemDeltaNotification, ItemNotification, ModelListResponse,
+    PlanDeltaNotification, ReasoningBoundaryNotification, ThreadListResponse,
+    ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
     TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
     TurnStartedNotification, CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
 };
@@ -1409,11 +1410,7 @@ async fn handle_notification(
             }
         }
         "account/rateLimits/updated" => {
-            if let Ok(event) =
-                serde_json::from_value::<AccountRateLimitsUpdatedNotification>(notification.params)
-            {
-                emit_usage_from_handle(app, environment_id, event.rate_limits);
-            }
+            emit_usage_from_handle(app, environment_id, &notification.params);
         }
         "error" => {
             if let Ok(event) = serde_json::from_value::<ErrorNotification>(notification.params) {
@@ -1735,18 +1732,25 @@ fn emit_snapshot_from_handle(app: &Option<AppHandle>, snapshot: ThreadConversati
 fn emit_usage_from_handle(
     app: &Option<AppHandle>,
     environment_id: &str,
-    rate_limits: CodexRateLimitSnapshot,
+    params: &Value,
 ) {
     let Some(app) = app.as_ref() else {
         return;
     };
-    let payload = CodexUsageEventPayload {
-        environment_id: environment_id.to_string(),
-        rate_limits,
+    let Some(payload) = usage_event_payload(environment_id, params) else {
+        return;
     };
     if let Err(error) = app.emit(CODEX_USAGE_EVENT_NAME, payload) {
         warn!("failed to emit codex usage snapshot: {error}");
     }
+}
+
+fn usage_event_payload(environment_id: &str, params: &Value) -> Option<Value> {
+    let rate_limits = params.get("rateLimits")?.clone();
+    Some(json!({
+        "environmentId": environment_id,
+        "rateLimits": rate_limits,
+    }))
 }
 
 fn mark_item_streaming(item: ConversationItem) -> ConversationItem {
@@ -1796,6 +1800,31 @@ mod tests {
         reconcile_snapshot_status(&mut snapshot);
 
         assert!(matches!(snapshot.status, ConversationStatus::Failed));
+    }
+
+    #[test]
+    fn usage_event_payload_preserves_partial_rate_limit_updates() {
+        let payload = usage_event_payload(
+            "env-1",
+            &json!({
+                "rateLimits": {
+                    "primary": {
+                        "resetsAt": 1_775_306_400
+                    }
+                }
+            }),
+        )
+        .expect("rate limits payload should be emitted");
+
+        assert_eq!(payload["environmentId"], json!("env-1"));
+        assert_eq!(payload["rateLimits"]["primary"]["resetsAt"], json!(1_775_306_400));
+        assert!(payload["rateLimits"]["primary"].get("usedPercent").is_none());
+        assert!(payload["rateLimits"].get("secondary").is_none());
+    }
+
+    #[test]
+    fn usage_event_payload_requires_rate_limits_object() {
+        assert!(usage_event_payload("env-1", &json!({})).is_none());
     }
 
     #[tokio::test]

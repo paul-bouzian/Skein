@@ -145,10 +145,3 @@ pub struct CodexRateLimitSnapshot {
     pub primary: Option<CodexRateLimitWindow>,
     pub secondary: Option<CodexRateLimitWindow>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexUsageEventPayload {
-    pub environment_id: String,
-    pub rate_limits: CodexRateLimitSnapshot,
-}

@@ -383,12 +383,6 @@ pub struct AccountRateLimitsReadResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountRateLimitsUpdatedNotification {
-    pub rate_limits: CodexRateLimitSnapshot,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CollaborationModeWire {
     pub name: String,
     pub mode: Option<String>,

@@ -85,13 +85,14 @@ export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
 
     try {
       const snapshot = await bridge.getEnvironmentCodexRateLimits(environmentId);
-      const latestAppliedAt =
-        get().lastFetchedAtByEnvironmentId[environmentId] ?? Number.NEGATIVE_INFINITY;
-      if (latestAppliedAt > requestStartedAt) {
+      if (isUsageFetchStale(get, environmentId, requestStartedAt)) {
         return;
       }
       setUsageSnapshot(set, environmentId, snapshot);
     } catch (cause: unknown) {
+      if (isUsageFetchStale(get, environmentId, requestStartedAt)) {
+        return;
+      }
       const message =
         cause instanceof Error ? cause.message : "Failed to load Codex usage";
       setUsageError(set, environmentId, message);
@@ -188,6 +189,16 @@ function mergeUsageWindow(
     ...previous,
     ...next,
   };
+}
+
+function isUsageFetchStale(
+  get: () => CodexUsageState,
+  environmentId: string,
+  requestStartedAt: number,
+) {
+  const latestAppliedAt =
+    get().lastFetchedAtByEnvironmentId[environmentId] ?? Number.NEGATIVE_INFINITY;
+  return latestAppliedAt > requestStartedAt;
 }
 
 function setUsageError(
