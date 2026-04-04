@@ -23,7 +23,7 @@ export function ComposerTextMirror({
     <div className="tx-inline-composer__mirror" aria-hidden="true">
       <div
         className="tx-inline-composer__mirror-content"
-        style={{ transform: `translateY(-${scrollTop}px)` }}
+        style={draft.length === 0 ? undefined : { transform: `translateY(-${scrollTop}px)` }}
       >
         {draft.length === 0 ? (
           <span className="tx-inline-composer__placeholder">{placeholder}</span>

@@ -5,7 +5,7 @@ import type {
 } from "../../../lib/types";
 
 const PROMPT_PREFIX = "/prompts:";
-const TOKEN_BOUNDARY = /[\s([{'"`]/;
+const TOKEN_BOUNDARY = /[\s([{'"`,.;!?)}\]]/;
 const TOKEN_STOP = /[\s)\]},"'`;]/;
 const SPACE_APPEND_STOP = /[\s,.;:!?)}\]>"'`]/;
 

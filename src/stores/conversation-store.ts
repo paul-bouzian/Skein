@@ -10,6 +10,10 @@ import type {
 } from "../lib/types";
 import { useWorkspaceStore } from "./workspace-store";
 
+function refreshWorkspaceSnapshotNonBlocking() {
+  void useWorkspaceStore.getState().refreshSnapshot().catch(() => undefined);
+}
+
 type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
   capabilitiesByEnvironmentId: Record<string, EnvironmentCapabilitiesSnapshot>;
@@ -200,7 +204,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           [threadId]: snapshot.composer,
         },
       }));
-      await useWorkspaceStore.getState().refreshSnapshot();
+      refreshWorkspaceSnapshotNonBlocking();
       return true;
     } catch (cause: unknown) {
       const message =
@@ -296,7 +300,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           [input.threadId]: snapshot.composer,
         },
       }));
-      await useWorkspaceStore.getState().refreshSnapshot();
+      refreshWorkspaceSnapshotNonBlocking();
       return true;
     } catch (cause: unknown) {
       const message =

@@ -48,9 +48,11 @@ export function ThreadConversation({ environment, thread }: Props) {
   const submitPlanDecision = useConversationStore((state) => state.submitPlanDecision);
   const [draft, setDraft] = useState("");
   const [isRefiningPlan, setIsRefiningPlan] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const refreshInFlightRef = useRef(false);
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     void openThread(thread.id);
@@ -121,39 +123,57 @@ export function ThreadConversation({ environment, thread }: Props) {
   const composerLocked =
     Boolean(interaction) || Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan);
   const isRunning = snapshot.status === "running";
+  const isMutating = isPending || isSubmitting;
   const sendDisabled =
-    draft.trim().length === 0 || isRunning || (composerLocked && !isRefiningPlan);
+    draft.trim().length === 0 || isRunning || isMutating || (composerLocked && !isRefiningPlan);
 
   async function handleSend() {
-    if (sendDisabled) return;
+    if (sendDisabled || submitInFlightRef.current) return;
     const message = draft.trim();
-    if (isRefiningPlan) {
-      const sent = await submitPlanDecision({
-        threadId: thread.id,
-        action: "refine",
-        feedback: message,
-        composer: { ...resolvedComposer, collaborationMode: "plan" },
-      });
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    try {
+      if (isRefiningPlan) {
+        const sent = await submitPlanDecision({
+          threadId: thread.id,
+          action: "refine",
+          feedback: message,
+          composer: { ...resolvedComposer, collaborationMode: "plan" },
+        });
+        if (sent) {
+          startTransition(() => setDraft(""));
+          setIsRefiningPlan(false);
+        }
+        return;
+      }
+      const sent = await sendMessage(thread.id, message);
       if (sent) {
         startTransition(() => setDraft(""));
-        setIsRefiningPlan(false);
       }
-      return;
-    }
-    const sent = await sendMessage(thread.id, message);
-    if (sent) {
-      startTransition(() => setDraft(""));
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
     }
   }
 
   async function handleApprovePlan() {
-    setIsRefiningPlan(false);
-    setDraft("");
-    await submitPlanDecision({
-      threadId: thread.id,
-      action: "approve",
-      composer: { ...resolvedComposer, collaborationMode: "build" },
-    });
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const sent = await submitPlanDecision({
+        threadId: thread.id,
+        action: "approve",
+        composer: { ...resolvedComposer, collaborationMode: "build" },
+      });
+      if (sent) {
+        setIsRefiningPlan(false);
+        startTransition(() => setDraft(""));
+      }
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -171,7 +191,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         {shouldRenderPlanCard && activePlan ? (
           <ConversationPlanCard
             plan={activePlan}
-            disabled={isRunning || isPending}
+            disabled={isRunning || isMutating}
             onApprove={() => void handleApprovePlan()}
             onRefine={() => setIsRefiningPlan(true)}
           />
@@ -207,6 +227,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         effortOptions={effortOptions}
         focusKey={thread.id}
         isBusy={isRunning || isPending}
+        isSending={isSubmitting}
         isRefiningPlan={isRefiningPlan}
         modelOptions={capabilities?.models ?? []}
         tokenUsage={snapshot.tokenUsage}

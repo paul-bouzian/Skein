@@ -633,11 +633,33 @@ impl RuntimeSession {
         context: &ThreadRuntimeContext,
         visible_text: &str,
     ) -> AppResult<OutgoingUserInputPayload> {
-        let prompts = load_prompt_definitions(&context.environment_path)?;
-        let skills = self.load_skill_bindings(&context.environment_path).await?;
+        if !visible_text.contains("/prompts:") && !visible_text.contains('$') {
+            return Ok(OutgoingUserInputPayload {
+                text: visible_text.to_string(),
+                text_elements: Vec::new(),
+                skills: Vec::new(),
+                mentions: Vec::new(),
+            });
+        }
+
+        let prompts = load_prompt_definitions(&context.environment_path).unwrap_or_else(|error| {
+            warn!("Failed to load prompt definitions for composer resolution: {error}");
+            Vec::new()
+        });
+        let skills = self
+            .load_skill_bindings(&context.environment_path)
+            .await
+            .unwrap_or_else(|error| {
+                warn!("Failed to load skills for composer resolution: {error}");
+                Vec::new()
+            });
         let apps = self
             .load_app_bindings(context.codex_thread_id.as_deref())
-            .await?;
+            .await
+            .unwrap_or_else(|error| {
+                warn!("Failed to load apps for composer resolution: {error}");
+                Vec::new()
+            });
         let resolved = resolve_composer_text(visible_text, &prompts, &skills, &apps)?;
 
         Ok(OutgoingUserInputPayload {
@@ -1133,7 +1155,7 @@ impl RuntimeSession {
 
         let mut bindings = apps
             .into_iter()
-            .filter(|app| app.is_accessible.unwrap_or(false) && app.is_enabled.unwrap_or(true))
+            .filter(|app| app.is_accessible.unwrap_or(true) && app.is_enabled.unwrap_or(true))
             .map(|app| AppBinding {
                 slug: connector_mention_slug(&app.name),
                 path: format!("app://{}", app.id),

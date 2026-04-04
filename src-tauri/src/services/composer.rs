@@ -192,6 +192,7 @@ pub fn resolve_composer_text(
 
     let mut text = String::new();
     let mut text_elements = Vec::new();
+    let mut ignored_ranges = Vec::new();
     let mut last_index = 0usize;
 
     for invocation in &invocations {
@@ -206,6 +207,7 @@ pub fn resolve_composer_text(
         let start = text.len();
         text.push_str(&expanded);
         let end = text.len();
+        ignored_ranges.push(invocation.start..invocation.end);
         text_elements.push(ResolvedTextElement {
             start,
             end,
@@ -213,11 +215,6 @@ pub fn resolve_composer_text(
         });
     }
     text.push_str(&visible_text[last_index..]);
-
-    let ignored_ranges = invocations
-        .iter()
-        .map(|invocation| invocation.start..invocation.end)
-        .collect::<Vec<_>>();
 
     Ok(ResolvedComposerText {
         visible_text: visible_text.to_string(),
@@ -241,21 +238,25 @@ fn prompt_root_for_environment(environment_path: &str) -> AppResult<Option<PathB
         }
     }
 
-    let home_dir = std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| {
-        AppError::Runtime("ThreadEx could not resolve the user home directory.".to_string())
-    })?;
+    let Some(home_dir) = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+    else {
+        return Ok(None);
+    };
     let default_prompt_root = home_dir.join(".codex").join("prompts");
     Ok(default_prompt_root.is_dir().then_some(default_prompt_root))
 }
 
 fn split_prompt_frontmatter(raw: &str) -> (Option<String>, String) {
-    if !raw.starts_with("---\n") {
-        return (None, raw.to_string());
+    let normalized = raw.replace("\r\n", "\n").replace('\r', "\n");
+    if !normalized.starts_with("---\n") {
+        return (None, normalized);
     }
 
-    let remainder = &raw[4..];
+    let remainder = &normalized[4..];
     let Some(frontmatter_end) = remainder.find("\n---\n") else {
-        return (None, raw.to_string());
+        return (None, normalized);
     };
     let frontmatter = &remainder[..frontmatter_end];
     let body = remainder[frontmatter_end + 5..].to_string();
@@ -492,6 +493,12 @@ fn expand_prompt(prompt: &PromptDefinition, invocation: &PromptInvocation) -> Ap
                 parse_positional_arguments(&invocation.args_source).map_err(|message| {
                     AppError::Validation(format!("Could not parse {}: {message}", invocation.raw))
                 })?;
+            if prompt.positional_count > arguments.len() {
+                return Err(AppError::Validation(format!(
+                    "Missing required positional args for {}.",
+                    invocation.raw
+                )));
+            }
             Ok(expand_positional_placeholders(&prompt.content, &arguments))
         }
     }
@@ -618,16 +625,16 @@ fn expand_named_placeholders(content: &str, values: &HashMap<String, String>) ->
             index += character.len_utf8();
             continue;
         }
-        if index > 0 && content[..index].ends_with('$') {
-            output.push('$');
-            index += character.len_utf8();
-            continue;
-        }
         let next = index + character.len_utf8();
         let Some(next_character) = content[next..].chars().next() else {
             output.push('$');
             break;
         };
+        if next_character == '$' {
+            output.push('$');
+            index = next + next_character.len_utf8();
+            continue;
+        }
         if !next_character.is_ascii_uppercase() {
             output.push('$');
             index += character.len_utf8();
@@ -675,7 +682,7 @@ fn expand_positional_placeholders(content: &str, arguments: &[String]) -> String
             break;
         };
         if next_character == '$' {
-            output.push_str("$$");
+            output.push('$');
             index = next_index + next_character.len_utf8();
             continue;
         }
@@ -889,6 +896,34 @@ mod tests {
     }
 
     #[test]
+    fn unknown_prompts_do_not_hide_skill_or_app_mentions() {
+        let resolved = resolve_composer_text(
+            "Run /prompts:unknown($threadex-standards, $github)",
+            &[],
+            &[SkillBinding {
+                name: "threadex-standards".to_string(),
+                description: "Standards".to_string(),
+                path: "/tmp/skill".to_string(),
+            }],
+            &[AppBinding {
+                id: "app-1".to_string(),
+                name: "GitHub".to_string(),
+                description: Some("Connector".to_string()),
+                slug: "github".to_string(),
+                path: "app://app-1".to_string(),
+            }],
+        )
+        .expect("unknown prompts should remain literal while mentions still resolve");
+
+        assert_eq!(
+            resolved.text,
+            "Run /prompts:unknown($threadex-standards, $github)"
+        );
+        assert_eq!(resolved.skills.len(), 1);
+        assert_eq!(resolved.mentions.len(), 1);
+    }
+
+    #[test]
     fn invalid_prompt_arguments_fail_fast() {
         let error = resolve_composer_text(
             "/prompts:review(PATH=\"src/lib.rs\")",
@@ -899,6 +934,19 @@ mod tests {
         .expect_err("missing named argument should fail");
 
         assert!(error.to_string().contains("Missing required args"));
+    }
+
+    #[test]
+    fn invalid_positional_prompt_arguments_fail_fast() {
+        let error = resolve_composer_text(
+            "/prompts:review(\"src/lib.rs\")",
+            &[prompt("review", "Review $1 with focus on $2")],
+            &[],
+            &[],
+        )
+        .expect_err("missing positional argument should fail");
+
+        assert!(error.to_string().contains("Missing required positional args"));
     }
 
     #[test]
@@ -934,5 +982,32 @@ mod tests {
 
         assert_eq!(description.as_deref(), Some("Test prompt"));
         assert_eq!(content.trim(), "Body");
+    }
+
+    #[test]
+    fn split_prompt_frontmatter_normalizes_crlf_files() {
+        let (description, content) =
+            split_prompt_frontmatter("---\r\ndescription: Test prompt\r\n---\r\n\r\nBody\r\n");
+
+        assert_eq!(description.as_deref(), Some("Test prompt"));
+        assert_eq!(content, "\nBody\n");
+    }
+
+    #[test]
+    fn expands_double_dollar_sequences_as_literal_dollars() {
+        let prompts = vec![
+            prompt("named", "Use $$HOME and $PATH"),
+            prompt("positional", "Echo $$1 then $1"),
+        ];
+
+        let resolved = resolve_composer_text(
+            "/prompts:named(PATH=\"src/lib.rs\") /prompts:positional(\"value\")",
+            &prompts,
+            &[],
+            &[],
+        )
+        .expect("escaped dollars should be preserved literally");
+
+        assert_eq!(resolved.text, "Use $HOME and src/lib.rs Echo $1 then value");
     }
 }

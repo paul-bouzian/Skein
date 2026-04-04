@@ -200,7 +200,6 @@ fn spawn_fake_codex(
                         "id": "github",
                         "name": "GitHub",
                         "description": "GitHub connector",
-                        "isAccessible": true,
                         "isEnabled": true
                     }],
                     "nextCursor": null
@@ -481,6 +480,8 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         "low"
     );
     assert_eq!(turn_start.params["input"][0]["text"], "Run the test suite");
+    assert!(!requests.iter().any(|request| request.method == "skills/list"));
+    assert!(!requests.iter().any(|request| request.method == "app/list"));
 }
 
 #[tokio::test]

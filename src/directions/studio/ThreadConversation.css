@@ -533,6 +533,11 @@
   background: color-mix(in srgb, var(--tx-bg-base) 90%, var(--tx-bg-hover));
 }
 
+.tx-inline-composer--disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
 .tx-inline-composer__mirror,
 .tx-inline-composer__textarea {
   width: 100%;
@@ -573,7 +578,6 @@
 }
 
 .tx-inline-composer__textarea:disabled {
-  opacity: 0.75;
   cursor: not-allowed;
 }
 

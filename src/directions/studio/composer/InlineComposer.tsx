@@ -35,6 +35,7 @@ type Props = {
   effortOptions: Array<"low" | "medium" | "high" | "xhigh">;
   focusKey: string;
   isBusy: boolean;
+  isSending: boolean;
   isRefiningPlan: boolean;
   modelOptions: ModelOption[];
   tokenUsage?: ThreadTokenUsageSnapshot | null;
@@ -54,6 +55,7 @@ export function InlineComposer({
   effortOptions,
   focusKey,
   isBusy,
+  isSending,
   isRefiningPlan,
   modelOptions,
   tokenUsage,
@@ -73,7 +75,8 @@ export function InlineComposer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(null);
   const [pendingCursor, setPendingCursor] = useState<number | null>(null);
-  const controlsDisabled = isBusy || disabled;
+  const inputDisabled = isBusy || isSending || (disabled && !isRefiningPlan);
+  const controlsDisabled = isBusy || isSending || disabled;
   const placeholder = isRefiningPlan
     ? "Refine the proposed plan..."
     : "Message ThreadEx...";
@@ -127,6 +130,7 @@ export function InlineComposer({
 
   useEffect(() => {
     if (!activeToken || activeToken.kind !== "file") {
+      fileSearchRequestRef.current += 1;
       setFileResults([]);
       return;
     }
@@ -277,7 +281,9 @@ export function InlineComposer({
         ) : null}
 
         <div className="tx-composer__input-row">
-          <div className="tx-inline-composer">
+          <div
+            className={`tx-inline-composer ${inputDisabled ? "tx-inline-composer--disabled" : ""}`}
+          >
             <ComposerTextMirror
               draft={draft}
               catalog={catalog}
@@ -291,7 +297,7 @@ export function InlineComposer({
               value={draft}
               aria-label={isRefiningPlan ? "Refine the proposed plan" : "Message ThreadEx"}
               placeholder={placeholder}
-              disabled={isBusy || (disabled && !isRefiningPlan)}
+              disabled={inputDisabled}
               onChange={(event) => {
                 onChangeDraft(event.target.value);
                 setSelection({
@@ -305,6 +311,9 @@ export function InlineComposer({
               onSelect={syncSelection}
               onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) {
+                  return;
+                }
                 if (autocompleteItems.length > 0) {
                   if (event.key === "ArrowDown") {
                     event.preventDefault();
@@ -357,7 +366,7 @@ export function InlineComposer({
               type="button"
               className="tx-composer__icon-button"
               aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
-              disabled={draft.trim().length === 0 || (disabled && !isRefiningPlan)}
+              disabled={draft.trim().length === 0 || inputDisabled}
               onClick={onSend}
             >
               <SendIcon size={14} />

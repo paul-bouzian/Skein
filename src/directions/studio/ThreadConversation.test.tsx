@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,16 @@ vi.mock("../../lib/bridge", () => ({
 }));
 
 const mockedBridge = vi.mocked(bridge);
+
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function resetStores() {
   teardownConversationListener();
@@ -363,6 +373,45 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("prevents duplicate sends while a message submission is still in flight", async () => {
+    const deferred = createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockReturnValue(deferred.promise);
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await userEvent.type(input, "Ship the fix");
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+
+    deferred.resolve(makeConversationSnapshot({ status: "running" }));
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+    });
+  });
+
+  it("ignores Enter while the composer is in IME composition mode", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await userEvent.type(input, "こんにちは");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+
+    expect(mockedBridge.sendThreadMessage).not.toHaveBeenCalled();
+    expect(input).toHaveValue("こんにちは");
+  });
+
   it("autocompletes inline prompt tokens anywhere in the draft", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({ status: "idle" }),
@@ -450,6 +499,32 @@ describe("ThreadConversation", () => {
 
     await user.type(input, "now");
     expect(input).toHaveValue("Use $create-pr now");
+  });
+
+  it("keeps refine mode and draft content when approving a plan fails", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.submitPlanDecision.mockRejectedValue(new Error("approval failed"));
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Refine" }));
+    const input = screen.getByPlaceholderText("Refine the proposed plan...");
+    await userEvent.type(input, "Keep the rollback section");
+    await userEvent.click(screen.getByRole("button", { name: "Approve plan" }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Refine the proposed plan...")).toHaveValue(
+        "Keep the rollback section",
+      );
+    });
+    expect(screen.getByRole("button", { name: "Approve plan" })).toBeInTheDocument();
   });
 
   it("renders canonical model ids in the composer even when Codex returns display names", async () => {
