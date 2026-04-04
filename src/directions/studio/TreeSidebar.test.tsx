@@ -43,6 +43,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 const mockedBridge = vi.mocked(bridge);
+const onOpenSettings = vi.fn();
+const onToggleTheme = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,6 +70,16 @@ beforeEach(() => {
   }));
 });
 
+function renderSidebar() {
+  return render(
+    <TreeSidebar
+      theme="dark"
+      onOpenSettings={onOpenSettings}
+      onToggleTheme={onToggleTheme}
+    />,
+  );
+}
+
 describe("TreeSidebar", () => {
   it("creates a managed worktree from the project-row plus button", async () => {
     const updatedSnapshot = makeWorkspaceSnapshot({
@@ -78,7 +90,9 @@ describe("TreeSidebar", () => {
               id: "env-local",
               kind: "local",
               isDefault: true,
-              threads: [makeThread({ id: "thread-local", environmentId: "env-local" })],
+              threads: [
+                makeThread({ id: "thread-local", environmentId: "env-local" }),
+              ],
             }),
             makeEnvironment({
               id: "env-worktree-new",
@@ -87,7 +101,12 @@ describe("TreeSidebar", () => {
               name: "fuzzy-tiger",
               gitBranch: "fuzzy-tiger",
               path: "/Users/test/.threadex/worktrees/threadex-12345678/fuzzy-tiger",
-              threads: [makeThread({ id: "thread-worktree-new", environmentId: "env-worktree-new" })],
+              threads: [
+                makeThread({
+                  id: "thread-worktree-new",
+                  environmentId: "env-worktree-new",
+                }),
+              ],
             }),
           ],
         }),
@@ -108,15 +127,21 @@ describe("TreeSidebar", () => {
       thread: updatedSnapshot.projects[0].environments[1].threads[0],
     });
 
-    render(<TreeSidebar activeSection="projects" />);
+    renderSidebar();
 
-    await userEvent.click(screen.getByRole("button", { name: "Create worktree for ThreadEx" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Create worktree for ThreadEx" }),
+    );
 
     await waitFor(() => {
-      expect(mockedBridge.createManagedWorktree).toHaveBeenCalledWith("project-1");
+      expect(mockedBridge.createManagedWorktree).toHaveBeenCalledWith(
+        "project-1",
+      );
     });
     expect(refreshSnapshot).toHaveBeenCalled();
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-worktree-new");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe(
+      "thread-worktree-new",
+    );
   });
 
   it("shows a destructive confirmation before deleting a worktree", async () => {
@@ -139,7 +164,11 @@ describe("TreeSidebar", () => {
                 gitBranch: "fuzzy-tiger",
                 path: "/Users/test/.threadex/worktrees/threadex-12345678/fuzzy-tiger",
                 threads: [
-                  makeThread({ id: "thread-active", environmentId: "env-worktree", status: "active" }),
+                  makeThread({
+                    id: "thread-active",
+                    environmentId: "env-worktree",
+                    status: "active",
+                  }),
                   makeThread({
                     id: "thread-archived",
                     environmentId: "env-worktree",
@@ -154,10 +183,12 @@ describe("TreeSidebar", () => {
       }),
     }));
 
-    render(<TreeSidebar activeSection="projects" />);
+    renderSidebar();
 
     fireEvent.contextMenu(screen.getByRole("button", { name: /fuzzy-tiger/i }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete worktree" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Delete worktree" }),
+    );
 
     expect(confirmMock).toHaveBeenCalledWith(
       expect.stringContaining('Delete the worktree "fuzzy-tiger"?'),
@@ -198,7 +229,12 @@ describe("TreeSidebar", () => {
                 kind: "managedWorktree",
                 name: "slate-hawk",
                 gitBranch: "slate-hawk",
-                threads: [makeThread({ id: "thread-worktree", environmentId: "env-worktree" })],
+                threads: [
+                  makeThread({
+                    id: "thread-worktree",
+                    environmentId: "env-worktree",
+                  }),
+                ],
               }),
             ],
           }),
@@ -221,9 +257,21 @@ describe("TreeSidebar", () => {
       },
     }));
 
-    render(<TreeSidebar activeSection="projects" />);
+    renderSidebar();
 
     const row = screen.getByRole("button", { name: /slate-hawk/i });
-    expect(row.querySelector(".runtime-indicator__dot--waiting")).not.toBeNull();
+    expect(
+      row.querySelector(".runtime-indicator__dot--waiting"),
+    ).not.toBeNull();
+  });
+
+  it("renders footer utility actions and forwards clicks", async () => {
+    renderSidebar();
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Light mode" }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(onToggleTheme).toHaveBeenCalledTimes(1);
   });
 });

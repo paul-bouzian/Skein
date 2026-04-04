@@ -4,13 +4,13 @@
   --tx-font-mono: "SF Mono", "Menlo", "Consolas", monospace;
 
   /* ── Text sizes ── */
-  --tx-text-xs: 0.6875rem;   /* 11px */
-  --tx-text-sm: 0.75rem;     /* 12px */
+  --tx-text-xs: 0.6875rem; /* 11px */
+  --tx-text-sm: 0.75rem; /* 12px */
   --tx-text-base: 0.8125rem; /* 13px */
-  --tx-text-lg: 0.9375rem;   /* 15px */
-  --tx-text-xl: 1.125rem;    /* 18px */
-  --tx-text-2xl: 1.5rem;     /* 24px */
-  --tx-text-3xl: 2rem;       /* 32px */
+  --tx-text-lg: 0.9375rem; /* 15px */
+  --tx-text-xl: 1.125rem; /* 18px */
+  --tx-text-2xl: 1.5rem; /* 24px */
+  --tx-text-3xl: 2rem; /* 32px */
 
   /* ── Font weights ── */
   --tx-weight-normal: 400;
@@ -38,7 +38,6 @@
   --tx-radius-xl: 16px;
 
   /* ── Layout ── */
-  --tx-rail-width: 48px;
   --tx-sidebar-width: 260px;
   --tx-diff-width: 420px;
   --tx-inspector-width: 320px;
