@@ -8,7 +8,7 @@ use tracing::warn;
 
 use crate::domain::conversation::{
     ApprovalResponseInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
@@ -265,6 +265,24 @@ impl RuntimeSupervisor {
     ) -> AppResult<ThreadConversationOpenResponse> {
         let session = self.ensure_runtime(&context).await?;
         session.open_thread(context).await
+    }
+
+    pub async fn get_thread_composer_catalog(
+        &self,
+        context: ThreadRuntimeContext,
+    ) -> AppResult<ThreadComposerCatalog> {
+        let session = self.ensure_runtime(&context).await?;
+        session.composer_catalog(context).await
+    }
+
+    pub async fn search_thread_files(
+        &self,
+        context: ThreadRuntimeContext,
+        query: String,
+        limit: usize,
+    ) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
+        let session = self.ensure_runtime(&context).await?;
+        session.search_thread_files(context, query, limit).await
     }
 
     pub async fn send_thread_message(

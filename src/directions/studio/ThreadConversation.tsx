@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import type {
-  ConversationComposerSettings,
   ConversationItem,
-  ThreadTokenUsageSnapshot,
   EnvironmentRecord,
-  ModelOption,
   ThreadRecord,
 } from "../../lib/types";
 import { EmptyState } from "../../shared/EmptyState";
-import { ChevronRightIcon, SendIcon, StopIcon } from "../../shared/Icons";
+import { ChevronRightIcon } from "../../shared/Icons";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
@@ -17,18 +14,11 @@ import {
   selectConversationSnapshot,
   useConversationStore,
 } from "../../stores/conversation-store";
-import { ComposerPicker } from "./ComposerPicker";
-import {
-  APPROVAL_OPTIONS,
-  composerModelOptions,
-  labelForCollaborationMode,
-  reasoningOptionsFor,
-} from "./composerOptions";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
-import { ContextWindowMeter } from "./ContextWindowMeter";
 import { SubagentStrip } from "./SubagentStrip";
+import { InlineComposer } from "./composer/InlineComposer";
 import "./ThreadConversation.css";
 
 type Props = {
@@ -137,18 +127,23 @@ export function ThreadConversation({ environment, thread }: Props) {
   async function handleSend() {
     if (sendDisabled) return;
     const message = draft.trim();
-    startTransition(() => setDraft(""));
     if (isRefiningPlan) {
-      await submitPlanDecision({
+      const sent = await submitPlanDecision({
         threadId: thread.id,
         action: "refine",
         feedback: message,
         composer: { ...resolvedComposer, collaborationMode: "plan" },
       });
-      setIsRefiningPlan(false);
+      if (sent) {
+        startTransition(() => setDraft(""));
+        setIsRefiningPlan(false);
+      }
       return;
     }
-    await sendMessage(thread.id, message);
+    const sent = await sendMessage(thread.id, message);
+    if (sent) {
+      startTransition(() => setDraft(""));
+    }
   }
 
   async function handleApprovePlan() {
@@ -203,7 +198,8 @@ export function ThreadConversation({ environment, thread }: Props) {
         }
       />
       <SubagentStrip subagents={snapshot.subagents} />
-      <ConversationComposer
+      <InlineComposer
+        threadId={thread.id}
         composer={resolvedComposer}
         collaborationModes={capabilities?.collaborationModes ?? []}
         disabled={composerLocked && !isRefiningPlan}
@@ -228,170 +224,6 @@ export function ThreadConversation({ environment, thread }: Props) {
           updateComposer(thread.id, patch);
         }}
       />
-    </div>
-  );
-}
-
-function ConversationComposer({
-  composer,
-  collaborationModes,
-  disabled,
-  draft,
-  effortOptions,
-  focusKey,
-  isBusy,
-  isRefiningPlan,
-  modelOptions,
-  tokenUsage,
-  onCancelRefine,
-  onChangeDraft,
-  onInterrupt,
-  onSend,
-  onUpdateComposer,
-}: {
-  composer: ConversationComposerSettings;
-  collaborationModes: Array<{ id: string; label: string }>;
-  disabled: boolean;
-  draft: string;
-  effortOptions: Array<"low" | "medium" | "high" | "xhigh">;
-  focusKey: string;
-  isBusy: boolean;
-  isRefiningPlan: boolean;
-  modelOptions: ModelOption[];
-  tokenUsage?: ThreadTokenUsageSnapshot | null;
-  onCancelRefine: () => void;
-  onChangeDraft: (value: string) => void;
-  onInterrupt: () => void;
-  onSend: () => void;
-  onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const controlsDisabled = isBusy || disabled;
-
-  useEffect(() => {
-    const element = textareaRef.current;
-    if (!element) return;
-    element.style.height = "0px";
-    const nextHeight = Math.min(element.scrollHeight, 240);
-    element.style.height = `${Math.max(nextHeight, 46)}px`;
-    element.style.overflowY = element.scrollHeight > 240 ? "auto" : "hidden";
-  }, [draft]);
-
-  useEffect(() => {
-    const element = textareaRef.current;
-    if (!element || element.disabled) {
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      element.focus();
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusKey]);
-
-  return (
-    <div className="tx-composer">
-      <div className="tx-composer__controls">
-        <div className="tx-composer__controls-group">
-          <ComposerPicker
-            label="Model"
-            value={composer.model}
-            options={composerModelOptions(modelOptions, composer.model)}
-            disabled={controlsDisabled}
-            onChange={(value) => onUpdateComposer({ model: value })}
-          />
-          <ComposerPicker
-            label="Thinking"
-            value={composer.reasoningEffort}
-            options={reasoningOptionsFor(effortOptions)}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                reasoningEffort: value as ConversationComposerSettings["reasoningEffort"],
-              })
-            }
-          />
-          <ComposerPicker
-            label="Mode"
-            value={composer.collaborationMode}
-            tone={composer.collaborationMode === "plan" ? "accent" : "default"}
-            options={collaborationModes.map((option) => ({
-              label: labelForCollaborationMode(option.id, option.label),
-              value: option.id,
-            }))}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                collaborationMode: value as ConversationComposerSettings["collaborationMode"],
-              })
-            }
-          />
-          <ComposerPicker
-            label="Access"
-            value={composer.approvalPolicy}
-            options={APPROVAL_OPTIONS}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                approvalPolicy: value as ConversationComposerSettings["approvalPolicy"],
-              })
-            }
-          />
-        </div>
-        <ContextWindowMeter usage={tokenUsage} />
-      </div>
-      <div className="tx-composer__body">
-        <div className="tx-composer__input-row">
-          <textarea
-            ref={textareaRef}
-            className="tx-composer__textarea"
-            placeholder={isRefiningPlan ? "Refine the proposed plan..." : "Message ThreadEx..."}
-            rows={1}
-            value={draft}
-            disabled={isBusy || (disabled && !isRefiningPlan)}
-            onChange={(event) => onChangeDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && isRefiningPlan) {
-                event.preventDefault();
-                onCancelRefine();
-                return;
-              }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                onSend();
-              }
-            }}
-          />
-          {isBusy ? (
-            <button
-              type="button"
-              className="tx-composer__icon-button tx-composer__icon-button--secondary"
-              aria-label="Stop generation"
-              onClick={onInterrupt}
-            >
-              <StopIcon size={12} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="tx-composer__icon-button"
-              aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
-              disabled={draft.trim().length === 0 || (disabled && !isRefiningPlan)}
-              onClick={onSend}
-            >
-              <SendIcon size={14} />
-            </button>
-          )}
-        </div>
-        <div className="tx-composer__actions">
-          <span className="tx-composer__hint">
-            {isRefiningPlan
-              ? "Enter to refine · Escape to leave refine mode"
-              : "Enter to send · Shift+Enter for newline"}
-          </span>
-        </div>
-      </div>
     </div>
   );
 }

@@ -2,8 +2,9 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, RespondToApprovalRequestInput, RespondToUserInputRequestInput,
-    SubmitPlanDecisionInput, ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ComposerFileSearchResult, ConversationComposerSettings, RespondToApprovalRequestInput,
+    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
+    ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -14,6 +15,14 @@ pub struct SendThreadMessageInput {
     pub thread_id: String,
     pub text: String,
     pub composer: Option<ConversationComposerSettings>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchThreadFilesInput {
+    pub thread_id: String,
+    pub query: String,
+    pub limit: Option<usize>,
 }
 
 #[tauri::command]
@@ -32,6 +41,28 @@ pub async fn refresh_thread_conversation(
 ) -> Result<ThreadConversationSnapshot, CommandError> {
     let context = state.workspace.thread_runtime_context(&thread_id)?;
     Ok(state.runtime.refresh_thread(context).await?)
+}
+
+#[tauri::command]
+pub async fn get_thread_composer_catalog(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<ThreadComposerCatalog, CommandError> {
+    let context = state.workspace.thread_runtime_context(&thread_id)?;
+    Ok(state.runtime.get_thread_composer_catalog(context).await?)
+}
+
+#[tauri::command]
+pub async fn search_thread_files(
+    input: SearchThreadFilesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ComposerFileSearchResult>, CommandError> {
+    let context = state.workspace.thread_runtime_context(&input.thread_id)?;
+    let limit = input.limit.unwrap_or(50).min(200);
+    Ok(state
+        .runtime
+        .search_thread_files(context, input.query, limit)
+        .await?)
 }
 
 #[tauri::command]

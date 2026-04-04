@@ -11,6 +11,8 @@ import { useWorkspaceStore } from "./workspace-store";
 vi.mock("../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   refreshThreadConversation: vi.fn(),
+  getThreadComposerCatalog: vi.fn(),
+  searchThreadFiles: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
   listenToConversationEvents: vi.fn(),

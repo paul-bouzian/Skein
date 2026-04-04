@@ -262,6 +262,41 @@ export type ConversationComposerSettings = {
   approvalPolicy: ApprovalPolicy;
 };
 
+export type ComposerPromptArgumentMode = "none" | "named" | "positional";
+
+export type ComposerPromptOption = {
+  name: string;
+  description?: string | null;
+  argumentMode: ComposerPromptArgumentMode;
+  argumentNames: string[];
+  positionalCount: number;
+  argumentHint?: string | null;
+};
+
+export type ComposerSkillOption = {
+  name: string;
+  description: string;
+  path: string;
+};
+
+export type ComposerAppOption = {
+  id: string;
+  name: string;
+  description?: string | null;
+  slug: string;
+  path: string;
+};
+
+export type ThreadComposerCatalog = {
+  prompts: ComposerPromptOption[];
+  skills: ComposerSkillOption[];
+  apps: ComposerAppOption[];
+};
+
+export type ComposerFileSearchResult = {
+  path: string;
+};
+
 export type ModelOption = {
   id: string;
   displayName: string;

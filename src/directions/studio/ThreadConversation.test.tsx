@@ -25,6 +25,8 @@ import { ThreadConversation } from "./ThreadConversation";
 vi.mock("../../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   refreshThreadConversation: vi.fn(),
+  getThreadComposerCatalog: vi.fn(),
+  searchThreadFiles: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
   respondToApprovalRequest: vi.fn(),
@@ -60,6 +62,12 @@ function resetStores() {
 beforeEach(() => {
   vi.clearAllMocks();
   resetStores();
+  mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+    prompts: [],
+    skills: [],
+    apps: [],
+  });
+  mockedBridge.searchThreadFiles.mockResolvedValue([]);
 });
 
 describe("ThreadConversation", () => {
@@ -353,6 +361,95 @@ describe("ThreadConversation", () => {
         }),
       });
     });
+  });
+
+  it("autocompletes inline prompt tokens anywhere in the draft", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+      prompts: [
+        {
+          name: "review",
+          description: "Review the current diff",
+          argumentMode: "none",
+          argumentNames: [],
+          positionalCount: 0,
+          argumentHint: null,
+        },
+      ],
+      skills: [],
+      apps: [],
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+      }),
+    );
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await user.type(input, "Please use /prom");
+    expect(
+      await screen.findByRole("option", { name: /prompts:review/i }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Tab}");
+    await waitFor(() => {
+      expect(input).toHaveValue("Please use /prompts:review() ");
+    });
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        text: "Please use /prompts:review()",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+      });
+    });
+  });
+
+  it("adds a trailing space after skill autocomplete selections", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+      prompts: [],
+      skills: [
+        {
+          name: "create-pr",
+          description: "Draft polished GitHub pull requests in English",
+          path: "/tmp/threadex/.codex/skills/create-pr/SKILL.md",
+        },
+      ],
+      apps: [],
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await user.type(input, "Use $crea");
+    expect(
+      await screen.findByRole("option", { name: /create-pr/i }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Tab}");
+    await waitFor(() => {
+      expect(input).toHaveValue("Use $create-pr ");
+      expect(screen.queryByRole("option", { name: /create-pr/i })).toBeNull();
+    });
+
+    await user.type(input, "now");
+    expect(input).toHaveValue("Use $create-pr now");
   });
 
   it("renders canonical model ids in the composer even when Codex returns display names", async () => {

@@ -25,7 +25,7 @@ type ConversationState = {
     threadId: string,
     patch: Partial<ConversationComposerSettings>,
   ) => void;
-  sendMessage: (threadId: string, text: string) => Promise<void>;
+  sendMessage: (threadId: string, text: string) => Promise<boolean>;
   interruptThread: (threadId: string) => Promise<void>;
   respondToApprovalRequest: (
     threadId: string,
@@ -39,7 +39,7 @@ type ConversationState = {
   ) => Promise<void>;
   submitPlanDecision: (
     input: SubmitPlanDecisionInput,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 };
 
 let unlistenConversationEvents: null | (() => void) = null;
@@ -201,12 +201,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
       }));
       await useWorkspaceStore.getState().refreshSnapshot();
+      return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to send message";
       set((state) => ({
         errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
       }));
+      return false;
     }
   },
 
@@ -295,12 +297,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
       }));
       await useWorkspaceStore.getState().refreshSnapshot();
+      return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to continue from the proposed plan";
       set((state) => ({
         errorByThreadId: { ...state.errorByThreadId, [input.threadId]: message },
       }));
+      return false;
     }
   },
 }));
