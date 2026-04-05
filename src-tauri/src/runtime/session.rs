@@ -14,11 +14,12 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::domain::conversation::{
-    ApprovalResponseInput, CommandApprovalDecisionInput, ConversationEventPayload,
-    ConversationInteraction, ConversationItem, ConversationMessageItem, ConversationRole,
-    ConversationStatus, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
-    PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadConversationOpenResponse,
+    ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
+    ConversationEventPayload, ConversationInteraction, ConversationItem,
+    ConversationMessageItem, ConversationRole, ConversationStatus,
+    EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput, PermissionGrantScope,
+    PermissionsApprovalDecisionInput, PlanDecisionAction, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
     ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
@@ -34,12 +35,18 @@ use crate::runtime::protocol::{
     normalize_server_interaction, parse_incoming_message, plan_approval_message,
     proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
     subagents_from_collab_item, token_usage_snapshot, upsert_item, user_input_payload,
-    AccountRateLimitsReadResponse, CollaborationModeListResponse, ErrorNotification,
-    IncomingMessage, ItemDeltaNotification, ItemNotification, ModelListResponse,
-    PlanDeltaNotification, ReasoningBoundaryNotification, ThreadListResponse,
-    ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse,
-    TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
-    TurnStartedNotification, CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
+    AccountRateLimitsReadResponse, AppInfoWire, AppsListResponse, CollaborationModeListResponse,
+    ErrorNotification, FuzzyFileSearchMatchTypeWire, FuzzyFileSearchResponse, IncomingMessage,
+    ItemDeltaNotification, ItemNotification, ModelListResponse, OutgoingNamedInput,
+    OutgoingTextElement, OutgoingUserInputPayload, PlanDeltaNotification,
+    ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
+    ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse, TokenUsageNotification,
+    TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse, TurnStartedNotification,
+    CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
+};
+use crate::services::composer::{
+    build_thread_catalog, connector_mention_slug, load_prompt_definitions, resolve_composer_text,
+    trim_file_search_results, AppBinding, SkillBinding,
 };
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -115,7 +122,14 @@ impl RuntimeSession {
         binary_path: String,
         app_version: String,
     ) -> AppResult<Self> {
-        Self::spawn_with_app(None, environment_id, environment_path, binary_path, app_version).await
+        Self::spawn_with_app(
+            None,
+            environment_id,
+            environment_path,
+            binary_path,
+            app_version,
+        )
+        .await
     }
 
     async fn spawn_with_app(
@@ -338,12 +352,23 @@ impl RuntimeSession {
         self.refresh_thread_metadata(context, None).await
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn send_message(
         &self,
         context: ThreadRuntimeContext,
         text: String,
     ) -> AppResult<SendMessageResult> {
-        self.send_message_with_visibility(context, text, true).await
+        self.send_message_with_bindings(context, text, Vec::new()).await
+    }
+
+    pub async fn send_message_with_bindings(
+        &self,
+        context: ThreadRuntimeContext,
+        text: String,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
+    ) -> AppResult<SendMessageResult> {
+        self.send_message_with_visibility(context, text, true, mention_bindings)
+            .await
     }
 
     pub async fn respond_to_approval_request(
@@ -427,6 +452,7 @@ impl RuntimeSession {
                         context,
                         plan_approval_message().to_string(),
                         false,
+                        Vec::new(),
                     )
                     .await?;
                 self.mark_plan_state(&result.snapshot.thread_id, mark_plan_approved)
@@ -450,7 +476,12 @@ impl RuntimeSession {
                     ));
                 }
                 let mut result = self
-                    .send_message_with_visibility(context, trimmed.to_string(), true)
+                    .send_message_with_visibility(
+                        context,
+                        trimmed.to_string(),
+                        true,
+                        input.mention_bindings.unwrap_or_default(),
+                    )
                     .await?;
                 result.snapshot = self
                     .mark_plan_state(&result.snapshot.thread_id, mark_plan_superseded)
@@ -554,6 +585,43 @@ impl RuntimeSession {
             .rate_limits)
     }
 
+    pub async fn composer_catalog(
+        &self,
+        context: ThreadRuntimeContext,
+    ) -> AppResult<ThreadComposerCatalog> {
+        let prompts = load_prompt_definitions(&context.environment_path)?;
+        let skills = self.load_skill_bindings(&context.environment_path).await?;
+        let apps = self
+            .load_app_bindings(context.codex_thread_id.as_deref())
+            .await?;
+        Ok(build_thread_catalog(&prompts, &skills, &apps))
+    }
+
+    pub async fn search_thread_files(
+        &self,
+        context: ThreadRuntimeContext,
+        query: String,
+        limit: usize,
+    ) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
+        let response = self
+            .request_typed::<FuzzyFileSearchResponse>(
+                "fuzzyFileSearch",
+                serde_json::json!({
+                    "query": query,
+                    "roots": [context.environment_path],
+                    "cancellationToken": context.thread_id,
+                }),
+            )
+            .await?;
+        let paths = response
+            .files
+            .into_iter()
+            .filter(|entry| entry.match_type == FuzzyFileSearchMatchTypeWire::File)
+            .map(|entry| entry.path)
+            .collect::<Vec<_>>();
+        Ok(trim_file_search_results(paths, limit))
+    }
+
     async fn ensure_capabilities(&self) -> AppResult<EnvironmentCapabilitiesSnapshot> {
         if let Some(capabilities) = self.state.lock().await.capabilities.clone() {
             return Ok(capabilities);
@@ -578,16 +646,91 @@ impl RuntimeSession {
         Ok(capabilities)
     }
 
+    async fn resolve_outgoing_user_input(
+        &self,
+        context: &ThreadRuntimeContext,
+        visible_text: &str,
+        mention_bindings: &[ComposerMentionBindingInput],
+    ) -> AppResult<OutgoingUserInputPayload> {
+        if !visible_text.contains("/prompts:") && !visible_text.contains('$') {
+            return Ok(OutgoingUserInputPayload {
+                text: visible_text.to_string(),
+                text_elements: Vec::new(),
+                skills: Vec::new(),
+                mentions: Vec::new(),
+            });
+        }
+
+        let prompts = load_prompt_definitions(&context.environment_path).unwrap_or_else(|error| {
+            warn!("Failed to load prompt definitions for composer resolution: {error}");
+            Vec::new()
+        });
+        let skills = self
+            .load_skill_bindings(&context.environment_path)
+            .await
+            .unwrap_or_else(|error| {
+                warn!("Failed to load skills for composer resolution: {error}");
+                Vec::new()
+            });
+        let apps = self
+            .load_app_bindings(context.codex_thread_id.as_deref())
+            .await
+            .unwrap_or_else(|error| {
+                warn!("Failed to load apps for composer resolution: {error}");
+                Vec::new()
+            });
+        let resolved = resolve_composer_text(
+            visible_text,
+            &prompts,
+            &skills,
+            &apps,
+            mention_bindings,
+        )?;
+
+        Ok(OutgoingUserInputPayload {
+            text: resolved.text,
+            text_elements: resolved
+                .text_elements
+                .into_iter()
+                .map(|element| OutgoingTextElement {
+                    start: element.start,
+                    end: element.end,
+                    placeholder: element.placeholder,
+                })
+                .collect(),
+            skills: resolved
+                .skills
+                .into_iter()
+                .map(|skill| OutgoingNamedInput {
+                    name: skill.name,
+                    path: skill.path,
+                })
+                .collect(),
+            mentions: resolved
+                .mentions
+                .into_iter()
+                .map(|mention| OutgoingNamedInput {
+                    name: mention.slug,
+                    path: mention.path,
+                })
+                .collect(),
+        })
+    }
+
     async fn send_message_with_visibility(
         &self,
         context: ThreadRuntimeContext,
         text: String,
         visible_to_user: bool,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Err(AppError::Validation("Message cannot be empty.".to_string()));
         }
+        let outgoing_input = self
+            .resolve_outgoing_user_input(&context, trimmed, &mention_bindings)
+            .await?;
 
         let mut open = self.open_thread(context.clone()).await?;
         let mut rollback_snapshot = open.snapshot.clone();
@@ -648,7 +791,7 @@ impl RuntimeSession {
                 "turn/start",
                 serde_json::json!({
                     "threadId": codex_thread_id,
-                    "input": user_input_payload(trimmed),
+                    "input": user_input_payload(&outgoing_input),
                     "cwd": context.environment_path,
                     "approvalPolicy": approval_policy_value(context.composer.approval_policy),
                     "sandboxPolicy": sandbox_policy_value(
@@ -984,6 +1127,79 @@ impl RuntimeSession {
         }
     }
 
+    async fn load_skill_bindings(&self, environment_path: &str) -> AppResult<Vec<SkillBinding>> {
+        let response = self
+            .request_typed::<SkillsListResponse>(
+                "skills/list",
+                serde_json::json!({
+                    "cwds": [environment_path],
+                    "forceReload": false,
+                }),
+            )
+            .await?;
+        let mut bindings = response
+            .data
+            .into_iter()
+            .filter(|entry| entry.cwd == environment_path)
+            .flat_map(|entry| entry.skills)
+            .filter(|skill| skill.enabled)
+            .map(|skill| SkillBinding {
+                name: skill.name,
+                description: skill
+                    .interface
+                    .as_ref()
+                    .and_then(|interface| interface.short_description.clone())
+                    .or(skill.short_description)
+                    .unwrap_or(skill.description),
+                path: skill.path,
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(bindings)
+    }
+
+    async fn load_app_bindings(&self, codex_thread_id: Option<&str>) -> AppResult<Vec<AppBinding>> {
+        let mut cursor = None;
+        let mut apps = Vec::<AppInfoWire>::new();
+
+        loop {
+            let response = self
+                .request_typed::<AppsListResponse>(
+                    "app/list",
+                    serde_json::json!({
+                        "cursor": cursor,
+                        "limit": 100,
+                        "threadId": codex_thread_id,
+                        "forceRefetch": false,
+                    }),
+                )
+                .await?;
+            apps.extend(response.data);
+            match response.next_cursor {
+                Some(next_cursor) => cursor = Some(next_cursor),
+                None => break,
+            }
+        }
+
+        let mut bindings = apps
+            .into_iter()
+            .filter(|app| app.is_accessible.unwrap_or(true) && app.is_enabled.unwrap_or(true))
+            .map(|app| AppBinding {
+                slug: connector_mention_slug(&app.name),
+                path: format!("app://{}", app.id),
+                id: app.id,
+                name: app.name,
+                description: app.description,
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by(|left, right| {
+            left.slug
+                .cmp(&right.slug)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(bindings)
+    }
+
     async fn send_request(
         &self,
         method: &str,
@@ -1050,7 +1266,6 @@ impl RuntimeSession {
             warn!("failed to emit conversation snapshot: {error}");
         }
     }
-
 }
 
 fn spawn_stdout_task<R>(
@@ -1729,11 +1944,7 @@ fn emit_snapshot_from_handle(app: &Option<AppHandle>, snapshot: ThreadConversati
     }
 }
 
-fn emit_usage_from_handle(
-    app: &Option<AppHandle>,
-    environment_id: &str,
-    params: &Value,
-) {
+fn emit_usage_from_handle(app: &Option<AppHandle>, environment_id: &str, params: &Value) {
     let Some(app) = app.as_ref() else {
         return;
     };
@@ -1817,8 +2028,13 @@ mod tests {
         .expect("rate limits payload should be emitted");
 
         assert_eq!(payload["environmentId"], json!("env-1"));
-        assert_eq!(payload["rateLimits"]["primary"]["resetsAt"], json!(1_775_306_400));
-        assert!(payload["rateLimits"]["primary"].get("usedPercent").is_none());
+        assert_eq!(
+            payload["rateLimits"]["primary"]["resetsAt"],
+            json!(1_775_306_400)
+        );
+        assert!(payload["rateLimits"]["primary"]
+            .get("usedPercent")
+            .is_none());
         assert!(payload["rateLimits"].get("secondary").is_none());
     }
 

@@ -513,33 +513,162 @@
   gap: var(--tx-space-sm);
 }
 
-.tx-composer__textarea {
-  width: 100%;
+.tx-inline-composer {
+  position: relative;
+  min-height: var(--tx-composer-control-height);
+  max-height: 240px;
+  overflow: hidden;
   border-radius: var(--tx-radius-md);
   border: 1px solid var(--tx-border-subtle);
   background: var(--tx-bg-base);
-  color: var(--tx-text-primary);
-  resize: none;
-  min-height: var(--tx-composer-control-height);
-  padding: 12px var(--tx-space-md);
-  font: inherit;
-  line-height: 1.55;
-  outline: none;
   transition:
     border-color var(--tx-transition-fast),
     box-shadow var(--tx-transition-fast),
     background var(--tx-transition-fast);
 }
 
-.tx-composer__input-row:focus-within .tx-composer__textarea {
+.tx-composer__input-row:focus-within .tx-inline-composer {
   border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-subtle));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tx-accent) 18%, transparent);
   background: color-mix(in srgb, var(--tx-bg-base) 90%, var(--tx-bg-hover));
 }
 
-.tx-composer__textarea:disabled {
+.tx-inline-composer--disabled {
   opacity: 0.75;
   cursor: not-allowed;
+}
+
+.tx-inline-composer__mirror,
+.tx-inline-composer__textarea {
+  width: 100%;
+  min-height: var(--tx-composer-control-height);
+  padding: 12px var(--tx-space-md);
+  font: inherit;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tx-inline-composer__mirror {
+  color: var(--tx-text-primary);
+  pointer-events: none;
+}
+
+.tx-inline-composer__mirror-content {
+  min-height: calc(var(--tx-composer-control-height) - 24px);
+}
+
+.tx-inline-composer__placeholder {
+  color: var(--tx-text-muted);
+}
+
+.tx-inline-composer__textarea {
+  position: absolute;
+  inset: 0;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--tx-text-primary);
+  outline: none;
+}
+
+.tx-inline-composer__textarea::placeholder {
+  color: transparent;
+}
+
+.tx-inline-composer__textarea:disabled {
+  cursor: not-allowed;
+}
+
+.tx-composer-menu {
+  display: grid;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: var(--tx-space-xs);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-lg);
+  background: color-mix(in srgb, var(--tx-bg-raised) 94%, var(--tx-bg-base));
+}
+
+.tx-composer-menu__group {
+  padding: 8px 10px 4px;
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tx-composer-menu__item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: var(--tx-radius-md);
+  background: transparent;
+  color: var(--tx-text-primary);
+  text-align: left;
+}
+
+.tx-composer-menu__item:hover,
+.tx-composer-menu__item--active {
+  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-hover));
+}
+
+.tx-composer-menu__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tx-space-sm);
+}
+
+.tx-composer-menu__label {
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-semibold);
+}
+
+.tx-composer-menu__hint {
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-xs);
+  font-family: var(--tx-font-mono);
+}
+
+.tx-composer-menu__description {
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-xs);
+  line-height: 1.5;
+}
+
+.tx-inline-token {
+  border-radius: 8px;
+  outline: 1px solid color-mix(in srgb, var(--tx-accent) 24%, transparent);
+  outline-offset: 0;
+  background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
+}
+
+.tx-inline-token--prompt {
+  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-hover));
+}
+
+.tx-inline-token--skill,
+.tx-inline-token--app {
+  background: color-mix(in srgb, var(--tx-info) 14%, transparent);
+  outline-color: color-mix(in srgb, var(--tx-info) 28%, transparent);
+}
+
+.tx-inline-token--file {
+  background: color-mix(in srgb, var(--tx-success) 12%, transparent);
+  outline-color: color-mix(in srgb, var(--tx-success) 24%, transparent);
+}
+
+.tx-inline-token__part--name {
+  color: var(--tx-accent);
+}
+
+.tx-inline-token__part--value {
+  color: var(--tx-success);
 }
 
 .tx-composer__icon-button {

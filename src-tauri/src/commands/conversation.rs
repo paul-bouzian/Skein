@@ -2,8 +2,9 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, RespondToApprovalRequestInput, RespondToUserInputRequestInput,
-    SubmitPlanDecisionInput, ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ComposerFileSearchResult, ComposerMentionBindingInput, ConversationComposerSettings,
+    RespondToApprovalRequestInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -14,6 +15,15 @@ pub struct SendThreadMessageInput {
     pub thread_id: String,
     pub text: String,
     pub composer: Option<ConversationComposerSettings>,
+    pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchThreadFilesInput {
+    pub thread_id: String,
+    pub query: String,
+    pub limit: Option<usize>,
 }
 
 #[tauri::command]
@@ -35,6 +45,28 @@ pub async fn refresh_thread_conversation(
 }
 
 #[tauri::command]
+pub async fn get_thread_composer_catalog(
+    thread_id: String,
+    state: State<'_, AppState>,
+) -> Result<ThreadComposerCatalog, CommandError> {
+    let context = state.workspace.thread_runtime_context(&thread_id)?;
+    Ok(state.runtime.get_thread_composer_catalog(context).await?)
+}
+
+#[tauri::command]
+pub async fn search_thread_files(
+    input: SearchThreadFilesInput,
+    state: State<'_, AppState>,
+) -> Result<Vec<ComposerFileSearchResult>, CommandError> {
+    let context = state.workspace.thread_runtime_context(&input.thread_id)?;
+    let limit = input.limit.unwrap_or(50).min(200);
+    Ok(state
+        .runtime
+        .search_thread_files(context, input.query, limit)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn send_thread_message(
     input: SendThreadMessageInput,
     state: State<'_, AppState>,
@@ -47,7 +79,11 @@ pub async fn send_thread_message(
     }
     let result = state
         .runtime
-        .send_thread_message(context, message_text.clone())
+        .send_thread_message(
+            context,
+            message_text.clone(),
+            input.mention_bindings.unwrap_or_default(),
+        )
         .await?;
 
     if should_auto_rename {

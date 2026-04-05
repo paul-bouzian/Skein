@@ -1,3 +1,4 @@
+use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -171,6 +172,64 @@ fn spawn_fake_codex(
                         {"name": "plan", "mode": "plan", "reasoningEffort": "high"}
                     ]
                 }),
+                "skills/list" => {
+                    let cwd = params
+                        .get("cwds")
+                        .and_then(Value::as_array)
+                        .and_then(|cwds| cwds.first())
+                        .and_then(Value::as_str)
+                        .unwrap_or("/tmp/threadex");
+                    json!({
+                        "data": [{
+                            "cwd": cwd,
+                            "skills": [{
+                                "name": "threadex-standards",
+                                "description": "ThreadEx standards",
+                                "enabled": true,
+                                "path": format!("{cwd}/.codex/skills/threadex-standards/SKILL.md"),
+                                "interface": {
+                                    "shortDescription": "Standards"
+                                }
+                            }],
+                            "errors": []
+                        }]
+                    })
+                }
+                "app/list" => json!({
+                    "data": [{
+                        "id": "github",
+                        "name": "GitHub",
+                        "description": "GitHub connector",
+                        "isEnabled": true
+                    }],
+                    "nextCursor": null
+                }),
+                "fuzzyFileSearch" => {
+                    let root = params
+                        .get("roots")
+                        .and_then(Value::as_array)
+                        .and_then(|roots| roots.first())
+                        .and_then(Value::as_str)
+                        .unwrap_or("/tmp/threadex");
+                    json!({
+                        "files": [
+                            {
+                                "root": root,
+                                "path": "src/main.ts",
+                                "matchType": "file",
+                                "fileName": "main.ts",
+                                "score": 100
+                            },
+                            {
+                                "root": root,
+                                "path": "src",
+                                "matchType": "directory",
+                                "fileName": "src",
+                                "score": 50
+                            }
+                        ]
+                    })
+                }
                 "thread/read" => json!({
                     "thread": {
                         "id": params["threadId"],
@@ -303,10 +362,26 @@ fn context(
     collaboration_mode: CollaborationMode,
     approval_policy: ApprovalPolicy,
 ) -> ThreadRuntimeContext {
+    context_with_environment(
+        local_thread_id,
+        codex_thread_id,
+        collaboration_mode,
+        approval_policy,
+        "/tmp/threadex",
+    )
+}
+
+fn context_with_environment(
+    local_thread_id: &str,
+    codex_thread_id: Option<&str>,
+    collaboration_mode: CollaborationMode,
+    approval_policy: ApprovalPolicy,
+    environment_path: &str,
+) -> ThreadRuntimeContext {
     ThreadRuntimeContext {
         thread_id: local_thread_id.to_string(),
         environment_id: "env-1".to_string(),
-        environment_path: "/tmp/threadex".to_string(),
+        environment_path: environment_path.to_string(),
         codex_thread_id: codex_thread_id.map(ToString::to_string),
         composer: ConversationComposerSettings {
             model: "gpt-5.4".to_string(),
@@ -316,6 +391,22 @@ fn context(
         },
         codex_binary_path: Some("/opt/homebrew/bin/codex".to_string()),
     }
+}
+
+fn unique_test_environment_path(suffix: &str) -> String {
+    std::env::temp_dir()
+        .join(format!("threadex-{suffix}-{}", uuid::Uuid::now_v7()))
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn write_prompt_file(environment_path: &str, name: &str, content: &str) {
+    let prompt_dir = std::path::Path::new(environment_path)
+        .join(".codex")
+        .join("prompts");
+    fs::create_dir_all(&prompt_dir).expect("prompt directory should be created");
+    fs::write(prompt_dir.join(format!("{name}.md")), content)
+        .expect("prompt file should be written");
 }
 
 #[tokio::test]
@@ -389,6 +480,71 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         "low"
     );
     assert_eq!(turn_start.params["input"][0]["text"], "Run the test suite");
+    assert!(!requests.iter().any(|request| request.method == "skills/list"));
+    assert!(!requests.iter().any(|request| request.method == "app/list"));
+}
+
+#[tokio::test]
+async fn send_message_expands_inline_prompts_and_emits_native_skills_and_mentions() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let environment_path = unique_test_environment_path("inline-payload");
+    write_prompt_file(
+        &environment_path,
+        "inline-payload",
+        "---\ndescription: \"Inline payload\"\n---\nReview the $TARGET flow thoroughly.",
+    );
+    let runtime_context = context_with_environment(
+        "thread-inline-payload",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+        &environment_path,
+    );
+    let visible_text =
+        "Please run /prompts:inline-payload(TARGET=\"composer\") with $threadex-standards and $github";
+
+    session
+        .send_message(runtime_context, visible_text.to_string())
+        .await
+        .expect("message should send");
+
+    let requests = harness.requests().await;
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+    let expanded = "Review the composer flow thoroughly.";
+    let expected_text = format!("Please run {expanded} with $threadex-standards and $github");
+
+    assert_eq!(turn_start.params["input"][0]["text"], json!(expected_text));
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0],
+        json!({
+            "byteRange": {
+                "start": "Please run ".len(),
+                "end": "Please run ".len() + expanded.len()
+            },
+            "placeholder": "/prompts:inline-payload(TARGET=\"composer\")"
+        })
+    );
+    assert_eq!(
+        turn_start.params["input"][1],
+        json!({
+            "type": "skill",
+            "name": "threadex-standards",
+            "path": format!(
+                "{environment_path}/.codex/skills/threadex-standards/SKILL.md"
+            )
+        })
+    );
+    assert_eq!(
+        turn_start.params["input"][2],
+        json!({
+            "type": "mention",
+            "name": "github",
+            "path": "app://github"
+        })
+    );
 }
 
 #[tokio::test]
@@ -460,7 +616,10 @@ async fn read_account_rate_limits_uses_the_official_app_server_method() {
         .expect("rate limits should load");
 
     assert_eq!(
-        rate_limits.primary.as_ref().map(|window| window.used_percent),
+        rate_limits
+            .primary
+            .as_ref()
+            .map(|window| window.used_percent),
         Some(64),
     );
     assert_eq!(
@@ -853,6 +1012,7 @@ async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode(
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 feedback: None,
                 composer: None,
+                mention_bindings: None,
             },
         )
         .await
@@ -995,6 +1155,7 @@ async fn submit_plan_decision_requires_an_actionable_plan_before_sending() {
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 composer: None,
                 feedback: None,
+                mention_bindings: None,
             },
         )
         .await

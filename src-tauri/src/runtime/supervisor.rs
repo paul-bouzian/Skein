@@ -7,8 +7,9 @@ use tokio::sync::Mutex;
 use tracing::warn;
 
 use crate::domain::conversation::{
-    ApprovalResponseInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ApprovalResponseInput, ComposerMentionBindingInput, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
+    ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
@@ -267,13 +268,34 @@ impl RuntimeSupervisor {
         session.open_thread(context).await
     }
 
+    pub async fn get_thread_composer_catalog(
+        &self,
+        context: ThreadRuntimeContext,
+    ) -> AppResult<ThreadComposerCatalog> {
+        let session = self.ensure_runtime(&context).await?;
+        session.composer_catalog(context).await
+    }
+
+    pub async fn search_thread_files(
+        &self,
+        context: ThreadRuntimeContext,
+        query: String,
+        limit: usize,
+    ) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
+        let session = self.ensure_runtime(&context).await?;
+        session.search_thread_files(context, query, limit).await
+    }
+
     pub async fn send_thread_message(
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let session = self.ensure_runtime(&context).await?;
-        session.send_message(context, text).await
+        session
+            .send_message_with_bindings(context, text, mention_bindings)
+            .await
     }
 
     pub async fn refresh_thread(

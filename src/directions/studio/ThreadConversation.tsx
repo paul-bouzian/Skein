@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import type {
-  ConversationComposerSettings,
+  ComposerMentionBindingInput,
   ConversationItem,
-  ThreadTokenUsageSnapshot,
   EnvironmentRecord,
-  ModelOption,
   ThreadRecord,
 } from "../../lib/types";
 import { EmptyState } from "../../shared/EmptyState";
-import { ChevronRightIcon, SendIcon, StopIcon } from "../../shared/Icons";
+import { ChevronRightIcon } from "../../shared/Icons";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
@@ -17,18 +15,12 @@ import {
   selectConversationSnapshot,
   useConversationStore,
 } from "../../stores/conversation-store";
-import { ComposerPicker } from "./ComposerPicker";
-import {
-  APPROVAL_OPTIONS,
-  composerModelOptions,
-  labelForCollaborationMode,
-  reasoningOptionsFor,
-} from "./composerOptions";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
-import { ContextWindowMeter } from "./ContextWindowMeter";
 import { SubagentStrip } from "./SubagentStrip";
+import { InlineComposer } from "./composer/InlineComposer";
+import type { ComposerDraftMentionBinding } from "./composer/composer-mention-bindings";
 import "./ThreadConversation.css";
 
 type Props = {
@@ -57,10 +49,13 @@ export function ThreadConversation({ environment, thread }: Props) {
   );
   const submitPlanDecision = useConversationStore((state) => state.submitPlanDecision);
   const [draft, setDraft] = useState("");
+  const [mentionBindings, setMentionBindings] = useState<ComposerDraftMentionBinding[]>([]);
   const [isRefiningPlan, setIsRefiningPlan] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const refreshInFlightRef = useRef(false);
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     void openThread(thread.id);
@@ -131,34 +126,70 @@ export function ThreadConversation({ environment, thread }: Props) {
   const composerLocked =
     Boolean(interaction) || Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan);
   const isRunning = snapshot.status === "running";
+  const isMutating = isPending || isSubmitting;
   const sendDisabled =
-    draft.trim().length === 0 || isRunning || (composerLocked && !isRefiningPlan);
+    draft.trim().length === 0 || isRunning || isMutating || (composerLocked && !isRefiningPlan);
 
-  async function handleSend() {
-    if (sendDisabled) return;
-    const message = draft.trim();
-    startTransition(() => setDraft(""));
-    if (isRefiningPlan) {
-      await submitPlanDecision({
-        threadId: thread.id,
-        action: "refine",
-        feedback: message,
-        composer: { ...resolvedComposer, collaborationMode: "plan" },
-      });
-      setIsRefiningPlan(false);
-      return;
+  async function handleSend(
+    text: string,
+    mentionBindings: ComposerMentionBindingInput[],
+  ) {
+    if (sendDisabled || submitInFlightRef.current) return;
+    const message = text.trim();
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    try {
+      if (isRefiningPlan) {
+        const sent = await submitPlanDecision({
+          threadId: thread.id,
+          action: "refine",
+          feedback: message,
+          composer: { ...resolvedComposer, collaborationMode: "plan" },
+          ...(mentionBindings.length > 0 ? { mentionBindings } : {}),
+        });
+        if (sent) {
+          startTransition(() => {
+            setDraft("");
+            setMentionBindings([]);
+          });
+          setIsRefiningPlan(false);
+        }
+        return;
+      }
+      const sent = await sendMessage(thread.id, message, mentionBindings);
+      if (sent) {
+        startTransition(() => {
+          setDraft("");
+          setMentionBindings([]);
+        });
+      }
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
     }
-    await sendMessage(thread.id, message);
   }
 
   async function handleApprovePlan() {
-    setIsRefiningPlan(false);
-    setDraft("");
-    await submitPlanDecision({
-      threadId: thread.id,
-      action: "approve",
-      composer: { ...resolvedComposer, collaborationMode: "build" },
-    });
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const sent = await submitPlanDecision({
+        threadId: thread.id,
+        action: "approve",
+        composer: { ...resolvedComposer, collaborationMode: "build" },
+      });
+      if (sent) {
+        setIsRefiningPlan(false);
+        startTransition(() => {
+          setDraft("");
+          setMentionBindings([]);
+        });
+      }
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -176,7 +207,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         {shouldRenderPlanCard && activePlan ? (
           <ConversationPlanCard
             plan={activePlan}
-            disabled={isRunning || isPending}
+            disabled={isRunning || isMutating}
             onApprove={() => void handleApprovePlan()}
             onRefine={() => setIsRefiningPlan(true)}
           />
@@ -203,7 +234,8 @@ export function ThreadConversation({ environment, thread }: Props) {
         }
       />
       <SubagentStrip subagents={snapshot.subagents} />
-      <ConversationComposer
+      <InlineComposer
+        threadId={thread.id}
         composer={resolvedComposer}
         collaborationModes={capabilities?.collaborationModes ?? []}
         disabled={composerLocked && !isRefiningPlan}
@@ -211,16 +243,20 @@ export function ThreadConversation({ environment, thread }: Props) {
         effortOptions={effortOptions}
         focusKey={thread.id}
         isBusy={isRunning || isPending}
+        isSending={isSubmitting}
         isRefiningPlan={isRefiningPlan}
+        mentionBindings={mentionBindings}
         modelOptions={capabilities?.models ?? []}
         tokenUsage={snapshot.tokenUsage}
         onCancelRefine={() => {
           setDraft("");
+          setMentionBindings([]);
           setIsRefiningPlan(false);
         }}
         onChangeDraft={setDraft}
+        onChangeMentionBindings={setMentionBindings}
         onInterrupt={() => void interruptThread(thread.id)}
-        onSend={() => void handleSend()}
+        onSend={(text, mentionBindings) => void handleSend(text, mentionBindings)}
         onUpdateComposer={(patch) => {
           if (patch.collaborationMode === "build") {
             setIsRefiningPlan(false);
@@ -228,170 +264,6 @@ export function ThreadConversation({ environment, thread }: Props) {
           updateComposer(thread.id, patch);
         }}
       />
-    </div>
-  );
-}
-
-function ConversationComposer({
-  composer,
-  collaborationModes,
-  disabled,
-  draft,
-  effortOptions,
-  focusKey,
-  isBusy,
-  isRefiningPlan,
-  modelOptions,
-  tokenUsage,
-  onCancelRefine,
-  onChangeDraft,
-  onInterrupt,
-  onSend,
-  onUpdateComposer,
-}: {
-  composer: ConversationComposerSettings;
-  collaborationModes: Array<{ id: string; label: string }>;
-  disabled: boolean;
-  draft: string;
-  effortOptions: Array<"low" | "medium" | "high" | "xhigh">;
-  focusKey: string;
-  isBusy: boolean;
-  isRefiningPlan: boolean;
-  modelOptions: ModelOption[];
-  tokenUsage?: ThreadTokenUsageSnapshot | null;
-  onCancelRefine: () => void;
-  onChangeDraft: (value: string) => void;
-  onInterrupt: () => void;
-  onSend: () => void;
-  onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const controlsDisabled = isBusy || disabled;
-
-  useEffect(() => {
-    const element = textareaRef.current;
-    if (!element) return;
-    element.style.height = "0px";
-    const nextHeight = Math.min(element.scrollHeight, 240);
-    element.style.height = `${Math.max(nextHeight, 46)}px`;
-    element.style.overflowY = element.scrollHeight > 240 ? "auto" : "hidden";
-  }, [draft]);
-
-  useEffect(() => {
-    const element = textareaRef.current;
-    if (!element || element.disabled) {
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      element.focus();
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusKey]);
-
-  return (
-    <div className="tx-composer">
-      <div className="tx-composer__controls">
-        <div className="tx-composer__controls-group">
-          <ComposerPicker
-            label="Model"
-            value={composer.model}
-            options={composerModelOptions(modelOptions, composer.model)}
-            disabled={controlsDisabled}
-            onChange={(value) => onUpdateComposer({ model: value })}
-          />
-          <ComposerPicker
-            label="Thinking"
-            value={composer.reasoningEffort}
-            options={reasoningOptionsFor(effortOptions)}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                reasoningEffort: value as ConversationComposerSettings["reasoningEffort"],
-              })
-            }
-          />
-          <ComposerPicker
-            label="Mode"
-            value={composer.collaborationMode}
-            tone={composer.collaborationMode === "plan" ? "accent" : "default"}
-            options={collaborationModes.map((option) => ({
-              label: labelForCollaborationMode(option.id, option.label),
-              value: option.id,
-            }))}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                collaborationMode: value as ConversationComposerSettings["collaborationMode"],
-              })
-            }
-          />
-          <ComposerPicker
-            label="Access"
-            value={composer.approvalPolicy}
-            options={APPROVAL_OPTIONS}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                approvalPolicy: value as ConversationComposerSettings["approvalPolicy"],
-              })
-            }
-          />
-        </div>
-        <ContextWindowMeter usage={tokenUsage} />
-      </div>
-      <div className="tx-composer__body">
-        <div className="tx-composer__input-row">
-          <textarea
-            ref={textareaRef}
-            className="tx-composer__textarea"
-            placeholder={isRefiningPlan ? "Refine the proposed plan..." : "Message ThreadEx..."}
-            rows={1}
-            value={draft}
-            disabled={isBusy || (disabled && !isRefiningPlan)}
-            onChange={(event) => onChangeDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && isRefiningPlan) {
-                event.preventDefault();
-                onCancelRefine();
-                return;
-              }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                onSend();
-              }
-            }}
-          />
-          {isBusy ? (
-            <button
-              type="button"
-              className="tx-composer__icon-button tx-composer__icon-button--secondary"
-              aria-label="Stop generation"
-              onClick={onInterrupt}
-            >
-              <StopIcon size={12} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="tx-composer__icon-button"
-              aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
-              disabled={draft.trim().length === 0 || (disabled && !isRefiningPlan)}
-              onClick={onSend}
-            >
-              <SendIcon size={14} />
-            </button>
-          )}
-        </div>
-        <div className="tx-composer__actions">
-          <span className="tx-composer__hint">
-            {isRefiningPlan
-              ? "Enter to refine · Escape to leave refine mode"
-              : "Enter to send · Shift+Enter for newline"}
-          </span>
-        </div>
-      </div>
     </div>
   );
 }

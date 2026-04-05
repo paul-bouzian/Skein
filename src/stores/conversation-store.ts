@@ -3,12 +3,17 @@ import { create } from "zustand";
 import * as bridge from "../lib/bridge";
 import type {
   ApprovalResponseInput,
+  ComposerMentionBindingInput,
   ConversationComposerSettings,
   EnvironmentCapabilitiesSnapshot,
   SubmitPlanDecisionInput,
   ThreadConversationSnapshot,
 } from "../lib/types";
 import { useWorkspaceStore } from "./workspace-store";
+
+function refreshWorkspaceSnapshotNonBlocking() {
+  void useWorkspaceStore.getState().refreshSnapshot().catch(() => undefined);
+}
 
 type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
@@ -25,7 +30,11 @@ type ConversationState = {
     threadId: string,
     patch: Partial<ConversationComposerSettings>,
   ) => void;
-  sendMessage: (threadId: string, text: string) => Promise<void>;
+  sendMessage: (
+    threadId: string,
+    text: string,
+    mentionBindings?: ComposerMentionBindingInput[],
+  ) => Promise<boolean>;
   interruptThread: (threadId: string) => Promise<void>;
   respondToApprovalRequest: (
     threadId: string,
@@ -39,7 +48,7 @@ type ConversationState = {
   ) => Promise<void>;
   submitPlanDecision: (
     input: SubmitPlanDecisionInput,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 };
 
 let unlistenConversationEvents: null | (() => void) = null;
@@ -177,7 +186,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       };
     }),
 
-  sendMessage: async (threadId, text) => {
+  sendMessage: async (threadId, text, mentionBindings = []) => {
     set((state) => ({
       errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
     }));
@@ -189,6 +198,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         threadId,
         text,
         composer,
+        ...(mentionBindings.length > 0 ? { mentionBindings } : {}),
       });
       set((state) => ({
         snapshotsByThreadId: {
@@ -200,13 +210,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           [threadId]: snapshot.composer,
         },
       }));
-      await useWorkspaceStore.getState().refreshSnapshot();
+      refreshWorkspaceSnapshotNonBlocking();
+      return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to send message";
       set((state) => ({
         errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
       }));
+      return false;
     }
   },
 
@@ -294,13 +306,15 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           [input.threadId]: snapshot.composer,
         },
       }));
-      await useWorkspaceStore.getState().refreshSnapshot();
+      refreshWorkspaceSnapshotNonBlocking();
+      return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to continue from the proposed plan";
       set((state) => ({
         errorByThreadId: { ...state.errorByThreadId, [input.threadId]: message },
       }));
+      return false;
     }
   },
 }));

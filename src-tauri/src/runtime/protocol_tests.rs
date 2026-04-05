@@ -75,7 +75,6 @@ fn decodes_account_rate_limit_payloads() {
             .and_then(|window| window.window_duration_mins),
         Some(10_080),
     );
-
 }
 
 #[test]

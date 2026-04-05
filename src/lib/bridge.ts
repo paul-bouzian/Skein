@@ -6,6 +6,7 @@ import type {
   ArchiveThreadRequest,
   BootstrapStatus,
   CommitGitInput,
+  ComposerFileSearchResult,
   CodexRateLimitSnapshot,
   CodexUsageEventPayload,
   ConversationEventPayload,
@@ -27,6 +28,7 @@ import type {
   RuntimeStatusSnapshot,
   SendThreadMessageInput,
   SubmitPlanDecisionInput,
+  ThreadComposerCatalog,
   ThreadConversationOpenResponse,
   ThreadConversationSnapshot,
   ThreadRecord,
@@ -133,6 +135,22 @@ export function refreshThreadConversation(
   return invoke<ThreadConversationSnapshot>("refresh_thread_conversation", {
     threadId,
   });
+}
+
+export function getThreadComposerCatalog(
+  threadId: string,
+): Promise<ThreadComposerCatalog> {
+  return invoke<ThreadComposerCatalog>("get_thread_composer_catalog", {
+    threadId,
+  });
+}
+
+export function searchThreadFiles(input: {
+  threadId: string;
+  query: string;
+  limit?: number;
+}): Promise<ComposerFileSearchResult[]> {
+  return invoke<ComposerFileSearchResult[]>("search_thread_files", { input });
 }
 
 export function sendThreadMessage(

@@ -11,7 +11,10 @@ import { useWorkspaceStore } from "./workspace-store";
 vi.mock("../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   refreshThreadConversation: vi.fn(),
+  getThreadComposerCatalog: vi.fn(),
+  searchThreadFiles: vi.fn(),
   sendThreadMessage: vi.fn(),
+  submitPlanDecision: vi.fn(),
   interruptThreadTurn: vi.fn(),
   listenToConversationEvents: vi.fn(),
 }));
@@ -149,6 +152,74 @@ describe("conversation store", () => {
         reasoningEffort: "low",
       },
     });
+  });
+
+  it("keeps sendMessage successful when the workspace refresh fails afterwards", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-3",
+    });
+    const refreshSnapshot = vi.fn(async () => {
+      throw new Error("refresh failed");
+    });
+
+    mockedBridge.sendThreadMessage.mockResolvedValue(nextSnapshot);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    const sent = await useConversationStore.getState().sendMessage("thread-1", "Ship it");
+
+    expect(sent).toBe(true);
+    expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
+      nextSnapshot,
+    );
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
+    expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
+  });
+
+  it("keeps submitPlanDecision successful when the workspace refresh fails afterwards", async () => {
+    const initialSnapshot = makeConversationSnapshot({
+      status: "waitingForExternalAction",
+    });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-4",
+    });
+    const refreshSnapshot = vi.fn(async () => {
+      throw new Error("refresh failed");
+    });
+
+    mockedBridge.submitPlanDecision.mockResolvedValue(nextSnapshot);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    const sent = await useConversationStore.getState().submitPlanDecision({
+      threadId: "thread-1",
+      action: "approve",
+      composer: initialSnapshot.composer,
+    });
+
+    expect(sent).toBe(true);
+    expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
+      nextSnapshot,
+    );
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
+    expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
   });
 
   it("refreshes a thread snapshot without reopening the conversation", async () => {

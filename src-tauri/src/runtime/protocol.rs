@@ -220,6 +220,102 @@ pub struct ErrorNotification {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SkillInterfaceWire {
+    #[serde(default)]
+    pub short_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMetadataWire {
+    pub name: String,
+    pub description: String,
+    pub enabled: bool,
+    pub path: String,
+    #[serde(default)]
+    pub interface: Option<SkillInterfaceWire>,
+    #[serde(default)]
+    pub short_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsListEntryWire {
+    pub cwd: String,
+    #[serde(default)]
+    pub skills: Vec<SkillMetadataWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsListResponse {
+    pub data: Vec<SkillsListEntryWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfoWire {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub is_accessible: Option<bool>,
+    #[serde(default)]
+    pub is_enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsListResponse {
+    pub data: Vec<AppInfoWire>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FuzzyFileSearchMatchTypeWire {
+    File,
+    Directory,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FuzzyFileSearchResultWire {
+    pub path: String,
+    pub match_type: FuzzyFileSearchMatchTypeWire,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FuzzyFileSearchResponse {
+    pub files: Vec<FuzzyFileSearchResultWire>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingTextElement {
+    pub start: usize,
+    pub end: usize,
+    pub placeholder: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingNamedInput {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingUserInputPayload {
+    pub text: String,
+    pub text_elements: Vec<OutgoingTextElement>,
+    pub skills: Vec<OutgoingNamedInput>,
+    pub mentions: Vec<OutgoingNamedInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TurnPlanUpdatedNotification {
     pub thread_id: String,
     pub turn_id: String,
@@ -510,8 +606,41 @@ pub fn collaboration_mode_payload(composer: &ConversationComposerSettings) -> Va
     })
 }
 
-pub fn user_input_payload(text: &str) -> Value {
-    json!([{ "type": "text", "text": text }])
+pub fn user_input_payload(input: &OutgoingUserInputPayload) -> Value {
+    let mut payload = vec![json!({
+        "type": "text",
+        "text": input.text,
+        "text_elements": input
+            .text_elements
+            .iter()
+            .map(|element| {
+                json!({
+                    "byteRange": {
+                        "start": element.start,
+                        "end": element.end,
+                    },
+                    "placeholder": element.placeholder,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })];
+
+    payload.extend(input.skills.iter().map(|skill| {
+        json!({
+            "type": "skill",
+            "name": skill.name,
+            "path": skill.path,
+        })
+    }));
+    payload.extend(input.mentions.iter().map(|mention| {
+        json!({
+            "type": "mention",
+            "name": mention.name,
+            "path": mention.path,
+        })
+    }));
+
+    Value::Array(payload)
 }
 
 pub fn plan_approval_message() -> &'static str {
@@ -754,10 +883,10 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
                 .map(|content| {
                     content
                         .iter()
-                        .map(user_content_to_text)
+                        .map(user_content_to_visible_text)
                         .filter(|part| !part.is_empty())
                         .collect::<Vec<_>>()
-                        .join("\n")
+                        .join("")
                 })
                 .unwrap_or_default();
             if is_hidden_control_message(&text) {
@@ -1483,22 +1612,59 @@ fn format_file_changes(changes: &[Value]) -> String {
         .join("\n\n")
 }
 
-fn user_content_to_text(value: &Value) -> String {
+fn user_content_to_visible_text(value: &Value) -> String {
     match value.get("type").and_then(Value::as_str) {
-        Some("text") => string_field(value, "text"),
+        Some("text") => apply_text_element_placeholders(
+            &string_field(value, "text"),
+            value
+                .get("text_elements")
+                .or_else(|| value.get("textElements"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten(),
+        ),
         Some("image") | Some("localImage") => "[Image]".to_string(),
-        Some("mention") => value
-            .get("name")
-            .and_then(Value::as_str)
-            .map(|name| format!("@{name}"))
-            .unwrap_or("@mention".to_string()),
-        Some("skill") => value
-            .get("name")
-            .and_then(Value::as_str)
-            .map(|name| format!("${name}"))
-            .unwrap_or("$skill".to_string()),
+        Some("mention") | Some("skill") => String::new(),
         _ => String::new(),
     }
+}
+
+fn apply_text_element_placeholders<'a>(
+    text: &str,
+    elements: impl Iterator<Item = &'a Value>,
+) -> String {
+    let mut rendered = String::new();
+    let mut last_index = 0usize;
+    let mut parsed = elements
+        .filter_map(|value| {
+            let range = value.get("byteRange").or_else(|| value.get("byte_range"))?;
+            let start = range.get("start")?.as_u64()? as usize;
+            let end = range.get("end")?.as_u64()? as usize;
+            Some((
+                start,
+                end,
+                value
+                    .get("placeholder")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+            ))
+        })
+        .collect::<Vec<_>>();
+    parsed.sort_by_key(|element| element.0);
+
+    for (start, end, placeholder) in parsed {
+        if start > text.len() || end > text.len() || start < last_index || start > end {
+            continue;
+        }
+        rendered.push_str(&text[last_index..start]);
+        match placeholder {
+            Some(placeholder) => rendered.push_str(&placeholder),
+            None => rendered.push_str(&text[start..end]),
+        }
+        last_index = end;
+    }
+    rendered.push_str(&text[last_index..]);
+    rendered
 }
 
 fn is_hidden_control_message(text: &str) -> bool {
@@ -1643,7 +1809,7 @@ mod tests {
     use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
     #[test]
-    fn normalize_user_message_joins_text_and_images() {
+    fn normalize_user_message_joins_visible_content() {
         let item = normalize_item(&json!({
             "id": "user-1",
             "type": "userMessage",
@@ -1657,7 +1823,35 @@ mod tests {
         match item {
             ConversationItem::Message(message) => {
                 assert_eq!(message.role, ConversationRole::User);
-                assert_eq!(message.text, "Hello\n[Image]");
+                assert_eq!(message.text, "Hello[Image]");
+            }
+            _ => panic!("expected a message item"),
+        }
+    }
+
+    #[test]
+    fn normalize_user_message_replaces_text_elements_and_hides_structured_mentions() {
+        let item = normalize_item(&json!({
+            "id": "user-2",
+            "type": "userMessage",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Expanded prompt",
+                    "text_elements": [{
+                        "byteRange": { "start": 0, "end": 15 },
+                        "placeholder": "/prompts:debug(\"boom\")"
+                    }]
+                },
+                { "type": "skill", "name": "threadex-standards", "path": "/tmp/skill" },
+                { "type": "mention", "name": "github", "path": "app://github" }
+            ]
+        }))
+        .expect("item should normalize");
+
+        match item {
+            ConversationItem::Message(message) => {
+                assert_eq!(message.text, "/prompts:debug(\"boom\")");
             }
             _ => panic!("expected a message item"),
         }

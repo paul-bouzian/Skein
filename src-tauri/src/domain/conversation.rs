@@ -49,6 +49,57 @@ pub struct ConversationComposerSettings {
     pub approval_policy: ApprovalPolicy,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ComposerPromptArgumentMode {
+    None,
+    Named,
+    Positional,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerPromptOption {
+    pub name: String,
+    pub description: Option<String>,
+    pub argument_mode: ComposerPromptArgumentMode,
+    pub argument_names: Vec<String>,
+    pub positional_count: usize,
+    pub argument_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerSkillOption {
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerAppOption {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub slug: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadComposerCatalog {
+    pub prompts: Vec<ComposerPromptOption>,
+    pub skills: Vec<ComposerSkillOption>,
+    pub apps: Vec<ComposerAppOption>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerFileSearchResult {
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelOption {
@@ -351,6 +402,22 @@ pub struct SubmitPlanDecisionInput {
     pub action: PlanDecisionAction,
     pub feedback: Option<String>,
     pub composer: Option<ConversationComposerSettings>,
+    pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerMentionBindingInput {
+    pub mention: String,
+    pub kind: ComposerMentionBindingKind,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ComposerMentionBindingKind {
+    Skill,
+    App,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
