@@ -19,6 +19,7 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
+import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ThreadConversation } from "./ThreadConversation";
 
@@ -101,6 +102,93 @@ describe("ThreadConversation", () => {
       screen.getByText("Looking through package.json and the runtime service."),
     ).toBeInTheDocument();
     expect(screen.getByText("3 tests passed")).toBeInTheDocument();
+  });
+
+  it("renders assistant markdown for regular Codex messages", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "assistant-markdown-1",
+            role: "assistant",
+            text:
+              "## Release notes\n\n**Bold guidance** with `bun`.\n\n- First step\n- Second step\n\n```bash\nbun run verify\n```",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    const { container } = render(
+      <ThreadConversation environment={makeEnvironment()} thread={makeThread()} />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Release notes", level: 2 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bold guidance").tagName).toBe("STRONG");
+    expect(screen.getByText("bun").tagName).toBe("CODE");
+    expect(screen.getByText("First step")).toBeInTheDocument();
+    expect(screen.getByText("Second step")).toBeInTheDocument();
+    expect(screen.getByText("bun run verify").closest("pre")).not.toBeNull();
+    expect(container.querySelectorAll(".tx-markdown__list")).toHaveLength(1);
+  });
+
+  it("renders markdown inside expanded thinking details", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "reasoning",
+            id: "reason-markdown-1",
+            summary: "**Addressing weather response**",
+            content:
+              "The response should reuse [OpenAI](https://openai.com/docs) style references.\n\n- Keep `markdown`\n- Avoid raw plaintext",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Show thinking details" }));
+
+    expect(screen.getByText("Addressing weather response").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "OpenAI" })).toHaveAttribute(
+      "href",
+      "https://openai.com/docs",
+    );
+    expect(screen.getByText("markdown").tagName).toBe("CODE");
+    expect(screen.getByText("Avoid raw plaintext")).toBeInTheDocument();
+  });
+
+  it("preserves multiline user messages with the plain-text message class", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "user-multiline-1",
+            role: "user",
+            text: "Line one\nLine two",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    const body = await screen.findByText((_, element) => {
+      return element?.textContent === "Line one\nLine two";
+    });
+
+    expect(body).toHaveClass("tx-item__body--message-plain");
   });
 
   it("renders the subagent strip and context meter for active turns", async () => {
@@ -772,5 +860,33 @@ describe("ThreadConversation", () => {
     );
 
     expect(screen.getByText("Keep the second item")).toBeInTheDocument();
+  });
+
+  it("renders markdown with semantic heading depth and skips malformed inline tokens", () => {
+    render(
+      <ConversationMarkdown
+        markdown={
+          "# Primary heading\n\nBad `` then `code`, bad [ref] then [OpenAI](https://openai.com/docs), bad **** then **bold**."
+        }
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Primary heading", level: 1 })).toBeInTheDocument();
+    expect(screen.getByText("code").tagName).toBe("CODE");
+    expect(screen.getByRole("link", { name: "OpenAI" })).toHaveAttribute(
+      "href",
+      "https://openai.com/docs",
+    );
+    expect(screen.getByText("bold").tagName).toBe("STRONG");
+  });
+
+  it("renders single-asterisk emphasis and keeps current mixed-asterisk behavior", () => {
+    render(
+      <ConversationMarkdown markdown={"*text*\n\n*text**more*\n\n**text*"} />,
+    );
+
+    expect(screen.getByText("text").tagName).toBe("EM");
+    expect(screen.getByText("text**more").tagName).toBe("EM");
+    expect(screen.getByText("**text*").tagName).toBe("P");
   });
 });

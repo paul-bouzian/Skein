@@ -153,12 +153,19 @@
   color: var(--tx-text-primary);
   font-size: var(--tx-text-sm);
   line-height: 1.65;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .tx-item__body--message {
   font-size: var(--tx-text-base);
+}
+
+.tx-item__body--message-plain {
+  white-space: pre-wrap;
+}
+
+.tx-item__body--reasoning + .tx-item__body--reasoning {
+  margin-top: var(--tx-space-sm);
 }
 
 .tx-item__body--tool {
@@ -260,35 +267,85 @@
   overflow-wrap: anywhere;
 }
 
-.tx-plan-card__markdown > * + * {
+.tx-markdown > * + * {
   margin-top: var(--tx-space-sm);
 }
 
-.tx-plan-card__markdown-heading {
+.tx-markdown__heading {
   margin: 0;
-  font-size: var(--tx-text-base);
   font-weight: var(--tx-weight-semibold);
 }
 
-.tx-plan-card__markdown-paragraph {
+.tx-markdown__heading--1,
+.tx-markdown__heading--2 {
+  font-size: 1.05em;
+}
+
+.tx-markdown__heading--3,
+.tx-markdown__heading--4,
+.tx-markdown__heading--5,
+.tx-markdown__heading--6 {
+  font-size: 1em;
+}
+
+.tx-markdown__paragraph {
   margin: 0;
   color: var(--tx-text-primary);
 }
 
-.tx-plan-card__markdown-list {
+.tx-markdown__list {
   margin: 0;
   padding-left: calc(var(--tx-space-lg) + var(--tx-space-xs));
+  list-style-position: outside;
   display: grid;
   gap: var(--tx-space-xs);
   color: var(--tx-text-primary);
 }
 
-.tx-plan-card__markdown-code {
+ul.tx-markdown__list {
+  list-style-type: disc;
+}
+
+ol.tx-markdown__list {
+  list-style-type: decimal;
+}
+
+.tx-markdown__blockquote {
+  margin: 0;
+  padding-left: var(--tx-space-md);
+  border-left: 2px solid var(--tx-border-muted);
+  color: var(--tx-text-secondary);
+}
+
+.tx-markdown__code,
+.tx-markdown__code-block code {
   padding: 1px 5px;
   border-radius: var(--tx-radius-sm);
   background: color-mix(in srgb, var(--tx-bg-hover) 90%, transparent);
   font-family: var(--tx-font-mono);
   font-size: var(--tx-text-xs);
+}
+
+.tx-markdown__code-block {
+  margin: 0;
+  padding: var(--tx-space-md);
+  border-radius: var(--tx-radius-md);
+  border: 1px solid var(--tx-border-subtle);
+  background: color-mix(in srgb, var(--tx-bg-base) 92%, black 8%);
+  overflow-x: auto;
+}
+
+.tx-markdown__code-block code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.tx-markdown__link {
+  color: var(--tx-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .tx-plan-card__placeholder {

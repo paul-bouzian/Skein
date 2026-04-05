@@ -16,6 +16,7 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
+import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { SubagentStrip } from "./SubagentStrip";
@@ -272,10 +273,26 @@ function ConversationItemRow({ item }: { item: ConversationItem }) {
   const [expanded, setExpanded] = useState(false);
 
   if (item.kind === "message") {
+    const shouldRenderMarkdown = item.role === "assistant";
+    const bodyClassName = [
+      "tx-item__body",
+      "tx-item__body--message",
+      item.role === "user" ? "tx-item__body--message-plain" : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
     return (
       <div className={`tx-item tx-item--message tx-item--${item.role}`}>
         <div className="tx-item__header">{item.role === "user" ? "You" : "Codex"}</div>
-        <div className="tx-item__body tx-item__body--message">{item.text}</div>
+        {shouldRenderMarkdown ? (
+          <ConversationMarkdown
+            markdown={item.text}
+            className={bodyClassName}
+          />
+        ) : (
+          <div className={bodyClassName}>{item.text}</div>
+        )}
       </div>
     );
   }
@@ -308,8 +325,18 @@ function ConversationItemRow({ item }: { item: ConversationItem }) {
         </button>
         {expanded ? (
           <div className="tx-item__body">
-            {item.summary ? <p>{item.summary}</p> : null}
-            {item.content ? <pre>{item.content}</pre> : null}
+            {item.summary ? (
+              <ConversationMarkdown
+                markdown={item.summary}
+                className="tx-item__body tx-item__body--reasoning"
+              />
+            ) : null}
+            {item.content ? (
+              <ConversationMarkdown
+                markdown={item.content}
+                className="tx-item__body tx-item__body--reasoning"
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
