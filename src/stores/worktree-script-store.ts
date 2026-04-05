@@ -58,5 +58,5 @@ export function teardownWorktreeScriptListener() {
   unlistenWorktreeScriptFailures?.();
   unlistenWorktreeScriptFailures = null;
   listenerInitialization = null;
-  useWorktreeScriptStore.setState({ listenerReady: false });
+  useWorktreeScriptStore.setState({ listenerReady: false, latestFailure: null });
 }

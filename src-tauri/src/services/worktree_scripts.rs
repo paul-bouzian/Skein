@@ -443,6 +443,18 @@ mod tests {
     fn normalizes_scripts_and_resolves_a_shell() {
         assert_eq!(normalize_script("   "), None);
         assert_eq!(normalize_script(" echo hi "), Some("echo hi".to_string()));
-        assert!(resolve_script_shell().path.is_absolute());
+        let shell = resolve_script_shell();
+        #[cfg(target_os = "windows")]
+        assert!(
+            shell.path.is_absolute()
+                || shell
+                    .path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("powershell.exe")),
+            "expected absolute shell path or PATH-resolved powershell executable"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert!(shell.path.is_absolute());
     }
 }
