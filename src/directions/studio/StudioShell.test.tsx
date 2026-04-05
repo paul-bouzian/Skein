@@ -1,9 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
-import { makeWorkspaceSnapshot } from "../../test/fixtures/conversation";
+import {
+  makeProject,
+  makeWorkspaceSnapshot,
+} from "../../test/fixtures/conversation";
 import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import { useGitReviewStore } from "../../stores/git-review-store";
@@ -385,7 +388,8 @@ describe("StudioShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     await userEvent.click(screen.getByRole("button", { name: "Project" }));
 
-    const sandboxHeader = screen.getByRole("button", { name: /Sandbox/i });
+    const dialog = screen.getByRole("dialog");
+    const sandboxHeader = within(dialog).getByRole("button", { name: /Sandbox/i });
     await userEvent.click(sandboxHeader);
     expect(sandboxHeader).toHaveAttribute("aria-expanded", "true");
 
@@ -405,10 +409,9 @@ describe("StudioShell", () => {
     }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Sandbox/i })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
+      expect(
+        within(screen.getByRole("dialog")).getByRole("button", { name: /Sandbox/i }),
+      ).toHaveAttribute("aria-expanded", "true");
     });
   });
 });
