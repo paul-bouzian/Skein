@@ -1,7 +1,6 @@
-import { Fragment } from "react";
-
 import { ChevronRightIcon } from "../../shared/Icons";
 import type { ProposedPlanSnapshot } from "../../lib/types";
+import { ConversationMarkdown } from "./ConversationMarkdown";
 
 type Props = {
   plan: ProposedPlanSnapshot;
@@ -52,9 +51,10 @@ export function ConversationPlanCard({
         </ol>
       ) : null}
       {plan.markdown ? (
-        <div className="tx-plan-card__markdown">
-          <PlanMarkdown markdown={plan.markdown} />
-        </div>
+        <ConversationMarkdown
+          markdown={plan.markdown}
+          className="tx-plan-card__markdown"
+        />
       ) : (
         <p className="tx-plan-card__placeholder">Codex is still shaping the plan…</p>
       )}
@@ -111,142 +111,4 @@ function labelToneForPlan(status: ProposedPlanSnapshot["status"]) {
 function labelForStepStatus(status: string) {
   if (status === "inProgress") return "In progress";
   return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function PlanMarkdown({ markdown }: { markdown: string }) {
-  const blocks = parseMarkdownBlocks(markdown);
-
-  return (
-    <>
-      {blocks.map((block, index) => {
-        if (block.kind === "heading") {
-          return (
-            <h4 key={`${block.kind}-${index}`} className="tx-plan-card__markdown-heading">
-              {block.text}
-            </h4>
-          );
-        }
-
-        if (block.kind === "unorderedList") {
-          return (
-            <ul key={`${block.kind}-${index}`} className="tx-plan-card__markdown-list">
-              {block.items.map((item, itemIndex) => (
-                <li key={`${item}-${itemIndex}`}>{renderInlineText(item)}</li>
-              ))}
-            </ul>
-          );
-        }
-
-        if (block.kind === "orderedList") {
-          return (
-            <ol key={`${block.kind}-${index}`} className="tx-plan-card__markdown-list">
-              {block.items.map((item, itemIndex) => (
-                <li key={`${item}-${itemIndex}`}>{renderInlineText(item)}</li>
-              ))}
-            </ol>
-          );
-        }
-
-        return (
-          <p key={`${block.kind}-${index}`} className="tx-plan-card__markdown-paragraph">
-            {renderInlineText(block.text)}
-          </p>
-        );
-      })}
-    </>
-  );
-}
-
-type MarkdownBlock =
-  | { kind: "heading"; text: string }
-  | { kind: "paragraph"; text: string }
-  | { kind: "unorderedList"; items: string[] }
-  | { kind: "orderedList"; items: string[] };
-
-function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
-  const lines = markdown.split(/\r?\n/);
-  const blocks: MarkdownBlock[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index]?.trim() ?? "";
-    if (!line) {
-      index += 1;
-      continue;
-    }
-
-    const heading = line.match(/^#{1,6}\s+(.+)$/);
-    if (heading) {
-      blocks.push({ kind: "heading", text: heading[1] });
-      index += 1;
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(line)) {
-      const [items, nextIndex] = consumeListItems(lines, index, /^[-*]\s*(.*)$/);
-      index = nextIndex;
-      if (items.length > 0) {
-        blocks.push({ kind: "unorderedList", items });
-      }
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(line)) {
-      const [items, nextIndex] = consumeListItems(lines, index, /^\d+\.\s*(.*)$/);
-      index = nextIndex;
-      if (items.length > 0) {
-        blocks.push({ kind: "orderedList", items });
-      }
-      continue;
-    }
-
-    const paragraphLines: string[] = [];
-    while (index < lines.length) {
-      const candidate = lines[index]?.trim() ?? "";
-      if (!candidate || /^#{1,6}\s+/.test(candidate) || /^[-*]\s+/.test(candidate) || /^\d+\.\s+/.test(candidate)) {
-        break;
-      }
-      paragraphLines.push(candidate);
-      index += 1;
-    }
-    blocks.push({ kind: "paragraph", text: paragraphLines.join(" ") });
-  }
-
-  return blocks;
-}
-
-function consumeListItems(lines: string[], startIndex: number, pattern: RegExp) {
-  const items: string[] = [];
-  let index = startIndex;
-
-  while (index < lines.length) {
-    const candidate = lines[index]?.trim() ?? "";
-    const match = candidate.match(pattern);
-    if (!match) {
-      break;
-    }
-    const item = match[1]?.trim() ?? "";
-    if (item) {
-      items.push(item);
-    }
-    index += 1;
-  }
-
-  return [items, index] as const;
-}
-
-function renderInlineText(text: string) {
-  const parts = text.split(/(`[^`]+`)/g).filter(Boolean);
-
-  return parts.map((part, index) => {
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={`${part}-${index}`} className="tx-plan-card__markdown-code">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-
-    return <Fragment key={`${part}-${index}`}>{part}</Fragment>;
-  });
 }

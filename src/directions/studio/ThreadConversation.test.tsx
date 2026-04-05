@@ -103,6 +103,68 @@ describe("ThreadConversation", () => {
     expect(screen.getByText("3 tests passed")).toBeInTheDocument();
   });
 
+  it("renders assistant markdown for regular Codex messages", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "assistant-markdown-1",
+            role: "assistant",
+            text:
+              "## Release notes\n\n**Bold guidance** with `bun`.\n\n- First step\n- Second step\n\n```bash\nbun run verify\n```",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    const { container } = render(
+      <ThreadConversation environment={makeEnvironment()} thread={makeThread()} />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Release notes" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bold guidance").tagName).toBe("STRONG");
+    expect(screen.getByText("bun").tagName).toBe("CODE");
+    expect(screen.getByText("First step")).toBeInTheDocument();
+    expect(screen.getByText("Second step")).toBeInTheDocument();
+    expect(screen.getByText("bun run verify").closest("pre")).not.toBeNull();
+    expect(container.querySelectorAll(".tx-markdown__list")).toHaveLength(1);
+  });
+
+  it("renders markdown inside expanded thinking details", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "reasoning",
+            id: "reason-markdown-1",
+            summary: "**Addressing weather response**",
+            content:
+              "The response should reuse [OpenAI](https://openai.com/docs) style references.\n\n- Keep `markdown`\n- Avoid raw plaintext",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Show thinking details" }));
+
+    expect(screen.getByText("Addressing weather response").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "OpenAI" })).toHaveAttribute(
+      "href",
+      "https://openai.com/docs",
+    );
+    expect(screen.getByText("markdown").tagName).toBe("CODE");
+    expect(screen.getByText("Avoid raw plaintext")).toBeInTheDocument();
+  });
+
   it("renders the subagent strip and context meter for active turns", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
