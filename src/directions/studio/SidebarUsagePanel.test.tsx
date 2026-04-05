@@ -72,13 +72,13 @@ describe("SidebarUsagePanel", () => {
     useCodexUsageStore.setState((state) => ({
       ...state,
       errorByEnvironmentId: {
-        "env-worktree": "Codex usage unavailable",
+        "env-worktree": "Unable to resolve the Codex CLI binary.",
       },
     }));
 
     render(<SidebarUsagePanel />);
 
-    expect(screen.getByText("Usage unavailable for this environment.")).toBeInTheDocument();
+    expect(screen.getByText("Unable to resolve the Codex CLI binary.")).toBeInTheDocument();
     expect(screen.getAllByText("--")).toHaveLength(2);
   });
 

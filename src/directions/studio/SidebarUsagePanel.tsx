@@ -87,7 +87,10 @@ function resolveUsagePlaceholder(
   if (!hasEnvironment) {
     return "Select an environment to inspect Codex usage.";
   }
-  if (!loading && (error || (hasSnapshot && rows.every((row) => row.percentUsed === null)))) {
+  if (!loading && error) {
+    return error;
+  }
+  if (!loading && hasSnapshot && rows.every((row) => row.percentUsed === null)) {
     return "Usage unavailable for this environment.";
   }
   return null;

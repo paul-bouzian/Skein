@@ -15,16 +15,16 @@ use uuid::Uuid;
 
 use crate::domain::conversation::{
     ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
-    ConversationEventPayload, ConversationInteraction, ConversationItem,
-    ConversationMessageItem, ConversationRole, ConversationStatus,
-    EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput, PermissionGrantScope,
-    PermissionsApprovalDecisionInput, PlanDecisionAction, RespondToUserInputRequestInput,
-    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
-    ThreadConversationSnapshot,
+    ConversationEventPayload, ConversationInteraction, ConversationItem, ConversationMessageItem,
+    ConversationRole, ConversationStatus, EnvironmentCapabilitiesSnapshot,
+    FileChangeApprovalDecisionInput, PermissionGrantScope, PermissionsApprovalDecisionInput,
+    PlanDecisionAction, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
 use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
+use crate::runtime::codex_paths::build_codex_process_path;
 use crate::runtime::protocol::{
     append_agent_delta, append_plan_delta, append_reasoning_boundary, append_reasoning_content,
     append_reasoning_summary, append_tool_output, approval_policy_value, build_history_snapshot,
@@ -143,6 +143,7 @@ impl RuntimeSession {
         command
             .arg("app-server")
             .current_dir(&environment_path)
+            .env("PATH", build_codex_process_path(&binary_path))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -358,7 +359,8 @@ impl RuntimeSession {
         context: ThreadRuntimeContext,
         text: String,
     ) -> AppResult<SendMessageResult> {
-        self.send_message_with_bindings(context, text, Vec::new()).await
+        self.send_message_with_bindings(context, text, Vec::new())
+            .await
     }
 
     pub async fn send_message_with_bindings(
@@ -679,13 +681,8 @@ impl RuntimeSession {
                 warn!("Failed to load apps for composer resolution: {error}");
                 Vec::new()
             });
-        let resolved = resolve_composer_text(
-            visible_text,
-            &prompts,
-            &skills,
-            &apps,
-            mention_bindings,
-        )?;
+        let resolved =
+            resolve_composer_text(visible_text, &prompts, &skills, &apps, mention_bindings)?;
 
         Ok(OutgoingUserInputPayload {
             text: resolved.text,

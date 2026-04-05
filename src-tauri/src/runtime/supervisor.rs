@@ -13,6 +13,7 @@ use crate::domain::conversation::{
 };
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
+use crate::runtime::codex_paths::{missing_codex_binary_message, resolve_auto_binary_path};
 use crate::runtime::session::{RuntimeSession, SendMessageResult};
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -383,9 +384,41 @@ impl RuntimeSupervisor {
 
 fn resolve_binary_path(codex_binary_path: Option<String>) -> AppResult<String> {
     match codex_binary_path {
-        Some(path) => Ok(path),
-        None => which::which("codex")
-            .map_err(|_| AppError::Runtime("Unable to resolve the Codex CLI binary.".to_string()))
+        Some(path) => {
+            let trimmed = path.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::Validation(
+                    "Codex binary path cannot be empty.".to_string(),
+                ));
+            }
+            Ok(trimmed.to_string())
+        }
+        None => resolve_auto_binary_path()
+            .ok_or_else(|| AppError::Runtime(missing_codex_binary_message()))
             .map(|path| path.to_string_lossy().to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_binary_path;
+    use crate::error::AppError;
+
+    #[test]
+    fn trims_explicit_codex_binary_path() {
+        let resolved =
+            resolve_binary_path(Some("  /opt/homebrew/bin/codex  ".to_string())).unwrap();
+
+        assert_eq!(resolved, "/opt/homebrew/bin/codex");
+    }
+
+    #[test]
+    fn rejects_empty_explicit_codex_binary_path() {
+        let error = resolve_binary_path(Some("   ".to_string())).unwrap_err();
+
+        assert!(matches!(
+            error,
+            AppError::Validation(message) if message == "Codex binary path cannot be empty."
+        ));
     }
 }

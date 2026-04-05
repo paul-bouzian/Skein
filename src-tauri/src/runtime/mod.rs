@@ -1,3 +1,4 @@
+pub mod codex_paths;
 pub mod protocol;
 pub mod session;
 pub mod supervisor;
