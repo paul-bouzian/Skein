@@ -431,6 +431,8 @@ describe("ThreadConversation", () => {
         composer: { ...baseComposer, collaborationMode: "build" },
         taskPlan: makeTaskPlan({
           status: "completed",
+          steps: [],
+          explanation: "",
           markdown: "## Tasks\n\n- Inspect the runtime layer",
         }),
       }),
@@ -462,6 +464,27 @@ describe("ThreadConversation", () => {
 
     expect(await screen.findByText("Ready for the first turn")).toBeInTheDocument();
     expect(screen.queryByText("Tasks")).toBeNull();
+  });
+
+  it("shows the empty state when a non-renderable proposed plan exists", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [],
+        status: "completed",
+        composer: { ...baseComposer, collaborationMode: "build" },
+        proposedPlan: makeProposedPlan({
+          status: "approved",
+          isAwaitingDecision: false,
+        }),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+
+    expect(await screen.findByText("Ready for the first turn")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refine" })).toBeNull();
   });
 
   it("renders approval actions and sends the selected approval response", async () => {

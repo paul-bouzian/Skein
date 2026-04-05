@@ -213,7 +213,7 @@ export function ThreadConversation({ environment, thread }: Props) {
         thread={thread}
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
-        {snapshot.items.length === 0 && !activePlan && !hasRenderableTaskPlan ? (
+        {snapshot.items.length === 0 && !shouldRenderPlanCard && !hasRenderableTaskPlan ? (
           <ConversationEmpty />
         ) : null}
         {snapshot.items.map((item) => (
