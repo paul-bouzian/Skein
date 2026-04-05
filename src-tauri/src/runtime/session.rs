@@ -1559,7 +1559,10 @@ async fn handle_notification(
                         {
                             match plan_target.unwrap_or(PlanTarget::Task) {
                                 PlanTarget::Proposed => {
-                                    let existing = snapshot.proposed_plan.as_ref();
+                                    let existing = snapshot
+                                        .proposed_plan
+                                        .as_ref()
+                                        .filter(|plan| plan.turn_id == event.turn_id);
                                     snapshot.proposed_plan = proposed_plan_from_item(
                                         &event.turn_id,
                                         &event.item,
@@ -1590,7 +1593,10 @@ async fn handle_notification(
                                     } else {
                                         task_status_from_snapshot(snapshot)
                                     };
-                                    let existing = snapshot.task_plan.as_ref();
+                                    let existing = snapshot
+                                        .task_plan
+                                        .as_ref()
+                                        .filter(|plan| plan.turn_id == event.turn_id);
                                     snapshot.task_plan = task_plan_from_item(
                                         &event.turn_id,
                                         &event.item,
@@ -1830,7 +1836,13 @@ async fn plan_target_for_turn(
     state
         .snapshots_by_thread
         .get(local_thread_id)
-        .map(|snapshot| plan_target_from_mode(snapshot.composer.collaboration_mode))
+        .map(|snapshot| {
+            plan_target_from_mode(snapshot_mode_for_turn(
+                snapshot,
+                turn_id,
+                snapshot.composer.collaboration_mode,
+            ))
+        })
         .unwrap_or(PlanTarget::Task)
 }
 
@@ -1840,9 +1852,15 @@ async fn plan_target_for_item_or_turn(
     turn_id: &str,
     item: &Value,
 ) -> PlanTarget {
-    collaboration_mode_from_plan_item_heading(item)
-        .map(plan_target_from_mode)
-        .unwrap_or(plan_target_for_turn(state, codex_thread_id, turn_id).await)
+    if let Some(mode) = collaboration_mode_from_plan_item_heading(item) {
+        state
+            .lock()
+            .await
+            .turn_modes_by_id
+            .insert(turn_id.to_string(), mode);
+        return plan_target_from_mode(mode);
+    }
+    plan_target_for_turn(state, codex_thread_id, turn_id).await
 }
 
 fn plan_target_from_mode(mode: CollaborationMode) -> PlanTarget {
@@ -2344,6 +2362,112 @@ mod tests {
 
         assert!(state.pending_turn_mode_by_thread.is_empty());
         assert!(state.turn_modes_by_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plan_target_for_item_or_turn_persists_heading_mode_for_future_updates() {
+        let snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Build,
+                approval_policy: ApprovalPolicy::AskToEdit,
+            },
+        );
+        let state = Arc::new(Mutex::new(SessionState {
+            snapshots_by_thread: HashMap::from([("thread-1".to_string(), snapshot)]),
+            local_thread_by_codex_id: HashMap::from([(
+                "thr_codex".to_string(),
+                "thread-1".to_string(),
+            )]),
+            capabilities: None,
+            pending_server_requests: HashMap::new(),
+            turn_modes_by_id: HashMap::new(),
+            pending_turn_mode_by_thread: HashMap::new(),
+        }));
+        let item = json!({
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "## Proposed plan\n\n- Inspect runtime"
+        });
+
+        let target = plan_target_for_item_or_turn(&state, "thr_codex", "turn-1", &item).await;
+
+        assert!(matches!(target, PlanTarget::Proposed));
+        assert!(matches!(
+            plan_target_for_turn(&state, "thr_codex", "turn-1").await,
+            PlanTarget::Proposed
+        ));
+        let state = state.lock().await;
+        assert_eq!(
+            state.turn_modes_by_id.get("turn-1"),
+            Some(&CollaborationMode::Plan)
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_notification_does_not_reuse_a_previous_turns_plan_snapshot() {
+        let mut snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Plan,
+                approval_policy: ApprovalPolicy::AskToEdit,
+            },
+        );
+        snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
+            turn_id: "turn-old".to_string(),
+            item_id: Some("plan-item-old".to_string()),
+            explanation: "Old proposal".to_string(),
+            steps: Vec::new(),
+            markdown: "## Proposed plan\n\n- Old proposal".to_string(),
+            status: crate::domain::conversation::ProposedPlanStatus::Ready,
+            is_awaiting_decision: true,
+        });
+
+        let state = Arc::new(Mutex::new(SessionState {
+            snapshots_by_thread: HashMap::from([("thread-1".to_string(), snapshot)]),
+            local_thread_by_codex_id: HashMap::from([(
+                "thr_codex".to_string(),
+                "thread-1".to_string(),
+            )]),
+            capabilities: None,
+            pending_server_requests: HashMap::new(),
+            turn_modes_by_id: HashMap::from([("turn-new".to_string(), CollaborationMode::Plan)]),
+            pending_turn_mode_by_thread: HashMap::new(),
+        }));
+
+        handle_notification(
+            &None,
+            &state,
+            "env-1",
+            crate::runtime::protocol::ServerNotificationEnvelope {
+                method: "item/started".to_string(),
+                params: json!({
+                    "threadId": "thr_codex",
+                    "turnId": "turn-new",
+                    "item": {
+                        "id": "plan-item-new",
+                        "type": "plan",
+                        "text": ""
+                    }
+                }),
+            },
+        )
+        .await;
+
+        let state = state.lock().await;
+        let snapshot = state
+            .snapshots_by_thread
+            .get("thread-1")
+            .expect("snapshot should exist");
+        assert!(snapshot.proposed_plan.is_none());
     }
 
     #[tokio::test]
