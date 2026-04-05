@@ -21,6 +21,7 @@ import type {
   GlobalSettingsPatch,
   ManagedWorktreeCreateResult,
   ProjectRecord,
+  UpdateProjectSettingsRequest,
   RespondToApprovalRequestInput,
   RespondToUserInputRequestInput,
   RenameProjectRequest,
@@ -32,6 +33,7 @@ import type {
   ThreadConversationOpenResponse,
   ThreadConversationSnapshot,
   ThreadRecord,
+  WorktreeScriptFailureEventPayload,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -211,6 +213,15 @@ export function listenToCodexUsageEvents(
   );
 }
 
+export function listenToWorktreeScriptFailures(
+  callback: (payload: WorktreeScriptFailureEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<WorktreeScriptFailureEventPayload>(
+    "threadex://worktree-script-failure",
+    (event) => callback(event.payload),
+  );
+}
+
 export function updateGlobalSettings(
   patch: GlobalSettingsPatch,
 ): Promise<GlobalSettings> {
@@ -227,6 +238,12 @@ export function renameProject(
   input: RenameProjectRequest,
 ): Promise<ProjectRecord> {
   return invoke<ProjectRecord>("rename_project", { input });
+}
+
+export function updateProjectSettings(
+  input: UpdateProjectSettingsRequest,
+): Promise<ProjectRecord> {
+  return invoke<ProjectRecord>("update_project_settings", { input });
 }
 
 export function removeProject(projectId: string): Promise<void> {

@@ -10,6 +10,7 @@ import {
   selectProjects,
 } from "../../stores/workspace-store";
 import { useConversationStore } from "../../stores/conversation-store";
+import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
@@ -57,6 +58,10 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
+  const latestScriptFailure = useWorktreeScriptStore((state) => state.latestFailure);
+  const dismissLatestScriptFailure = useWorktreeScriptStore(
+    (state) => state.dismissLatestFailure,
+  );
   const { error, clearError, importProject, isImporting } = useProjectImport();
   const [actionError, setActionError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -201,6 +206,25 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
       </div>
       <div className="tree-sidebar__scroll">
         {notice && <p className="tree-sidebar__notice">{notice}</p>}
+        {latestScriptFailure ? (
+          <div className="tree-sidebar__notice tree-sidebar__notice--warning">
+            <div className="tree-sidebar__notice-copy">
+              <strong>
+                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"} script
+                failed for {latestScriptFailure.worktreeName}
+              </strong>
+              <span>{latestScriptFailure.message}</span>
+              <code>{latestScriptFailure.logPath}</code>
+            </div>
+            <button
+              type="button"
+              className="tree-sidebar__notice-dismiss"
+              onClick={dismissLatestScriptFailure}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         {projects.length === 0 ? (
           <p className="tree-sidebar__empty">
             {isImporting ? "Importing project..." : "No projects yet"}

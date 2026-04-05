@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { useConversationStore } from "./stores/conversation-store";
 import { useCodexUsageStore } from "./stores/codex-usage-store";
 import { useAppUpdateStore } from "./stores/app-update-store";
+import {
+  teardownWorktreeScriptListener,
+  useWorktreeScriptStore,
+} from "./stores/worktree-script-store";
 import { useWorkspaceStore } from "./stores/workspace-store";
 import { LoadingState } from "./shared/LoadingState";
 import { StudioShell } from "./directions/studio/StudioShell";
@@ -18,6 +22,9 @@ function App() {
     (s) => s.initializeListener,
   );
   const initializeUpdates = useAppUpdateStore((s) => s.initialize);
+  const initializeWorktreeScriptListener = useWorktreeScriptStore(
+    (s) => s.initializeListener,
+  );
 
   useEffect(() => {
     void initialize();
@@ -34,6 +41,13 @@ function App() {
   useEffect(() => {
     void initializeUpdates();
   }, [initializeUpdates]);
+
+  useEffect(() => {
+    void initializeWorktreeScriptListener();
+    return () => {
+      teardownWorktreeScriptListener();
+    };
+  }, [initializeWorktreeScriptListener]);
 
   if (loadingState === "idle" || loadingState === "loading") {
     return (

@@ -123,11 +123,9 @@ impl AppDatabase {
 
 #[cfg(test)]
 mod tests {
+    use super::AppDatabase;
     use rusqlite::Connection;
     use uuid::Uuid;
-
-    use super::AppDatabase;
-
     #[test]
     fn migrate_v1_projects_adds_project_settings_column() {
         let root = std::env::temp_dir().join(format!("threadex-db-test-{}", Uuid::now_v7()));
@@ -197,6 +195,7 @@ mod tests {
         assert_eq!(version, 2);
         assert_eq!(default_settings, "'{}'");
 
+        drop(connection);
         let _ = std::fs::remove_dir_all(root);
     }
 }

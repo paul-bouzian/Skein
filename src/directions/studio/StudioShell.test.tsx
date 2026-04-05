@@ -53,6 +53,7 @@ vi.mock("../../shared/ProjectIcon", () => ({
 
 vi.mock("../../lib/bridge", () => ({
   updateGlobalSettings: vi.fn(),
+  updateProjectSettings: vi.fn(),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -60,6 +61,7 @@ const mockedBridge = vi.mocked(bridge);
 beforeEach(() => {
   storageState.clear();
   mockedBridge.updateGlobalSettings.mockReset();
+  mockedBridge.updateProjectSettings.mockReset();
   mockedBridge.updateGlobalSettings.mockResolvedValue({
     defaultModel: "gpt-5.4",
     defaultReasoningEffort: "high",
@@ -67,6 +69,7 @@ beforeEach(() => {
     defaultApprovalPolicy: "askToEdit",
     codexBinaryPath: "/opt/homebrew/bin/codex",
   });
+  mockedBridge.updateProjectSettings.mockResolvedValue(makeWorkspaceSnapshot().projects[0]);
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
@@ -310,5 +313,102 @@ describe("StudioShell", () => {
     expect(
       screen.queryByRole("option", { name: "GPT-5.4-mini" }),
     ).toBeNull();
+  });
+
+  it("saves per-project worktree scripts from the Project settings tab", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+
+    const setupInput = screen.getByLabelText("Setup Script");
+    const teardownInput = screen.getByLabelText("Teardown Script");
+
+    await userEvent.type(setupInput, "pnpm install");
+    await userEvent.type(teardownInput, "./scripts/cleanup.sh");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
+        projectId: "project-1",
+        patch: {
+          worktreeSetupScript: "pnpm install",
+          worktreeTeardownScript: "./scripts/cleanup.sh",
+        },
+      });
+    });
+  });
+
+  it("keeps project script saves successful when only the refresh fails", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot: vi.fn(async () => false),
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+
+    const setupInput = screen.getByLabelText("Setup Script");
+    await userEvent.type(setupInput, "pnpm install");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "Settings were saved, but the workspace snapshot could not be refreshed.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+  });
+
+  it("preserves the user's expanded project card across snapshot refreshes", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({ id: "project-1", name: "ThreadEx" }),
+          makeProject({
+            id: "project-2",
+            name: "Sandbox",
+            rootPath: "/tmp/sandbox",
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+
+    const sandboxHeader = screen.getByRole("button", { name: /Sandbox/i });
+    await userEvent.click(sandboxHeader);
+    expect(sandboxHeader).toHaveAttribute("aria-expanded", "true");
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({ id: "project-1", name: "ThreadEx" }),
+          makeProject({
+            id: "project-2",
+            name: "Sandbox",
+            rootPath: "/tmp/sandbox",
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Sandbox/i })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+    });
   });
 });

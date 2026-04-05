@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager};
 use crate::error::AppResult;
 use crate::infrastructure::database::AppDatabase;
 use crate::runtime::supervisor::RuntimeSupervisor;
+use crate::services::worktree_scripts::WorktreeScriptService;
 use crate::services::workspace::WorkspaceService;
 
 pub struct AppState {
@@ -28,7 +29,11 @@ impl AppState {
         let database = AppDatabase::new(app)?;
 
         Ok(Self {
-            workspace: WorkspaceService::new(database, threadex_home_dir.join("worktrees")),
+            workspace: WorkspaceService::new(
+                database,
+                threadex_home_dir.join("worktrees"),
+                WorktreeScriptService::new(app.clone(), app_data_dir.clone()),
+            ),
             runtime: RuntimeSupervisor::new(app.clone(), env!("CARGO_PKG_VERSION").to_string()),
             app_data_dir,
         })

@@ -92,6 +92,10 @@ export function makeProject(
     id: "project-1",
     name: "ThreadEx",
     rootPath: "/tmp/threadex",
+    settings: {
+      worktreeSetupScript: undefined,
+      worktreeTeardownScript: undefined,
+    },
     createdAt: "2026-04-03T08:00:00Z",
     updatedAt: "2026-04-03T08:00:00Z",
     environments: [makeEnvironment()],

@@ -8,11 +8,13 @@ import type {
   GlobalSettingsPatch,
   ReasoningEffort,
 } from "../../lib/types";
+import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import {
   selectConversationCapabilities,
   useConversationStore,
 } from "../../stores/conversation-store";
 import {
+  selectProjects,
   selectSettings,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
@@ -34,9 +36,12 @@ type Props = {
 const SETTINGS_PICKER_Z_INDEX = 1310;
 const SETTINGS_REFRESH_ERROR =
   "Settings were saved, but the workspace snapshot could not be refreshed.";
+type SettingsTab = "codex" | "project";
 
 export function SettingsDialog({ open, onClose }: Props) {
   const settings = useWorkspaceStore(selectSettings);
+  const projects = useWorkspaceStore(selectProjects);
+  const selectedProjectId = useWorkspaceStore((state) => state.selectedProjectId);
   const selectedEnvironmentId = useWorkspaceStore(
     (state) => state.selectedEnvironmentId,
   );
@@ -45,6 +50,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   );
   const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("codex");
   const modelOptions = useMemo(
     () =>
       settings
@@ -85,21 +91,53 @@ export function SettingsDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) {
       setActionError(null);
+      setActiveTab("codex");
     }
   }, [open]);
 
-  async function handleChange(patch: GlobalSettingsPatch) {
+  async function refreshWorkspaceOrThrow() {
+    const refreshed = await refreshSnapshot();
+    if (!refreshed) {
+      throw new Error(SETTINGS_REFRESH_ERROR);
+    }
+  }
+
+  async function handleGlobalChange(patch: GlobalSettingsPatch) {
     try {
       setActionError(null);
       await bridge.updateGlobalSettings(patch);
-      const refreshed = await refreshSnapshot();
-      if (!refreshed) {
-        throw new Error(SETTINGS_REFRESH_ERROR);
-      }
+      await refreshWorkspaceOrThrow();
     } catch (cause: unknown) {
       setActionError(
         cause instanceof Error ? cause.message : "Failed to save settings",
       );
+    }
+  }
+
+  async function handleProjectSave(
+    projectId: string,
+    patch: {
+      worktreeSetupScript?: string | null;
+      worktreeTeardownScript?: string | null;
+    },
+  ) {
+    setActionError(null);
+
+    try {
+      await bridge.updateProjectSettings({ projectId, patch });
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to save project settings";
+      setActionError(message);
+      throw cause;
+    }
+
+    try {
+      await refreshWorkspaceOrThrow();
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to save project settings";
+      setActionError(message);
     }
   }
 
@@ -137,25 +175,49 @@ export function SettingsDialog({ open, onClose }: Props) {
             role="navigation"
             aria-label="Settings sections"
           >
-            <div
-              className="settings-dialog__tab settings-dialog__tab--active"
-              aria-current="page"
+            <button
+              type="button"
+              className={`settings-dialog__tab ${
+                activeTab === "codex" ? "settings-dialog__tab--active" : ""
+              }`}
+              aria-current={activeTab === "codex" ? "page" : undefined}
+              onClick={() => setActiveTab("codex")}
             >
               Codex
-            </div>
+            </button>
+            <button
+              type="button"
+              className={`settings-dialog__tab ${
+                activeTab === "project" ? "settings-dialog__tab--active" : ""
+              }`}
+              aria-current={activeTab === "project" ? "page" : undefined}
+              onClick={() => setActiveTab("project")}
+            >
+              Project
+            </button>
           </div>
           <div className="settings-dialog__body">
             {actionError ? (
               <p className="settings-dialog__notice">{actionError}</p>
             ) : null}
-            {settings ? (
+            {activeTab === "codex" && settings ? (
               <SettingsContent
                 settings={settings}
                 modelOptions={modelOptions}
-                onChange={handleChange}
+                onChange={handleGlobalChange}
+              />
+            ) : null}
+            {activeTab === "codex" && !settings ? (
+              <p className="settings-dialog__empty">Loading...</p>
+            ) : null}
+            {activeTab === "project" ? (
+              <ProjectSettingsTab
+                projects={projects}
+                selectedProjectId={selectedProjectId}
+                onSave={handleProjectSave}
               />
             ) : (
-              <p className="settings-dialog__empty">Loading...</p>
+              null
             )}
           </div>
         </div>

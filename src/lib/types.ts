@@ -3,6 +3,7 @@
 export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
+export type WorktreeScriptTrigger = "setup" | "teardown";
 export type GitReviewScope = "uncommitted" | "branch";
 export type GitChangeSection = "staged" | "unstaged" | "untracked" | "branch";
 export type GitChangeKind =
@@ -96,10 +97,16 @@ export type EnvironmentRecord = {
   runtime: RuntimeStatusSnapshot;
 };
 
+export type ProjectSettings = {
+  worktreeSetupScript?: string;
+  worktreeTeardownScript?: string;
+};
+
 export type ProjectRecord = {
   id: string;
   name: string;
   rootPath: string;
+  settings: ProjectSettings;
   createdAt: string;
   updatedAt: string;
   environments: EnvironmentRecord[];
@@ -160,6 +167,19 @@ export type CodexRateLimitSnapshot = {
 export type CodexUsageEventPayload = {
   environmentId: string;
   rateLimits: CodexRateLimitSnapshot;
+};
+
+export type WorktreeScriptFailureEventPayload = {
+  trigger: WorktreeScriptTrigger;
+  projectId: string;
+  projectName: string;
+  worktreeId: string;
+  worktreeName: string;
+  worktreeBranch: string;
+  worktreePath: string;
+  message: string;
+  logPath: string;
+  exitCode?: number | null;
 };
 
 /* ── Git review ── */
@@ -538,6 +558,16 @@ export type AddProjectRequest = {
 export type RenameProjectRequest = {
   projectId: string;
   name: string;
+};
+
+export type ProjectSettingsPatch = {
+  worktreeSetupScript?: string | null;
+  worktreeTeardownScript?: string | null;
+};
+
+export type UpdateProjectSettingsRequest = {
+  projectId: string;
+  patch: ProjectSettingsPatch;
 };
 
 export type CreateThreadRequest = {

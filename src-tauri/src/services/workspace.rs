@@ -9,12 +9,14 @@ use uuid::Uuid;
 use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord, RuntimeState,
-    RuntimeStatusSnapshot, ThreadOverrides, ThreadRecord, ThreadStatus, WorkspaceSnapshot,
+    EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord,
+    ProjectSettings, ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides,
+    ThreadRecord, ThreadStatus, WorktreeScriptTrigger, WorkspaceSnapshot,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
 use crate::services::git::{self, GitEnvironmentContext};
+use crate::services::worktree_scripts::{WorktreeScriptRequest, WorktreeScriptService};
 use crate::services::{thread_titles, worktree_names};
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +43,13 @@ pub struct RenameProjectRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateProjectSettingsRequest {
+    pub project_id: String,
+    pub patch: ProjectSettingsPatch,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameThreadRequest {
     pub thread_id: String,
     pub title: String,
@@ -56,6 +65,7 @@ pub struct ArchiveThreadRequest {
 pub struct WorkspaceService {
     database: AppDatabase,
     managed_worktrees_root: PathBuf,
+    worktree_scripts: WorktreeScriptService,
 }
 
 #[derive(Debug, Clone)]
@@ -69,10 +79,15 @@ pub struct ThreadRuntimeContext {
 }
 
 impl WorkspaceService {
-    pub fn new(database: AppDatabase, managed_worktrees_root: PathBuf) -> Self {
+    pub fn new(
+        database: AppDatabase,
+        managed_worktrees_root: PathBuf,
+        worktree_scripts: WorktreeScriptService,
+    ) -> Self {
         Self {
             database,
             managed_worktrees_root,
+            worktree_scripts,
         }
     }
 
@@ -140,12 +155,23 @@ impl WorkspaceService {
             project_id
         } else {
             let project_id = Uuid::now_v7().to_string();
+            let project_settings_json = serde_json::to_string(&ProjectSettings::default())
+                .map_err(|error| AppError::Validation(error.to_string()))?;
             transaction.execute(
                 "
-                INSERT INTO projects (id, name, root_path, created_at, updated_at, archived_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+                INSERT INTO projects (
+                  id, name, root_path, settings_json, created_at, updated_at, archived_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
                 ",
-                params![project_id, project_name, root_path_string, now, now],
+                params![
+                    project_id,
+                    project_name,
+                    root_path_string,
+                    project_settings_json,
+                    now,
+                    now
+                ],
             )?;
             project_id
         };
@@ -172,6 +198,37 @@ impl WorkspaceService {
         if affected == 0 {
             return Err(AppError::NotFound("Project not found.".to_string()));
         }
+
+        self.project_by_id(&input.project_id, Vec::new())
+    }
+
+    pub fn update_project_settings(
+        &self,
+        input: UpdateProjectSettingsRequest,
+    ) -> AppResult<ProjectRecord> {
+        let mut connection = self.database.open()?;
+        let transaction = connection.transaction()?;
+        let settings_json = transaction
+            .query_row(
+                "SELECT settings_json FROM projects WHERE id = ?1 AND archived_at IS NULL",
+                params![input.project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
+        let mut settings = project_settings_from_json(&settings_json, 0)?;
+        settings.apply_patch(input.patch);
+        let payload = serde_json::to_string(&settings)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
+        transaction.execute(
+            "
+            UPDATE projects
+            SET settings_json = ?1, updated_at = ?2
+            WHERE id = ?3 AND archived_at IS NULL
+            ",
+            params![payload, Utc::now(), input.project_id],
+        )?;
+        transaction.commit()?;
 
         self.project_by_id(&input.project_id, Vec::new())
     }
@@ -340,20 +397,37 @@ impl WorkspaceService {
             return Err(error);
         }
 
-        Ok(ManagedWorktreeCreateResult {
-            environment: self.environment_by_id(
-                &environment_id,
-                RuntimeStatusSnapshot {
-                    environment_id: environment_id.clone(),
-                    state: RuntimeState::Stopped,
-                    pid: None,
-                    binary_path: None,
-                    started_at: None,
-                    last_exit_code: None,
-                },
-            )?,
-            thread: self.thread_by_id(&thread_id)?,
-        })
+        let environment = self.environment_by_id(
+            &environment_id,
+            RuntimeStatusSnapshot {
+                environment_id: environment_id.clone(),
+                state: RuntimeState::Stopped,
+                pid: None,
+                binary_path: None,
+                started_at: None,
+                last_exit_code: None,
+            },
+        )?;
+        let thread = self.thread_by_id(&thread_id)?;
+
+        if let Some(script) = project.settings.worktree_setup_script.clone() {
+            self.worktree_scripts.run(WorktreeScriptRequest {
+                trigger: WorktreeScriptTrigger::Setup,
+                script,
+                project_id: project_id.to_string(),
+                project_name: project.name,
+                project_root: project.root_path,
+                worktree_id: environment.id.clone(),
+                worktree_name: environment.name.clone(),
+                worktree_branch: environment
+                    .git_branch
+                    .clone()
+                    .unwrap_or_else(|| environment.name.clone()),
+                worktree_path: PathBuf::from(&environment.path),
+            });
+        }
+
+        Ok(ManagedWorktreeCreateResult { environment, thread })
     }
 
     pub fn delete_worktree_environment(&self, environment_id: &str) -> AppResult<()> {
@@ -378,6 +452,20 @@ impl WorkspaceService {
 
         if affected == 0 {
             return Err(AppError::NotFound("Environment not found.".to_string()));
+        }
+
+        if let Some(script) = metadata.project_settings.worktree_teardown_script.clone() {
+            self.worktree_scripts.run(WorktreeScriptRequest {
+                trigger: WorktreeScriptTrigger::Teardown,
+                script,
+                project_id: metadata.project_id,
+                project_name: metadata.project_name,
+                project_root: metadata.project_root,
+                worktree_id: metadata.environment_id,
+                worktree_name: metadata.environment_name,
+                worktree_branch: metadata.branch_name,
+                worktree_path: metadata.environment_path,
+            });
         }
 
         Ok(())
@@ -710,11 +798,17 @@ impl WorkspaceService {
         let connection = self.database.open()?;
         connection
             .query_row(
-                "SELECT root_path FROM projects WHERE id = ?1 AND archived_at IS NULL",
+                "
+                SELECT name, root_path, settings_json
+                FROM projects
+                WHERE id = ?1 AND archived_at IS NULL
+                ",
                 params![project_id],
                 |row| {
                     Ok(ProjectMetadata {
-                        root_path: PathBuf::from(row.get::<_, String>(0)?),
+                        name: row.get(0)?,
+                        root_path: PathBuf::from(row.get::<_, String>(1)?),
+                        settings: project_settings_from_json(&row.get::<_, String>(2)?, 2)?,
                     })
                 },
             )
@@ -780,7 +874,16 @@ impl WorkspaceService {
         connection
             .query_row(
                 "
-                SELECT environments.kind, environments.path, environments.git_branch, projects.root_path
+                SELECT
+                  environments.id,
+                  environments.name,
+                  environments.kind,
+                  environments.path,
+                  environments.git_branch,
+                  projects.id,
+                  projects.name,
+                  projects.root_path,
+                  projects.settings_json
                 FROM environments
                 JOIN projects ON projects.id = environments.project_id
                 WHERE environments.id = ?1 AND projects.archived_at IS NULL
@@ -788,14 +891,19 @@ impl WorkspaceService {
                 params![environment_id],
                 |row| {
                     Ok(WorktreeEnvironmentMetadata {
-                        kind: environment_kind_from_str(&row.get::<_, String>(0)?)?,
-                        environment_path: PathBuf::from(row.get::<_, String>(1)?),
-                        branch_name: row.get::<_, Option<String>>(2)?.ok_or_else(|| {
+                        environment_id: row.get(0)?,
+                        environment_name: row.get(1)?,
+                        kind: environment_kind_from_str(&row.get::<_, String>(2)?)?,
+                        environment_path: PathBuf::from(row.get::<_, String>(3)?),
+                        branch_name: row.get::<_, Option<String>>(4)?.ok_or_else(|| {
                             rusqlite::Error::InvalidParameterName(
                                 "Environment branch is missing.".to_string(),
                             )
                         })?,
-                        project_root: PathBuf::from(row.get::<_, String>(3)?),
+                        project_id: row.get(5)?,
+                        project_name: row.get(6)?,
+                        project_root: PathBuf::from(row.get::<_, String>(7)?),
+                        project_settings: project_settings_from_json(&row.get::<_, String>(8)?, 8)?,
                     })
                 },
             )
@@ -857,7 +965,7 @@ impl WorkspaceService {
     ) -> AppResult<Vec<ProjectRecord>> {
         let mut project_statement = connection.prepare(
             "
-            SELECT id, name, root_path, created_at, updated_at
+            SELECT id, name, root_path, settings_json, created_at, updated_at
             FROM projects
             WHERE archived_at IS NULL
             ",
@@ -867,8 +975,9 @@ impl WorkspaceService {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 root_path: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                settings: project_settings_from_json(&row.get::<_, String>(3)?, 3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
                 environments: Vec::new(),
             })
         })?;
@@ -1001,7 +1110,9 @@ impl WorkspaceService {
 
 #[derive(Debug)]
 struct ProjectMetadata {
+    name: String,
     root_path: PathBuf,
+    settings: ProjectSettings,
 }
 
 #[derive(Debug)]
@@ -1012,10 +1123,15 @@ struct ManagedWorktreeCandidate {
 
 #[derive(Debug)]
 struct WorktreeEnvironmentMetadata {
+    environment_id: String,
+    environment_name: String,
     kind: EnvironmentKind,
     environment_path: PathBuf,
     branch_name: String,
+    project_id: String,
+    project_name: String,
     project_root: PathBuf,
+    project_settings: ProjectSettings,
 }
 
 fn infer_project_name(root_path: &std::path::Path) -> String {
@@ -1065,4 +1181,17 @@ fn thread_status_from_str(value: &str) -> Result<ThreadStatus, rusqlite::Error> 
         "archived" => Ok(ThreadStatus::Archived),
         other => Err(rusqlite::Error::InvalidParameterName(other.to_string())),
     }
+}
+
+fn project_settings_from_json(
+    value: &str,
+    column_index: usize,
+) -> Result<ProjectSettings, rusqlite::Error> {
+    serde_json::from_str::<ProjectSettings>(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column_index,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })
 }

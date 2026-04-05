@@ -1,0 +1,448 @@
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use chrono::Utc;
+use tauri::{AppHandle, Emitter};
+use tracing::{error, warn};
+
+use crate::domain::workspace::{WorktreeScriptFailureEvent, WorktreeScriptTrigger};
+use crate::services::git;
+
+pub const WORKTREE_SCRIPT_FAILURE_EVENT_NAME: &str = "threadex://worktree-script-failure";
+
+#[derive(Debug, Clone)]
+pub struct WorktreeScriptService {
+    app: AppHandle,
+    logs_root: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorktreeScriptRequest {
+    pub trigger: WorktreeScriptTrigger,
+    pub script: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_root: PathBuf,
+    pub worktree_id: String,
+    pub worktree_name: String,
+    pub worktree_branch: String,
+    pub worktree_path: PathBuf,
+}
+
+impl WorktreeScriptService {
+    pub fn new(app: AppHandle, app_data_dir: PathBuf) -> Self {
+        Self {
+            app,
+            logs_root: app_data_dir.join("logs").join("worktree-scripts"),
+        }
+    }
+
+    pub fn run(&self, request: WorktreeScriptRequest) {
+        let Some(script) = normalize_script(&request.script) else {
+            return;
+        };
+
+        let shell = resolve_script_shell();
+        let cwd = execution_directory(&request).to_path_buf();
+        let log_path = self.log_path(&request);
+        if let Err(error) = std::fs::create_dir_all(&self.logs_root) {
+            self.emit_failure(
+                &request,
+                &log_path,
+                None,
+                format!("Failed to prepare worktree script log directory: {error}"),
+            );
+            return;
+        }
+
+        let mut log_file = match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            Ok(file) => file,
+            Err(error) => {
+                self.emit_failure(
+                    &request,
+                    &log_path,
+                    None,
+                    format!("Failed to open worktree script log file: {error}"),
+                );
+                return;
+            }
+        };
+        if let Err(error) = write_log_header(&mut log_file, &request, &shell, &cwd) {
+            self.emit_failure(
+                &request,
+                &log_path,
+                None,
+                format!("Failed to initialize worktree script log: {error}"),
+            );
+            return;
+        }
+
+        let stdout = match log_file.try_clone() {
+            Ok(file) => file,
+            Err(error) => {
+                self.emit_failure(
+                    &request,
+                    &log_path,
+                    None,
+                    format!("Failed to prepare script stdout log stream: {error}"),
+                );
+                return;
+            }
+        };
+        let stderr = match log_file.try_clone() {
+            Ok(file) => file,
+            Err(error) => {
+                self.emit_failure(
+                    &request,
+                    &log_path,
+                    None,
+                    format!("Failed to prepare script stderr log stream: {error}"),
+                );
+                return;
+            }
+        };
+
+        let mut command = Command::new(&shell.path);
+        if shell.is_login {
+            command.arg("-l");
+        }
+        for argument in shell.initial_args {
+            command.arg(argument);
+        }
+        command
+            .arg(shell.command_arg)
+            .arg(&script)
+            .current_dir(&cwd)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
+        apply_script_environment(&mut command, &request);
+
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let message = format!("Failed to start worktree script: {error}");
+                if let Err(log_error) = append_log_message(&log_path, &message) {
+                    warn!("failed to append worktree script launch error: {log_error}");
+                }
+                self.emit_failure(&request, &log_path, None, message);
+                return;
+            }
+        };
+
+        let app = self.app.clone();
+        let log_path_for_thread = log_path.clone();
+        std::thread::spawn(move || {
+            let completion = match child.wait() {
+                Ok(status) => WorktreeScriptCompletion {
+                    exit_code: status.code(),
+                    success: status.success(),
+                },
+                Err(error) => {
+                    let message = format!("Worktree script process failed to complete: {error}");
+                    if let Err(log_error) = append_log_message(&log_path_for_thread, &message) {
+                        warn!("failed to append worktree script wait error: {log_error}");
+                    }
+                    emit_failure(
+                        &app,
+                        &request,
+                        &log_path_for_thread,
+                        None,
+                        message,
+                    );
+                    return;
+                }
+            };
+
+            if let Err(error) = append_log_footer(&log_path_for_thread, &completion) {
+                warn!("failed to append worktree script footer: {error}");
+            }
+
+            if completion.success {
+                return;
+            }
+
+            emit_failure(
+                &app,
+                &request,
+                &log_path_for_thread,
+                completion.exit_code,
+                failure_message(request.trigger, &request.worktree_name, completion.exit_code),
+            );
+        });
+    }
+
+    fn emit_failure(
+        &self,
+        request: &WorktreeScriptRequest,
+        log_path: &Path,
+        exit_code: Option<i32>,
+        message: String,
+    ) {
+        emit_failure(&self.app, request, log_path, exit_code, message);
+    }
+
+    fn log_path(&self, request: &WorktreeScriptRequest) -> PathBuf {
+        let timestamp = Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
+        let trigger = match request.trigger {
+            WorktreeScriptTrigger::Setup => "setup",
+            WorktreeScriptTrigger::Teardown => "teardown",
+        };
+        let project = git::sanitize_path_component(&request.project_name, "project");
+        let worktree = git::sanitize_path_component(&request.worktree_name, "worktree");
+        self.logs_root.join(format!(
+            "{timestamp}-{trigger}-{project}-{worktree}-{}.log",
+            short_identifier(&request.worktree_id)
+        ))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ScriptShell {
+    path: PathBuf,
+    is_login: bool,
+    command_arg: &'static str,
+    initial_args: &'static [&'static str],
+}
+
+#[derive(Debug)]
+struct WorktreeScriptCompletion {
+    exit_code: Option<i32>,
+    success: bool,
+}
+
+fn normalize_script(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn execution_directory(request: &WorktreeScriptRequest) -> &Path {
+    match request.trigger {
+        WorktreeScriptTrigger::Setup => request.worktree_path.as_path(),
+        WorktreeScriptTrigger::Teardown => request.project_root.as_path(),
+    }
+}
+
+fn resolve_script_shell() -> ScriptShell {
+    let candidate = std::env::var_os("SHELL")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.exists());
+    if let Some(path) = candidate {
+        return script_shell_from_path(path, true);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return script_shell_from_path(PathBuf::from("powershell.exe"), false);
+    }
+
+    for fallback in ["/bin/zsh", "/bin/bash"] {
+        let path = PathBuf::from(fallback);
+        if path.exists() {
+            return script_shell_from_path(path, true);
+        }
+    }
+
+    script_shell_from_path(PathBuf::from("/bin/sh"), false)
+}
+
+fn script_shell_from_path(path: PathBuf, default_login: bool) -> ScriptShell {
+    if looks_like_powershell(&path) {
+        return ScriptShell {
+            path,
+            is_login: false,
+            command_arg: "-Command",
+            initial_args: &["-NoProfile"],
+        };
+    }
+
+    ScriptShell {
+        path,
+        is_login: default_login,
+        command_arg: "-c",
+        initial_args: &[],
+    }
+}
+
+fn looks_like_powershell(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            let normalized = value.to_ascii_lowercase();
+            normalized == "pwsh" || normalized == "powershell"
+        })
+        .unwrap_or(false)
+}
+
+fn write_log_header(
+    file: &mut File,
+    request: &WorktreeScriptRequest,
+    shell: &ScriptShell,
+    cwd: &Path,
+) -> std::io::Result<()> {
+    writeln!(file, "ThreadEx worktree script")?;
+    writeln!(
+        file,
+        "started_at={}",
+        Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    )?;
+    writeln!(
+        file,
+        "trigger={}",
+        trigger_value(request.trigger)
+    )?;
+    writeln!(file, "project_id={}", request.project_id)?;
+    writeln!(file, "project_name={}", request.project_name)?;
+    writeln!(file, "project_root={}", request.project_root.display())?;
+    writeln!(file, "worktree_id={}", request.worktree_id)?;
+    writeln!(file, "worktree_name={}", request.worktree_name)?;
+    writeln!(file, "worktree_branch={}", request.worktree_branch)?;
+    writeln!(file, "worktree_path={}", request.worktree_path.display())?;
+    writeln!(file, "shell={}", shell.path.display())?;
+    writeln!(file, "cwd={}", cwd.display())?;
+    writeln!(file)?;
+    writeln!(file, "----- output -----")?;
+    file.flush()
+}
+
+fn apply_script_environment(command: &mut Command, request: &WorktreeScriptRequest) {
+    command.env("THREADEX_SCRIPT_TRIGGER", trigger_value(request.trigger));
+    command.env("THREADEX_PROJECT_ID", &request.project_id);
+    command.env("THREADEX_PROJECT_NAME", &request.project_name);
+    command.env(
+        "THREADEX_PROJECT_ROOT",
+        request.project_root.to_string_lossy().to_string(),
+    );
+    command.env("THREADEX_WORKTREE_ID", &request.worktree_id);
+    command.env("THREADEX_WORKTREE_NAME", &request.worktree_name);
+    command.env("THREADEX_WORKTREE_BRANCH", &request.worktree_branch);
+    command.env(
+        "THREADEX_WORKTREE_PATH",
+        request.worktree_path.to_string_lossy().to_string(),
+    );
+}
+
+fn append_log_footer(path: &Path, completion: &WorktreeScriptCompletion) -> std::io::Result<()> {
+    let mut file = OpenOptions::new().append(true).open(path)?;
+    writeln!(file)?;
+    writeln!(file, "----- result -----")?;
+    writeln!(file, "completed_at={}", Utc::now().to_rfc3339())?;
+    writeln!(file, "success={}", completion.success)?;
+    match completion.exit_code {
+        Some(code) => writeln!(file, "exit_code={code}")?,
+        None => writeln!(file, "exit_code=terminated")?,
+    };
+    file.flush()
+}
+
+fn append_log_message(path: &Path, message: &str) -> std::io::Result<()> {
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{message}")?;
+    file.flush()
+}
+
+fn emit_failure(
+    app: &AppHandle,
+    request: &WorktreeScriptRequest,
+    log_path: &Path,
+    exit_code: Option<i32>,
+    message: String,
+) {
+    let payload = WorktreeScriptFailureEvent {
+        trigger: request.trigger,
+        project_id: request.project_id.clone(),
+        project_name: request.project_name.clone(),
+        worktree_id: request.worktree_id.clone(),
+        worktree_name: request.worktree_name.clone(),
+        worktree_branch: request.worktree_branch.clone(),
+        worktree_path: request.worktree_path.to_string_lossy().to_string(),
+        message: message.clone(),
+        log_path: log_path.to_string_lossy().to_string(),
+        exit_code,
+    };
+    if let Err(error) = app.emit(WORKTREE_SCRIPT_FAILURE_EVENT_NAME, payload) {
+        error!("failed to emit worktree script failure: {error}");
+    }
+    warn!("{message}");
+}
+
+fn failure_message(
+    trigger: WorktreeScriptTrigger,
+    worktree_name: &str,
+    exit_code: Option<i32>,
+) -> String {
+    let action = match trigger {
+        WorktreeScriptTrigger::Setup => "Setup",
+        WorktreeScriptTrigger::Teardown => "Teardown",
+    };
+    match exit_code {
+        Some(code) => format!("{action} script failed for \"{worktree_name}\" (exit code {code})."),
+        None => format!("{action} script failed for \"{worktree_name}\"."),
+    }
+}
+
+fn trigger_value(trigger: WorktreeScriptTrigger) -> &'static str {
+    match trigger {
+        WorktreeScriptTrigger::Setup => "setup",
+        WorktreeScriptTrigger::Teardown => "teardown",
+    }
+}
+
+fn short_identifier(value: &str) -> &str {
+    value.get(..8).unwrap_or(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        execution_directory, failure_message, normalize_script, resolve_script_shell,
+        trigger_value, WorktreeScriptRequest,
+    };
+    use crate::domain::workspace::WorktreeScriptTrigger;
+    use std::path::PathBuf;
+
+    fn sample_request(trigger: WorktreeScriptTrigger) -> WorktreeScriptRequest {
+        WorktreeScriptRequest {
+            trigger,
+            script: "echo hi".to_string(),
+            project_id: "project-1".to_string(),
+            project_name: "ThreadEx".to_string(),
+            project_root: PathBuf::from("/tmp/project"),
+            worktree_id: "env-1".to_string(),
+            worktree_name: "fuzzy-tiger".to_string(),
+            worktree_branch: "fuzzy-tiger".to_string(),
+            worktree_path: PathBuf::from("/tmp/worktree"),
+        }
+    }
+
+    #[test]
+    fn scripts_run_in_expected_directories() {
+        let setup = sample_request(WorktreeScriptTrigger::Setup);
+        let teardown = sample_request(WorktreeScriptTrigger::Teardown);
+
+        assert_eq!(execution_directory(&setup), PathBuf::from("/tmp/worktree"));
+        assert_eq!(execution_directory(&teardown), PathBuf::from("/tmp/project"));
+    }
+
+    #[test]
+    fn failure_messages_include_trigger_and_exit_code() {
+        assert_eq!(
+            failure_message(WorktreeScriptTrigger::Setup, "fuzzy-tiger", Some(23)),
+            "Setup script failed for \"fuzzy-tiger\" (exit code 23)."
+        );
+        assert_eq!(trigger_value(WorktreeScriptTrigger::Teardown), "teardown");
+    }
+
+    #[test]
+    fn normalizes_scripts_and_resolves_a_shell() {
+        assert_eq!(normalize_script("   "), None);
+        assert_eq!(normalize_script(" echo hi "), Some("echo hi".to_string()));
+        assert!(resolve_script_shell().path.is_absolute());
+    }
+}

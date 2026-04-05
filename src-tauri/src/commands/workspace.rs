@@ -8,7 +8,7 @@ use crate::domain::workspace::{
 use crate::error::CommandError;
 use crate::services::workspace::{
     AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
-    RenameThreadRequest,
+    RenameThreadRequest, UpdateProjectSettingsRequest,
 };
 use crate::state::AppState;
 
@@ -42,6 +42,14 @@ pub fn rename_project(
     state: State<'_, AppState>,
 ) -> Result<ProjectRecord, CommandError> {
     Ok(state.workspace.rename_project(input)?)
+}
+
+#[tauri::command]
+pub fn update_project_settings(
+    input: UpdateProjectSettingsRequest,
+    state: State<'_, AppState>,
+) -> Result<ProjectRecord, CommandError> {
+    Ok(state.workspace.update_project_settings(input)?)
 }
 
 #[tauri::command]

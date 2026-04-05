@@ -11,6 +11,7 @@ import {
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import { useConversationStore } from "../../stores/conversation-store";
+import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { TreeSidebar } from "./TreeSidebar";
 
@@ -68,6 +69,10 @@ beforeEach(() => {
     selectedThreadId: "thread-1",
     refreshSnapshot: vi.fn(async () => true),
   }));
+  useWorktreeScriptStore.setState({
+    latestFailure: null,
+    listenerReady: false,
+  });
 });
 
 function renderSidebar() {
@@ -276,5 +281,33 @@ describe("TreeSidebar", () => {
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(onToggleTheme).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the latest worktree script failure notice", () => {
+    useWorktreeScriptStore.setState({
+      latestFailure: {
+        trigger: "teardown",
+        projectId: "project-1",
+        projectName: "ThreadEx",
+        worktreeId: "env-worktree",
+        worktreeName: "fuzzy-tiger",
+        worktreeBranch: "fuzzy-tiger",
+        worktreePath: "/tmp/fuzzy-tiger",
+        message: 'Teardown script failed for "fuzzy-tiger" (exit code 1).',
+        logPath: "/tmp/threadex-script.log",
+        exitCode: 1,
+      },
+      listenerReady: true,
+    });
+
+    renderSidebar();
+
+    expect(
+      screen.getByText("Teardown script failed for fuzzy-tiger"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Teardown script failed for "fuzzy-tiger" (exit code 1).'),
+    ).toBeInTheDocument();
+    expect(screen.getByText("/tmp/threadex-script.log")).toBeInTheDocument();
   });
 });
