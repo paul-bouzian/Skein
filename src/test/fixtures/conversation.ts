@@ -1,4 +1,5 @@
 import type {
+  ConversationTaskSnapshot,
   PendingApprovalRequest,
   PendingUserInputRequest,
   ProposedPlanSnapshot,
@@ -175,6 +176,7 @@ export function makeConversationSnapshot(
     },
     pendingInteractions: [],
     proposedPlan: null,
+    taskPlan: null,
     error: null,
     composer: baseComposer,
     ...overrides,
@@ -262,6 +264,24 @@ export function makeProposedPlan(
     markdown: "## Proposed plan\n\n- Inspect the runtime layer\n- Implement the plan UI\n- Validate interactions",
     status: "ready",
     isAwaitingDecision: true,
+    ...overrides,
+  };
+}
+
+export function makeTaskPlan(
+  overrides: Partial<ConversationTaskSnapshot> = {},
+): ConversationTaskSnapshot {
+  return {
+    turnId: "turn-task-1",
+    itemId: "task-item-1",
+    explanation: "Codex is working through the implementation.",
+    steps: [
+      { step: "Inspect the runtime layer", status: "completed" },
+      { step: "Implement the task UI", status: "inProgress" },
+      { step: "Validate interactions", status: "pending" },
+    ],
+    markdown: "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI\n- Validate interactions",
+    status: "running",
     ...overrides,
   };
 }

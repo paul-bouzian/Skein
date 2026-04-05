@@ -43,6 +43,11 @@ export type ProposedPlanStatus =
   | "approved"
   | "superseded";
 export type ProposedPlanStepStatus = "pending" | "inProgress" | "completed";
+export type ConversationTaskStatus =
+  | "running"
+  | "completed"
+  | "interrupted"
+  | "failed";
 export type PermissionGrantScope = "turn" | "session";
 export type NetworkPolicyRuleAction = "allow" | "deny";
 
@@ -357,6 +362,15 @@ export type ProposedPlanSnapshot = {
   isAwaitingDecision: boolean;
 };
 
+export type ConversationTaskSnapshot = {
+  turnId: string;
+  itemId?: string | null;
+  explanation: string;
+  steps: ProposedPlanStep[];
+  markdown: string;
+  status: ConversationTaskStatus;
+};
+
 export type PendingUserInputOption = {
   label: string;
   description: string;
@@ -498,6 +512,7 @@ export type ThreadConversationSnapshot = {
   tokenUsage?: ThreadTokenUsageSnapshot | null;
   pendingInteractions: ConversationInteraction[];
   proposedPlan?: ProposedPlanSnapshot | null;
+  taskPlan?: ConversationTaskSnapshot | null;
   error?: ConversationErrorSnapshot | null;
   composer: ConversationComposerSettings;
 };

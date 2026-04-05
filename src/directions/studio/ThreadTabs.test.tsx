@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
-import { makeEnvironment, makeWorkspaceSnapshot } from "../../test/fixtures/conversation";
+import {
+  makeConversationSnapshot,
+  makeEnvironment,
+  makeTaskPlan,
+  makeWorkspaceSnapshot,
+} from "../../test/fixtures/conversation";
+import { useConversationStore } from "../../stores/conversation-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { ThreadTabs } from "./ThreadTabs";
 
@@ -30,6 +36,10 @@ beforeEach(() => {
     selectedEnvironmentId: "env-1",
     selectedThreadId: "thread-1",
     refreshSnapshot: vi.fn(async () => true),
+  }));
+  useConversationStore.setState((state) => ({
+    ...state,
+    snapshotsByThreadId: {},
   }));
 });
 
@@ -67,5 +77,20 @@ describe("ThreadTabs", () => {
       expect(mockedBridge.archiveThread).toHaveBeenCalledWith({ threadId: "thread-1" });
     });
     expect(refreshSnapshot).toHaveBeenCalled();
+  });
+
+  it("does not mark a thread as needing attention for a completed task tracker", () => {
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        "thread-1": makeConversationSnapshot({
+          taskPlan: makeTaskPlan({ status: "completed" }),
+        }),
+      },
+    }));
+
+    const { container } = render(<ThreadTabs />);
+
+    expect(container.querySelector(".thread-tab__status-dot")).toBeNull();
   });
 });

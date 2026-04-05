@@ -5,13 +5,14 @@ use crate::domain::conversation::{
     CollaborationModeOption, ConversationApprovalKind, ConversationComposerSettings,
     ConversationErrorSnapshot, ConversationInteraction, ConversationItem, ConversationItemStatus,
     ConversationMessageItem, ConversationReasoningItem, ConversationRole, ConversationStatus,
-    ConversationSystemItem, ConversationTone, ConversationToolItem, FileSystemPermissionSnapshot,
-    ModelOption, NetworkApprovalContextSnapshot, NetworkPermissionSnapshot,
-    NetworkPolicyAmendmentSnapshot, NetworkPolicyRuleAction, PendingApprovalRequest,
-    PendingUserInputOption, PendingUserInputQuestion, PendingUserInputRequest,
-    PermissionProfileSnapshot, ProposedPlanSnapshot, ProposedPlanStatus, ProposedPlanStep,
-    ProposedPlanStepStatus, SubagentStatus, SubagentThreadSnapshot, ThreadConversationSnapshot,
-    ThreadTokenUsageSnapshot, TokenUsageBreakdown, UnsupportedInteractionRequest,
+    ConversationSystemItem, ConversationTaskSnapshot, ConversationTaskStatus, ConversationTone,
+    ConversationToolItem, FileSystemPermissionSnapshot, ModelOption,
+    NetworkApprovalContextSnapshot, NetworkPermissionSnapshot, NetworkPolicyAmendmentSnapshot,
+    NetworkPolicyRuleAction, PendingApprovalRequest, PendingUserInputOption,
+    PendingUserInputQuestion, PendingUserInputRequest, PermissionProfileSnapshot,
+    ProposedPlanSnapshot, ProposedPlanStatus, ProposedPlanStep, ProposedPlanStepStatus,
+    SubagentStatus, SubagentThreadSnapshot, ThreadConversationSnapshot, ThreadTokenUsageSnapshot,
+    TokenUsageBreakdown, UnsupportedInteractionRequest,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 use crate::domain::workspace::CodexRateLimitSnapshot;
@@ -654,6 +655,7 @@ pub fn build_history_snapshot(
     composer: ConversationComposerSettings,
     thread: ThreadWire,
 ) -> ThreadConversationSnapshot {
+    let fallback_mode = composer.collaboration_mode;
     let mut snapshot = ThreadConversationSnapshot::new(
         thread_id,
         environment_id,
@@ -676,8 +678,7 @@ pub fn build_history_snapshot(
         for item in turn.items {
             if item.get("type").and_then(Value::as_str) == Some("plan") {
                 if index == last_turn_index {
-                    latest_turn_plan =
-                        proposed_plan_from_item(&turn.id, &item, ProposedPlanStatus::Ready);
+                    latest_turn_plan = Some(item);
                 }
                 continue;
             }
@@ -686,13 +687,68 @@ pub fn build_history_snapshot(
             }
         }
         if index == last_turn_index {
-            snapshot.proposed_plan = latest_turn_plan;
+            if let Some(item) = latest_turn_plan.as_ref() {
+                match history_plan_target_from_item(item, fallback_mode) {
+                    HistoryPlanTarget::Proposed => {
+                        snapshot.proposed_plan =
+                            proposed_plan_from_item(&turn.id, item, ProposedPlanStatus::Ready);
+                    }
+                    HistoryPlanTarget::Task => {
+                        snapshot.task_plan = task_plan_from_item(
+                            &turn.id,
+                            item,
+                            task_status_from_turn_status(&turn.status),
+                        );
+                    }
+                }
+            }
         }
     }
 
     snapshot.status = last_status;
     snapshot.error = last_error;
     snapshot
+}
+
+#[derive(Clone, Copy)]
+enum HistoryPlanTarget {
+    Proposed,
+    Task,
+}
+
+fn history_plan_target_from_item(
+    value: &Value,
+    fallback_mode: CollaborationMode,
+) -> HistoryPlanTarget {
+    match collaboration_mode_from_plan_item_heading(value).unwrap_or(fallback_mode) {
+        CollaborationMode::Plan => HistoryPlanTarget::Proposed,
+        CollaborationMode::Build => HistoryPlanTarget::Task,
+    }
+}
+
+pub(crate) fn collaboration_mode_from_plan_item_heading(
+    value: &Value,
+) -> Option<CollaborationMode> {
+    match leading_plan_heading(value) {
+        Some("proposed plan") => Some(CollaborationMode::Plan),
+        Some("tasks") => Some(CollaborationMode::Build),
+        _ => None,
+    }
+}
+
+fn leading_plan_heading(value: &Value) -> Option<&'static str> {
+    let markdown = rich_text_field(value, "text");
+    let heading = markdown.lines().find(|line| !line.trim().is_empty())?;
+    let normalized = heading
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "proposed plan" => Some("proposed plan"),
+        "tasks" => Some("tasks"),
+        _ => None,
+    }
 }
 
 pub fn model_options_from_response(response: ModelListResponse) -> Vec<ModelOption> {
@@ -751,6 +807,15 @@ pub fn conversation_status_from_turn_status(status: &str) -> ConversationStatus 
         "interrupted" => ConversationStatus::Interrupted,
         "failed" => ConversationStatus::Failed,
         _ => ConversationStatus::Idle,
+    }
+}
+
+pub fn task_status_from_turn_status(status: &str) -> ConversationTaskStatus {
+    match status {
+        "completed" => ConversationTaskStatus::Completed,
+        "interrupted" => ConversationTaskStatus::Interrupted,
+        "failed" => ConversationTaskStatus::Failed,
+        _ => ConversationTaskStatus::Running,
     }
 }
 
@@ -1205,12 +1270,46 @@ pub fn proposed_plan_from_turn_update(
     plan
 }
 
+pub fn task_plan_from_turn_update(
+    event: TurnPlanUpdatedNotification,
+    existing: Option<&ConversationTaskSnapshot>,
+) -> ConversationTaskSnapshot {
+    let mut plan = existing
+        .cloned()
+        .filter(|candidate| candidate.turn_id == event.turn_id)
+        .unwrap_or(ConversationTaskSnapshot {
+            turn_id: event.turn_id,
+            item_id: None,
+            explanation: String::new(),
+            steps: Vec::new(),
+            markdown: String::new(),
+            status: ConversationTaskStatus::Running,
+        });
+    plan.explanation = event.explanation.unwrap_or_default();
+    plan.steps = event
+        .plan
+        .into_iter()
+        .map(|step| ProposedPlanStep {
+            step: step.step,
+            status: step.status,
+        })
+        .collect();
+    plan.status = ConversationTaskStatus::Running;
+    plan
+}
+
 pub fn append_plan_delta(plan: &mut ProposedPlanSnapshot, item_id: &str, delta: &str) {
     plan.item_id = Some(item_id.to_string());
     plan.markdown.push_str(delta);
     if !plan.is_awaiting_decision {
         plan.status = ProposedPlanStatus::Streaming;
     }
+}
+
+pub fn append_task_plan_delta(plan: &mut ConversationTaskSnapshot, item_id: &str, delta: &str) {
+    plan.item_id = Some(item_id.to_string());
+    plan.markdown.push_str(delta);
+    plan.status = ConversationTaskStatus::Running;
 }
 
 pub fn complete_proposed_plan(
@@ -1232,6 +1331,27 @@ pub fn complete_proposed_plan(
     plan.markdown = markdown;
     plan.status = ProposedPlanStatus::Ready;
     plan.is_awaiting_decision = true;
+}
+
+pub fn complete_task_plan(
+    plan: &mut ConversationTaskSnapshot,
+    item_id: &str,
+    value: Option<&Value>,
+    status: ConversationTaskStatus,
+) {
+    let mut markdown = plan.markdown.clone();
+    if let Some(value) = value {
+        let next_markdown = rich_text_field(value, "text");
+        if !next_markdown.is_empty() {
+            markdown = next_markdown;
+        }
+    }
+    if markdown.trim().is_empty() && plan.steps.is_empty() && plan.explanation.trim().is_empty() {
+        return;
+    }
+    plan.item_id = Some(item_id.to_string());
+    plan.markdown = markdown;
+    plan.status = status;
 }
 
 pub fn mark_plan_superseded(plan: &mut ProposedPlanSnapshot) {
@@ -1511,6 +1631,51 @@ pub fn proposed_plan_from_item(
     value: &Value,
     status: ProposedPlanStatus,
 ) -> Option<ProposedPlanSnapshot> {
+    let (markdown, steps, explanation) = plan_content_from_item(value);
+
+    if markdown.trim().is_empty() && steps.is_empty() && explanation.trim().is_empty() {
+        return None;
+    }
+
+    Some(ProposedPlanSnapshot {
+        turn_id: turn_id.to_string(),
+        item_id: value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        explanation,
+        steps,
+        markdown,
+        status,
+        is_awaiting_decision: matches!(status, ProposedPlanStatus::Ready),
+    })
+}
+
+pub fn task_plan_from_item(
+    turn_id: &str,
+    value: &Value,
+    status: ConversationTaskStatus,
+) -> Option<ConversationTaskSnapshot> {
+    let (markdown, steps, explanation) = plan_content_from_item(value);
+
+    if markdown.trim().is_empty() && steps.is_empty() && explanation.trim().is_empty() {
+        return None;
+    }
+
+    Some(ConversationTaskSnapshot {
+        turn_id: turn_id.to_string(),
+        item_id: value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        explanation,
+        steps,
+        markdown,
+        status,
+    })
+}
+
+fn plan_content_from_item(value: &Value) -> (String, Vec<ProposedPlanStep>, String) {
     let markdown = rich_text_field(value, "text");
     let steps = value
         .get("plan")
@@ -1533,23 +1698,7 @@ pub fn proposed_plan_from_item(
         .get("explanation")
         .map(rich_text_value)
         .unwrap_or_default();
-
-    if markdown.trim().is_empty() && steps.is_empty() && explanation.trim().is_empty() {
-        return None;
-    }
-
-    Some(ProposedPlanSnapshot {
-        turn_id: turn_id.to_string(),
-        item_id: value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(ToString::to_string),
-        explanation,
-        steps,
-        markdown,
-        status,
-        is_awaiting_decision: matches!(status, ProposedPlanStatus::Ready),
-    })
+    (markdown, steps, explanation)
 }
 
 fn permission_profile_snapshot(profile: PermissionProfileWire) -> PermissionProfileSnapshot {

@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, ConversationInteraction, ConversationItem, ProposedPlanSnapshot,
-    ProposedPlanStatus,
+    ConversationComposerSettings, ConversationInteraction, ConversationItem,
+    ConversationTaskStatus, ProposedPlanSnapshot, ProposedPlanStatus,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
@@ -10,10 +10,11 @@ use super::protocol::{
     approval_policy_value, build_history_snapshot, collaboration_mode_options_from_response,
     complete_proposed_plan, loaded_subagents_for_primary, model_options_from_response,
     normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
-    sandbox_policy_value, subagents_from_collab_item, AccountRateLimitsReadResponse,
-    CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
-    ModelWire, ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire,
-    ThreadStatusWire, ThreadWire,
+    sandbox_policy_value, subagents_from_collab_item, task_plan_from_item,
+    task_status_from_turn_status, AccountRateLimitsReadResponse, CollaborationModeListResponse,
+    CollaborationModeWire, IncomingMessage, ModelListResponse, ModelWire,
+    ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire, ThreadStatusWire,
+    ThreadWire,
 };
 
 fn composer() -> ConversationComposerSettings {
@@ -66,7 +67,14 @@ fn decodes_account_rate_limit_payloads() {
     }))
     .expect("account rate limit response should decode");
 
-    assert_eq!(response.rate_limits.primary.as_ref().map(|window| window.used_percent), Some(38));
+    assert_eq!(
+        response
+            .rate_limits
+            .primary
+            .as_ref()
+            .map(|window| window.used_percent),
+        Some(38)
+    );
     assert_eq!(
         response
             .rate_limits
@@ -169,7 +177,10 @@ fn history_snapshot_extracts_latest_plan_items() {
         "thread-1".to_string(),
         "env-1".to_string(),
         Some("thr-existing".to_string()),
-        composer(),
+        ConversationComposerSettings {
+            collaboration_mode: CollaborationMode::Plan,
+            ..composer()
+        },
         ThreadWire {
             id: "thr-existing".to_string(),
             turns: vec![super::protocol::TurnWire {
@@ -197,6 +208,110 @@ fn history_snapshot_extracts_latest_plan_items() {
             .markdown,
         "## Proposed plan\n\n- Inspect runtime"
     );
+}
+
+#[test]
+fn history_snapshot_routes_build_turn_plans_to_task_plan() {
+    let snapshot = build_history_snapshot(
+        "thread-1".to_string(),
+        "env-1".to_string(),
+        Some("thr-existing".to_string()),
+        ConversationComposerSettings {
+            collaboration_mode: CollaborationMode::Build,
+            ..composer()
+        },
+        ThreadWire {
+            id: "thr-existing".to_string(),
+            turns: vec![super::protocol::TurnWire {
+                id: "turn-build-1".to_string(),
+                status: "completed".to_string(),
+                error: None,
+                items: vec![json!({
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Tasks\n\n- Inspect runtime"
+                })],
+            }],
+        },
+    );
+
+    assert!(snapshot.proposed_plan.is_none());
+    assert!(matches!(
+        snapshot.task_plan.as_ref().map(|plan| plan.status),
+        Some(ConversationTaskStatus::Completed)
+    ));
+    assert_eq!(
+        snapshot
+            .task_plan
+            .as_ref()
+            .expect("task plan should exist")
+            .markdown,
+        "## Tasks\n\n- Inspect runtime"
+    );
+}
+
+#[test]
+fn history_snapshot_prefers_proposed_plan_heading_over_build_fallback_mode() {
+    let snapshot = build_history_snapshot(
+        "thread-1".to_string(),
+        "env-1".to_string(),
+        Some("thr-existing".to_string()),
+        ConversationComposerSettings {
+            collaboration_mode: CollaborationMode::Build,
+            ..composer()
+        },
+        ThreadWire {
+            id: "thr-existing".to_string(),
+            turns: vec![super::protocol::TurnWire {
+                id: "turn-plan-1".to_string(),
+                status: "completed".to_string(),
+                error: None,
+                items: vec![json!({
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Proposed plan\n\n- Inspect runtime"
+                })],
+            }],
+        },
+    );
+
+    assert!(matches!(
+        snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+        Some(ProposedPlanStatus::Ready)
+    ));
+    assert!(snapshot.task_plan.is_none());
+}
+
+#[test]
+fn history_snapshot_prefers_task_heading_over_plan_fallback_mode() {
+    let snapshot = build_history_snapshot(
+        "thread-1".to_string(),
+        "env-1".to_string(),
+        Some("thr-existing".to_string()),
+        ConversationComposerSettings {
+            collaboration_mode: CollaborationMode::Plan,
+            ..composer()
+        },
+        ThreadWire {
+            id: "thr-existing".to_string(),
+            turns: vec![super::protocol::TurnWire {
+                id: "turn-build-1".to_string(),
+                status: "completed".to_string(),
+                error: None,
+                items: vec![json!({
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Tasks\n\n- Inspect runtime"
+                })],
+            }],
+        },
+    );
+
+    assert!(snapshot.proposed_plan.is_none());
+    assert!(matches!(
+        snapshot.task_plan.as_ref().map(|plan| plan.status),
+        Some(ConversationTaskStatus::Completed)
+    ));
 }
 
 #[test]
@@ -422,6 +537,74 @@ fn proposed_plan_from_item_marks_ready_plans_as_actionable() {
 
     assert!(plan.is_awaiting_decision);
     assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+}
+
+#[test]
+fn task_plan_from_item_keeps_task_status_noninteractive() {
+    let plan = task_plan_from_item(
+        "turn-1",
+        &json!({
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "## Tasks\n\n- Inspect runtime"
+        }),
+        task_status_from_turn_status("completed"),
+    )
+    .expect("task item should normalize");
+
+    assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+    assert!(matches!(plan.status, ConversationTaskStatus::Completed));
+}
+
+#[test]
+fn task_plan_from_item_keeps_interrupted_task_status_noninteractive() {
+    let plan = task_plan_from_item(
+        "turn-1",
+        &json!({
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "## Tasks\n\n- Inspect runtime"
+        }),
+        task_status_from_turn_status("interrupted"),
+    )
+    .expect("task item should normalize");
+
+    assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+    assert!(matches!(plan.status, ConversationTaskStatus::Interrupted));
+}
+
+#[test]
+fn task_plan_from_item_keeps_failed_task_status_noninteractive() {
+    let plan = task_plan_from_item(
+        "turn-1",
+        &json!({
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "## Tasks\n\n- Inspect runtime"
+        }),
+        task_status_from_turn_status("failed"),
+    )
+    .expect("task item should normalize");
+
+    assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+    assert!(matches!(plan.status, ConversationTaskStatus::Failed));
+}
+
+#[test]
+fn task_plan_from_item_defaults_unknown_status_to_running() {
+    let plan = task_plan_from_item(
+        "turn-1",
+        &json!({
+            "id": "plan-item-1",
+            "type": "plan",
+            "text": "## Tasks\n\n- Inspect runtime"
+        }),
+        task_status_from_turn_status("stillWorking"),
+    )
+    .expect("task item should normalize");
+
+    assert_eq!(plan.item_id.as_deref(), Some("plan-item-1"));
+    assert!(matches!(plan.status, ConversationTaskStatus::Running));
 }
 
 #[test]

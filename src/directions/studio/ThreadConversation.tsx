@@ -19,6 +19,7 @@ import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
+import { ConversationTaskCard } from "./ConversationTaskCard";
 import { SubagentStrip } from "./SubagentStrip";
 import { InlineComposer } from "./composer/InlineComposer";
 import type { ComposerDraftMentionBinding } from "./composer/composer-mention-bindings";
@@ -71,6 +72,10 @@ export function ThreadConversation({ environment, thread }: Props) {
     snapshot?.status,
     snapshot?.pendingInteractions.length,
     snapshot?.proposedPlan?.status,
+    snapshot?.taskPlan?.steps.length,
+    snapshot?.taskPlan?.markdown,
+    snapshot?.taskPlan?.explanation,
+    snapshot?.taskPlan?.status,
   ]);
 
   useEffect(() => {
@@ -120,9 +125,16 @@ export function ThreadConversation({ environment, thread }: Props) {
     resolvedComposer.reasoningEffort,
   ];
   const activePlan = snapshot.proposedPlan;
+  const activeTaskPlan = snapshot.taskPlan;
   const interaction = snapshot.pendingInteractions[0] ?? null;
   const shouldRenderPlanCard = Boolean(
     activePlan && (activePlan.isAwaitingDecision || activePlan.status === "streaming"),
+  );
+  const hasRenderableTaskPlan = Boolean(
+    activeTaskPlan &&
+      (activeTaskPlan.steps.length > 0 ||
+        activeTaskPlan.markdown.trim().length > 0 ||
+        activeTaskPlan.explanation.trim().length > 0),
   );
   const composerLocked =
     Boolean(interaction) || Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan);
@@ -201,7 +213,9 @@ export function ThreadConversation({ environment, thread }: Props) {
         thread={thread}
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
-        {snapshot.items.length === 0 && !activePlan ? <ConversationEmpty /> : null}
+        {snapshot.items.length === 0 && !shouldRenderPlanCard && !hasRenderableTaskPlan ? (
+          <ConversationEmpty />
+        ) : null}
         {snapshot.items.map((item) => (
           <ConversationItemRow key={item.id} item={item} />
         ))}
@@ -212,6 +226,9 @@ export function ThreadConversation({ environment, thread }: Props) {
             onApprove={() => void handleApprovePlan()}
             onRefine={() => setIsRefiningPlan(true)}
           />
+        ) : null}
+        {hasRenderableTaskPlan && activeTaskPlan ? (
+          <ConversationTaskCard taskPlan={activeTaskPlan} />
         ) : null}
         {snapshot.error ? (
           <ConversationBanner

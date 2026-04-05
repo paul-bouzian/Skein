@@ -311,9 +311,19 @@ fn spawn_fake_codex(
                 "thread/start" => json!({
                     "thread": { "id": "thr-new" }
                 }),
-                "turn/start" => json!({
-                    "turn": { "id": "turn-live-1", "status": "inProgress", "error": null }
-                }),
+                "turn/start" => {
+                    let status = params["input"]
+                        .as_array()
+                        .and_then(|input| input.first())
+                        .and_then(|value| value.get("text"))
+                        .and_then(Value::as_str)
+                        .filter(|text| *text == "Complete immediately")
+                        .map(|_| "completed")
+                        .unwrap_or("inProgress");
+                    json!({
+                        "turn": { "id": "turn-live-1", "status": status, "error": null }
+                    })
+                }
                 "account/rateLimits/read" => json!({
                     "rateLimits": {
                         "primary": {
@@ -409,6 +419,31 @@ fn write_prompt_file(environment_path: &str, name: &str, content: &str) {
         .expect("prompt file should be written");
 }
 
+async fn wait_for_snapshot<F>(
+    session: &RuntimeSession,
+    runtime_context: ThreadRuntimeContext,
+    predicate: F,
+) -> crate::domain::conversation::ThreadConversationSnapshot
+where
+    F: Fn(&crate::domain::conversation::ThreadConversationSnapshot) -> bool,
+{
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let snapshot = session
+                .open_thread(runtime_context.clone())
+                .await
+                .expect("snapshot should reopen")
+                .snapshot;
+            if predicate(&snapshot) {
+                break snapshot;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("snapshot did not reach the expected state in time")
+}
+
 #[tokio::test]
 async fn open_thread_hydrates_history_and_capabilities() {
     let (session, harness) = FakeCodexHarness::new().await;
@@ -480,7 +515,9 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         "low"
     );
     assert_eq!(turn_start.params["input"][0]["text"], "Run the test suite");
-    assert!(!requests.iter().any(|request| request.method == "skills/list"));
+    assert!(!requests
+        .iter()
+        .any(|request| request.method == "skills/list"));
     assert!(!requests.iter().any(|request| request.method == "app/list"));
 }
 
@@ -1126,6 +1163,355 @@ async fn streamed_notifications_update_the_open_snapshot() {
         crate::domain::conversation::ConversationItem::Tool(tool)
             if tool.id == "tool-1" && tool.output == "ok\n"
     )));
+}
+
+#[tokio::test]
+async fn build_turn_plan_updates_surface_as_task_progress_without_approval_state() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-build",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Implement the requested changes".to_string(),
+        )
+        .await
+        .expect("build message should send");
+
+    harness
+        .emit_notification(
+            "turn/plan/updated",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "explanation": "Codex is working through the implementation.",
+                "plan": [
+                    { "step": "Inspect runtime", "status": "completed" },
+                    { "step": "Wire task UI", "status": "inProgress" }
+                ]
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Tasks\n\n- Inspect runtime\n- Wire task UI"
+                }
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "turn/completed",
+            json!({
+                "threadId": "thr-new",
+                "turn": {
+                    "id": "turn-live-1",
+                    "status": "completed",
+                    "error": null
+                }
+            }),
+        )
+        .await;
+    let snapshot = wait_for_snapshot(
+        &session,
+        context(
+            "thread-local-build",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ),
+        |snapshot| {
+            matches!(
+                snapshot.task_plan.as_ref().map(|plan| plan.status),
+                Some(crate::domain::conversation::ConversationTaskStatus::Completed)
+            ) && matches!(
+                snapshot.status,
+                crate::domain::conversation::ConversationStatus::Completed
+            )
+        },
+    )
+    .await;
+
+    assert!(snapshot.proposed_plan.is_none());
+    assert!(matches!(
+        snapshot.task_plan.as_ref().map(|plan| plan.status),
+        Some(crate::domain::conversation::ConversationTaskStatus::Completed)
+    ));
+    assert!(matches!(
+        snapshot.status,
+        crate::domain::conversation::ConversationStatus::Completed
+    ));
+
+    let error = session
+        .submit_plan_decision(
+            context(
+                "thread-local-build",
+                Some("thr-new"),
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            crate::domain::conversation::SubmitPlanDecisionInput {
+                thread_id: "thread-local-build".to_string(),
+                action: crate::domain::conversation::PlanDecisionAction::Approve,
+                composer: None,
+                feedback: None,
+                mention_bindings: None,
+            },
+        )
+        .await
+        .expect_err("task progress should not be actionable as a proposed plan");
+    assert!(error
+        .to_string()
+        .contains("There is no proposed plan to update"));
+}
+
+#[tokio::test]
+async fn reopening_an_active_plan_turn_with_build_selected_keeps_plan_updates_actionable() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-reopen-plan",
+                None,
+                CollaborationMode::Plan,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Draft a plan".to_string(),
+        )
+        .await
+        .expect("plan turn should start");
+
+    harness
+        .emit_notification(
+            "turn/plan/updated",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "explanation": "Codex is drafting the plan.",
+                "plan": [{ "step": "Inspect runtime", "status": "inProgress" }]
+            }),
+        )
+        .await;
+
+    session
+        .open_thread(context(
+            "thread-local-reopen-plan",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("thread should reopen with build selected");
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Proposed plan\n\n- Inspect runtime"
+                }
+            }),
+        )
+        .await;
+
+    let snapshot = wait_for_snapshot(
+        &session,
+        context(
+            "thread-local-reopen-plan",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ),
+        |snapshot| {
+            snapshot.task_plan.is_none()
+                && matches!(
+                    snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+                    Some(crate::domain::conversation::ProposedPlanStatus::Ready)
+                )
+                && snapshot
+                    .proposed_plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.markdown.contains("## Proposed plan"))
+        },
+    )
+    .await;
+
+    assert!(snapshot.task_plan.is_none());
+    assert!(matches!(
+        snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+        Some(crate::domain::conversation::ProposedPlanStatus::Ready)
+    ));
+}
+
+#[tokio::test]
+async fn reopening_a_plan_turn_before_plan_progress_exists_still_uses_item_heading() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-heading-reopen",
+                None,
+                CollaborationMode::Plan,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Draft a plan".to_string(),
+        )
+        .await
+        .expect("plan turn should start");
+
+    session
+        .open_thread(context(
+            "thread-local-heading-reopen",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("thread should reopen with build selected");
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Proposed plan\n\n- Inspect runtime"
+                }
+            }),
+        )
+        .await;
+
+    let snapshot = wait_for_snapshot(
+        &session,
+        context(
+            "thread-local-heading-reopen",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ),
+        |snapshot| {
+            snapshot.task_plan.is_none()
+                && matches!(
+                    snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+                    Some(crate::domain::conversation::ProposedPlanStatus::Ready)
+                )
+                && snapshot
+                    .proposed_plan
+                    .as_ref()
+                    .is_some_and(|plan| plan.markdown.contains("## Proposed plan"))
+        },
+    )
+    .await;
+
+    assert!(snapshot.task_plan.is_none());
+    assert!(matches!(
+        snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+        Some(crate::domain::conversation::ProposedPlanStatus::Ready)
+    ));
+}
+
+#[tokio::test]
+async fn immediate_turn_start_results_clear_the_previous_task_tracker() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-immediate",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Run the build task".to_string(),
+        )
+        .await
+        .expect("build turn should start");
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "plan-item-1",
+                    "type": "plan",
+                    "text": "## Tasks\n\n- Inspect runtime"
+                }
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "turn/completed",
+            json!({
+                "threadId": "thr-new",
+                "turn": {
+                    "id": "turn-live-1",
+                    "status": "completed",
+                    "error": null
+                }
+            }),
+        )
+        .await;
+
+    let completed_snapshot = wait_for_snapshot(
+        &session,
+        context(
+            "thread-local-immediate",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ),
+        |snapshot| {
+            matches!(
+                snapshot.task_plan.as_ref().map(|plan| plan.status),
+                Some(crate::domain::conversation::ConversationTaskStatus::Completed)
+            )
+        },
+    )
+    .await;
+    assert!(completed_snapshot.task_plan.is_some());
+
+    let snapshot = session
+        .send_message(
+            context(
+                "thread-local-immediate",
+                Some("thr-new"),
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Complete immediately".to_string(),
+        )
+        .await
+        .expect("immediate turn should complete")
+        .snapshot;
+
+    assert!(snapshot.task_plan.is_none());
+    assert!(matches!(
+        snapshot.status,
+        crate::domain::conversation::ConversationStatus::Completed
+    ));
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
-import { ChevronRightIcon } from "../../shared/Icons";
 import type { ProposedPlanSnapshot } from "../../lib/types";
 import { ConversationMarkdown } from "./ConversationMarkdown";
+import { ConversationPlanSteps } from "./ConversationPlanSteps";
 
 type Props = {
   plan: ProposedPlanSnapshot;
@@ -30,26 +30,7 @@ export function ConversationPlanCard({
           {labelForPlanStatus(plan.status)}
         </span>
       </div>
-      {plan.steps.length > 0 ? (
-        <ol className="tx-plan-card__steps">
-          {plan.steps.map((step, index) => (
-            <li key={`${plan.turnId}-${index}`} className="tx-plan-card__step">
-              <span
-                className={`tx-plan-card__step-marker tx-plan-card__step-marker--${step.status}`}
-                aria-hidden="true"
-              >
-                <ChevronRightIcon size={10} />
-              </span>
-              <div>
-                <p className="tx-plan-card__step-title">{step.step}</p>
-                <span className="tx-plan-card__step-status">
-                  {labelForStepStatus(step.status)}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ol>
-      ) : null}
+      <ConversationPlanSteps turnId={plan.turnId} steps={plan.steps} />
       {plan.markdown ? (
         <ConversationMarkdown
           markdown={plan.markdown}
@@ -106,9 +87,4 @@ function labelToneForPlan(status: ProposedPlanSnapshot["status"]) {
     default:
       return "neutral";
   }
-}
-
-function labelForStepStatus(status: string) {
-  if (status === "inProgress") return "In progress";
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }

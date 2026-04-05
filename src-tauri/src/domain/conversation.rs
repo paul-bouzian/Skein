@@ -192,6 +192,15 @@ pub enum ProposedPlanStepStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum ConversationTaskStatus {
+    Running,
+    Completed,
+    Interrupted,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum PermissionGrantScope {
     Turn,
     Session,
@@ -221,6 +230,17 @@ pub struct ProposedPlanSnapshot {
     pub markdown: String,
     pub status: ProposedPlanStatus,
     pub is_awaiting_decision: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationTaskSnapshot {
+    pub turn_id: String,
+    pub item_id: Option<String>,
+    pub explanation: String,
+    pub steps: Vec<ProposedPlanStep>,
+    pub markdown: String,
+    pub status: ConversationTaskStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -488,6 +508,7 @@ pub struct ThreadConversationSnapshot {
     pub token_usage: Option<ThreadTokenUsageSnapshot>,
     pub pending_interactions: Vec<ConversationInteraction>,
     pub proposed_plan: Option<ProposedPlanSnapshot>,
+    pub task_plan: Option<ConversationTaskSnapshot>,
     pub error: Option<ConversationErrorSnapshot>,
     pub composer: ConversationComposerSettings,
 }
@@ -510,6 +531,7 @@ impl ThreadConversationSnapshot {
             token_usage: None,
             pending_interactions: Vec::new(),
             proposed_plan: None,
+            task_plan: None,
             error: None,
             composer,
         }
