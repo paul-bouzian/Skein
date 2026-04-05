@@ -9,7 +9,7 @@ import type {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  MagicWandIcon,
+  SparklesIcon,
   MinusIcon,
   PlusIcon,
   UndoIcon,
@@ -172,7 +172,7 @@ export function CommitSection({
             title="Generate a commit message"
             onClick={onGenerate}
           >
-            {generating ? <span className="inspector-spinner" aria-hidden="true" /> : <MagicWandIcon size={14} />}
+            {generating ? <span className="inspector-spinner" aria-hidden="true" /> : <SparklesIcon size={14} />}
           </button>
         </div>
 

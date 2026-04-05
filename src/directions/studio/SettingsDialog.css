@@ -10,42 +10,31 @@
 }
 
 .settings-dialog {
-  width: min(520px, calc(100vw - (var(--tx-space-xl) * 2)));
+  width: min(700px, calc(100vw - (var(--tx-space-xl) * 2)));
   max-height: min(720px, calc(100vh - (var(--tx-space-xl) * 2)));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: var(--tx-space-lg);
-  padding: var(--tx-space-xl);
   border: 1px solid var(--tx-border-muted);
   border-radius: var(--tx-radius-xl);
   background: var(--tx-bg-overlay);
   box-shadow: var(--tx-shadow-overlay);
+  overflow: hidden;
 }
 
 .settings-dialog__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--tx-space-md);
-}
-
-.settings-dialog__header-copy {
-  display: grid;
-  gap: 6px;
+  padding: var(--tx-space-lg) var(--tx-space-xl);
+  border-bottom: 1px solid var(--tx-border-subtle);
 }
 
 .settings-dialog__title {
-  font-size: var(--tx-text-2xl);
+  font-size: var(--tx-text-lg);
   font-weight: var(--tx-weight-semibold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: var(--tx-text-primary);
-}
-
-.settings-dialog__subtitle {
-  max-width: 36ch;
-  font-size: var(--tx-text-sm);
-  line-height: 1.6;
-  color: var(--tx-text-secondary);
 }
 
 .settings-dialog__close {
@@ -74,10 +63,55 @@
   border-color: var(--tx-border-focus);
 }
 
+.settings-dialog__layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.settings-dialog__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--tx-space-md);
+  border-right: 1px solid var(--tx-border-subtle);
+  background: color-mix(in srgb, var(--tx-bg-base) 50%, transparent);
+}
+
+.settings-dialog__tab {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--tx-space-sm) var(--tx-space-md);
+  border-radius: var(--tx-radius-md);
+  border: none;
+  background: transparent;
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.settings-dialog__tab:hover {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+.settings-dialog__tab--active {
+  background: color-mix(in srgb, var(--tx-accent) 12%, var(--tx-bg-hover));
+  color: var(--tx-text-primary);
+  font-weight: var(--tx-weight-semibold);
+  cursor: default;
+}
+
 .settings-dialog__body {
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--tx-space-xs);
+  padding: var(--tx-space-xl);
 }
 
 .settings-dialog__notice {

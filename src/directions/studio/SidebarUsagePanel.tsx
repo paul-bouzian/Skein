@@ -44,7 +44,7 @@ export function SidebarUsagePanel() {
       <div className="sidebar-usage__rows">
         {rows.map((row) => {
           const percentLabel = row.percentUsed === null ? "--" : `${row.percentUsed}%`;
-          const fillWidth = loading ? "42%" : `${row.percentUsed ?? 0}%`;
+          const fillWidth = loading ? "100%" : `${row.percentUsed ?? 0}%`;
 
           return (
             <div key={row.label} className="sidebar-usage__row">

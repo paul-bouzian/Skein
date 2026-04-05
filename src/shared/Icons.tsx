@@ -5,14 +5,27 @@ type IconProps = {
 
 export function SettingsIcon({ size = 16, className }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+    >
       <path
-        d="M6.86 2h2.28l.32 1.6a5 5 0 011.18.68l1.54-.52.98 1.7-1.22 1.08a5 5 0 010 1.36l1.22 1.08-.98 1.7-1.54-.52a5 5 0 01-1.18.68L9.14 14H6.86l-.32-1.6a5 5 0 01-1.18-.68l-1.54.52-.98-1.7 1.22-1.08a5 5 0 010-1.36L2.84 7.02l.98-1.7 1.54.52a5 5 0 011.18-.68L6.86 2z"
+        d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"
         stroke="currentColor"
-        strokeWidth="1.1"
+        strokeWidth="1.5"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.1" />
+      <circle
+        cx="12"
+        cy="12"
+        r="3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
     </svg>
   );
 }
@@ -83,24 +96,17 @@ export function CheckIcon({ size = 16, className }: IconProps) {
   );
 }
 
-export function MagicWandIcon({ size = 16, className }: IconProps) {
+export function SparklesIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path
-        d="M9.5 2.5 10 4l1.5.5L10 5l-.5 1.5L9 5l-1.5-.5L9 4l.5-1.5Z"
+        d="M7.5 2l1.1 3.4L12 6.5l-3.4 1.1L7.5 11l-1.1-3.4L3 6.5l3.4-1.1L7.5 2z"
         stroke="currentColor"
         strokeWidth="1.1"
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="m6.4 6.4 3.2 3.2M4 12l1.6-1.6"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6 4.5 6.25 5.25 7 5.5l-.75.25L6 6.5l-.25-.75L5 5.5l.75-.25L6 4.5Z"
+        d="M12 10l.5 1.5L14 12l-1.5.5L12 14l-.5-1.5L10 12l1.5-.5L12 10z"
         fill="currentColor"
       />
     </svg>
@@ -161,11 +167,17 @@ export function UndoIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path
-        d="M6 5H3.5v2.5M4 7c.9-1.8 2.7-3 5-3 3 0 4.5 1.9 4.5 4.4S12 13 9.1 13c-1.6 0-3-.6-4-1.7"
+        d="M4.5 6.5L2.5 4.5l2-2"
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+      <path
+        d="M2.5 4.5H9a4 4 0 010 8H6.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
       />
     </svg>
   );

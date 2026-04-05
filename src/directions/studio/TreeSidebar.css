@@ -13,7 +13,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--tx-space-md) var(--tx-space-lg);
+  height: var(--tx-toolbar-height);
+  padding: 0 var(--tx-space-lg);
   border-bottom: 1px solid var(--tx-border-subtle);
   flex-shrink: 0;
 }

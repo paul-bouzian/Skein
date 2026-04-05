@@ -117,15 +117,9 @@ export function SettingsDialog({ open, onClose }: Props) {
         onClick={(event) => event.stopPropagation()}
       >
         <div className="settings-dialog__header">
-          <div className="settings-dialog__header-copy">
-            <h2 id="settings-dialog-title" className="settings-dialog__title">
-              Settings
-            </h2>
-            <p className="settings-dialog__subtitle">
-              These defaults prefill the chat composer whenever you create a new
-              thread.
-            </p>
-          </div>
+          <h2 id="settings-dialog-title" className="settings-dialog__title">
+            Settings
+          </h2>
           <button
             type="button"
             className="settings-dialog__close"
@@ -137,19 +131,33 @@ export function SettingsDialog({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="settings-dialog__body">
-          {actionError ? (
-            <p className="settings-dialog__notice">{actionError}</p>
-          ) : null}
-          {settings ? (
-            <SettingsContent
-              settings={settings}
-              modelOptions={modelOptions}
-              onChange={handleChange}
-            />
-          ) : (
-            <p className="settings-dialog__empty">Loading...</p>
-          )}
+        <div className="settings-dialog__layout">
+          <div
+            className="settings-dialog__sidebar"
+            role="navigation"
+            aria-label="Settings sections"
+          >
+            <div
+              className="settings-dialog__tab settings-dialog__tab--active"
+              aria-current="page"
+            >
+              Codex
+            </div>
+          </div>
+          <div className="settings-dialog__body">
+            {actionError ? (
+              <p className="settings-dialog__notice">{actionError}</p>
+            ) : null}
+            {settings ? (
+              <SettingsContent
+                settings={settings}
+                modelOptions={modelOptions}
+                onChange={handleChange}
+              />
+            ) : (
+              <p className="settings-dialog__empty">Loading...</p>
+            )}
+          </div>
         </div>
       </section>
     </div>,

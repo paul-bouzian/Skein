@@ -13,9 +13,10 @@ type Props = {
   label: string;
   value: string;
   options: ComposerPickerOption[];
+  compact?: boolean;
   disabled?: boolean;
   menuZIndex?: number;
-  tone?: "default" | "accent";
+  tone?: "default" | "accent" | "warning";
   onChange: (value: string) => void;
 };
 
@@ -31,6 +32,7 @@ export function ComposerPicker({
   label,
   value,
   options,
+  compact = false,
   disabled = false,
   menuZIndex = 50,
   tone = "default",
@@ -42,6 +44,23 @@ export function ComposerPicker({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const isAccent = tone === "accent";
+  const isWarning = tone === "warning";
+  const pickerClassName = `tx-picker ${open ? "tx-picker--open" : ""} ${compact ? "tx-picker--compact" : ""}`;
+  const triggerClassName = [
+    "tx-picker__trigger",
+    isAccent ? "tx-picker__trigger--accent" : null,
+    isWarning ? "tx-picker__trigger--warning" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const valueClassName = [
+    "tx-picker__value",
+    isAccent ? "tx-picker__value--accent" : null,
+    isWarning ? "tx-picker__value--warning" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const chevronClassName = `tx-picker__chevron ${open ? "tx-picker__chevron--open" : ""}`;
 
   const selected = useMemo(() => {
     return options.find((option) => option.value === value) ?? null;
@@ -65,7 +84,11 @@ export function ComposerPicker({
         140,
         Math.min(openUpward ? availableAbove : availableBelow, 280),
       );
-      const width = Math.min(rect.width, window.innerWidth - margin * 2);
+      const minMenuWidth = compact ? 160 : 0;
+      const width = Math.min(
+        Math.max(rect.width, minMenuWidth),
+        window.innerWidth - margin * 2,
+      );
       const left = Math.max(
         margin,
         Math.min(rect.left, window.innerWidth - width - margin),
@@ -118,29 +141,22 @@ export function ComposerPicker({
       window.removeEventListener("scroll", updateMenuPosition, true);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [compact, open]);
 
   return (
-    <div ref={rootRef} className={`tx-picker ${open ? "tx-picker--open" : ""}`}>
-      <span className="tx-picker__label">{label}</span>
+    <div ref={rootRef} className={pickerClassName}>
+      {!compact && <span className="tx-picker__label">{label}</span>}
       <button
         ref={triggerRef}
         type="button"
-        className={`tx-picker__trigger ${isAccent ? "tx-picker__trigger--accent" : ""}`}
+        className={triggerClassName}
         disabled={disabled}
         aria-expanded={open}
         aria-label={`${label} picker`}
         onClick={() => setOpen((current) => !current)}
       >
-        <span
-          className={`tx-picker__value ${isAccent ? "tx-picker__value--accent" : ""}`}
-        >
-          {selected?.label ?? value}
-        </span>
-        <ChevronRightIcon
-          size={12}
-          className={`tx-picker__chevron ${open ? "tx-picker__chevron--open" : ""}`}
-        />
+        <span className={valueClassName}>{selected?.label ?? value}</span>
+        <ChevronRightIcon size={compact ? 8 : 12} className={chevronClassName} />
       </button>
       {open && menuPosition
         ? createPortal(

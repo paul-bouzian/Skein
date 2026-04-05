@@ -87,6 +87,11 @@ export function InlineComposer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(null);
   const [pendingCursor, setPendingCursor] = useState<number | null>(null);
+  const isPlanMode = composer.collaborationMode === "plan";
+  const nextMode: ConversationComposerSettings["collaborationMode"] = isPlanMode
+    ? "build"
+    : "plan";
+  const canToggleMode = collaborationModes.some((option) => option.id === nextMode);
   const inputDisabled = isBusy || isSending || (disabled && !isRefiningPlan);
   const controlsDisabled = isBusy || isSending || disabled;
   const placeholder = isRefiningPlan
@@ -189,6 +194,7 @@ export function InlineComposer({
           ),
     [activeToken, activeTokenKey, catalog, dismissedTokenKey, fileResults],
   );
+  const hasAutocompleteItems = autocompleteItems.length > 0;
 
   useEffect(() => {
     setActiveIndex((current) =>
@@ -243,14 +249,126 @@ export function InlineComposer({
     setDismissedTokenKey(null);
   }
 
+  function sendDraft() {
+    onSend(
+      draft,
+      prepareComposerMentionBindingsForSend(draft, mentionBindings),
+    );
+  }
+
+  function collaborationModeLabel(
+    mode: ConversationComposerSettings["collaborationMode"],
+  ) {
+    return (
+      collaborationModes.find((option) => option.id === mode)?.label ??
+      labelForCollaborationMode(mode)
+    );
+  }
+
+  const currentModeLabel = collaborationModeLabel(composer.collaborationMode);
+  const nextModeLabel = collaborationModeLabel(nextMode);
+
   return (
-    <div className="tx-composer">
+    <div className={`tx-composer ${isPlanMode ? "tx-composer--plan" : ""}`}>
+      {hasAutocompleteItems ? (
+        <div ref={menuRef}>
+          <ComposerAutocompleteMenu
+            items={autocompleteItems}
+            activeIndex={activeIndex}
+            onSelect={applyItem}
+          />
+        </div>
+      ) : null}
+
+      <div className="tx-composer__body">
+        <div
+          className={`tx-inline-composer ${inputDisabled ? "tx-inline-composer--disabled" : ""}`}
+        >
+          <ComposerTextMirror
+            draft={draft}
+            catalog={catalog}
+            placeholder={placeholder}
+            scrollTop={scrollTop}
+          />
+          <textarea
+            ref={textareaRef}
+            className="tx-inline-composer__textarea"
+            rows={1}
+            value={draft}
+            aria-label={isRefiningPlan ? "Refine the proposed plan" : "Message ThreadEx"}
+            placeholder={placeholder}
+            disabled={inputDisabled}
+            onChange={(event) => {
+              const nextDraft = event.target.value;
+              onChangeMentionBindings(
+                rebaseComposerMentionBindings(
+                  previousDraftRef.current,
+                  nextDraft,
+                  mentionBindings,
+                ),
+              );
+              previousDraftRef.current = nextDraft;
+              onChangeDraft(nextDraft);
+              setSelection({
+                start: event.target.selectionStart ?? 0,
+                end: event.target.selectionEnd ?? 0,
+              });
+              setDismissedTokenKey(null);
+            }}
+            onClick={syncSelection}
+            onKeyUp={syncSelection}
+            onSelect={syncSelection}
+            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) {
+                return;
+              }
+              if (hasAutocompleteItems) {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setActiveIndex((current) => (current + 1) % autocompleteItems.length);
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveIndex((current) =>
+                    current === 0 ? autocompleteItems.length - 1 : current - 1,
+                  );
+                  return;
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  event.preventDefault();
+                  applyItem(autocompleteItems[activeIndex] ?? autocompleteItems[0]);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setDismissedTokenKey(activeTokenKey);
+                  return;
+                }
+              }
+
+              if (event.key === "Escape" && isRefiningPlan) {
+                event.preventDefault();
+                onCancelRefine();
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendDraft();
+              }
+            }}
+          />
+        </div>
+      </div>
+
       <div className="tx-composer__controls">
         <div className="tx-composer__controls-group">
           <ComposerPicker
             label="Model"
             value={composer.model}
             options={composerModelOptions(modelOptions, composer.model)}
+            compact
             disabled={controlsDisabled}
             onChange={(value) => onUpdateComposer({ model: value })}
           />
@@ -258,6 +376,7 @@ export function InlineComposer({
             label="Thinking"
             value={composer.reasoningEffort}
             options={reasoningOptionsFor(effortOptions)}
+            compact
             disabled={controlsDisabled}
             onChange={(value) =>
               onUpdateComposer({
@@ -265,25 +384,34 @@ export function InlineComposer({
               })
             }
           />
-          <ComposerPicker
-            label="Mode"
-            value={composer.collaborationMode}
-            tone={composer.collaborationMode === "plan" ? "accent" : "default"}
-            options={collaborationModes.map((option) => ({
-              label: labelForCollaborationMode(option.id, option.label),
-              value: option.id,
-            }))}
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                collaborationMode: value as ConversationComposerSettings["collaborationMode"],
-              })
+          <button
+            type="button"
+            className={`tx-composer__toggle ${isPlanMode ? "tx-composer__toggle--accent" : ""}`}
+            aria-label={
+              canToggleMode
+                ? `Collaboration mode: ${currentModeLabel}. Switch to ${nextModeLabel}`
+                : `Collaboration mode: ${currentModeLabel}`
             }
-          />
+            title={canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel}
+            aria-pressed={isPlanMode}
+            disabled={controlsDisabled || !canToggleMode}
+            onClick={() => {
+              if (!canToggleMode) {
+                return;
+              }
+              onUpdateComposer({
+                collaborationMode: nextMode,
+              });
+            }}
+          >
+            {currentModeLabel}
+          </button>
           <ComposerPicker
             label="Access"
             value={composer.approvalPolicy}
+            tone={composer.approvalPolicy === "fullAccess" ? "warning" : "default"}
             options={APPROVAL_OPTIONS}
+            compact
             disabled={controlsDisabled}
             onChange={(value) =>
               onUpdateComposer({
@@ -292,137 +420,28 @@ export function InlineComposer({
             }
           />
         </div>
-        <ContextWindowMeter usage={tokenUsage} />
-      </div>
-
-      <div className="tx-composer__body">
-        {autocompleteItems.length > 0 ? (
-          <div ref={menuRef}>
-            <ComposerAutocompleteMenu
-              items={autocompleteItems}
-              activeIndex={activeIndex}
-              onSelect={applyItem}
-            />
-          </div>
-        ) : null}
-
-        <div className="tx-composer__input-row">
-          <div
-            className={`tx-inline-composer ${inputDisabled ? "tx-inline-composer--disabled" : ""}`}
-          >
-            <ComposerTextMirror
-              draft={draft}
-              catalog={catalog}
-              placeholder={placeholder}
-              scrollTop={scrollTop}
-            />
-            <textarea
-              ref={textareaRef}
-              className="tx-inline-composer__textarea"
-              rows={1}
-              value={draft}
-              aria-label={isRefiningPlan ? "Refine the proposed plan" : "Message ThreadEx"}
-              placeholder={placeholder}
-              disabled={inputDisabled}
-              onChange={(event) => {
-                const nextDraft = event.target.value;
-                onChangeMentionBindings(
-                  rebaseComposerMentionBindings(
-                    previousDraftRef.current,
-                    nextDraft,
-                    mentionBindings,
-                  ),
-                );
-                previousDraftRef.current = nextDraft;
-                onChangeDraft(nextDraft);
-                setSelection({
-                  start: event.target.selectionStart ?? 0,
-                  end: event.target.selectionEnd ?? 0,
-                });
-                setDismissedTokenKey(null);
-              }}
-              onClick={syncSelection}
-              onKeyUp={syncSelection}
-              onSelect={syncSelection}
-              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) {
-                  return;
-                }
-                if (autocompleteItems.length > 0) {
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setActiveIndex((current) => (current + 1) % autocompleteItems.length);
-                    return;
-                  }
-                  if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setActiveIndex((current) =>
-                      current === 0 ? autocompleteItems.length - 1 : current - 1,
-                    );
-                    return;
-                  }
-                  if (event.key === "Enter" || event.key === "Tab") {
-                    event.preventDefault();
-                    applyItem(autocompleteItems[activeIndex] ?? autocompleteItems[0]);
-                    return;
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setDismissedTokenKey(activeTokenKey);
-                    return;
-                  }
-                }
-
-                if (event.key === "Escape" && isRefiningPlan) {
-                  event.preventDefault();
-                  onCancelRefine();
-                  return;
-                }
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  onSend(
-                    draft,
-                    prepareComposerMentionBindingsForSend(draft, mentionBindings),
-                  );
-                }
-              }}
-            />
-          </div>
-
+        <div className="tx-composer__controls-right">
+          <ContextWindowMeter usage={tokenUsage} />
           {isBusy ? (
             <button
               type="button"
-              className="tx-composer__icon-button tx-composer__icon-button--secondary"
+              className="tx-composer__send-button tx-composer__send-button--secondary"
               aria-label="Stop generation"
               onClick={onInterrupt}
             >
-              <StopIcon size={12} />
+              <StopIcon size={10} />
             </button>
           ) : (
             <button
               type="button"
-              className="tx-composer__icon-button"
+              className="tx-composer__send-button"
               aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
               disabled={draft.trim().length === 0 || inputDisabled}
-              onClick={() =>
-                onSend(
-                  draft,
-                  prepareComposerMentionBindingsForSend(draft, mentionBindings),
-                )
-              }
+              onClick={sendDraft}
             >
-              <SendIcon size={14} />
+              <SendIcon size={12} />
             </button>
           )}
-        </div>
-
-        <div className="tx-composer__actions">
-          <span className="tx-composer__hint">
-            {isRefiningPlan
-              ? "Enter to refine · Escape to leave refine mode"
-              : "Enter to send · Shift+Enter for newline · / prompts · $ skills/apps · @ files"}
-          </span>
         </div>
       </div>
     </div>
