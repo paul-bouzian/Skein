@@ -1,3 +1,6 @@
+import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
+
+import * as bridge from "../../lib/bridge";
 import {
   useWorkspaceStore,
   selectSelectedProject,
@@ -7,10 +10,17 @@ import {
 } from "../../stores/workspace-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { PanelRightIcon } from "../../shared/Icons";
+import { PanelRightIcon, TerminalIcon } from "../../shared/Icons";
+import {
+  MAX_TERMINAL_HEIGHT_RATIO,
+  MIN_TERMINAL_HEIGHT_PX,
+  selectEnvironmentTerminalUi,
+  useTerminalStore,
+} from "../../stores/terminal-store";
 import { ThreadTabs } from "./ThreadTabs";
 import { ThreadConversation } from "./ThreadConversation";
 import { StudioWelcome } from "./StudioWelcome";
+import { TerminalDock } from "./terminal/TerminalDock";
 import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
 import "./StudioMain.css";
 
@@ -24,7 +34,28 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const selectedThread = useWorkspaceStore(selectSelectedThread);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const terminalUi = useTerminalStore(
+    selectEnvironmentTerminalUi(selectedEnvironment?.id ?? null),
+  );
+  const toggleTerminalPanel = useTerminalStore((state) => state.togglePanel);
+  const createTerminal = useTerminalStore((state) => state.createTerminal);
+  const closeTerminal = useTerminalStore((state) => state.closeTerminal);
+  const setActiveTerminal = useTerminalStore((state) => state.setActiveTerminal);
+  const setTerminalHeight = useTerminalStore((state) => state.setHeight);
+  const pruneTerminalEnvironments = useTerminalStore((state) => state.pruneEnvironments);
   const isThreadView = Boolean(selectedThread && selectedEnvironment);
+  const environmentIds = useMemo(
+    () =>
+      projects.flatMap((project) =>
+        project.environments.map((environment) => environment.id),
+      ),
+    [projects],
+  );
+
+  useEffect(() => {
+    pruneTerminalEnvironments(environmentIds);
+  }, [environmentIds, pruneTerminalEnvironments]);
 
   let content;
   if (projects.length === 0) {
@@ -41,25 +72,110 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
     content = <OverviewView projects={projects} />;
   }
 
+  function handleToggleTerminal() {
+    if (!selectedEnvironment) return;
+    toggleTerminalPanel(selectedEnvironment.id);
+  }
+
+  function handleCreateTerminal() {
+    if (!selectedEnvironment) return;
+    createTerminal(selectedEnvironment.id);
+  }
+
+  async function handleCloseTerminal(terminalId: string) {
+    if (!selectedEnvironment) return;
+    closeTerminal(selectedEnvironment.id, terminalId);
+    await bridge.closeEnvironmentTerminal({
+      environmentId: selectedEnvironment.id,
+      terminalId,
+    });
+  }
+
+  function handleResizeStart(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!selectedEnvironment || !bodyRef.current) return;
+    event.preventDefault();
+
+    const startY = event.clientY;
+    const startHeight = terminalUi.heightPx;
+    const bodyHeight = bodyRef.current.getBoundingClientRect().height;
+    const maxHeight = Math.max(
+      MIN_TERMINAL_HEIGHT_PX,
+      Math.floor(bodyHeight * MAX_TERMINAL_HEIGHT_RATIO),
+    );
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const deltaY = startY - moveEvent.clientY;
+      const nextHeight = Math.min(
+        maxHeight,
+        Math.max(MIN_TERMINAL_HEIGHT_PX, startHeight + deltaY),
+      );
+      setTerminalHeight(selectedEnvironment.id, nextHeight);
+    };
+
+    const handlePointerUp = () => {
+      window.removeEventListener("mousemove", handlePointerMove);
+      window.removeEventListener("mouseup", handlePointerUp);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+    };
+
+    document.body.style.setProperty("cursor", "row-resize");
+    document.body.style.setProperty("user-select", "none");
+    window.addEventListener("mousemove", handlePointerMove);
+    window.addEventListener("mouseup", handlePointerUp);
+  }
+
   return (
     <main className="studio-main">
       <div className="studio-main__toolbar">
         <div className="studio-main__toolbar-primary">
           <ThreadTabs />
         </div>
-        <button
-          type="button"
-          className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
-          title={inspectorOpen ? "Hide inspector" : "Show inspector"}
-          onClick={onToggleInspector}
-        >
-          <PanelRightIcon size={14} />
-        </button>
+        <div className="studio-main__toolbar-actions">
+          {selectedEnvironment ? (
+            <button
+              type="button"
+              className={`studio-main__toolbar-button ${terminalUi.open ? "studio-main__toolbar-button--active" : ""}`}
+              title={terminalUi.open ? "Hide terminal" : "Show terminal"}
+              aria-label={terminalUi.open ? "Hide terminal" : "Show terminal"}
+              onClick={handleToggleTerminal}
+            >
+              <TerminalIcon size={14} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={`studio-main__toolbar-button ${inspectorOpen ? "studio-main__toolbar-button--active" : ""}`}
+            title={inspectorOpen ? "Hide inspector" : "Show inspector"}
+            aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
+            onClick={onToggleInspector}
+          >
+            <PanelRightIcon size={14} />
+          </button>
+        </div>
       </div>
-      <div
-        className={`studio-main__content ${isThreadView ? "studio-main__content--thread" : ""}`}
-      >
-        {content}
+      <div ref={bodyRef} className="studio-main__body">
+        <div
+          className={`studio-main__content ${isThreadView ? "studio-main__content--thread" : ""}`}
+        >
+          {content}
+        </div>
+        {selectedEnvironment && terminalUi.open && terminalUi.tabs.length > 0 ? (
+          <TerminalDock
+            environment={selectedEnvironment}
+            tabs={terminalUi.tabs}
+            activeTerminalId={terminalUi.activeTerminalId}
+            heightPx={terminalUi.heightPx}
+            onResizeStart={handleResizeStart}
+            onSelectTerminal={(terminalId) =>
+              setActiveTerminal(selectedEnvironment.id, terminalId)
+            }
+            onCloseTerminal={(terminalId) => {
+              void handleCloseTerminal(terminalId);
+            }}
+            onCreateTerminal={handleCreateTerminal}
+          />
+        ) : null}
       </div>
     </main>
   );

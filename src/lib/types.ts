@@ -70,6 +70,49 @@ export type RuntimeStatusSnapshot = {
   lastExitCode?: number;
 };
 
+export type TerminalStatus = "running" | "exited" | "error";
+
+export type EnvironmentTerminalSnapshot = {
+  environmentId: string;
+  terminalId: string;
+  cwd: string;
+  status: TerminalStatus;
+  history: string;
+  pid?: number | null;
+  exitCode?: number | null;
+  updatedAt: string;
+};
+
+export type TerminalEventPayload =
+  | {
+      type: "started";
+      environmentId: string;
+      terminalId: string;
+      createdAt: string;
+      snapshot: EnvironmentTerminalSnapshot;
+    }
+  | {
+      type: "output";
+      environmentId: string;
+      terminalId: string;
+      createdAt: string;
+      data: string;
+    }
+  | {
+      type: "exited";
+      environmentId: string;
+      terminalId: string;
+      createdAt: string;
+      exitCode?: number | null;
+    }
+  | {
+      type: "error";
+      environmentId: string;
+      terminalId: string;
+      createdAt: string;
+      message: string;
+    };
+
 export type ThreadRecord = {
   id: string;
   environmentId: string;
@@ -612,6 +655,31 @@ export type RenameThreadRequest = {
 
 export type ArchiveThreadRequest = {
   threadId: string;
+};
+
+export type OpenEnvironmentTerminalInput = {
+  environmentId: string;
+  terminalId: string;
+  cols: number;
+  rows: number;
+};
+
+export type WriteEnvironmentTerminalInput = {
+  environmentId: string;
+  terminalId: string;
+  data: string;
+};
+
+export type ResizeEnvironmentTerminalInput = {
+  environmentId: string;
+  terminalId: string;
+  cols: number;
+  rows: number;
+};
+
+export type CloseEnvironmentTerminalInput = {
+  environmentId: string;
+  terminalId: string;
 };
 
 export type GitScopeInput = {

@@ -11,7 +11,7 @@ use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
     EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord,
     ProjectSettings, ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides,
-    ThreadRecord, ThreadStatus, WorktreeScriptTrigger, WorkspaceSnapshot,
+    ThreadRecord, ThreadStatus, WorkspaceSnapshot, WorktreeScriptTrigger,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
@@ -427,7 +427,10 @@ impl WorkspaceService {
             });
         }
 
-        Ok(ManagedWorktreeCreateResult { environment, thread })
+        Ok(ManagedWorktreeCreateResult {
+            environment,
+            thread,
+        })
     }
 
     pub fn delete_worktree_environment(&self, environment_id: &str) -> AppResult<()> {
@@ -650,6 +653,22 @@ impl WorkspaceService {
                         default_model: settings.default_model.clone(),
                     })
                 },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
+    }
+
+    pub fn environment_terminal_cwd(&self, environment_id: &str) -> AppResult<String> {
+        let connection = self.database.open()?;
+        connection
+            .query_row(
+                "
+                SELECT path
+                FROM environments
+                WHERE id = ?1
+                ",
+                params![environment_id],
+                |row| row.get::<_, String>(0),
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))

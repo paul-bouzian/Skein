@@ -268,3 +268,26 @@ export function GitBranchIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function TerminalIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect
+        x="1.75"
+        y="2.75"
+        width="12.5"
+        height="10.5"
+        rx="1.75"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M4 6 5.75 7.75 4 9.5M7.75 10h3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

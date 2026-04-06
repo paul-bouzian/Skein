@@ -23,7 +23,13 @@
   align-items: stretch;
 }
 
-.studio-main__toggle-inspector {
+.studio-main__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--tx-space-xs);
+}
+
+.studio-main__toolbar-button {
   width: 28px;
   height: 28px;
   display: flex;
@@ -35,13 +41,20 @@
   transition: all var(--tx-transition-fast);
 }
 
-.studio-main__toggle-inspector--active {
+.studio-main__toolbar-button--active {
   color: var(--tx-accent);
 }
 
-.studio-main__toggle-inspector:hover {
+.studio-main__toolbar-button:hover {
   color: var(--tx-text-primary);
   background: var(--tx-bg-hover);
+}
+
+.studio-main__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .studio-main__content {

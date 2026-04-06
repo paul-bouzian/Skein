@@ -2,8 +2,8 @@ use tauri::State;
 
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord,
-    WorkspaceSnapshot,
+    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot,
+    ThreadRecord, WorkspaceSnapshot,
 };
 use crate::error::CommandError;
 use crate::services::workspace::{
@@ -60,6 +60,10 @@ pub async fn remove_project(
     let environment_ids = state.workspace.project_environment_ids(&project_id)?;
     for environment_id in environment_ids {
         state.runtime.stop(&environment_id).await?;
+        state
+            .terminal
+            .close_all_for_environment(&environment_id)
+            .await;
     }
     state.workspace.remove_project(&project_id)?;
     Ok(())
@@ -82,6 +86,10 @@ pub async fn delete_worktree_environment(
         .workspace
         .ensure_worktree_environment_can_be_deleted(&environment_id)?;
     state.runtime.stop(&environment_id).await?;
+    state
+        .terminal
+        .close_all_for_environment(&environment_id)
+        .await;
     Ok(state
         .workspace
         .delete_worktree_environment(&environment_id)?)

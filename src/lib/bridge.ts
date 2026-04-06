@@ -30,11 +30,17 @@ import type {
   RuntimeStatusSnapshot,
   SendThreadMessageInput,
   SubmitPlanDecisionInput,
+  TerminalEventPayload,
   TranscribeEnvironmentVoiceInput,
   ThreadComposerCatalog,
   ThreadConversationOpenResponse,
   ThreadConversationSnapshot,
   ThreadRecord,
+  OpenEnvironmentTerminalInput,
+  ResizeEnvironmentTerminalInput,
+  WriteEnvironmentTerminalInput,
+  CloseEnvironmentTerminalInput,
+  EnvironmentTerminalSnapshot,
   WorktreeScriptFailureEventPayload,
   VoiceTranscriptionResult,
   WorkspaceSnapshot,
@@ -236,6 +242,38 @@ export function listenToWorktreeScriptFailures(
   return listen<WorktreeScriptFailureEventPayload>(
     "threadex://worktree-script-failure",
     (event) => callback(event.payload),
+  );
+}
+
+export function openEnvironmentTerminal(
+  input: OpenEnvironmentTerminalInput,
+): Promise<EnvironmentTerminalSnapshot> {
+  return invoke<EnvironmentTerminalSnapshot>("open_environment_terminal", { input });
+}
+
+export function writeEnvironmentTerminal(
+  input: WriteEnvironmentTerminalInput,
+): Promise<void> {
+  return invoke<void>("write_environment_terminal", { input });
+}
+
+export function resizeEnvironmentTerminal(
+  input: ResizeEnvironmentTerminalInput,
+): Promise<void> {
+  return invoke<void>("resize_environment_terminal", { input });
+}
+
+export function closeEnvironmentTerminal(
+  input: CloseEnvironmentTerminalInput,
+): Promise<void> {
+  return invoke<void>("close_environment_terminal", { input });
+}
+
+export function listenToTerminalEvents(
+  callback: (payload: TerminalEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<TerminalEventPayload>("threadex://terminal-event", (event) =>
+    callback(event.payload),
   );
 }
 
