@@ -14,6 +14,7 @@ use crate::domain::conversation::{
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
 use crate::runtime::codex_paths::{missing_codex_binary_message, resolve_auto_binary_path};
+use crate::runtime::protocol::AccountReadResponse;
 use crate::runtime::session::{AppServerAuthStatus, RuntimeSession, SendMessageResult};
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -134,6 +135,20 @@ impl RuntimeSupervisor {
             .await?;
 
         read_account_rate_limits_from_target(read_target).await
+    }
+
+    pub async fn read_account(
+        &self,
+        environment_id: &str,
+        environment_path: &str,
+        codex_binary_path: Option<String>,
+        refresh_token: bool,
+    ) -> AppResult<AccountReadResponse> {
+        let read_target = self
+            .resolve_read_target(environment_id, environment_path, codex_binary_path)
+            .await?;
+
+        read_account_from_target(read_target, refresh_token).await
     }
 
     pub async fn read_auth_status(
@@ -407,6 +422,20 @@ async fn read_account_rate_limits_from_target(
     }
 }
 
+async fn read_account_from_target(
+    read_target: RuntimeReadTarget,
+    refresh_token: bool,
+) -> AppResult<AccountReadResponse> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => session.read_account(refresh_token).await,
+        RuntimeReadTarget::Headless(session) => {
+            let result = session.read_account(refresh_token).await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
 async fn read_auth_status_from_target(
     read_target: RuntimeReadTarget,
     include_token: bool,
@@ -458,11 +487,12 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        finish_headless_read, read_auth_status_from_target, resolve_binary_path,
-        AppServerAuthStatus, RuntimeReadTarget,
+        finish_headless_read, read_account_from_target, read_auth_status_from_target,
+        resolve_binary_path, AppServerAuthStatus, RuntimeReadTarget,
     };
     use crate::domain::voice::VoiceAuthMode;
     use crate::error::AppError;
+    use crate::runtime::protocol::AccountReadAuthTypeWire;
     use crate::runtime::session::RuntimeSession;
 
     #[tokio::test]
@@ -484,6 +514,29 @@ mod tests {
             .expect("getAuthStatus request should be recorded");
         assert_eq!(auth_request.params["includeToken"], true);
         assert_eq!(auth_request.params["refreshToken"], true);
+    }
+
+    #[tokio::test]
+    async fn running_read_account_uses_the_active_session() {
+        let (session, harness) = spawn_test_session().await;
+
+        let account =
+            read_account_from_target(RuntimeReadTarget::Running(Arc::new(session)), false)
+                .await
+                .expect("running account read should load");
+
+        assert_eq!(
+            account.account.as_ref().map(|account| account.auth_type),
+            Some(AccountReadAuthTypeWire::Chatgpt)
+        );
+        assert!(!account.requires_openai_auth);
+
+        let requests = harness.requests().await;
+        let account_request = requests
+            .iter()
+            .find(|request| request.method == "account/read")
+            .expect("account/read request should be recorded");
+        assert_eq!(account_request.params["refreshToken"], false);
     }
 
     #[test]
@@ -646,12 +699,27 @@ mod tests {
                         "id": id,
                         "result": { "data": [], "nextCursor": null }
                     }),
+                    "account/read" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "account": {
+                                "type": "chatgpt",
+                                "email": "codex@example.com",
+                                "planType": "plus"
+                            },
+                            "requiresOpenaiAuth": false
+                        }
+                    }),
                     "getAuthStatus" => json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": {
                             "authMethod": "chatgpt",
-                            "authToken": "token-123",
+                            "authToken": params["includeToken"]
+                                .as_bool()
+                                .filter(|include_token| *include_token)
+                                .map(|_| "token-123"),
                             "requiresOpenaiAuth": false
                         }
                     }),

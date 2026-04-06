@@ -14,6 +14,7 @@ pub enum EnvironmentVoiceUnavailableReason {
     ChatgptRequired,
     TokenMissing,
     RuntimeUnavailable,
+    UnsupportedRuntime,
     PlatformUnsupported,
     Unknown,
 }

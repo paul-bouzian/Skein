@@ -480,6 +480,29 @@ pub struct AccountRateLimitsReadResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AccountReadResponse {
+    pub account: Option<AccountReadAccountWire>,
+    pub requires_openai_auth: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountReadAccountWire {
+    #[serde(rename = "type")]
+    pub auth_type: AccountReadAuthTypeWire,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AccountReadAuthTypeWire {
+    ApiKey,
+    Chatgpt,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CollaborationModeWire {
     pub name: String,
     pub mode: Option<String>,

@@ -38,11 +38,11 @@ use crate::runtime::protocol::{
     proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
     subagents_from_collab_item, task_plan_from_item, task_plan_from_turn_update,
     task_status_from_turn_status, token_usage_snapshot, upsert_item, user_input_payload,
-    AccountRateLimitsReadResponse, AppInfoWire, AppsListResponse, CollaborationModeListResponse,
-    ErrorNotification, FuzzyFileSearchMatchTypeWire, FuzzyFileSearchResponse, IncomingMessage,
-    ItemDeltaNotification, ItemNotification, ModelListResponse, OutgoingNamedInput,
-    OutgoingTextElement, OutgoingUserInputPayload, PlanDeltaNotification,
-    ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
+    AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire, AppsListResponse,
+    CollaborationModeListResponse, ErrorNotification, FuzzyFileSearchMatchTypeWire,
+    FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification, ItemNotification,
+    ModelListResponse, OutgoingNamedInput, OutgoingTextElement, OutgoingUserInputPayload,
+    PlanDeltaNotification, ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
     ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse, TokenUsageNotification,
     TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse, TurnStartedNotification,
     CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
@@ -623,6 +623,16 @@ impl RuntimeSession {
             )
             .await?
             .rate_limits)
+    }
+
+    pub async fn read_account(&self, refresh_token: bool) -> AppResult<AccountReadResponse> {
+        self.request_typed::<AccountReadResponse>(
+            "account/read",
+            serde_json::json!({
+                "refreshToken": refresh_token,
+            }),
+        )
+        .await
     }
 
     pub async fn read_auth_status(

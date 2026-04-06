@@ -339,9 +339,20 @@ fn spawn_fake_codex(
                         }
                     }
                 }),
+                "account/read" => json!({
+                    "account": {
+                        "type": "chatgpt",
+                        "email": "codex@example.com",
+                        "planType": "plus"
+                    },
+                    "requiresOpenaiAuth": false
+                }),
                 "getAuthStatus" => json!({
                     "authMethod": "chatgpt",
-                    "authToken": "token-123",
+                    "authToken": params["includeToken"]
+                        .as_bool()
+                        .filter(|include_token| *include_token)
+                        .map(|_| "token-123"),
                     "requiresOpenaiAuth": false
                 }),
                 "turn/interrupt" => json!({}),
@@ -546,6 +557,29 @@ async fn read_auth_status_requests_token_refresh_fields() {
         .expect("getAuthStatus should be requested");
     assert_eq!(auth_request.params["includeToken"], true);
     assert_eq!(auth_request.params["refreshToken"], true);
+}
+
+#[tokio::test]
+async fn read_account_requests_refresh_token_without_auth_bridge() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    let account = session
+        .read_account(false)
+        .await
+        .expect("account should load");
+
+    assert_eq!(
+        account.account.as_ref().map(|account| &account.auth_type),
+        Some(&crate::runtime::protocol::AccountReadAuthTypeWire::Chatgpt)
+    );
+    assert!(!account.requires_openai_auth);
+
+    let requests = harness.requests().await;
+    let account_request = requests
+        .iter()
+        .find(|request| request.method == "account/read")
+        .expect("account/read should be requested");
+    assert_eq!(account_request.params["refreshToken"], false);
 }
 
 #[tokio::test]

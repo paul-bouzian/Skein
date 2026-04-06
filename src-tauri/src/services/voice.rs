@@ -3,13 +3,14 @@ use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, ORIGIN, REFERER, USER_AGENT};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::Deserialize;
-use tracing::warn;
+use std::time::Duration;
 
 use crate::domain::voice::{
     EnvironmentVoiceStatusSnapshot, EnvironmentVoiceUnavailableReason,
     TranscribeEnvironmentVoiceInput, VoiceAuthMode, VoiceTranscriptionResult,
 };
 use crate::error::{AppError, AppResult};
+use crate::runtime::protocol::{AccountReadAuthTypeWire, AccountReadResponse};
 use crate::runtime::session::AppServerAuthStatus;
 use crate::runtime::supervisor::RuntimeSupervisor;
 use crate::services::workspace::WorkspaceService;
@@ -21,6 +22,8 @@ const REQUIRED_SAMPLE_RATE_HZ: u32 = 24_000;
 const REQUIRED_CHANNELS: u16 = 1;
 const REQUIRED_BITS_PER_SAMPLE: u16 = 16;
 const REQUIRED_AUDIO_FORMAT_PCM: u16 = 1;
+const TRANSCRIPTION_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const TRANSCRIPTION_REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 const CHATGPT_BROWSER_ACCEPT: &str = "application/json, text/plain, */*";
 const CHATGPT_BROWSER_ACCEPT_LANGUAGE: &str = "en-US,en;q=0.9";
 const CHATGPT_BROWSER_ORIGIN: &str = "https://chatgpt.com";
@@ -28,6 +31,8 @@ const CHATGPT_BROWSER_REFERER: &str = "https://chatgpt.com/";
 const CHATGPT_BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+const UNSUPPORTED_RUNTIME_MESSAGE: &str =
+    "Voice transcription requires a Codex app-server build that exposes ChatGPT auth status. Update Codex and try again.";
 
 #[derive(Debug, Clone)]
 pub struct VoiceService {
@@ -70,7 +75,11 @@ struct ProviderErrorPayload {
 impl VoiceService {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(TRANSCRIPTION_CONNECT_TIMEOUT)
+                .timeout(TRANSCRIPTION_REQUEST_TIMEOUT)
+                .build()
+                .expect("voice transcription client should build"),
         }
     }
 
@@ -82,35 +91,27 @@ impl VoiceService {
     ) -> AppResult<EnvironmentVoiceStatusSnapshot> {
         let (environment_path, codex_binary_path) =
             workspace.environment_runtime_target(environment_id)?;
-        let auth_status = runtime
+        match runtime
             .read_auth_status(
                 environment_id,
                 &environment_path,
-                codex_binary_path,
-                true,
+                codex_binary_path.clone(),
+                false,
                 false,
             )
-            .await;
-
-        match auth_status {
-            Ok(status) => Ok(voice_status_snapshot(environment_id, &status)),
-            Err(error) => {
-                warn!(
-                    environment_id,
-                    error = %error,
-                    "failed to load voice auth status from app-server"
-                );
-                Ok(EnvironmentVoiceStatusSnapshot {
-                    environment_id: environment_id.to_string(),
-                    available: false,
-                    auth_mode: None,
-                    unavailable_reason: Some(EnvironmentVoiceUnavailableReason::RuntimeUnavailable),
-                    message: Some(
-                        "Voice transcription is unavailable because the Codex runtime could not be reached."
-                            .to_string(),
-                    ),
-                })
+            .await
+        {
+            Ok(status) => Ok(voice_status_snapshot_from_auth_status(
+                environment_id,
+                &status,
+            )),
+            Err(error) if is_get_auth_status_unavailable(&error) => {
+                let account = runtime
+                    .read_account(environment_id, &environment_path, codex_binary_path, false)
+                    .await?;
+                Ok(voice_status_snapshot_from_account(environment_id, &account))
             }
+            Err(error) => Err(error),
         }
     }
 
@@ -160,15 +161,28 @@ impl VoiceService {
         environment_path: &str,
         codex_binary_path: Option<String>,
     ) -> AppResult<TranscriptionAuthContext> {
-        let auth_status = runtime
+        // ChatGPT-authenticated Codex builds reject `thread/realtime/*` with
+        // "realtime conversation requires API key auth", so dictation only
+        // requests a ChatGPT bearer token at transcription time.
+        let auth_status = match runtime
             .read_auth_status(
                 environment_id,
                 environment_path,
-                codex_binary_path,
+                codex_binary_path.clone(),
                 true,
                 true,
             )
-            .await?;
+            .await
+        {
+            Ok(status) => status,
+            Err(error) if is_get_auth_status_unavailable(&error) => {
+                let account = runtime
+                    .read_account(environment_id, environment_path, codex_binary_path, true)
+                    .await?;
+                return Err(transcription_unsupported_error_from_account(account));
+            }
+            Err(error) => return Err(error),
+        };
         resolve_transcription_auth(auth_status)
     }
 
@@ -187,7 +201,15 @@ impl VoiceService {
             .multipart(form)
             .send()
             .await
-            .map_err(|error| TranscriptionFailure::Provider(error.to_string()))?;
+            .map_err(|error| {
+                if error.is_timeout() {
+                    return TranscriptionFailure::Provider(
+                        "Voice transcription timed out. Try a shorter recording or try again."
+                            .to_string(),
+                    );
+                }
+                TranscriptionFailure::Provider(error.to_string())
+            })?;
 
         if response.status() == StatusCode::UNAUTHORIZED
             || response.status() == StatusCode::FORBIDDEN
@@ -271,18 +293,18 @@ fn resolve_transcription_auth(
     Ok(TranscriptionAuthContext { token })
 }
 
-fn voice_status_snapshot(
+fn voice_status_snapshot_from_auth_status(
     environment_id: &str,
     auth_status: &AppServerAuthStatus,
 ) -> EnvironmentVoiceStatusSnapshot {
     let auth_mode = auth_status.auth_method;
-    let has_token = read_non_empty_text(auth_status.auth_token.clone()).is_some();
     let is_chatgpt = matches!(
         auth_mode,
         Some(VoiceAuthMode::Chatgpt | VoiceAuthMode::ChatgptAuthTokens)
     );
+    let requires_openai_auth = auth_status.requires_openai_auth.unwrap_or(false);
 
-    if is_chatgpt && has_token {
+    if is_chatgpt && !requires_openai_auth {
         return EnvironmentVoiceStatusSnapshot {
             environment_id: environment_id.to_string(),
             available: true,
@@ -301,7 +323,7 @@ fn voice_status_snapshot(
             EnvironmentVoiceUnavailableReason::TokenMissing,
             "Sign in with ChatGPT before using voice transcription.",
         ),
-        None if auth_status.requires_openai_auth.unwrap_or(false) => (
+        None if requires_openai_auth => (
             EnvironmentVoiceUnavailableReason::TokenMissing,
             "Sign in with ChatGPT before using voice transcription.",
         ),
@@ -318,6 +340,94 @@ fn voice_status_snapshot(
         unavailable_reason: Some(unavailable_reason),
         message: Some(message.to_string()),
     }
+}
+
+fn voice_status_snapshot_from_account(
+    environment_id: &str,
+    account: &AccountReadResponse,
+) -> EnvironmentVoiceStatusSnapshot {
+    let auth_mode = account
+        .account
+        .as_ref()
+        .and_then(|account| voice_auth_mode_from_account_type(account.auth_type));
+
+    let (unavailable_reason, message) = match auth_mode {
+        Some(VoiceAuthMode::ApiKey) => (
+            EnvironmentVoiceUnavailableReason::ChatgptRequired,
+            "Voice transcription requires Sign in with ChatGPT. API-key auth is not supported.",
+        ),
+        Some(VoiceAuthMode::Chatgpt) if account.requires_openai_auth => (
+            EnvironmentVoiceUnavailableReason::TokenMissing,
+            "Sign in with ChatGPT before using voice transcription.",
+        ),
+        Some(VoiceAuthMode::Chatgpt) => (
+            EnvironmentVoiceUnavailableReason::UnsupportedRuntime,
+            UNSUPPORTED_RUNTIME_MESSAGE,
+        ),
+        None if account.requires_openai_auth => (
+            EnvironmentVoiceUnavailableReason::TokenMissing,
+            "Sign in with ChatGPT before using voice transcription.",
+        ),
+        None => (
+            EnvironmentVoiceUnavailableReason::Unknown,
+            "Voice transcription is unavailable for this Codex runtime session.",
+        ),
+        Some(VoiceAuthMode::ChatgptAuthTokens) => (
+            EnvironmentVoiceUnavailableReason::UnsupportedRuntime,
+            UNSUPPORTED_RUNTIME_MESSAGE,
+        ),
+    };
+
+    EnvironmentVoiceStatusSnapshot {
+        environment_id: environment_id.to_string(),
+        available: false,
+        auth_mode,
+        unavailable_reason: Some(unavailable_reason),
+        message: Some(message.to_string()),
+    }
+}
+
+fn voice_auth_mode_from_account_type(
+    account_type: AccountReadAuthTypeWire,
+) -> Option<VoiceAuthMode> {
+    match account_type {
+        AccountReadAuthTypeWire::ApiKey => Some(VoiceAuthMode::ApiKey),
+        AccountReadAuthTypeWire::Chatgpt => Some(VoiceAuthMode::Chatgpt),
+        AccountReadAuthTypeWire::Unknown => None,
+    }
+}
+
+fn transcription_unsupported_error_from_account(account: AccountReadResponse) -> AppError {
+    match account
+        .account
+        .as_ref()
+        .and_then(|account| voice_auth_mode_from_account_type(account.auth_type))
+    {
+        Some(VoiceAuthMode::ApiKey) => AppError::Validation(
+            "Voice transcription requires Sign in with ChatGPT. API-key auth is not supported."
+                .to_string(),
+        ),
+        Some(VoiceAuthMode::Chatgpt) if account.requires_openai_auth => AppError::Validation(
+            "Sign in with ChatGPT before using voice transcription.".to_string(),
+        ),
+        Some(VoiceAuthMode::Chatgpt) | Some(VoiceAuthMode::ChatgptAuthTokens) => {
+            AppError::Runtime(UNSUPPORTED_RUNTIME_MESSAGE.to_string())
+        }
+        None if account.requires_openai_auth => AppError::Validation(
+            "Sign in with ChatGPT before using voice transcription.".to_string(),
+        ),
+        None => AppError::Runtime(UNSUPPORTED_RUNTIME_MESSAGE.to_string()),
+    }
+}
+
+fn is_get_auth_status_unavailable(error: &AppError) -> bool {
+    let AppError::Runtime(message) = error else {
+        return false;
+    };
+
+    message.contains("unknown variant `getAuthStatus`")
+        || message.contains("unsupported method: getAuthStatus")
+        || (message.contains("Method not found") && message.contains("getAuthStatus"))
 }
 
 fn transcription_failure_to_error(error: TranscriptionFailure) -> AppError {
@@ -377,14 +487,26 @@ fn validate_transcription_input(
 }
 
 fn decode_audio_base64(audio_base64: &str) -> AppResult<Vec<u8>> {
-    let normalized = audio_base64
+    let normalized_len = audio_base64
         .chars()
         .filter(|character| !character.is_whitespace())
-        .collect::<String>();
-    if normalized.is_empty() {
+        .count();
+    if normalized_len == 0 {
         return Err(AppError::Validation(
             "The voice request did not include any audio.".to_string(),
         ));
+    }
+    if estimated_decoded_base64_len(normalized_len)? > MAX_AUDIO_BYTES {
+        return Err(AppError::Validation(
+            "Voice messages are limited to 10 MB.".to_string(),
+        ));
+    }
+
+    let mut normalized = String::with_capacity(normalized_len);
+    for character in audio_base64.chars() {
+        if !character.is_whitespace() {
+            normalized.push(character);
+        }
     }
 
     let audio_bytes = base64::engine::general_purpose::STANDARD
@@ -399,6 +521,13 @@ fn decode_audio_base64(audio_base64: &str) -> AppResult<Vec<u8>> {
     }
 
     Ok(audio_bytes)
+}
+
+fn estimated_decoded_base64_len(normalized_len: usize) -> AppResult<usize> {
+    normalized_len
+        .div_ceil(4)
+        .checked_mul(3)
+        .ok_or_else(|| AppError::Validation("Voice messages are limited to 10 MB.".to_string()))
 }
 
 fn validate_wav_buffer(audio_bytes: &[u8], expected_sample_rate_hz: u32) -> AppResult<()> {
@@ -515,20 +644,23 @@ mod tests {
 
     use super::{
         resolve_transcription_auth, transcription_request, validate_transcription_input,
-        voice_status_snapshot, AppServerAuthStatus, EnvironmentVoiceUnavailableReason,
-        TranscribeEnvironmentVoiceInput, VoiceAuthMode, CHATGPT_BROWSER_ACCEPT,
-        CHATGPT_BROWSER_ACCEPT_LANGUAGE, CHATGPT_BROWSER_ORIGIN, CHATGPT_BROWSER_REFERER,
-        CHATGPT_BROWSER_USER_AGENT, CHATGPT_TRANSCRIPTIONS_URL,
+        voice_status_snapshot_from_account, voice_status_snapshot_from_auth_status,
+        AccountReadAuthTypeWire, AccountReadResponse, AppServerAuthStatus,
+        EnvironmentVoiceUnavailableReason, TranscribeEnvironmentVoiceInput, VoiceAuthMode,
+        CHATGPT_BROWSER_ACCEPT, CHATGPT_BROWSER_ACCEPT_LANGUAGE, CHATGPT_BROWSER_ORIGIN,
+        CHATGPT_BROWSER_REFERER, CHATGPT_BROWSER_USER_AGENT, CHATGPT_TRANSCRIPTIONS_URL,
+        MAX_AUDIO_BYTES,
     };
     use crate::error::AppError;
+    use crate::runtime::protocol::AccountReadAccountWire;
 
     #[test]
-    fn marks_chatgpt_status_with_token_as_available() {
-        let snapshot = voice_status_snapshot(
+    fn marks_chatgpt_status_without_token_as_available() {
+        let snapshot = voice_status_snapshot_from_auth_status(
             "env-1",
             &AppServerAuthStatus {
                 auth_method: Some(VoiceAuthMode::Chatgpt),
-                auth_token: Some("token-123".to_string()),
+                auth_token: None,
                 requires_openai_auth: Some(false),
             },
         );
@@ -612,12 +744,12 @@ mod tests {
 
     #[test]
     fn marks_missing_tokens_as_token_missing() {
-        let snapshot = voice_status_snapshot(
+        let snapshot = voice_status_snapshot_from_auth_status(
             "env-1",
             &AppServerAuthStatus {
                 auth_method: Some(VoiceAuthMode::Chatgpt),
                 auth_token: None,
-                requires_openai_auth: Some(false),
+                requires_openai_auth: Some(true),
             },
         );
 
@@ -626,6 +758,44 @@ mod tests {
             snapshot.unavailable_reason,
             Some(EnvironmentVoiceUnavailableReason::TokenMissing)
         );
+    }
+
+    #[test]
+    fn marks_account_fallback_as_unsupported_runtime_when_chatgpt_is_ready() {
+        let snapshot = voice_status_snapshot_from_account(
+            "env-1",
+            &AccountReadResponse {
+                account: Some(AccountReadAccountWire {
+                    auth_type: AccountReadAuthTypeWire::Chatgpt,
+                }),
+                requires_openai_auth: false,
+            },
+        );
+
+        assert!(!snapshot.available);
+        assert_eq!(snapshot.auth_mode, Some(VoiceAuthMode::Chatgpt));
+        assert_eq!(
+            snapshot.unavailable_reason,
+            Some(EnvironmentVoiceUnavailableReason::UnsupportedRuntime)
+        );
+    }
+
+    #[test]
+    fn rejects_base64_payloads_that_exceed_the_audio_limit_before_decoding() {
+        let oversized_base64_len = (MAX_AUDIO_BYTES + 1).div_ceil(3) * 4;
+        let error = validate_transcription_input(TranscribeEnvironmentVoiceInput {
+            environment_id: "env-1".to_string(),
+            mime_type: "audio/wav".to_string(),
+            sample_rate_hz: 24_000,
+            duration_ms: 500,
+            audio_base64: "A".repeat(oversized_base64_len),
+        })
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            AppError::Validation(message) if message.contains("10 MB")
+        ));
     }
 
     #[test]

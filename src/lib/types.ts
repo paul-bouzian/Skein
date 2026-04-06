@@ -174,6 +174,7 @@ export type EnvironmentVoiceUnavailableReason =
   | "chatgptRequired"
   | "tokenMissing"
   | "runtimeUnavailable"
+  | "unsupportedRuntime"
   | "platformUnsupported"
   | "unknown";
 
