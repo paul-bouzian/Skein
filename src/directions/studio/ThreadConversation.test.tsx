@@ -1333,6 +1333,63 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("clears attached images when switching threads", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-thread-switch-1",
+      }),
+    );
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue(["/tmp/thread-a.png"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Attach images" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("thread-a.png")).toBeInTheDocument();
+    });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread({ id: "thread-2" })}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("thread-a.png")).toBeNull();
+    });
+
+    await userEvent.type(
+      await screen.findByPlaceholderText("Message ThreadEx..."),
+      "Only text here",
+    );
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+        threadId: "thread-2",
+        text: "Only text here",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+      });
+    });
+  });
+
   it("keeps refine mode and draft content when approving a plan fails", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({

@@ -86,16 +86,27 @@ export function useComposerImageInput({
 }: Props) {
   const dropTargetRef = useRef<HTMLDivElement | null>(null);
   const lastClientPositionRef = useRef<DragPosition | null>(null);
+  const disabledRef = useRef(disabled);
+  const imagesEnabledRef = useRef(imagesEnabled);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  useEffect(() => {
+    disabledRef.current = disabled;
+    imagesEnabledRef.current = imagesEnabled;
+  }, [disabled, imagesEnabled]);
 
   const appendImages = useCallback(
     (images: ConversationImageAttachment[]) => {
-      if (images.length === 0 || disabled || !imagesEnabled) {
+      if (
+        images.length === 0 ||
+        disabledRef.current ||
+        !imagesEnabledRef.current
+      ) {
         return;
       }
       setImages((current) => mergeImages(current, images));
     },
-    [disabled, imagesEnabled, setImages],
+    [setImages],
   );
 
   const removeImage = useCallback(

@@ -69,6 +69,10 @@ export function ThreadConversation({ environment, thread }: Props) {
   }, [openThread, thread.id]);
 
   useEffect(() => {
+    setImages([]);
+  }, [thread.id]);
+
+  useEffect(() => {
     const element = timelineRef.current;
     if (!element) return;
     element.scrollTop = element.scrollHeight;

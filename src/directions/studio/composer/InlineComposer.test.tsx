@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -389,6 +389,64 @@ describe("InlineComposer image attachments", () => {
     }
   });
 
+  it("ignores async image completions after the composer becomes disabled", async () => {
+    const originalFileReader = window.FileReader;
+    let completeRead: (() => void) | null = null;
+
+    class DeferredFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public error: DOMException | null = null;
+      public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL() {
+        completeRead = () => {
+          this.result = "data:image/png;base64,c3VjY2Vzcw==";
+          this.onload?.(new ProgressEvent("load") as ProgressEvent<FileReader>);
+        };
+      }
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      value: DeferredFileReader,
+    });
+
+    try {
+      renderComposerWithDynamicDisabledState("");
+
+      const input = await screen.findByPlaceholderText("Message ThreadEx...");
+      fireEvent.paste(input, {
+        clipboardData: {
+          items: [
+            {
+              kind: "file",
+              getAsFile: () =>
+                new File(["ok"], "success.png", { type: "image/png" }),
+            },
+          ],
+        },
+      });
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Disable composer" }),
+      );
+
+      await act(async () => {
+        completeRead?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText("Attached images")).toBeNull();
+      });
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        value: originalFileReader,
+      });
+    }
+  });
+
   it("disables image attachments when the selected model lacks image input", async () => {
     renderComposer("", {
       modelOptions: [
@@ -493,6 +551,55 @@ function renderComposerWithExternalDraftAction(initialDraft: string) {
           composer={baseComposer}
           collaborationModes={capabilitiesFixture.collaborationModes}
           disabled={false}
+          draft={draft}
+          effortOptions={["low", "medium", "high", "xhigh"]}
+          focusKey="thread-1"
+          images={images}
+          isBusy={false}
+          isSending={false}
+          isRefiningPlan={false}
+          mentionBindings={mentionBindings}
+          modelOptions={capabilitiesFixture.models}
+          onChangeImages={setImages}
+          tokenUsage={null}
+          onCancelRefine={() => undefined}
+          onChangeDraft={setDraft}
+          onChangeMentionBindings={setMentionBindings}
+          onInterrupt={() => undefined}
+          onSend={() => undefined}
+          onUpdateComposer={() => undefined}
+        />
+      </>
+    );
+  }
+
+  return render(<Harness />);
+}
+
+function renderComposerWithDynamicDisabledState(initialDraft: string) {
+  function Harness() {
+    const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
+    const [mentionBindings, setMentionBindings] = useState<
+      ComposerDraftMentionBinding[]
+    >([]);
+    const [disabled, setDisabled] = useState(false);
+
+    return (
+      <>
+        <button type="button" onClick={() => setDisabled(true)}>
+          Disable composer
+        </button>
+        <InlineComposer
+          environmentId="env-1"
+          threadId="thread-1"
+          composer={baseComposer}
+          collaborationModes={capabilitiesFixture.collaborationModes}
+          disabled={disabled}
           draft={draft}
           effortOptions={["low", "medium", "high", "xhigh"]}
           focusKey="thread-1"

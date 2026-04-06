@@ -1986,7 +1986,7 @@ fn same_message_images(
 ) -> bool {
     match (left, right) {
         (None, None) => true,
-        (Some(left), Some(right)) => left == right,
+        (Some(left), Some(right)) => left == right || left.len() == right.len(),
         _ => false,
     }
 }
@@ -2207,6 +2207,46 @@ mod tests {
         assert_eq!(items.len(), 1);
         match &items[0] {
             ConversationItem::Message(message) => assert_eq!(message.id, "user-1"),
+            _ => panic!("expected a message item"),
+        }
+    }
+
+    #[test]
+    fn canonical_user_message_replaces_optimistic_entry_when_images_are_rewritten() {
+        let mut items = vec![ConversationItem::Message(ConversationMessageItem {
+            id: "local-user-1".to_string(),
+            role: ConversationRole::User,
+            text: "".to_string(),
+            images: Some(vec![ConversationImageAttachment::LocalImage {
+                path: "/tmp/capture.png".to_string(),
+            }]),
+            is_streaming: false,
+        })];
+
+        upsert_item(
+            &mut items,
+            ConversationItem::Message(ConversationMessageItem {
+                id: "user-1".to_string(),
+                role: ConversationRole::User,
+                text: "".to_string(),
+                images: Some(vec![ConversationImageAttachment::Image {
+                    url: "https://example.com/capture.png".to_string(),
+                }]),
+                is_streaming: false,
+            }),
+        );
+
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            ConversationItem::Message(message) => {
+                assert_eq!(message.id, "user-1");
+                assert_eq!(
+                    message.images,
+                    Some(vec![ConversationImageAttachment::Image {
+                        url: "https://example.com/capture.png".to_string(),
+                    }])
+                );
+            }
             _ => panic!("expected a message item"),
         }
     }
