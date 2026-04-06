@@ -32,6 +32,7 @@ vi.mock("../../lib/bridge", () => ({
   refreshThreadConversation: vi.fn(),
   getThreadComposerCatalog: vi.fn(),
   searchThreadFiles: vi.fn(),
+  readImageAsDataUrl: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
   respondToApprovalRequest: vi.fn(),
@@ -40,6 +41,16 @@ vi.mock("../../lib/bridge", () => ({
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
   listenToConversationEvents: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({
+    onDragDropEvent: vi.fn(async () => () => undefined),
+  })),
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -98,6 +109,9 @@ beforeEach(() => {
     apps: [],
   });
   mockedBridge.searchThreadFiles.mockResolvedValue([]);
+  mockedBridge.readImageAsDataUrl.mockResolvedValue(
+    "data:image/png;base64,aGVsbG8=",
+  );
   mockedBridge.getEnvironmentVoiceStatus.mockResolvedValue({
     environmentId: "env-1",
     available: false,
@@ -154,6 +168,7 @@ describe("ThreadConversation", () => {
             id: "assistant-markdown-1",
             role: "assistant",
             text: "## Release notes\n\n**Bold guidance** with `bun`.\n\n- First step\n- Second step\n\n```bash\nbun run verify\n```",
+            images: null,
             isStreaming: false,
           },
         ],
@@ -258,6 +273,7 @@ describe("ThreadConversation", () => {
             id: "user-multiline-1",
             role: "user",
             text: "Line one\nLine two",
+            images: null,
             isStreaming: false,
           },
         ],
@@ -441,6 +457,84 @@ describe("ThreadConversation", () => {
     expect(openUrlMock).toHaveBeenCalledWith("https://threadex.dev/help");
   });
 
+  it("renders attached user images in the timeline", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "user-images-1",
+            role: "user",
+            text: "",
+            images: [
+              {
+                type: "image",
+                url: "data:image/png;base64,aGVsbG8=",
+              },
+            ],
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const image = await screen.findByRole("img", { name: "Pasted image" });
+    expect(image).toHaveAttribute("src", "data:image/png;base64,aGVsbG8=");
+  });
+
+  it("sends image-only messages from the composer", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-image-only-1",
+      }),
+    );
+    mockedBridge.readImageAsDataUrl.mockResolvedValue(
+      "data:image/png;base64,aGVsbG8=",
+    );
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue(["/tmp/diagram.png"]);
+
+    await screen.findByPlaceholderText("Message ThreadEx...");
+    await userEvent.click(screen.getByRole("button", { name: "Attach images" }));
+    await waitFor(() => {
+      expect(screen.getByText("diagram.png")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        text: "",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+        images: [{ type: "localImage", path: "/tmp/diagram.png" }],
+      });
+    });
+  });
+
   it("renders the subagent strip and context meter for active turns", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -579,6 +673,7 @@ describe("ThreadConversation", () => {
             id: "assistant-build-1",
             role: "assistant",
             text: "Starting implementation now.",
+            images: null,
             isStreaming: true,
           },
         ],
@@ -671,6 +766,39 @@ describe("ThreadConversation", () => {
         }),
       });
     });
+  });
+
+  it("requires text before sending a plan refinement even with attached images", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue(["/tmp/diagram.png"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Refine" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Attach images" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("diagram.png")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Refine plan" })).toBeDisabled();
+    expect(mockedBridge.submitPlanDecision).not.toHaveBeenCalled();
   });
 
   it("leaves refine mode on Escape", async () => {
@@ -1205,6 +1333,63 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("clears attached images when switching threads", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-thread-switch-1",
+      }),
+    );
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue(["/tmp/thread-a.png"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Attach images" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("thread-a.png")).toBeInTheDocument();
+    });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread({ id: "thread-2" })}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("thread-a.png")).toBeNull();
+    });
+
+    await userEvent.type(
+      await screen.findByPlaceholderText("Message ThreadEx..."),
+      "Only text here",
+    );
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+        threadId: "thread-2",
+        text: "Only text here",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+      });
+    });
+  });
+
   it("keeps refine mode and draft content when approving a plan fails", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -1257,6 +1442,7 @@ describe("ThreadConversation", () => {
             description: "Mini Codex model",
             defaultReasoningEffort: "medium",
             supportedReasoningEfforts: ["low", "medium", "high"],
+            inputModalities: ["text", "image"],
             isDefault: true,
           },
           {
@@ -1265,6 +1451,7 @@ describe("ThreadConversation", () => {
             description: "Primary Codex model",
             defaultReasoningEffort: "high",
             supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+            inputModalities: ["text", "image"],
             isDefault: false,
           },
         ],

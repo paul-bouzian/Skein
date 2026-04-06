@@ -108,7 +108,15 @@ pub struct ModelOption {
     pub description: String,
     pub default_reasoning_effort: ReasoningEffort,
     pub supported_reasoning_efforts: Vec<ReasoningEffort>,
+    pub input_modalities: Vec<InputModality>,
     pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum InputModality {
+    Text,
+    Image,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -422,6 +430,7 @@ pub struct SubmitPlanDecisionInput {
     pub action: PlanDecisionAction,
     pub feedback: Option<String>,
     pub composer: Option<ConversationComposerSettings>,
+    pub images: Option<Vec<ConversationImageAttachment>>,
     pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
 }
 
@@ -431,6 +440,13 @@ pub struct ComposerMentionBindingInput {
     pub mention: String,
     pub kind: ComposerMentionBindingKind,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ConversationImageAttachment {
+    Image { url: String },
+    LocalImage { path: String },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -463,6 +479,7 @@ pub struct ConversationMessageItem {
     pub id: String,
     pub role: ConversationRole,
     pub text: String,
+    pub images: Option<Vec<ConversationImageAttachment>>,
     pub is_streaming: bool,
 }
 

@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import * as bridge from "../../../lib/bridge";
 import {
@@ -16,6 +17,7 @@ import { startVoiceCapture } from "./composer-voice-audio";
 vi.mock("../../../lib/bridge", () => ({
   getThreadComposerCatalog: vi.fn(),
   searchThreadFiles: vi.fn(),
+  readImageAsDataUrl: vi.fn(),
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
 }));
@@ -23,6 +25,16 @@ vi.mock("../../../lib/bridge", () => ({
 vi.mock("./composer-voice-audio", () => ({
   MAX_RECORDING_DURATION_MS: 120_000,
   startVoiceCapture: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: vi.fn(() => ({
+    onDragDropEvent: vi.fn(async () => () => undefined),
+  })),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -54,6 +66,9 @@ beforeEach(() => {
     apps: [],
   });
   mockedBridge.searchThreadFiles.mockResolvedValue([]);
+  mockedBridge.readImageAsDataUrl.mockResolvedValue(
+    "data:image/png;base64,aGVsbG8=",
+  );
   mockedBridge.getEnvironmentVoiceStatus.mockResolvedValue({
     environmentId: "env-1",
     available: true,
@@ -72,6 +87,7 @@ beforeEach(() => {
     configurable: true,
     value: class FakeAudioContext {},
   });
+  vi.mocked(open).mockResolvedValue(null);
 });
 
 describe("InlineComposer voice dictation", () => {
@@ -278,12 +294,196 @@ describe("InlineComposer voice dictation", () => {
   });
 });
 
+describe("InlineComposer image attachments", () => {
+  it("sends image-only drafts with attached files", async () => {
+    const onSend = vi.fn();
+    vi.mocked(open).mockResolvedValue(["/tmp/screenshot.png"]);
+
+    renderComposer("", { onSend });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Attach images" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("screenshot.png")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("", [
+      { type: "localImage", path: "/tmp/screenshot.png" },
+    ], []);
+  });
+
+  it("ignores picker failures and keeps the composer usable", async () => {
+    const onSend = vi.fn();
+    vi.mocked(open).mockRejectedValue(new Error("dialog failed"));
+
+    renderComposer("Retry after picker failure", { onSend });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Attach images" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("Retry after picker failure", [], []);
+    expect(screen.queryByLabelText("Attached images")).toBeNull();
+  });
+
+  it("keeps successful pasted images when one file read fails", async () => {
+    const originalFileReader = window.FileReader;
+    class FakeFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public error: DOMException | null = null;
+      public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL(file: File) {
+        queueMicrotask(() => {
+          if (file.name === "broken.png") {
+            this.error = new DOMException("failed");
+            this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
+            return;
+          }
+          this.result = "data:image/png;base64,c3VjY2Vzcw==";
+          this.onload?.(new ProgressEvent("load") as ProgressEvent<FileReader>);
+        });
+      }
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      value: FakeFileReader,
+    });
+
+    try {
+      renderComposer("");
+
+      const input = await screen.findByPlaceholderText("Message ThreadEx...");
+      fireEvent.paste(input, {
+        clipboardData: {
+          items: [
+            {
+              kind: "file",
+              getAsFile: () =>
+                new File(["ok"], "success.png", { type: "image/png" }),
+            },
+            {
+              kind: "file",
+              getAsFile: () =>
+                new File(["nope"], "broken.png", { type: "image/png" }),
+            },
+          ],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Pasted image")).toHaveLength(1);
+      });
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        value: originalFileReader,
+      });
+    }
+  });
+
+  it("ignores async image completions after the composer becomes disabled", async () => {
+    const originalFileReader = window.FileReader;
+    let completeRead: (() => void) | null = null;
+
+    class DeferredFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public error: DOMException | null = null;
+      public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL() {
+        completeRead = () => {
+          this.result = "data:image/png;base64,c3VjY2Vzcw==";
+          this.onload?.(new ProgressEvent("load") as ProgressEvent<FileReader>);
+        };
+      }
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      value: DeferredFileReader,
+    });
+
+    try {
+      renderComposerWithDynamicDisabledState("");
+
+      const input = await screen.findByPlaceholderText("Message ThreadEx...");
+      fireEvent.paste(input, {
+        clipboardData: {
+          items: [
+            {
+              kind: "file",
+              getAsFile: () =>
+                new File(["ok"], "success.png", { type: "image/png" }),
+            },
+          ],
+        },
+      });
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Disable composer" }),
+      );
+
+      await act(async () => {
+        completeRead?.();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText("Attached images")).toBeNull();
+      });
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        value: originalFileReader,
+      });
+    }
+  });
+
+  it("disables image attachments when the selected model lacks image input", async () => {
+    renderComposer("", {
+      modelOptions: [
+        {
+          ...capabilitiesFixture.models[0],
+          inputModalities: ["text"],
+        },
+      ],
+    });
+
+    const attachButton = await screen.findByRole("button", {
+      name: "Attach images",
+    });
+    expect(attachButton).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Image attachments are unavailable for GPT-5.4.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
 function renderComposer(
   initialDraft: string,
-  options: { disabled?: boolean } = {},
+  options: {
+    disabled?: boolean;
+    modelOptions?: typeof capabilitiesFixture.models;
+    onSend?: ComponentProps<typeof InlineComposer>["onSend"];
+  } = {},
 ) {
   function Harness() {
     const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
     const [mentionBindings, setMentionBindings] = useState<
       ComposerDraftMentionBinding[]
     >([]);
@@ -298,17 +498,19 @@ function renderComposer(
         draft={draft}
         effortOptions={["low", "medium", "high", "xhigh"]}
         focusKey="thread-1"
+        images={images}
         isBusy={false}
         isSending={false}
         isRefiningPlan={false}
         mentionBindings={mentionBindings}
-        modelOptions={capabilitiesFixture.models}
+        modelOptions={options.modelOptions ?? capabilitiesFixture.models}
+        onChangeImages={setImages}
         tokenUsage={null}
         onCancelRefine={() => undefined}
         onChangeDraft={setDraft}
         onChangeMentionBindings={setMentionBindings}
         onInterrupt={() => undefined}
-        onSend={() => undefined}
+        onSend={(...args) => options.onSend?.(...args)}
         onUpdateComposer={() => undefined}
       />
     );
@@ -320,6 +522,11 @@ function renderComposer(
 function renderComposerWithExternalDraftAction(initialDraft: string) {
   function Harness() {
     const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
     const [mentionBindings, setMentionBindings] = useState<
       ComposerDraftMentionBinding[]
     >([]);
@@ -342,11 +549,62 @@ function renderComposerWithExternalDraftAction(initialDraft: string) {
           draft={draft}
           effortOptions={["low", "medium", "high", "xhigh"]}
           focusKey="thread-1"
+          images={images}
           isBusy={false}
           isSending={false}
           isRefiningPlan={false}
           mentionBindings={mentionBindings}
           modelOptions={capabilitiesFixture.models}
+          onChangeImages={setImages}
+          tokenUsage={null}
+          onCancelRefine={() => undefined}
+          onChangeDraft={setDraft}
+          onChangeMentionBindings={setMentionBindings}
+          onInterrupt={() => undefined}
+          onSend={() => undefined}
+          onUpdateComposer={() => undefined}
+        />
+      </>
+    );
+  }
+
+  return render(<Harness />);
+}
+
+function renderComposerWithDynamicDisabledState(initialDraft: string) {
+  function Harness() {
+    const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
+    const [mentionBindings, setMentionBindings] = useState<
+      ComposerDraftMentionBinding[]
+    >([]);
+    const [disabled, setDisabled] = useState(false);
+
+    return (
+      <>
+        <button type="button" onClick={() => setDisabled(true)}>
+          Disable composer
+        </button>
+        <InlineComposer
+          environmentId="env-1"
+          threadId="thread-1"
+          composer={baseComposer}
+          collaborationModes={capabilitiesFixture.collaborationModes}
+          disabled={disabled}
+          draft={draft}
+          effortOptions={["low", "medium", "high", "xhigh"]}
+          focusKey="thread-1"
+          images={images}
+          isBusy={false}
+          isSending={false}
+          isRefiningPlan={false}
+          mentionBindings={mentionBindings}
+          modelOptions={capabilitiesFixture.models}
+          onChangeImages={setImages}
           tokenUsage={null}
           onCancelRefine={() => undefined}
           onChangeDraft={setDraft}

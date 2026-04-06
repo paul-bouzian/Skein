@@ -505,7 +505,11 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
     runtime_context.composer.reasoning_effort = ReasoningEffort::Low;
 
     let result = session
-        .send_message(runtime_context, "Run the test suite".to_string())
+        .send_message(
+            runtime_context,
+            "Run the test suite".to_string(),
+            Vec::new(),
+        )
         .await
         .expect("message should send");
 
@@ -602,7 +606,7 @@ async fn send_message_expands_inline_prompts_and_emits_native_skills_and_mention
         "Please run /prompts:inline-payload(TARGET=\"composer\") with $threadex-standards and $github";
 
     session
-        .send_message(runtime_context, visible_text.to_string())
+        .send_message(runtime_context, visible_text.to_string(), Vec::new())
         .await
         .expect("message should send");
 
@@ -680,7 +684,7 @@ async fn interrupt_thread_marks_the_snapshot_interrupted() {
     );
 
     session
-        .send_message(runtime_context.clone(), "Ship it".to_string())
+        .send_message(runtime_context.clone(), "Ship it".to_string(), Vec::new())
         .await
         .expect("message should start a turn");
 
@@ -747,7 +751,11 @@ async fn unsupported_server_requests_surface_pending_interactions() {
     );
 
     session
-        .send_message(runtime_context.clone(), "Run deployment checks".to_string())
+        .send_message(
+            runtime_context.clone(),
+            "Run deployment checks".to_string(),
+            Vec::new(),
+        )
         .await
         .expect("message should send");
 
@@ -798,6 +806,7 @@ async fn plan_mode_starts_a_real_plan_turn() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Create a plan".to_string(),
+            Vec::new(),
         )
         .await
         .expect("plan mode should now be supported");
@@ -827,6 +836,7 @@ async fn user_input_requests_can_be_answered() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Investigate".to_string(),
+            Vec::new(),
         )
         .await
         .expect("message should send");
@@ -903,6 +913,7 @@ async fn invalid_approval_payload_keeps_the_request_pending() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Run the risky command".to_string(),
+            Vec::new(),
         )
         .await
         .expect("message should send");
@@ -980,6 +991,7 @@ async fn answering_the_same_request_twice_fails_after_the_first_response() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Investigate".to_string(),
+            Vec::new(),
         )
         .await
         .expect("message should send");
@@ -1063,6 +1075,7 @@ async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode(
                 ApprovalPolicy::AskToEdit,
             ),
             "Draft the implementation plan".to_string(),
+            Vec::new(),
         )
         .await
         .expect("plan message should send");
@@ -1110,6 +1123,7 @@ async fn plan_notifications_and_approval_continue_the_same_thread_in_build_mode(
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 feedback: None,
                 composer: None,
+                images: None,
                 mention_bindings: None,
             },
         )
@@ -1159,6 +1173,7 @@ async fn streamed_notifications_update_the_open_snapshot() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Investigate".to_string(),
+            Vec::new(),
         )
         .await
         .expect("message should send");
@@ -1239,6 +1254,7 @@ async fn build_turn_plan_updates_surface_as_task_progress_without_approval_state
                 ApprovalPolicy::AskToEdit,
             ),
             "Implement the requested changes".to_string(),
+            Vec::new(),
         )
         .await
         .expect("build message should send");
@@ -1327,6 +1343,7 @@ async fn build_turn_plan_updates_surface_as_task_progress_without_approval_state
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 composer: None,
                 feedback: None,
+                images: None,
                 mention_bindings: None,
             },
         )
@@ -1350,6 +1367,7 @@ async fn reopening_an_active_plan_turn_with_build_selected_keeps_plan_updates_ac
                 ApprovalPolicy::AskToEdit,
             ),
             "Draft a plan".to_string(),
+            Vec::new(),
         )
         .await
         .expect("plan turn should start");
@@ -1433,6 +1451,7 @@ async fn reopening_a_plan_turn_before_plan_progress_exists_still_uses_item_headi
                 ApprovalPolicy::AskToEdit,
             ),
             "Draft a plan".to_string(),
+            Vec::new(),
         )
         .await
         .expect("plan turn should start");
@@ -1504,6 +1523,7 @@ async fn immediate_turn_start_results_clear_the_previous_task_tracker() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Run the build task".to_string(),
+            Vec::new(),
         )
         .await
         .expect("build turn should start");
@@ -1563,6 +1583,7 @@ async fn immediate_turn_start_results_clear_the_previous_task_tracker() {
                 ApprovalPolicy::AskToEdit,
             ),
             "Complete immediately".to_string(),
+            Vec::new(),
         )
         .await
         .expect("immediate turn should complete")
@@ -1602,6 +1623,7 @@ async fn submit_plan_decision_requires_an_actionable_plan_before_sending() {
                 action: crate::domain::conversation::PlanDecisionAction::Approve,
                 composer: None,
                 feedback: None,
+                images: None,
                 mention_bindings: None,
             },
         )
@@ -1630,6 +1652,7 @@ async fn collab_agent_notifications_update_subagent_strip_without_timeline_noise
                 ApprovalPolicy::AskToEdit,
             ),
             "Spawn a few helpers".to_string(),
+            Vec::new(),
         )
         .await
         .expect("message should send");

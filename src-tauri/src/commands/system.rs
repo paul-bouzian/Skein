@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::error::{AppError, CommandError};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -110,6 +111,7 @@ const ICON_CANDIDATES: &[&str] = &[
     "electron/icon.png",
     ".github/icon.png",
 ];
+const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
 #[tauri::command]
 pub fn get_project_icon(root_path: String) -> Option<String> {
@@ -118,17 +120,44 @@ pub fn get_project_icon(root_path: String) -> Option<String> {
         .iter()
         .map(|candidate| root.join(candidate))
         .find(|path| path.is_file())
-        .and_then(|path| icon_data_url(&path))
+        .and_then(|path| image_data_url(&path).ok())
 }
 
-fn icon_data_url(path: &Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    let mime = icon_mime_type(path)?;
+#[tauri::command]
+pub fn read_image_as_data_url(path: String) -> Result<String, CommandError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation("Image path is required.".to_string()).into());
+    }
+
+    let path = Path::new(trimmed);
+    if !path.is_file() {
+        return Err(AppError::NotFound(format!("Image not found: {trimmed}")).into());
+    }
+
+    Ok(image_data_url(path)?)
+}
+
+fn image_data_url(path: &Path) -> crate::error::AppResult<String> {
+    let mime = image_mime_type(path).ok_or_else(|| {
+        AppError::Validation(format!(
+            "Unsupported image type for preview: {}",
+            path.display()
+        ))
+    })?;
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err(AppError::Validation(format!(
+            "Image exceeds the 25 MiB preview limit: {}",
+            path.display()
+        )));
+    }
+    let bytes = std::fs::read(path)?;
     let encoded = STANDARD.encode(bytes);
-    Some(format!("data:{mime};base64,{encoded}"))
+    Ok(format!("data:{mime};base64,{encoded}"))
 }
 
-fn icon_mime_type(path: &Path) -> Option<&'static str> {
+fn image_mime_type(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
         "png" => Some("image/png"),
@@ -136,6 +165,7 @@ fn icon_mime_type(path: &Path) -> Option<&'static str> {
         "ico" => Some("image/x-icon"),
         "icns" => Some("image/icns"),
         "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
         "webp" => Some("image/webp"),
         _ => None,
     }
@@ -143,21 +173,26 @@ fn icon_mime_type(path: &Path) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{icon_data_url, icon_mime_type};
+    use super::{image_data_url, image_mime_type, MAX_IMAGE_BYTES};
+    use crate::error::AppError;
 
     #[test]
     fn mime_type_is_detected_from_known_icon_extensions() {
         assert_eq!(
-            icon_mime_type(std::path::Path::new("/tmp/favicon.png")),
+            image_mime_type(std::path::Path::new("/tmp/favicon.png")),
             Some("image/png")
         );
         assert_eq!(
-            icon_mime_type(std::path::Path::new("/tmp/favicon.ico")),
+            image_mime_type(std::path::Path::new("/tmp/favicon.ico")),
             Some("image/x-icon")
         );
         assert_eq!(
-            icon_mime_type(std::path::Path::new("/tmp/icon.svg")),
+            image_mime_type(std::path::Path::new("/tmp/icon.svg")),
             Some("image/svg+xml")
+        );
+        assert_eq!(
+            image_mime_type(std::path::Path::new("/tmp/preview.gif")),
+            Some("image/gif")
         );
     }
 
@@ -171,8 +206,27 @@ mod tests {
         let icon_path = temp_dir.join("favicon.png");
         std::fs::write(&icon_path, [0u8, 1u8, 2u8, 3u8]).expect("icon bytes should be written");
 
-        let data_url = icon_data_url(&icon_path).expect("data url should be generated");
+        let data_url = image_data_url(&icon_path).expect("data url should be generated");
         assert!(data_url.starts_with("data:image/png;base64,"));
+
+        let _ = std::fs::remove_file(icon_path);
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn image_data_url_rejects_files_that_exceed_the_preview_limit() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "threadex-image-limit-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("temp directory should exist");
+        let icon_path = temp_dir.join("oversized.png");
+        std::fs::File::create(&icon_path)
+            .and_then(|file| file.set_len(MAX_IMAGE_BYTES + 1))
+            .expect("oversized image file should be created");
+
+        let error = image_data_url(&icon_path).expect_err("oversized image should fail");
+        assert!(matches!(error, AppError::Validation(message) if message.contains("25 MiB")));
 
         let _ = std::fs::remove_file(icon_path);
         let _ = std::fs::remove_dir_all(temp_dir);

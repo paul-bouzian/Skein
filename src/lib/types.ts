@@ -20,6 +20,7 @@ export type SubagentStatus = "running" | "completed" | "failed";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
+export type InputModality = "text" | "image";
 export type ConversationStatus =
   | "idle"
   | "running"
@@ -357,6 +358,7 @@ export type ModelOption = {
   description: string;
   defaultReasoningEffort: ReasoningEffort;
   supportedReasoningEfforts: ReasoningEffort[];
+  inputModalities: InputModality[];
   isDefault: boolean;
 };
 
@@ -510,11 +512,22 @@ export type ConversationErrorSnapshot = {
   additionalDetails?: string | null;
 };
 
+export type ConversationImageAttachment =
+  | {
+      type: "image";
+      url: string;
+    }
+  | {
+      type: "localImage";
+      path: string;
+    };
+
 export type ConversationMessageItem = {
   kind: "message";
   id: string;
   role: ConversationRole;
   text: string;
+  images?: ConversationImageAttachment[] | null;
   isStreaming: boolean;
 };
 
@@ -649,6 +662,7 @@ export type SendThreadMessageInput = {
   threadId: string;
   text: string;
   composer?: ConversationComposerSettings | null;
+  images?: ConversationImageAttachment[] | null;
   mentionBindings?: ComposerMentionBindingInput[] | null;
 };
 
@@ -702,6 +716,7 @@ export type SubmitPlanDecisionInput = {
   action: "approve" | "refine";
   feedback?: string;
   composer?: ConversationComposerSettings | null;
+  images?: ConversationImageAttachment[] | null;
   mentionBindings?: ComposerMentionBindingInput[] | null;
 };
 

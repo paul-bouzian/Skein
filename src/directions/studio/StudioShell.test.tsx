@@ -292,6 +292,7 @@ describe("StudioShell", () => {
               description: "Mini Codex model",
               defaultReasoningEffort: "medium",
               supportedReasoningEfforts: ["low", "medium", "high"],
+              inputModalities: ["text", "image"],
               isDefault: true,
             },
           ],
