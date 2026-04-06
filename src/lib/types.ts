@@ -78,6 +78,7 @@ export type EnvironmentTerminalSnapshot = {
   cwd: string;
   status: TerminalStatus;
   history: string;
+  eventSequence: number;
   pid?: number | null;
   exitCode?: number | null;
   updatedAt: string;
@@ -88,6 +89,7 @@ export type TerminalEventPayload =
       type: "started";
       environmentId: string;
       terminalId: string;
+      sequence: number;
       createdAt: string;
       snapshot: EnvironmentTerminalSnapshot;
     }
@@ -95,6 +97,7 @@ export type TerminalEventPayload =
       type: "output";
       environmentId: string;
       terminalId: string;
+      sequence: number;
       createdAt: string;
       data: string;
     }
@@ -102,6 +105,7 @@ export type TerminalEventPayload =
       type: "exited";
       environmentId: string;
       terminalId: string;
+      sequence: number;
       createdAt: string;
       exitCode?: number | null;
     }
@@ -109,6 +113,7 @@ export type TerminalEventPayload =
       type: "error";
       environmentId: string;
       terminalId: string;
+      sequence: number;
       createdAt: string;
       message: string;
     };

@@ -153,13 +153,14 @@ export function TerminalPanel({ environment, terminalId }: Props) {
           terminal.write(openedSnapshot.history);
         }
         setSnapshot(openedSnapshot);
-        setLoading(false);
         ready = true;
-
         for (const payload of bufferedEvents) {
-          handleTerminalEvent(terminal, payload, setSnapshot, setError);
+          if (payload.sequence > openedSnapshot.eventSequence) {
+            handleTerminalEvent(terminal, payload, setSnapshot, setError);
+          }
         }
         bufferedEvents.length = 0;
+        setLoading(false);
       } catch (cause: unknown) {
         if (cancelled) return;
         const message =
@@ -262,6 +263,15 @@ function handleTerminalEvent(
   switch (payload.type) {
     case "output":
       terminal.write(payload.data);
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              eventSequence: payload.sequence,
+              updatedAt: payload.createdAt,
+            }
+          : current,
+      );
       return;
     case "exited":
       setSnapshot((current) =>
@@ -270,6 +280,7 @@ function handleTerminalEvent(
               ...current,
               status: "exited",
               exitCode: payload.exitCode ?? null,
+              eventSequence: payload.sequence,
               updatedAt: payload.createdAt,
             }
           : current,
@@ -282,6 +293,7 @@ function handleTerminalEvent(
           ? {
               ...current,
               status: "error",
+              eventSequence: payload.sequence,
               updatedAt: payload.createdAt,
             }
           : current,

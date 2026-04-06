@@ -47,6 +47,7 @@ struct TerminalSession {
 struct TerminalSessionState {
     status: TerminalStatus,
     history: String,
+    event_sequence: u64,
     pid: Option<u32>,
     exit_code: Option<i32>,
     updated_at: DateTime<Utc>,
@@ -115,6 +116,7 @@ impl TerminalService {
             TerminalEventPayload::Started {
                 environment_id,
                 terminal_id,
+                sequence: snapshot.event_sequence,
                 created_at: Utc::now(),
                 snapshot: snapshot.clone(),
             },
@@ -243,6 +245,7 @@ impl TerminalSession {
             cwd: self.cwd.clone(),
             status: state.status,
             history: state.history.clone(),
+            event_sequence: state.event_sequence,
             pid: state.pid,
             exit_code: state.exit_code,
             updated_at: state.updated_at,
@@ -301,6 +304,7 @@ fn spawn_terminal_session(
         state: Mutex::new(TerminalSessionState {
             status: TerminalStatus::Running,
             history: String::new(),
+            event_sequence: 0,
             pid,
             exit_code: None,
             updated_at: Utc::now(),
@@ -378,11 +382,18 @@ fn spawn_terminal_reader(
                         && !message.contains("broken pipe")
                         && !message.contains("resource temporarily unavailable")
                     {
+                        let sequence = {
+                            let mut state = session.state.blocking_lock();
+                            state.status = TerminalStatus::Error;
+                            state.updated_at = Utc::now();
+                            advance_session_event_sequence(&mut state)
+                        };
                         emit_terminal_event(
                             &app,
                             TerminalEventPayload::Error {
                                 environment_id: environment_id.clone(),
                                 terminal_id: terminal_id.clone(),
+                                sequence,
                                 created_at: Utc::now(),
                                 message: format!("Terminal output stream failed: {error}"),
                             },
@@ -406,6 +417,7 @@ fn spawn_terminal_waiter(
         Ok(status) => {
             let exit_code = terminal_exit_code(&status);
             let mut state = session.state.blocking_lock();
+            let sequence = advance_session_event_sequence(&mut state);
             state.status = TerminalStatus::Exited;
             state.exit_code = exit_code;
             state.updated_at = Utc::now();
@@ -416,6 +428,7 @@ fn spawn_terminal_waiter(
                 TerminalEventPayload::Exited {
                     environment_id,
                     terminal_id,
+                    sequence,
                     created_at: Utc::now(),
                     exit_code,
                 },
@@ -424,6 +437,7 @@ fn spawn_terminal_waiter(
         Err(error) => {
             let message = format!("Failed to wait for terminal exit: {error}");
             let mut state = session.state.blocking_lock();
+            let sequence = advance_session_event_sequence(&mut state);
             state.status = TerminalStatus::Error;
             state.updated_at = Utc::now();
             drop(state);
@@ -433,6 +447,7 @@ fn spawn_terminal_waiter(
                 TerminalEventPayload::Error {
                     environment_id,
                     terminal_id,
+                    sequence,
                     created_at: Utc::now(),
                     message,
                 },
@@ -448,17 +463,20 @@ fn append_terminal_output(
     terminal_id: &str,
     data: &str,
 ) {
-    {
+    let sequence = {
         let mut state = session.state.blocking_lock();
+        let sequence = advance_session_event_sequence(&mut state);
         push_terminal_history(&mut state.history, data);
         state.updated_at = Utc::now();
-    }
+        sequence
+    };
 
     emit_terminal_event(
         app,
         TerminalEventPayload::Output {
             environment_id: environment_id.to_string(),
             terminal_id: terminal_id.to_string(),
+            sequence,
             created_at: Utc::now(),
             data: data.to_string(),
         },
@@ -584,6 +602,11 @@ fn advance_terminal_revision(revisions: &mut HashMap<String, u64>, key: &str) ->
     let next = revisions.get(key).copied().unwrap_or(0) + 1;
     revisions.insert(key.to_string(), next);
     next
+}
+
+fn advance_session_event_sequence(state: &mut TerminalSessionState) -> u64 {
+    state.event_sequence += 1;
+    state.event_sequence
 }
 
 struct TerminalShell {
