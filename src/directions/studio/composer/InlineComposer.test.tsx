@@ -164,6 +164,21 @@ describe("InlineComposer voice dictation", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("exposes locked-state copy on the disabled microphone button", async () => {
+    renderComposer("", { disabled: true });
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeDisabled();
+    });
+    expect(startButton.parentElement).toHaveAttribute(
+      "title",
+      "Voice dictation is unavailable while the composer is locked",
+    );
+  });
+
   it("renders a local error when transcription fails and preserves the draft", async () => {
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
     mockedBridge.transcribeEnvironmentVoice.mockRejectedValue(
@@ -228,9 +243,45 @@ describe("InlineComposer voice dictation", () => {
       await screen.findByDisplayValue("Edited while transcribing voice note"),
     ).toBeInTheDocument();
   });
+
+  it("updates the microphone copy while transcription is pending", async () => {
+    const transcription = createDeferred<{ text: string }>();
+    mockedStartVoiceCapture.mockResolvedValue(makeCapture());
+    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(transcription.promise);
+
+    renderComposer("");
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+
+    await userEvent.click(startButton);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop voice dictation" }),
+    );
+
+    const transcribingButton = await screen.findByRole("button", {
+      name: "Transcribing voice dictation",
+    });
+    expect(transcribingButton).toBeDisabled();
+    expect(transcribingButton.parentElement).toHaveAttribute(
+      "title",
+      "Transcribing voice recording",
+    );
+
+    transcription.resolve({ text: "voice note" });
+
+    expect(await screen.findByDisplayValue("voice note")).toBeInTheDocument();
+  });
 });
 
-function renderComposer(initialDraft: string) {
+function renderComposer(
+  initialDraft: string,
+  options: { disabled?: boolean } = {},
+) {
   function Harness() {
     const [draft, setDraft] = useState(initialDraft);
     const [mentionBindings, setMentionBindings] = useState<
@@ -243,7 +294,7 @@ function renderComposer(initialDraft: string) {
         threadId="thread-1"
         composer={baseComposer}
         collaborationModes={capabilitiesFixture.collaborationModes}
-        disabled={false}
+        disabled={options.disabled ?? false}
         draft={draft}
         effortOptions={["low", "medium", "high", "xhigh"]}
         focusKey="thread-1"

@@ -265,17 +265,23 @@ export function useComposerVoiceInput({
       ? "Stop voice dictation"
       : phase === "starting"
         ? "Starting voice dictation"
+        : phase === "transcribing"
+          ? "Transcribing voice dictation"
         : "Start voice dictation";
   const buttonTitle =
     phase === "recording"
       ? "Stop recording and transcribe"
       : phase === "starting"
         ? "Starting microphone capture"
-        : loading && browserSupported
-          ? "Checking voice transcription availability"
-        : voiceAvailable
-          ? "Record a voice message"
-          : availabilityMessage;
+        : phase === "transcribing"
+          ? "Transcribing voice recording"
+          : locked
+            ? "Voice dictation is unavailable while the composer is locked"
+            : loading && browserSupported
+              ? "Checking voice transcription availability"
+              : voiceAvailable
+                ? "Record a voice message"
+                : availabilityMessage;
 
   return {
     buttonDisabled,
