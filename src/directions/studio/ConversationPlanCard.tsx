@@ -1,4 +1,5 @@
 import type { ProposedPlanSnapshot } from "../../lib/types";
+import { ConversationLinkedText } from "./ConversationLinkedText";
 import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationPlanSteps } from "./ConversationPlanSteps";
 
@@ -23,7 +24,11 @@ export function ConversationPlanCard({
         <div>
           <span className="tx-item__header">Proposed plan</span>
           {plan.explanation ? (
-            <p className="tx-plan-card__explanation">{plan.explanation}</p>
+            <ConversationLinkedText
+              as="p"
+              className="tx-plan-card__explanation"
+              text={plan.explanation}
+            />
           ) : null}
         </div>
         <span className={`tx-pill tx-pill--${labelToneForPlan(plan.status)}`}>

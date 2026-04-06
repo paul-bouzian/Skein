@@ -1,4 +1,5 @@
 import type { ConversationTaskSnapshot } from "../../lib/types";
+import { ConversationLinkedText } from "./ConversationLinkedText";
 import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationPlanSteps } from "./ConversationPlanSteps";
 
@@ -13,7 +14,11 @@ export function ConversationTaskCard({ taskPlan }: Props) {
         <div>
           <span className="tx-item__header">Tasks</span>
           {taskPlan.explanation ? (
-            <p className="tx-plan-card__explanation">{taskPlan.explanation}</p>
+            <ConversationLinkedText
+              as="p"
+              className="tx-plan-card__explanation"
+              text={taskPlan.explanation}
+            />
           ) : null}
         </div>
         <span className={`tx-pill tx-pill--${labelToneForTask(taskPlan.status)}`}>

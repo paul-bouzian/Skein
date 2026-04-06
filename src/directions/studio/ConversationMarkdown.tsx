@@ -1,4 +1,8 @@
 import { Fragment, type ReactNode } from "react";
+import {
+  handleExternalLinkClick,
+  renderTextWithExternalLinks,
+} from "./conversation-links";
 
 type Props = {
   markdown: string;
@@ -279,11 +283,16 @@ function headingTagForDepth(depth: HeadingDepth) {
   }
 }
 
-function renderInlineMarkdown(text: string, keyPrefix: string) {
+function renderInlineMarkdown(
+  text: string,
+  keyPrefix: string,
+  options: { linkifyPlainText?: boolean } = {},
+) {
   if (!text) {
     return null;
   }
 
+  const { linkifyPlainText = true } = options;
   const nodes: ReactNode[] = [];
   let cursor = 0;
 
@@ -291,16 +300,22 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
     const token = findNextInlineToken(text, cursor);
     if (!token) {
       nodes.push(
-        <Fragment key={`${keyPrefix}-text-${cursor}`}>{text.slice(cursor)}</Fragment>,
+        ...renderPlainTextSegment(
+          text.slice(cursor),
+          `${keyPrefix}-text-${cursor}`,
+          linkifyPlainText,
+        ),
       );
       break;
     }
 
     if (token.start > cursor) {
       nodes.push(
-        <Fragment key={`${keyPrefix}-text-${cursor}`}>
-          {text.slice(cursor, token.start)}
-        </Fragment>,
+        ...renderPlainTextSegment(
+          text.slice(cursor, token.start),
+          `${keyPrefix}-text-${cursor}`,
+          linkifyPlainText,
+        ),
       );
     }
 
@@ -318,9 +333,11 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
           className="tx-markdown__link"
           href={token.captures[1]}
           rel="noreferrer"
-          target="_blank"
+          onClick={(event) => handleExternalLinkClick(event, token.captures[1])}
         >
-          {renderInlineMarkdown(token.captures[0], key)}
+          {renderInlineMarkdown(token.captures[0], key, {
+            linkifyPlainText: false,
+          })}
         </a>,
       );
     } else if (token.kind === "strong") {
@@ -341,6 +358,22 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
   }
 
   return nodes;
+}
+
+function renderPlainTextSegment(
+  text: string,
+  keyPrefix: string,
+  linkifyPlainText: boolean,
+) {
+  if (!text) {
+    return [];
+  }
+
+  if (!linkifyPlainText) {
+    return [<Fragment key={keyPrefix}>{text}</Fragment>];
+  }
+
+  return renderTextWithExternalLinks(text, keyPrefix);
 }
 
 function findNextInlineToken(text: string, startIndex: number): InlineTokenMatch | null {

@@ -25,6 +25,8 @@ import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ThreadConversation } from "./ThreadConversation";
 
+const openUrlMock = vi.fn();
+
 vi.mock("../../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   refreshThreadConversation: vi.fn(),
@@ -38,6 +40,10 @@ vi.mock("../../lib/bridge", () => ({
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
   listenToConversationEvents: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: (...args: unknown[]) => openUrlMock(...args),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -84,6 +90,7 @@ function resetStores() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  openUrlMock.mockReset();
   resetStores();
   mockedBridge.getThreadComposerCatalog.mockResolvedValue({
     prompts: [],
@@ -211,6 +218,24 @@ describe("ThreadConversation", () => {
     expect(screen.getByText("Avoid raw plaintext")).toBeInTheDocument();
   });
 
+  it("auto-links bare URLs in markdown and opens them with the desktop opener", async () => {
+    const { container } = render(
+      <ConversationMarkdown
+        markdown={"Review https://openai.com/docs)."}
+      />,
+    );
+
+    const link = screen.getByRole("link", {
+      name: "https://openai.com/docs",
+    });
+    expect(link).toHaveAttribute("href", "https://openai.com/docs");
+    expect(container.textContent).toBe("Review https://openai.com/docs).");
+
+    await userEvent.click(link);
+
+    expect(openUrlMock).toHaveBeenCalledWith("https://openai.com/docs");
+  });
+
   it("preserves multiline user messages with the plain-text message class", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -239,6 +264,168 @@ describe("ThreadConversation", () => {
     });
 
     expect(body).toHaveClass("tx-item__body--message-plain");
+  });
+
+  it("renders clickable bare URLs in tool summaries, tool output, and system banners", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "tool",
+            id: "tool-links-1",
+            toolType: "commandExecution",
+            title: "Command",
+            status: "completed",
+            summary: "Logs: https://threadex.dev/docs",
+            output: "Output: https://threadex.dev/output",
+          },
+          {
+            kind: "system",
+            id: "system-links-1",
+            tone: "info",
+            title: "Status",
+            body: "Read https://threadex.dev/status for details.",
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const summaryLink = await screen.findByRole("link", {
+      name: "https://threadex.dev/docs",
+    });
+    expect(summaryLink).toHaveAttribute("href", "https://threadex.dev/docs");
+
+    await userEvent.click(summaryLink);
+
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/docs");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show Command details" }),
+    );
+
+    const outputLink = screen.getByRole("link", {
+      name: "https://threadex.dev/output",
+    });
+    const systemLink = screen.getByRole("link", {
+      name: "https://threadex.dev/status",
+    });
+
+    await userEvent.click(outputLink);
+    await userEvent.click(systemLink);
+
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/output");
+    expect(openUrlMock).toHaveBeenNthCalledWith(3, "https://threadex.dev/status");
+  });
+
+  it("renders clickable bare URLs in approval interaction copy", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        pendingInteractions: [
+          makeApprovalRequest({
+            summary: "Summary https://threadex.dev/approval",
+            reason: "Reason https://threadex.dev/reason",
+          }),
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const summaryLink = await screen.findByRole("link", {
+      name: "https://threadex.dev/approval",
+    });
+    const reasonLink = screen.getByRole("link", {
+      name: "https://threadex.dev/reason",
+    });
+
+    await userEvent.click(summaryLink);
+    await userEvent.click(reasonLink);
+
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/approval");
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/reason");
+  });
+
+  it("renders clickable bare URLs in plan and task explanations", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        proposedPlan: makeProposedPlan({
+          explanation: "Plan docs: https://threadex.dev/plan",
+        }),
+        taskPlan: makeTaskPlan({
+          explanation: "Task docs: https://threadex.dev/task",
+        }),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const planLink = await screen.findByRole("link", {
+      name: "https://threadex.dev/plan",
+    });
+    const taskLink = screen.getByRole("link", {
+      name: "https://threadex.dev/task",
+    });
+
+    await userEvent.click(planLink);
+    await userEvent.click(taskLink);
+
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/plan");
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/task");
+  });
+
+  it("renders clickable bare URLs in unsupported interaction messages", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        pendingInteractions: [
+          {
+            kind: "unsupported",
+            id: "interaction-unsupported-1",
+            method: "item/tool/unsupported",
+            threadId: "thr_codex_1",
+            turnId: "turn-1",
+            itemId: "item-unsupported-1",
+            title: "Unsupported interaction",
+            message: "Follow https://threadex.dev/help for manual steps.",
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const helpLink = await screen.findByRole("link", {
+      name: "https://threadex.dev/help",
+    });
+
+    await userEvent.click(helpLink);
+
+    expect(openUrlMock).toHaveBeenCalledWith("https://threadex.dev/help");
   });
 
   it("renders the subagent strip and context meter for active turns", async () => {

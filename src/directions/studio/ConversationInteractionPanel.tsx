@@ -6,6 +6,7 @@ import type {
   PendingApprovalRequest,
   PendingUserInputQuestion,
 } from "../../lib/types";
+import { ConversationLinkedText } from "./ConversationLinkedText";
 
 type Props = {
   interaction: ConversationInteraction | null;
@@ -88,7 +89,11 @@ export function ConversationInteractionPanel({
             <>
               <div className="tx-interaction__question">
                 <span className="tx-interaction__question-header">{currentQuestion.header}</span>
-                <p className="tx-interaction__question-text">{currentQuestion.question}</p>
+                <ConversationLinkedText
+                  as="p"
+                  className="tx-interaction__question-text"
+                  text={currentQuestion.question}
+                />
               </div>
               <div className="tx-interaction__option-list">
                 {currentQuestion.options.map((option) => {
@@ -173,7 +178,11 @@ export function ConversationInteractionPanel({
         />
       ) : (
         <div className="tx-interaction__body">
-          <p className="tx-banner__body">{interaction.message}</p>
+          <ConversationLinkedText
+            as="p"
+            className="tx-banner__body"
+            text={interaction.message}
+          />
         </div>
       )}
     </section>
@@ -194,9 +203,19 @@ function ApprovalPanel({
   return (
     <div className="tx-interaction__body">
       {request.summary ? (
-        <p className="tx-interaction__summary">{request.summary}</p>
+        <ConversationLinkedText
+          as="p"
+          className="tx-interaction__summary"
+          text={request.summary}
+        />
       ) : null}
-      {request.reason ? <p className="tx-interaction__reason">{request.reason}</p> : null}
+      {request.reason ? (
+        <ConversationLinkedText
+          as="p"
+          className="tx-interaction__reason"
+          text={request.reason}
+        />
+      ) : null}
       {request.command ? <pre className="tx-item__body tx-item__body--tool">{request.command}</pre> : null}
       {request.cwd ? (
         <div className="tx-interaction__detail">

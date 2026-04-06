@@ -16,6 +16,7 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
+import { ConversationLinkedText } from "./ConversationLinkedText";
 import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
@@ -382,10 +383,20 @@ function ConversationItemRow({ item }: { item: ConversationItem }) {
               {labelForItemStatus(item.status)}
             </span>
           </div>
-          {item.summary ? <p className="tx-item__summary">{item.summary}</p> : null}
         </button>
+        {item.summary ? (
+          <ConversationLinkedText
+            as="p"
+            className="tx-item__summary"
+            text={item.summary}
+          />
+        ) : null}
         {expanded && item.output ? (
-          <pre className="tx-item__body tx-item__body--tool">{item.output}</pre>
+          <ConversationLinkedText
+            as="pre"
+            className="tx-item__body tx-item__body--tool"
+            text={item.output}
+          />
         ) : null}
       </div>
     );
@@ -406,7 +417,7 @@ function ConversationBanner({
   return (
     <div className={`tx-banner tx-banner--${tone}`}>
       <div className="tx-banner__title">{title}</div>
-      <p className="tx-banner__body">{body}</p>
+      <ConversationLinkedText as="p" className="tx-banner__body" text={body} />
     </div>
   );
 }
