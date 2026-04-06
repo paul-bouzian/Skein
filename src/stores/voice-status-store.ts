@@ -6,10 +6,14 @@ import type { EnvironmentVoiceStatusSnapshot } from "../lib/types";
 const VOICE_STATUS_CACHE_TTL_MS = 60_000;
 
 type VoiceStatusState = {
-  snapshotsByEnvironmentId: Record<string, EnvironmentVoiceStatusSnapshot | null>;
+  snapshotsByEnvironmentId: Record<
+    string,
+    EnvironmentVoiceStatusSnapshot | null
+  >;
   loadingByEnvironmentId: Record<string, boolean>;
   errorByEnvironmentId: Record<string, string | null>;
   lastFetchedAtByEnvironmentId: Record<string, number | null>;
+  lastRequestedAtByEnvironmentId: Record<string, number | null>;
 
   ensureEnvironmentVoiceStatus: (environmentId: string | null) => Promise<void>;
   refreshEnvironmentVoiceStatus: (environmentId: string) => Promise<void>;
@@ -24,6 +28,7 @@ export const useVoiceStatusStore = create<VoiceStatusState>((set, get) => ({
   loadingByEnvironmentId: {},
   errorByEnvironmentId: {},
   lastFetchedAtByEnvironmentId: {},
+  lastRequestedAtByEnvironmentId: {},
 
   ensureEnvironmentVoiceStatus: async (environmentId) => {
     if (!environmentId) {
@@ -35,7 +40,8 @@ export const useVoiceStatusStore = create<VoiceStatusState>((set, get) => ({
       return;
     }
 
-    const lastFetchedAt = state.lastFetchedAtByEnvironmentId[environmentId] ?? null;
+    const lastFetchedAt =
+      state.lastFetchedAtByEnvironmentId[environmentId] ?? null;
     if (
       lastFetchedAt !== null &&
       Date.now() - lastFetchedAt < VOICE_STATUS_CACHE_TTL_MS
@@ -47,22 +53,30 @@ export const useVoiceStatusStore = create<VoiceStatusState>((set, get) => ({
   },
 
   refreshEnvironmentVoiceStatus: async (environmentId) => {
-    const requestStartedAt = Date.now();
-    setVoiceStatusLoading(set, environmentId);
+    const state = get();
+    if (state.loadingByEnvironmentId[environmentId]) {
+      return;
+    }
+
+    const requestStartedAt = nextVoiceStatusRequestStartedAt(
+      state,
+      environmentId,
+    );
+    setVoiceStatusLoading(set, environmentId, requestStartedAt);
 
     try {
       const snapshot = await bridge.getEnvironmentVoiceStatus(environmentId);
       if (isVoiceStatusFetchStale(get, environmentId, requestStartedAt)) {
         return;
       }
-      setVoiceStatusSnapshot(set, environmentId, snapshot);
+      setVoiceStatusSnapshot(set, environmentId, snapshot, requestStartedAt);
     } catch (cause: unknown) {
       if (isVoiceStatusFetchStale(get, environmentId, requestStartedAt)) {
         return;
       }
       const message =
         cause instanceof Error ? cause.message : "Failed to load voice status";
-      setVoiceStatusError(set, environmentId, message);
+      setVoiceStatusError(set, environmentId, message, requestStartedAt);
     }
   },
 }));
@@ -70,6 +84,7 @@ export const useVoiceStatusStore = create<VoiceStatusState>((set, get) => ({
 function setVoiceStatusLoading(
   set: VoiceStatusSet,
   environmentId: string,
+  requestStartedAt: number,
 ) {
   set((state) => ({
     loadingByEnvironmentId: {
@@ -80,6 +95,10 @@ function setVoiceStatusLoading(
       ...state.errorByEnvironmentId,
       [environmentId]: null,
     },
+    lastRequestedAtByEnvironmentId: {
+      ...state.lastRequestedAtByEnvironmentId,
+      [environmentId]: requestStartedAt,
+    },
   }));
 }
 
@@ -87,47 +106,80 @@ function setVoiceStatusSnapshot(
   set: VoiceStatusSet,
   environmentId: string,
   snapshot: EnvironmentVoiceStatusSnapshot,
+  requestStartedAt: number,
 ) {
   const fetchedAt = Date.now();
-  set((state) => ({
-    snapshotsByEnvironmentId: {
-      ...state.snapshotsByEnvironmentId,
-      [environmentId]: snapshot,
-    },
-    loadingByEnvironmentId: {
-      ...state.loadingByEnvironmentId,
-      [environmentId]: false,
-    },
-    errorByEnvironmentId: {
-      ...state.errorByEnvironmentId,
-      [environmentId]: null,
-    },
-    lastFetchedAtByEnvironmentId: {
-      ...state.lastFetchedAtByEnvironmentId,
-      [environmentId]: fetchedAt,
-    },
-  }));
+  set((state) => {
+    if (
+      state.lastRequestedAtByEnvironmentId[environmentId] !== requestStartedAt
+    ) {
+      return {};
+    }
+
+    return {
+      snapshotsByEnvironmentId: {
+        ...state.snapshotsByEnvironmentId,
+        [environmentId]: snapshot,
+      },
+      loadingByEnvironmentId: {
+        ...state.loadingByEnvironmentId,
+        [environmentId]: false,
+      },
+      errorByEnvironmentId: {
+        ...state.errorByEnvironmentId,
+        [environmentId]: null,
+      },
+      lastFetchedAtByEnvironmentId: {
+        ...state.lastFetchedAtByEnvironmentId,
+        [environmentId]: fetchedAt,
+      },
+    };
+  });
 }
 
 function setVoiceStatusError(
   set: VoiceStatusSet,
   environmentId: string,
   message: string,
+  requestStartedAt: number,
 ) {
-  set((state) => ({
-    loadingByEnvironmentId: {
-      ...state.loadingByEnvironmentId,
-      [environmentId]: false,
-    },
-    errorByEnvironmentId: {
-      ...state.errorByEnvironmentId,
-      [environmentId]: message,
-    },
-    lastFetchedAtByEnvironmentId: {
-      ...state.lastFetchedAtByEnvironmentId,
-      [environmentId]: null,
-    },
-  }));
+  set((state) => {
+    if (
+      state.lastRequestedAtByEnvironmentId[environmentId] !== requestStartedAt
+    ) {
+      return {};
+    }
+
+    return {
+      snapshotsByEnvironmentId: {
+        ...state.snapshotsByEnvironmentId,
+        [environmentId]: null,
+      },
+      loadingByEnvironmentId: {
+        ...state.loadingByEnvironmentId,
+        [environmentId]: false,
+      },
+      errorByEnvironmentId: {
+        ...state.errorByEnvironmentId,
+        [environmentId]: message,
+      },
+      lastFetchedAtByEnvironmentId: {
+        ...state.lastFetchedAtByEnvironmentId,
+        [environmentId]: null,
+      },
+    };
+  });
+}
+
+function nextVoiceStatusRequestStartedAt(
+  state: VoiceStatusState,
+  environmentId: string,
+) {
+  const now = Date.now();
+  const previousRequestStartedAt =
+    state.lastRequestedAtByEnvironmentId[environmentId] ??
+    Number.NEGATIVE_INFINITY;
+  return now > previousRequestStartedAt ? now : previousRequestStartedAt + 1;
 }
 
 function isVoiceStatusFetchStale(
@@ -135,7 +187,7 @@ function isVoiceStatusFetchStale(
   environmentId: string,
   requestStartedAt: number,
 ) {
-  const latestAppliedAt =
-    get().lastFetchedAtByEnvironmentId[environmentId] ?? Number.NEGATIVE_INFINITY;
-  return latestAppliedAt > requestStartedAt;
+  return (
+    get().lastRequestedAtByEnvironmentId[environmentId] !== requestStartedAt
+  );
 }

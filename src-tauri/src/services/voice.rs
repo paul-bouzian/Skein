@@ -6,8 +6,8 @@ use serde::Deserialize;
 use tracing::warn;
 
 use crate::domain::voice::{
-    EnvironmentVoiceStatusSnapshot, EnvironmentVoiceUnavailableReason, TranscribeEnvironmentVoiceInput,
-    VoiceAuthMode, VoiceTranscriptionResult,
+    EnvironmentVoiceStatusSnapshot, EnvironmentVoiceUnavailableReason,
+    TranscribeEnvironmentVoiceInput, VoiceAuthMode, VoiceTranscriptionResult,
 };
 use crate::error::{AppError, AppResult};
 use crate::runtime::session::AppServerAuthStatus;
@@ -80,7 +80,8 @@ impl VoiceService {
         runtime: &RuntimeSupervisor,
         environment_id: &str,
     ) -> AppResult<EnvironmentVoiceStatusSnapshot> {
-        let (environment_path, codex_binary_path) = workspace.environment_runtime_target(environment_id)?;
+        let (environment_path, codex_binary_path) =
+            workspace.environment_runtime_target(environment_id)?;
         let auth_status = runtime
             .read_auth_status(
                 environment_id,
@@ -188,7 +189,8 @@ impl VoiceService {
             .await
             .map_err(|error| TranscriptionFailure::Provider(error.to_string()))?;
 
-        if response.status() == StatusCode::UNAUTHORIZED || response.status() == StatusCode::FORBIDDEN
+        if response.status() == StatusCode::UNAUTHORIZED
+            || response.status() == StatusCode::FORBIDDEN
         {
             let message = provider_error_message(response).await.unwrap_or_else(|| {
                 "Your ChatGPT session has expired. Sign in again before using voice transcription."
@@ -229,22 +231,25 @@ fn transcription_request(client: &Client, token: &str) -> RequestBuilder {
 }
 
 async fn provider_error_message(response: reqwest::Response) -> Option<String> {
-    let status = response.status();
-    match response.json::<ProviderTranscriptionPayload>().await {
-        Ok(payload) => payload
-            .error
-            .and_then(|error| read_non_empty_text(error.message))
-            .or_else(|| read_non_empty_text(payload.message))
-            .or_else(|| Some(format!("Transcription failed with status {status}."))),
-        Err(_) => Some(format!("Transcription failed with status {status}.")),
-    }
+    response
+        .json::<ProviderTranscriptionPayload>()
+        .await
+        .ok()
+        .and_then(|payload| {
+            payload
+                .error
+                .and_then(|error| read_non_empty_text(error.message))
+                .or_else(|| read_non_empty_text(payload.message))
+        })
 }
 
 fn read_provider_text(payload: ProviderTranscriptionPayload) -> Option<String> {
     read_non_empty_text(payload.text).or_else(|| read_non_empty_text(payload.transcript))
 }
 
-fn resolve_transcription_auth(auth_status: AppServerAuthStatus) -> AppResult<TranscriptionAuthContext> {
+fn resolve_transcription_auth(
+    auth_status: AppServerAuthStatus,
+) -> AppResult<TranscriptionAuthContext> {
     let auth_mode = auth_status.auth_method;
     let token = read_non_empty_text(auth_status.auth_token);
     let is_chatgpt = matches!(
@@ -260,14 +265,10 @@ fn resolve_transcription_auth(auth_status: AppServerAuthStatus) -> AppResult<Tra
     }
 
     let token = token.ok_or_else(|| {
-        AppError::Validation(
-            "Sign in with ChatGPT before using voice transcription.".to_string(),
-        )
+        AppError::Validation("Sign in with ChatGPT before using voice transcription.".to_string())
     })?;
 
-    Ok(TranscriptionAuthContext {
-        token,
-    })
+    Ok(TranscriptionAuthContext { token })
 }
 
 fn voice_status_snapshot(
@@ -376,7 +377,10 @@ fn validate_transcription_input(
 }
 
 fn decode_audio_base64(audio_base64: &str) -> AppResult<Vec<u8>> {
-    let normalized = audio_base64.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+    let normalized = audio_base64
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect::<String>();
     if normalized.is_empty() {
         return Err(AppError::Validation(
             "The voice request did not include any audio.".to_string(),
@@ -385,7 +389,9 @@ fn decode_audio_base64(audio_base64: &str) -> AppResult<Vec<u8>> {
 
     let audio_bytes = base64::engine::general_purpose::STANDARD
         .decode(normalized)
-        .map_err(|_| AppError::Validation("The recorded audio could not be decoded.".to_string()))?;
+        .map_err(|_| {
+            AppError::Validation("The recorded audio could not be decoded.".to_string())
+        })?;
     if audio_bytes.is_empty() {
         return Err(AppError::Validation(
             "The recorded audio could not be decoded.".to_string(),
@@ -430,9 +436,9 @@ fn validate_wav_buffer(audio_bytes: &[u8], expected_sample_rate_hz: u32) -> AppR
         ));
     }
 
-    let expected_total_size = 44usize
-        .checked_add(data_size)
-        .ok_or_else(|| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))?;
+    let expected_total_size = 44usize.checked_add(data_size).ok_or_else(|| {
+        AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+    })?;
     if expected_total_size != audio_bytes.len() {
         return Err(AppError::Validation(
             "The recorded audio is not a valid WAV file.".to_string(),
@@ -449,16 +455,16 @@ fn validate_wav_buffer(audio_bytes: &[u8], expected_sample_rate_hz: u32) -> AppR
 }
 
 fn read_u16_le(audio_bytes: &[u8], offset: usize) -> AppResult<u16> {
-    let bytes = audio_bytes
-        .get(offset..offset + 2)
-        .ok_or_else(|| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))?;
+    let bytes = audio_bytes.get(offset..offset + 2).ok_or_else(|| {
+        AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+    })?;
     Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
 }
 
 fn read_u32_le(audio_bytes: &[u8], offset: usize) -> AppResult<u32> {
-    let bytes = audio_bytes
-        .get(offset..offset + 4)
-        .ok_or_else(|| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))?;
+    let bytes = audio_bytes.get(offset..offset + 4).ok_or_else(|| {
+        AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+    })?;
     Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
@@ -481,11 +487,10 @@ fn wav_duration_ms(
 ) -> AppResult<u32> {
     let bytes_per_frame = usize::from(channels)
         .checked_mul(usize::from(bits_per_sample / 8))
-        .ok_or_else(|| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))?;
-    if bytes_per_frame == 0
-        || sample_rate_hz == 0
-        || !data_size.is_multiple_of(bytes_per_frame)
-    {
+        .ok_or_else(|| {
+            AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+        })?;
+    if bytes_per_frame == 0 || sample_rate_hz == 0 || !data_size.is_multiple_of(bytes_per_frame) {
         return Err(AppError::Validation(
             "The recorded audio is not a valid WAV file.".to_string(),
         ));
@@ -495,10 +500,13 @@ fn wav_duration_ms(
     let duration_ms = (sample_count as u128)
         .checked_mul(1000)
         .and_then(|value| value.checked_div(u128::from(sample_rate_hz)))
-        .ok_or_else(|| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))?;
+        .ok_or_else(|| {
+            AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+        })?;
 
-    u32::try_from(duration_ms)
-        .map_err(|_| AppError::Validation("The recorded audio is not a valid WAV file.".to_string()))
+    u32::try_from(duration_ms).map_err(|_| {
+        AppError::Validation("The recorded audio is not a valid WAV file.".to_string())
+    })
 }
 
 #[cfg(test)]
@@ -506,11 +514,11 @@ mod tests {
     use base64::Engine;
 
     use super::{
-        resolve_transcription_auth, transcription_request, validate_transcription_input, voice_status_snapshot,
-        AppServerAuthStatus, EnvironmentVoiceUnavailableReason, TranscribeEnvironmentVoiceInput,
-        VoiceAuthMode, CHATGPT_BROWSER_ACCEPT, CHATGPT_BROWSER_ACCEPT_LANGUAGE,
-        CHATGPT_BROWSER_ORIGIN, CHATGPT_BROWSER_REFERER, CHATGPT_BROWSER_USER_AGENT,
-        CHATGPT_TRANSCRIPTIONS_URL,
+        resolve_transcription_auth, transcription_request, validate_transcription_input,
+        voice_status_snapshot, AppServerAuthStatus, EnvironmentVoiceUnavailableReason,
+        TranscribeEnvironmentVoiceInput, VoiceAuthMode, CHATGPT_BROWSER_ACCEPT,
+        CHATGPT_BROWSER_ACCEPT_LANGUAGE, CHATGPT_BROWSER_ORIGIN, CHATGPT_BROWSER_REFERER,
+        CHATGPT_BROWSER_USER_AGENT, CHATGPT_TRANSCRIPTIONS_URL,
     };
     use crate::error::AppError;
 
@@ -560,7 +568,10 @@ mod tests {
         assert_eq!(result.environment_id, "env-1");
         assert_eq!(result.mime_type, "audio/wav");
         assert!(!result.audio_bytes.is_empty());
-        assert_eq!(CHATGPT_TRANSCRIPTIONS_URL, "https://chatgpt.com/backend-api/transcribe");
+        assert_eq!(
+            CHATGPT_TRANSCRIPTIONS_URL,
+            "https://chatgpt.com/backend-api/transcribe"
+        );
     }
 
     #[test]

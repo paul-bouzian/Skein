@@ -22,7 +22,7 @@ struct RunningRuntime {
     status: RuntimeStatusSnapshot,
 }
 
-enum RateLimitReadTarget {
+enum RuntimeReadTarget {
     Running(Arc<RuntimeSession>),
     Headless(Box<RuntimeSession>),
 }
@@ -129,39 +129,11 @@ impl RuntimeSupervisor {
         environment_path: &str,
         codex_binary_path: Option<String>,
     ) -> AppResult<CodexRateLimitSnapshot> {
-        let read_target = {
-            let environment_lock = self.environment_lock(environment_id).await;
-            let _environment_guard = environment_lock.lock().await;
-            self.refresh_statuses().await?;
+        let read_target = self
+            .resolve_read_target(environment_id, environment_path, codex_binary_path)
+            .await?;
 
-            if let Some(runtime) = self.running_runtime(environment_id).await {
-                RateLimitReadTarget::Running(runtime.session)
-            } else {
-                let binary_path = resolve_binary_path(codex_binary_path)?;
-                let session = RuntimeSession::spawn_headless(
-                    environment_id.to_string(),
-                    environment_path.to_string(),
-                    binary_path,
-                    self.app_version.clone(),
-                )
-                .await?;
-                RateLimitReadTarget::Headless(Box::new(session))
-            }
-        };
-
-        match read_target {
-            RateLimitReadTarget::Running(session) => session.read_account_rate_limits().await,
-            RateLimitReadTarget::Headless(session) => {
-                let result = session.read_account_rate_limits().await;
-                let stop_result = session.stop().await;
-
-                match (result, stop_result) {
-                    (Ok(rate_limits), Ok(())) => Ok(rate_limits),
-                    (Err(error), _) => Err(error),
-                    (Ok(_), Err(error)) => Err(error),
-                }
-            }
-        }
+        read_account_rate_limits_from_target(read_target).await
     }
 
     pub async fn read_auth_status(
@@ -172,41 +144,11 @@ impl RuntimeSupervisor {
         include_token: bool,
         refresh_token: bool,
     ) -> AppResult<AppServerAuthStatus> {
-        let read_target = {
-            let environment_lock = self.environment_lock(environment_id).await;
-            let _environment_guard = environment_lock.lock().await;
-            self.refresh_statuses().await?;
+        let read_target = self
+            .resolve_read_target(environment_id, environment_path, codex_binary_path)
+            .await?;
 
-            if let Some(runtime) = self.running_runtime(environment_id).await {
-                RateLimitReadTarget::Running(runtime.session)
-            } else {
-                let binary_path = resolve_binary_path(codex_binary_path)?;
-                let session = RuntimeSession::spawn_headless(
-                    environment_id.to_string(),
-                    environment_path.to_string(),
-                    binary_path,
-                    self.app_version.clone(),
-                )
-                .await?;
-                RateLimitReadTarget::Headless(Box::new(session))
-            }
-        };
-
-        match read_target {
-            RateLimitReadTarget::Running(session) => {
-                session.read_auth_status(include_token, refresh_token).await
-            }
-            RateLimitReadTarget::Headless(session) => {
-                let result = session.read_auth_status(include_token, refresh_token).await;
-                let stop_result = session.stop().await;
-
-                match (result, stop_result) {
-                    (Ok(auth_status), Ok(())) => Ok(auth_status),
-                    (Err(error), _) => Err(error),
-                    (Ok(_), Err(error)) => Err(error),
-                }
-            }
-        }
+        read_auth_status_from_target(read_target, include_token, refresh_token).await
     }
 
     async fn ensure_running_runtime(
@@ -266,6 +208,31 @@ impl RuntimeSupervisor {
             .entry(environment_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
+    }
+
+    async fn resolve_read_target(
+        &self,
+        environment_id: &str,
+        environment_path: &str,
+        codex_binary_path: Option<String>,
+    ) -> AppResult<RuntimeReadTarget> {
+        let environment_lock = self.environment_lock(environment_id).await;
+        let _environment_guard = environment_lock.lock().await;
+        self.refresh_statuses().await?;
+
+        if let Some(runtime) = self.running_runtime(environment_id).await {
+            return Ok(RuntimeReadTarget::Running(runtime.session));
+        }
+
+        let binary_path = resolve_binary_path(codex_binary_path)?;
+        let session = RuntimeSession::spawn_headless(
+            environment_id.to_string(),
+            environment_path.to_string(),
+            binary_path,
+            self.app_version.clone(),
+        )
+        .await?;
+        Ok(RuntimeReadTarget::Headless(Box::new(session)))
     }
 
     pub async fn stop(&self, environment_id: &str) -> AppResult<RuntimeStatusSnapshot> {
@@ -427,6 +394,44 @@ impl RuntimeSupervisor {
     }
 }
 
+async fn read_account_rate_limits_from_target(
+    read_target: RuntimeReadTarget,
+) -> AppResult<CodexRateLimitSnapshot> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => session.read_account_rate_limits().await,
+        RuntimeReadTarget::Headless(session) => {
+            let result = session.read_account_rate_limits().await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
+async fn read_auth_status_from_target(
+    read_target: RuntimeReadTarget,
+    include_token: bool,
+    refresh_token: bool,
+) -> AppResult<AppServerAuthStatus> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => {
+            session.read_auth_status(include_token, refresh_token).await
+        }
+        RuntimeReadTarget::Headless(session) => {
+            let result = session.read_auth_status(include_token, refresh_token).await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
+fn finish_headless_read<T>(result: AppResult<T>, stop_result: AppResult<()>) -> AppResult<T> {
+    match (result, stop_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
+
 fn resolve_binary_path(codex_binary_path: Option<String>) -> AppResult<String> {
     match codex_binary_path {
         Some(path) => {
@@ -446,8 +451,40 @@ fn resolve_binary_path(codex_binary_path: Option<String>) -> AppResult<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_binary_path;
+    use std::sync::Arc;
+
+    use serde_json::{json, Value};
+    use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+    use tokio::sync::Mutex;
+
+    use super::{
+        finish_headless_read, read_auth_status_from_target, resolve_binary_path,
+        AppServerAuthStatus, RuntimeReadTarget,
+    };
+    use crate::domain::voice::VoiceAuthMode;
     use crate::error::AppError;
+    use crate::runtime::session::RuntimeSession;
+
+    #[tokio::test]
+    async fn running_read_auth_status_uses_the_active_session() {
+        let (session, harness) = spawn_test_session().await;
+
+        let auth_status =
+            read_auth_status_from_target(RuntimeReadTarget::Running(Arc::new(session)), true, true)
+                .await
+                .expect("running auth status should load");
+
+        assert_eq!(auth_status.auth_method, Some(VoiceAuthMode::Chatgpt));
+        assert_eq!(auth_status.auth_token.as_deref(), Some("token-123"));
+
+        let requests = harness.requests().await;
+        let auth_request = requests
+            .iter()
+            .find(|request| request.method == "getAuthStatus")
+            .expect("getAuthStatus request should be recorded");
+        assert_eq!(auth_request.params["includeToken"], true);
+        assert_eq!(auth_request.params["refreshToken"], true);
+    }
 
     #[test]
     fn trims_explicit_codex_binary_path() {
@@ -465,5 +502,173 @@ mod tests {
             error,
             AppError::Validation(message) if message == "Codex binary path cannot be empty."
         ));
+    }
+
+    #[test]
+    fn headless_read_returns_the_primary_read_error() {
+        let result = finish_headless_read::<AppServerAuthStatus>(
+            Err(AppError::Runtime("read failed".to_string())),
+            Ok(()),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            result,
+            AppError::Runtime(message) if message == "read failed"
+        ));
+    }
+
+    #[test]
+    fn headless_read_returns_auth_after_a_clean_stop() {
+        let auth_status = finish_headless_read(
+            Ok(AppServerAuthStatus {
+                auth_method: Some(VoiceAuthMode::Chatgpt),
+                auth_token: Some("token-123".to_string()),
+                requires_openai_auth: Some(false),
+            }),
+            Ok(()),
+        )
+        .expect("successful headless reads should preserve auth data");
+
+        assert_eq!(auth_status.auth_method, Some(VoiceAuthMode::Chatgpt));
+        assert_eq!(auth_status.auth_token.as_deref(), Some("token-123"));
+    }
+
+    #[test]
+    fn headless_read_returns_stop_error_after_a_successful_read() {
+        let result = finish_headless_read(
+            Ok(AppServerAuthStatus {
+                auth_method: Some(VoiceAuthMode::Chatgpt),
+                auth_token: Some("token-123".to_string()),
+                requires_openai_auth: Some(false),
+            }),
+            Err(AppError::Runtime("stop failed".to_string())),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            result,
+            AppError::Runtime(message) if message == "stop failed"
+        ));
+    }
+
+    #[derive(Clone, Debug)]
+    struct RecordedRequest {
+        method: String,
+        params: Value,
+    }
+
+    struct FakeCodexHarness {
+        requests: Arc<Mutex<Vec<RecordedRequest>>>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl FakeCodexHarness {
+        async fn requests(&self) -> Vec<RecordedRequest> {
+            self.requests.lock().await.clone()
+        }
+    }
+
+    impl Drop for FakeCodexHarness {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn spawn_test_session() -> (RuntimeSession, FakeCodexHarness) {
+        let (client_writer, server_reader) = duplex(32 * 1024);
+        let (server_writer, client_reader) = duplex(32 * 1024);
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let task = spawn_fake_codex(server_reader, server_writer, requests.clone());
+        let session = RuntimeSession::from_test_transport(
+            "env-1".to_string(),
+            "/tmp/threadex".to_string(),
+            "0.1.0".to_string(),
+            client_writer,
+            client_reader,
+        )
+        .await
+        .expect("test runtime should initialize");
+
+        (session, FakeCodexHarness { requests, task })
+    }
+
+    fn spawn_fake_codex(
+        reader: DuplexStream,
+        writer: DuplexStream,
+        requests: Arc<Mutex<Vec<RecordedRequest>>>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let writer = Arc::new(Mutex::new(writer));
+            let mut lines = BufReader::new(reader).lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                let payload = serde_json::from_str::<Value>(&line).expect("json-rpc should parse");
+                let Some(method) = payload.get("method").and_then(Value::as_str) else {
+                    continue;
+                };
+                let id = payload.get("id").cloned().unwrap_or(Value::Null);
+                let params = payload.get("params").cloned().unwrap_or(Value::Null);
+                requests.lock().await.push(RecordedRequest {
+                    method: method.to_string(),
+                    params: params.clone(),
+                });
+
+                let response = match method {
+                    "initialize" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
+                    "model/list" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "data": [{
+                                "id": "gpt-5.4",
+                                "displayName": "GPT-5.4",
+                                "description": "Main Codex model",
+                                "supportedReasoningEfforts": [{"reasoningEffort": "medium"}],
+                                "defaultReasoningEffort": "medium",
+                                "isDefault": true,
+                                "hidden": false
+                            }]
+                        }
+                    }),
+                    "collaborationMode/list" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "data": [{ "name": "build", "mode": "default" }] }
+                    }),
+                    "skills/list" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "data": [{ "cwd": "/tmp/threadex", "skills": [], "errors": [] }] }
+                    }),
+                    "app/list" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": { "data": [], "nextCursor": null }
+                    }),
+                    "getAuthStatus" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "authMethod": "chatgpt",
+                            "authToken": "token-123",
+                            "requiresOpenaiAuth": false
+                        }
+                    }),
+                    _ => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32601, "message": format!("unsupported method: {method}") }
+                    }),
+                };
+
+                let mut writer = writer.lock().await;
+                writer
+                    .write_all(format!("{response}\n").as_bytes())
+                    .await
+                    .expect("response should write");
+                writer.flush().await.expect("response should flush");
+            }
+        })
     }
 }

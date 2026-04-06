@@ -27,7 +27,9 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
   const AudioContextCtor =
     window.AudioContext ?? (window as AudioWindowWithWebkit).webkitAudioContext;
   if (!navigator.mediaDevices?.getUserMedia || !AudioContextCtor) {
-    throw new Error("Microphone capture is not available in this desktop runtime.");
+    throw new Error(
+      "Microphone capture is not available in this desktop runtime.",
+    );
   }
 
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -56,10 +58,7 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
   const chunks: Float32Array[] = [];
   const collector = await createCollectorNode(audioContext, chunks);
   source.connect(collector);
-
-  if ("connect" in collector && typeof collector.connect === "function") {
-    collector.connect(silenceGain);
-  }
+  collector.connect(silenceGain);
 
   let closed = false;
   let palette: { accent: string; muted: string } | null = null;
@@ -97,7 +96,11 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
     }
 
     if (audioContext.state !== "closed") {
-      await audioContext.close();
+      try {
+        await audioContext.close();
+      } catch {
+        // Ignore close failures during teardown.
+      }
     }
   }
 
@@ -119,13 +122,20 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
           accent:
             computedStyle.getPropertyValue("--tx-accent").trim() || "#57a2ff",
           muted:
-            computedStyle.getPropertyValue("--tx-text-muted").trim() || "#8b93a7",
+            computedStyle.getPropertyValue("--tx-text-muted").trim() ||
+            "#8b93a7",
         };
       }
 
       const devicePixelRatio = window.devicePixelRatio || 1;
-      const width = Math.max(1, Math.round(canvas.clientWidth * devicePixelRatio));
-      const height = Math.max(1, Math.round(canvas.clientHeight * devicePixelRatio));
+      const width = Math.max(
+        1,
+        Math.round(canvas.clientWidth * devicePixelRatio),
+      );
+      const height = Math.max(
+        1,
+        Math.round(canvas.clientHeight * devicePixelRatio),
+      );
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
@@ -141,12 +151,19 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
         Math.floor((width - gap * (barCount - 1)) / barCount),
       );
       const maxBarHeight = height - 4;
-      const bucketSize = Math.max(1, Math.floor(frequencyData.length / barCount));
+      const bucketSize = Math.max(
+        1,
+        Math.floor(frequencyData.length / barCount),
+      );
 
       for (let index = 0; index < barCount; index += 1) {
         const offset = index * bucketSize;
         let sum = 0;
-        for (let frequencyIndex = 0; frequencyIndex < bucketSize; frequencyIndex += 1) {
+        for (
+          let frequencyIndex = 0;
+          frequencyIndex < bucketSize;
+          frequencyIndex += 1
+        ) {
           sum += frequencyData[offset + frequencyIndex] ?? 0;
         }
         const normalized = sum / bucketSize / 255;
@@ -157,7 +174,14 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
         const fill = index % 4 === 0 ? palette.muted : palette.accent;
 
         context.fillStyle = fill;
-        roundRect(context, x, y, barWidth, barHeight, Math.min(4, barWidth / 2));
+        roundRect(
+          context,
+          x,
+          y,
+          barWidth,
+          barHeight,
+          Math.min(4, barWidth / 2),
+        );
       }
     },
     stop: async () => {
@@ -171,6 +195,9 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
           limitedSamples.length,
           audioContext.sampleRate,
         );
+        if (durationMs === 0) {
+          throw new Error("No speech was detected in the recording.");
+        }
         const resampledSamples =
           audioContext.sampleRate === TARGET_SAMPLE_RATE_HZ
             ? limitedSamples
@@ -179,7 +206,10 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
                 audioContext.sampleRate,
                 TARGET_SAMPLE_RATE_HZ,
               );
-        const wavBytes = encodeMonoPcmWav(resampledSamples, TARGET_SAMPLE_RATE_HZ);
+        const wavBytes = encodeMonoPcmWav(
+          resampledSamples,
+          TARGET_SAMPLE_RATE_HZ,
+        );
         const audioBase64 = await bytesToBase64(wavBytes);
 
         return {
@@ -400,7 +430,12 @@ function roundRect(
   context.lineTo(x + width - clampedRadius, y);
   context.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
   context.lineTo(x + width, y + height - clampedRadius);
-  context.quadraticCurveTo(x + width, y + height, x + width - clampedRadius, y + height);
+  context.quadraticCurveTo(
+    x + width,
+    y + height,
+    x + width - clampedRadius,
+    y + height,
+  );
   context.lineTo(x + clampedRadius, y + height);
   context.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
   context.lineTo(x, y + clampedRadius);

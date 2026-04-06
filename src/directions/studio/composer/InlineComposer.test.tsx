@@ -4,7 +4,10 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../../lib/bridge";
-import { baseComposer, capabilitiesFixture } from "../../../test/fixtures/conversation";
+import {
+  baseComposer,
+  capabilitiesFixture,
+} from "../../../test/fixtures/conversation";
 import { useVoiceStatusStore } from "../../../stores/voice-status-store";
 import { InlineComposer } from "./InlineComposer";
 import type { ComposerDraftMentionBinding } from "./composer-mention-bindings";
@@ -33,6 +36,7 @@ beforeEach(() => {
     loadingByEnvironmentId: {},
     errorByEnvironmentId: {},
     lastFetchedAtByEnvironmentId: {},
+    lastRequestedAtByEnvironmentId: {},
   }));
   mockedBridge.getThreadComposerCatalog.mockResolvedValue({
     prompts: [],
@@ -93,7 +97,9 @@ describe("InlineComposer voice dictation", () => {
         sampleRateHz: 24_000,
       });
     });
-    expect(await screen.findByDisplayValue("Transcribed words")).toBeInTheDocument();
+    expect(
+      await screen.findByDisplayValue("Transcribed words"),
+    ).toBeInTheDocument();
   });
 
   it("appends transcript to an existing draft with one separator space", async () => {
@@ -120,12 +126,72 @@ describe("InlineComposer voice dictation", () => {
       await screen.findByDisplayValue("Plan: add rollback coverage"),
     ).toBeInTheDocument();
   });
+
+  it("shows the unavailable reason when voice dictation cannot start", async () => {
+    mockedBridge.getEnvironmentVoiceStatus.mockResolvedValue({
+      environmentId: "env-1",
+      available: false,
+      authMode: "apiKey",
+      unavailableReason: "chatgptRequired",
+      message:
+        "Voice transcription requires Sign in with ChatGPT. API-key auth is not supported.",
+    });
+
+    renderComposer("");
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeDisabled();
+    });
+    expect(
+      await screen.findByText(
+        "Voice transcription requires Sign in with ChatGPT. API-key auth is not supported.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a local error when transcription fails and preserves the draft", async () => {
+    mockedStartVoiceCapture.mockResolvedValue(makeCapture());
+    mockedBridge.transcribeEnvironmentVoice.mockRejectedValue(
+      new Error(
+        "Your ChatGPT session has expired. Sign in again before using voice transcription.",
+      ),
+    );
+
+    renderComposer("Keep draft");
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+
+    await userEvent.click(startButton);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop voice dictation" }),
+    );
+
+    expect(
+      await screen.findByText("Voice transcription failed"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Your ChatGPT session has expired. Sign in again before using voice transcription.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Keep draft")).toBeInTheDocument();
+  });
 });
 
 function renderComposer(initialDraft: string) {
   function Harness() {
     const [draft, setDraft] = useState(initialDraft);
-    const [mentionBindings, setMentionBindings] = useState<ComposerDraftMentionBinding[]>([]);
+    const [mentionBindings, setMentionBindings] = useState<
+      ComposerDraftMentionBinding[]
+    >([]);
 
     return (
       <InlineComposer

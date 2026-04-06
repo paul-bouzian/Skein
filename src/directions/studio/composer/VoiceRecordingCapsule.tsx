@@ -9,6 +9,7 @@ type Props = {
   isRecording: boolean;
   isTranscribing: boolean;
   onDismissError: () => void;
+  unavailableMessage: string | null;
 };
 
 export function VoiceRecordingCapsule({
@@ -18,8 +19,9 @@ export function VoiceRecordingCapsule({
   isRecording,
   isTranscribing,
   onDismissError,
+  unavailableMessage,
 }: Props) {
-  if (!isRecording && !isTranscribing && !errorMessage) {
+  if (!isRecording && !isTranscribing && !errorMessage && !unavailableMessage) {
     return null;
   }
 
@@ -33,7 +35,9 @@ export function VoiceRecordingCapsule({
         <div className="tx-voice-capsule__header">
           <div className="tx-voice-capsule__title-group">
             <span className="tx-voice-capsule__eyebrow">Voice</span>
-            <span className="tx-voice-capsule__title">Voice transcription failed</span>
+            <span className="tx-voice-capsule__title">
+              Voice transcription failed
+            </span>
           </div>
           <button
             type="button"
@@ -45,6 +49,24 @@ export function VoiceRecordingCapsule({
           </button>
         </div>
         <div className="tx-voice-capsule__body">{errorMessage}</div>
+      </div>
+    );
+  }
+
+  if (unavailableMessage) {
+    return (
+      <div
+        className="tx-voice-capsule tx-voice-capsule--unavailable"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="tx-voice-capsule__header">
+          <div className="tx-voice-capsule__title-group">
+            <span className="tx-voice-capsule__eyebrow">Voice</span>
+            <span className="tx-voice-capsule__title">Voice unavailable</span>
+          </div>
+        </div>
+        <div className="tx-voice-capsule__body">{unavailableMessage}</div>
       </div>
     );
   }
@@ -61,9 +83,15 @@ export function VoiceRecordingCapsule({
             <span className="tx-voice-capsule__eyebrow">Voice</span>
             <span className="tx-voice-capsule__title">Listening</span>
           </div>
-          <span className="tx-voice-capsule__duration">{formatDuration(durationMs)}</span>
+          <span className="tx-voice-capsule__duration">
+            {formatDuration(durationMs)}
+          </span>
         </div>
-        <canvas ref={canvasRef} className="tx-voice-capsule__canvas" aria-hidden="true" />
+        <canvas
+          ref={canvasRef}
+          className="tx-voice-capsule__canvas"
+          aria-hidden="true"
+        />
       </div>
     );
   }
@@ -77,9 +105,13 @@ export function VoiceRecordingCapsule({
       <div className="tx-voice-capsule__header">
         <div className="tx-voice-capsule__title-group">
           <span className="tx-voice-capsule__eyebrow">Voice</span>
-          <span className="tx-voice-capsule__title">Transcribing voice note</span>
+          <span className="tx-voice-capsule__title">
+            Transcribing voice note
+          </span>
         </div>
-        <span className="tx-voice-capsule__duration">{formatDuration(durationMs)}</span>
+        <span className="tx-voice-capsule__duration">
+          {formatDuration(durationMs)}
+        </span>
       </div>
       <div className="tx-voice-capsule__progress" aria-hidden="true" />
       <div className="tx-voice-capsule__body">
@@ -90,7 +122,7 @@ export function VoiceRecordingCapsule({
 }
 
 function formatDuration(durationMs: number) {
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;

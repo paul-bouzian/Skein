@@ -78,6 +78,7 @@ function resetStores() {
     loadingByEnvironmentId: {},
     errorByEnvironmentId: {},
     lastFetchedAtByEnvironmentId: {},
+    lastRequestedAtByEnvironmentId: {},
   }));
 }
 
@@ -106,15 +107,30 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     await screen.findByText("Inspect the repository");
-    expect(screen.getByRole("button", { name: "Show thinking details" })).toBeInTheDocument();
-    expect(screen.queryByText("Looking through package.json and the runtime service.")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show thinking details" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Looking through package.json and the runtime service.",
+      ),
+    ).toBeNull();
     expect(screen.queryByText("3 tests passed")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Show thinking details" }));
-    await userEvent.click(screen.getByRole("button", { name: "Show Command details" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show thinking details" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show Command details" }),
+    );
 
     expect(
       screen.getByText("Looking through package.json and the runtime service."),
@@ -130,8 +146,7 @@ describe("ThreadConversation", () => {
             kind: "message",
             id: "assistant-markdown-1",
             role: "assistant",
-            text:
-              "## Release notes\n\n**Bold guidance** with `bun`.\n\n- First step\n- Second step\n\n```bash\nbun run verify\n```",
+            text: "## Release notes\n\n**Bold guidance** with `bun`.\n\n- First step\n- Second step\n\n```bash\nbun run verify\n```",
             isStreaming: false,
           },
         ],
@@ -140,7 +155,10 @@ describe("ThreadConversation", () => {
     });
 
     const { container } = render(
-      <ThreadConversation environment={makeEnvironment()} thread={makeThread()} />,
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
     );
 
     expect(
@@ -171,11 +189,20 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Show thinking details" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Show thinking details" }),
+    );
 
-    expect(screen.getByText("Addressing weather response").tagName).toBe("STRONG");
+    expect(screen.getByText("Addressing weather response").tagName).toBe(
+      "STRONG",
+    );
     expect(screen.getByRole("link", { name: "OpenAI" })).toHaveAttribute(
       "href",
       "https://openai.com/docs",
@@ -200,7 +227,12 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const body = await screen.findByText((_, element) => {
       return element?.textContent === "Line one\nLine two";
@@ -235,10 +267,19 @@ describe("ThreadConversation", () => {
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    expect(await screen.findByText(/2 subagents \(1 running\)/i)).toBeInTheDocument();
-    expect(screen.getByLabelText("Context window 0.3% used")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/2 subagents \(1 running\)/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Context window 0.3% used"),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Subagents/i }));
     expect(screen.getByText("Scout")).toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
@@ -256,7 +297,12 @@ describe("ThreadConversation", () => {
                 id: "question-2",
                 header: "Depth",
                 question: "How far should Codex go?",
-                options: [{ label: "Full", description: "Implement all requested changes" }],
+                options: [
+                  {
+                    label: "Full",
+                    description: "Implement all requested changes",
+                  },
+                ],
                 isOther: false,
                 isSecret: false,
               },
@@ -270,16 +316,29 @@ describe("ThreadConversation", () => {
       makeConversationSnapshot({ pendingInteractions: [] }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     expect(await screen.findByText("Codex needs input")).toBeInTheDocument();
     expect(screen.getByText("Question 1 / 2")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Option ARecommended path" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Option ARecommended path" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Question 2 / 2")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "FullImplement all requested changes" }));
-    await userEvent.click(screen.getByRole("button", { name: "Submit answers" }));
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "FullImplement all requested changes",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Submit answers" }),
+    );
 
     await waitFor(() => {
       expect(mockedBridge.respondToUserInputRequest).toHaveBeenCalledWith({
@@ -323,16 +382,32 @@ describe("ThreadConversation", () => {
             isStreaming: true,
           },
         ],
-        proposedPlan: makeProposedPlan({ status: "approved", isAwaitingDecision: false }),
+        proposedPlan: makeProposedPlan({
+          status: "approved",
+          isAwaitingDecision: false,
+        }),
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    expect(await screen.findByRole("button", { name: "Approve plan" })).toBeInTheDocument();
-    expect(screen.getByText("Codex clarified the implementation path.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Proposed plan" })).toBeInTheDocument();
-    expect(screen.getAllByText("Inspect the runtime layer").length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole("button", { name: "Approve plan" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Codex clarified the implementation path."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Proposed plan" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Inspect the runtime layer").length,
+    ).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Approve plan" }));
 
     await waitFor(() => {
@@ -347,7 +422,9 @@ describe("ThreadConversation", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("Approve plan")).toBeNull();
-      expect(screen.getByText("Starting implementation now.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Starting implementation now."),
+      ).toBeInTheDocument();
     });
   });
 
@@ -371,7 +448,12 @@ describe("ThreadConversation", () => {
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     await screen.findByRole("button", { name: "Refine" });
     await userEvent.click(screen.getByRole("button", { name: "Refine" }));
@@ -401,15 +483,26 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Refine" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Refine" }),
+    );
     const input = screen.getByPlaceholderText("Refine the proposed plan...");
     await userEvent.type(input, "Need rollback notes");
     await userEvent.keyboard("{Escape}");
 
-    expect(screen.queryByPlaceholderText("Refine the proposed plan...")).toBeNull();
-    expect(screen.getByPlaceholderText("Message ThreadEx...")).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText("Refine the proposed plan..."),
+    ).toBeNull();
+    expect(
+      screen.getByPlaceholderText("Message ThreadEx..."),
+    ).toBeInTheDocument();
   });
 
   it("renders task progress inline without proposal actions and keeps the composer available", async () => {
@@ -423,21 +516,33 @@ describe("ThreadConversation", () => {
             { step: "Inspect the runtime layer", status: "completed" },
             { step: "Implement the task UI", status: "completed" },
           ],
-          markdown: "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI",
+          markdown:
+            "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI",
         }),
       }),
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     expect((await screen.findAllByText("Tasks")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Codex is working through the implementation.")).toBeInTheDocument();
-    expect(screen.getAllByText("Inspect the runtime layer").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Codex is working through the implementation."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Inspect the runtime layer").length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Refine" })).toBeNull();
     expect(screen.queryByText("Codex is still shaping the plan…")).toBeNull();
-    expect(screen.getByPlaceholderText("Message ThreadEx...")).not.toBeDisabled();
+    expect(
+      screen.getByPlaceholderText("Message ThreadEx..."),
+    ).not.toBeDisabled();
   });
 
   it("hides the first-turn empty state when a task tracker is the only visible output", async () => {
@@ -456,9 +561,16 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    expect((await screen.findAllByText("Inspect the runtime layer")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText("Inspect the runtime layer")).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText("Ready for the first turn")).toBeNull();
   });
 
@@ -477,9 +589,16 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    expect(await screen.findByText("Ready for the first turn")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Ready for the first turn"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Tasks")).toBeNull();
   });
 
@@ -497,9 +616,16 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    expect(await screen.findByText("Ready for the first turn")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Ready for the first turn"),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Refine" })).toBeNull();
   });
@@ -520,10 +646,17 @@ describe("ThreadConversation", () => {
       makeConversationSnapshot({ pendingInteractions: [] }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     expect(await screen.findByText("Command approval")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Allow similar commands" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Allow similar commands" }),
+    );
 
     await waitFor(() => {
       expect(mockedBridge.respondToApprovalRequest).toHaveBeenCalledWith({
@@ -550,7 +683,12 @@ describe("ThreadConversation", () => {
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const user = userEvent.setup();
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
@@ -572,14 +710,20 @@ describe("ThreadConversation", () => {
   });
 
   it("prevents duplicate sends while a message submission is still in flight", async () => {
-    const deferred = createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    const deferred =
+      createDeferred<ReturnType<typeof makeConversationSnapshot>>();
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({ status: "idle" }),
       capabilities: capabilitiesFixture,
     });
     mockedBridge.sendThreadMessage.mockReturnValue(deferred.promise);
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
     await userEvent.type(input, "Ship the fix");
@@ -600,7 +744,12 @@ describe("ThreadConversation", () => {
       capabilities: capabilitiesFixture,
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
     await userEvent.type(input, "こんにちは");
@@ -636,7 +785,12 @@ describe("ThreadConversation", () => {
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const user = userEvent.setup();
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
@@ -680,7 +834,12 @@ describe("ThreadConversation", () => {
       apps: [],
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const user = userEvent.setup();
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
@@ -730,12 +889,19 @@ describe("ThreadConversation", () => {
       }),
     );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const user = userEvent.setup();
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
     await user.type(input, "Use $git");
-    expect(await screen.findAllByRole("option", { name: /github/i })).toHaveLength(2);
+    expect(
+      await screen.findAllByRole("option", { name: /github/i }),
+    ).toHaveLength(2);
     await user.keyboard("{ArrowDown}{Tab}{Enter}");
 
     await waitFor(() => {
@@ -788,13 +954,18 @@ describe("ThreadConversation", () => {
     );
 
     const { rerender } = render(
-      <ThreadConversation environment={makeEnvironment()} thread={makeThread()} />,
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
     );
 
     const user = userEvent.setup();
     const input = await screen.findByPlaceholderText("Message ThreadEx...");
     await user.type(input, "Use $git");
-    expect(await screen.findAllByRole("option", { name: /github/i })).toHaveLength(2);
+    expect(
+      await screen.findAllByRole("option", { name: /github/i }),
+    ).toHaveLength(2);
     await user.keyboard("{ArrowDown}{Tab}");
 
     await waitFor(() => {
@@ -808,7 +979,9 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const switchedInput = await screen.findByPlaceholderText("Message ThreadEx...");
+    const switchedInput = await screen.findByPlaceholderText(
+      "Message ThreadEx...",
+    );
     expect(switchedInput).toHaveValue("Use $github ");
 
     await user.type(switchedInput, "now");
@@ -841,21 +1014,32 @@ describe("ThreadConversation", () => {
       }),
       capabilities: capabilitiesFixture,
     });
-    mockedBridge.submitPlanDecision.mockRejectedValue(new Error("approval failed"));
+    mockedBridge.submitPlanDecision.mockRejectedValue(
+      new Error("approval failed"),
+    );
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: "Refine" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Refine" }),
+    );
     const input = screen.getByPlaceholderText("Refine the proposed plan...");
     await userEvent.type(input, "Keep the rollback section");
     await userEvent.click(screen.getByRole("button", { name: "Approve plan" }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Refine the proposed plan...")).toHaveValue(
-        "Keep the rollback section",
-      );
+      expect(
+        screen.getByPlaceholderText("Refine the proposed plan..."),
+      ).toHaveValue("Keep the rollback section");
     });
-    expect(screen.getByRole("button", { name: "Approve plan" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Approve plan" }),
+    ).toBeInTheDocument();
   });
 
   it("renders canonical model ids in the composer even when Codex returns display names", async () => {
@@ -886,9 +1070,16 @@ describe("ThreadConversation", () => {
       },
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
-    const modelPicker = await screen.findByRole("button", { name: "Model picker" });
+    const modelPicker = await screen.findByRole("button", {
+      name: "Model picker",
+    });
     expect(modelPicker).toHaveTextContent("gpt-5.4-mini");
 
     await userEvent.click(modelPicker);
@@ -896,12 +1087,10 @@ describe("ThreadConversation", () => {
     expect(
       screen.getByRole("option", { name: "gpt-5.4-mini" }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "GPT-5.4-mini" }),
-    ).toBeNull();
-    expect(
-      screen.getByRole("listbox", { name: "Model options" }),
-    ).toHaveStyle({ zIndex: "50" });
+    expect(screen.queryByRole("option", { name: "GPT-5.4-mini" })).toBeNull();
+    expect(screen.getByRole("listbox", { name: "Model options" })).toHaveStyle({
+      zIndex: "50",
+    });
   });
 
   it("preserves backend collaboration labels in the composer", async () => {
@@ -916,7 +1105,12 @@ describe("ThreadConversation", () => {
       },
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const modeToggle = await screen.findByRole("button", {
       name: "Collaboration mode: Execute. Switch to Strategize",
@@ -944,7 +1138,12 @@ describe("ThreadConversation", () => {
       },
     });
 
-    render(<ThreadConversation environment={makeEnvironment()} thread={makeThread()} />);
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
 
     const modeToggle = await screen.findByRole("button", {
       name: "Collaboration mode: Execute",
@@ -981,7 +1180,9 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Primary heading", level: 1 })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Primary heading", level: 1 }),
+    ).toBeInTheDocument();
     expect(screen.getByText("code").tagName).toBe("CODE");
     expect(screen.getByRole("link", { name: "OpenAI" })).toHaveAttribute(
       "href",

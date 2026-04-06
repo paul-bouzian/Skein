@@ -38,8 +38,12 @@ export function useComposerVoiceInput({
   const captureRef = useRef<ActiveVoiceCapture | null>(null);
   const mountedRef = useRef(true);
   const sessionEpochRef = useRef(0);
-  const [phase, setPhase] = useState<"idle" | "recording" | "transcribing">("idle");
-  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [phase, setPhase] = useState<
+    "idle" | "starting" | "recording" | "transcribing"
+  >("idle");
+  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(
+    null,
+  );
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [transcribingDurationMs, setTranscribingDurationMs] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -64,15 +68,23 @@ export function useComposerVoiceInput({
     typeof navigator.mediaDevices?.getUserMedia === "function" &&
     typeof window !== "undefined" &&
     (typeof window.AudioContext !== "undefined" ||
-      typeof (window as Window & { webkitAudioContext?: unknown }).webkitAudioContext !==
-        "undefined");
+      typeof (window as Window & { webkitAudioContext?: unknown })
+        .webkitAudioContext !== "undefined");
   const voiceAvailable = browserSupported && snapshot?.available === true;
   const availabilityMessage = useMemo(() => {
     if (!browserSupported) {
       return "Microphone capture is not available in this desktop runtime.";
     }
-    return snapshot?.message ?? storeError ?? "Voice transcription is unavailable right now.";
+    return (
+      snapshot?.message ??
+      storeError ??
+      "Voice transcription is unavailable right now."
+    );
   }, [browserSupported, snapshot?.message, storeError]);
+  const unavailableMessage =
+    phase === "idle" && !voiceAvailable && (!loading || !browserSupported)
+      ? availabilityMessage
+      : null;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -118,7 +130,9 @@ export function useComposerVoiceInput({
     }
 
     const intervalId = window.setInterval(() => {
-      setRecordingDurationMs(Math.max(0, performance.now() - recordingStartedAt));
+      setRecordingDurationMs(
+        Math.max(0, performance.now() - recordingStartedAt),
+      );
     }, 100);
 
     return () => {
@@ -203,7 +217,10 @@ export function useComposerVoiceInput({
   ]);
 
   useEffect(() => {
-    if (phase === "recording" && recordingDurationMs >= MAX_RECORDING_DURATION_MS) {
+    if (
+      phase === "recording" &&
+      recordingDurationMs >= MAX_RECORDING_DURATION_MS
+    ) {
       void stopRecording();
     }
   }, [phase, recordingDurationMs, stopRecording]);
@@ -219,6 +236,7 @@ export function useComposerVoiceInput({
     setTranscribingDurationMs(0);
 
     try {
+      setPhase("starting");
       captureRef.current = await startVoiceCapture();
       if (!mountedRef.current || sessionEpoch !== sessionEpochRef.current) {
         await cleanupActiveCapture(captureRef);
@@ -233,18 +251,29 @@ export function useComposerVoiceInput({
         return;
       }
       setErrorMessage(readVoiceErrorMessage(cause));
+      setRecordingStartedAt(null);
       setPhase("idle");
     }
   }, [loading, locked, phase, voiceAvailable]);
 
   const buttonDisabled =
-    phase === "transcribing" || (phase === "idle" && (locked || loading || !voiceAvailable));
+    phase === "starting" ||
+    phase === "transcribing" ||
+    (phase === "idle" && (locked || loading || !voiceAvailable));
   const buttonLabel =
-    phase === "recording" ? "Stop voice dictation" : "Start voice dictation";
+    phase === "recording"
+      ? "Stop voice dictation"
+      : phase === "starting"
+        ? "Starting voice dictation"
+        : "Start voice dictation";
   const buttonTitle =
-    phase === "recording" ? "Stop recording and transcribe" : voiceAvailable
-      ? "Record a voice message"
-      : availabilityMessage;
+    phase === "recording"
+      ? "Stop recording and transcribe"
+      : phase === "starting"
+        ? "Starting microphone capture"
+        : voiceAvailable
+          ? "Record a voice message"
+          : availabilityMessage;
 
   return {
     buttonDisabled,
@@ -262,6 +291,7 @@ export function useComposerVoiceInput({
       }
       void startRecording();
     },
+    unavailableMessage,
     voiceBusy: phase !== "idle",
     voiceDurationMs:
       phase === "recording" ? recordingDurationMs : transcribingDurationMs,
@@ -276,7 +306,11 @@ async function cleanupActiveCapture(
   if (!capture) {
     return;
   }
-  await capture.cancel();
+  try {
+    await capture.cancel();
+  } catch {
+    // Ignore teardown failures during unmounts and session switches.
+  }
 }
 
 function appendVoiceTranscript(currentDraft: string, transcript: string) {
@@ -293,9 +327,7 @@ function appendVoiceTranscript(currentDraft: string, transcript: string) {
 }
 
 function readVoiceErrorMessage(cause: unknown) {
-  return cause instanceof Error
-    ? cause.message
-    : "Voice transcription failed.";
+  return cause instanceof Error ? cause.message : "Voice transcription failed.";
 }
 
 export { appendVoiceTranscript };

@@ -2,9 +2,14 @@
   position: relative;
 }
 
-.tx-composer__voice-button--recording {
+.tx-composer__voice-button--recording,
+.tx-composer__voice-button--recording:hover:not(:disabled) {
   color: var(--tx-danger);
-  border-color: color-mix(in srgb, var(--tx-danger) 42%, var(--tx-border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--tx-danger) 42%,
+    var(--tx-border-subtle)
+  );
   background: color-mix(in srgb, var(--tx-danger) 12%, var(--tx-bg-base));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--tx-danger) 14%, transparent);
 }
@@ -15,6 +20,7 @@
   inset: -4px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--tx-danger) 35%, transparent);
+  pointer-events: none;
   animation: tx-voice-pulse 1.6s ease-out infinite;
 }
 
@@ -29,17 +35,38 @@
 }
 
 .tx-voice-capsule--recording {
-  border-color: color-mix(in srgb, var(--tx-danger) 22%, var(--tx-border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--tx-danger) 22%,
+    var(--tx-border-subtle)
+  );
   background: color-mix(in srgb, var(--tx-danger) 7%, var(--tx-bg-raised));
 }
 
 .tx-voice-capsule--transcribing {
-  border-color: color-mix(in srgb, var(--tx-accent) 22%, var(--tx-border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--tx-accent) 22%,
+    var(--tx-border-subtle)
+  );
 }
 
 .tx-voice-capsule--error {
-  border-color: color-mix(in srgb, var(--tx-danger) 28%, var(--tx-border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--tx-danger) 28%,
+    var(--tx-border-subtle)
+  );
   background: color-mix(in srgb, var(--tx-danger) 10%, var(--tx-bg-raised));
+}
+
+.tx-voice-capsule--unavailable {
+  border-color: color-mix(
+    in srgb,
+    var(--tx-border-emphasis) 42%,
+    var(--tx-border-subtle)
+  );
+  background: color-mix(in srgb, var(--tx-bg-raised) 88%, var(--tx-bg-hover));
 }
 
 .tx-voice-capsule__header {
@@ -133,7 +160,11 @@
 
 .tx-voice-capsule__dismiss:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-subtle));
+  border-color: color-mix(
+    in srgb,
+    var(--tx-accent) 45%,
+    var(--tx-border-subtle)
+  );
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--tx-accent) 14%, transparent);
 }
 
@@ -161,5 +192,12 @@
 
   100% {
     transform: translateX(340%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-composer__voice-button--recording::after,
+  .tx-voice-capsule__progress::after {
+    animation: none;
   }
 }
