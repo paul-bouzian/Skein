@@ -32,6 +32,7 @@ export const capabilitiesFixture: EnvironmentCapabilitiesSnapshot = {
       description: "Primary Codex model",
       defaultReasoningEffort: "high",
       supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+      inputModalities: ["text", "image"],
       isDefault: true,
     },
   ],
@@ -134,6 +135,7 @@ export function makeConversationSnapshot(
         id: "user-1",
         role: "user",
         text: "Inspect the repository",
+        images: null,
         isStreaming: false,
       },
       {
@@ -157,6 +159,7 @@ export function makeConversationSnapshot(
         id: "assistant-1",
         role: "assistant",
         text: "The workspace looks healthy.",
+        images: null,
         isStreaming: false,
       },
     ],

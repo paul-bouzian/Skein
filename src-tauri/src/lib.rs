@@ -53,6 +53,7 @@ pub fn run() {
             commands::git_review::generate_git_commit_message,
             commands::system::get_bootstrap_status,
             commands::system::get_project_icon,
+            commands::system::read_image_as_data_url,
             commands::system::restart_app,
             commands::voice::get_environment_voice_status,
             commands::voice::transcribe_environment_voice,

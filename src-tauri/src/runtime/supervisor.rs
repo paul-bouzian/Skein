@@ -7,9 +7,9 @@ use tokio::sync::Mutex;
 use tracing::warn;
 
 use crate::domain::conversation::{
-    ApprovalResponseInput, ComposerMentionBindingInput, RespondToUserInputRequestInput,
-    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
-    ThreadConversationSnapshot,
+    ApprovalResponseInput, ComposerMentionBindingInput, ConversationImageAttachment,
+    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
+    ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot};
 use crate::error::{AppError, AppResult};
@@ -318,11 +318,12 @@ impl RuntimeSupervisor {
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        images: Vec<ConversationImageAttachment>,
         mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let session = self.ensure_runtime(&context).await?;
         session
-            .send_message_with_bindings(context, text, mention_bindings)
+            .send_message_with_bindings(context, text, images, mention_bindings)
             .await
     }
 

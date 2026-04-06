@@ -3,8 +3,9 @@ use tauri::State;
 
 use crate::domain::conversation::{
     ComposerFileSearchResult, ComposerMentionBindingInput, ConversationComposerSettings,
-    RespondToApprovalRequestInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ConversationImageAttachment, RespondToApprovalRequestInput, RespondToUserInputRequestInput,
+    SubmitPlanDecisionInput, ThreadComposerCatalog, ThreadConversationOpenResponse,
+    ThreadConversationSnapshot,
 };
 use crate::error::CommandError;
 use crate::state::AppState;
@@ -15,6 +16,7 @@ pub struct SendThreadMessageInput {
     pub thread_id: String,
     pub text: String,
     pub composer: Option<ConversationComposerSettings>,
+    pub images: Option<Vec<ConversationImageAttachment>>,
     pub mention_bindings: Option<Vec<ComposerMentionBindingInput>>,
 }
 
@@ -82,6 +84,7 @@ pub async fn send_thread_message(
         .send_thread_message(
             context,
             message_text.clone(),
+            input.images.unwrap_or_default(),
             input.mention_bindings.unwrap_or_default(),
         )
         .await?;

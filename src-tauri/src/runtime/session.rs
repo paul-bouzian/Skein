@@ -15,11 +15,12 @@ use uuid::Uuid;
 
 use crate::domain::conversation::{
     ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
-    ConversationEventPayload, ConversationInteraction, ConversationItem, ConversationMessageItem,
-    ConversationRole, ConversationStatus, ConversationTaskStatus, EnvironmentCapabilitiesSnapshot,
-    FileChangeApprovalDecisionInput, PermissionGrantScope, PermissionsApprovalDecisionInput,
-    PlanDecisionAction, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ConversationEventPayload, ConversationImageAttachment, ConversationInteraction,
+    ConversationItem, ConversationMessageItem, ConversationRole, ConversationStatus,
+    ConversationTaskStatus, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
+    InputModality, PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
+    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
+    ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::settings::CollaborationMode;
 use crate::domain::voice::VoiceAuthMode;
@@ -393,8 +394,9 @@ impl RuntimeSession {
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        images: Vec<ConversationImageAttachment>,
     ) -> AppResult<SendMessageResult> {
-        self.send_message_with_bindings(context, text, Vec::new())
+        self.send_message_with_bindings(context, text, images, Vec::new())
             .await
     }
 
@@ -402,9 +404,10 @@ impl RuntimeSession {
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        images: Vec<ConversationImageAttachment>,
         mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
-        self.send_message_with_visibility(context, text, true, mention_bindings)
+        self.send_message_with_visibility(context, text, images, true, mention_bindings)
             .await
     }
 
@@ -488,6 +491,7 @@ impl RuntimeSession {
                     .send_message_with_visibility(
                         context,
                         plan_approval_message().to_string(),
+                        Vec::new(),
                         false,
                         Vec::new(),
                     )
@@ -516,6 +520,7 @@ impl RuntimeSession {
                     .send_message_with_visibility(
                         context,
                         trimmed.to_string(),
+                        input.images.unwrap_or_default(),
                         true,
                         input.mention_bindings.unwrap_or_default(),
                     )
@@ -711,15 +716,36 @@ impl RuntimeSession {
         Ok(capabilities)
     }
 
+    async fn validate_image_input_support(
+        &self,
+        model_id: &str,
+        images: &[ConversationImageAttachment],
+    ) -> AppResult<()> {
+        if images.is_empty() {
+            return Ok(());
+        }
+
+        let capabilities = self.ensure_capabilities().await?;
+        if model_supports_image_input(&capabilities, model_id) {
+            return Ok(());
+        }
+
+        Err(AppError::Validation(format!(
+            "Image attachments are unavailable for model `{model_id}`."
+        )))
+    }
+
     async fn resolve_outgoing_user_input(
         &self,
         context: &ThreadRuntimeContext,
         visible_text: &str,
+        images: &[ConversationImageAttachment],
         mention_bindings: &[ComposerMentionBindingInput],
     ) -> AppResult<OutgoingUserInputPayload> {
         if !visible_text.contains("/prompts:") && !visible_text.contains('$') {
             return Ok(OutgoingUserInputPayload {
                 text: visible_text.to_string(),
+                images: images.to_vec(),
                 text_elements: Vec::new(),
                 skills: Vec::new(),
                 mentions: Vec::new(),
@@ -749,6 +775,7 @@ impl RuntimeSession {
 
         Ok(OutgoingUserInputPayload {
             text: resolved.text,
+            images: images.to_vec(),
             text_elements: resolved
                 .text_elements
                 .into_iter()
@@ -781,15 +808,20 @@ impl RuntimeSession {
         &self,
         context: ThreadRuntimeContext,
         text: String,
+        images: Vec<ConversationImageAttachment>,
         visible_to_user: bool,
         mention_bindings: Vec<ComposerMentionBindingInput>,
     ) -> AppResult<SendMessageResult> {
         let trimmed = text.trim();
-        if trimmed.is_empty() {
-            return Err(AppError::Validation("Message cannot be empty.".to_string()));
+        if trimmed.is_empty() && images.is_empty() {
+            return Err(AppError::Validation(
+                "Message must include text or at least one image.".to_string(),
+            ));
         }
+        self.validate_image_input_support(&context.composer.model, &images)
+            .await?;
         let outgoing_input = self
-            .resolve_outgoing_user_input(&context, trimmed, &mention_bindings)
+            .resolve_outgoing_user_input(&context, trimmed, &images, &mention_bindings)
             .await?;
 
         let mut open = self.open_thread(context.clone()).await?;
@@ -799,6 +831,7 @@ impl RuntimeSession {
                 id: format!("local-user-{}", Uuid::now_v7()),
                 role: ConversationRole::User,
                 text: trimmed.to_string(),
+                images: (!images.is_empty()).then_some(images.clone()),
                 is_streaming: false,
             });
             upsert_item(&mut open.snapshot.items, user_item);
@@ -2302,6 +2335,18 @@ fn usage_event_payload(environment_id: &str, params: &Value) -> Option<Value> {
     }))
 }
 
+fn model_supports_image_input(
+    capabilities: &EnvironmentCapabilitiesSnapshot,
+    model_id: &str,
+) -> bool {
+    capabilities
+        .models
+        .iter()
+        .find(|model| model.id == model_id)
+        .map(|model| model.input_modalities.contains(&InputModality::Image))
+        .unwrap_or(false)
+}
+
 fn mark_item_streaming(item: ConversationItem) -> ConversationItem {
     match item {
         ConversationItem::Reasoning(mut reasoning) => {
@@ -2318,7 +2363,8 @@ mod tests {
 
     use super::*;
     use crate::domain::conversation::{
-        ConversationComposerSettings, ConversationItemStatus, ConversationToolItem,
+        CollaborationModeOption, ConversationComposerSettings, ConversationItemStatus,
+        ConversationToolItem, EnvironmentCapabilitiesSnapshot, InputModality, ModelOption,
     };
     use crate::domain::settings::{ApprovalPolicy, ReasoningEffort};
 
@@ -2343,6 +2389,7 @@ mod tests {
                 id: "assistant-1".to_string(),
                 role: ConversationRole::Assistant,
                 text: "Something went wrong".to_string(),
+                images: None,
                 is_streaming: false,
             }));
 
@@ -2396,6 +2443,44 @@ mod tests {
 
         assert!(state.pending_turn_mode_by_thread.is_empty());
         assert!(state.turn_modes_by_id.is_empty());
+    }
+
+    #[test]
+    fn model_supports_image_input_requires_explicit_image_modality() {
+        let capabilities = EnvironmentCapabilitiesSnapshot {
+            environment_id: "env-1".to_string(),
+            models: vec![
+                ModelOption {
+                    id: "gpt-5.4".to_string(),
+                    display_name: "GPT-5.4".to_string(),
+                    description: "Primary".to_string(),
+                    default_reasoning_effort: ReasoningEffort::High,
+                    supported_reasoning_efforts: vec![ReasoningEffort::High],
+                    input_modalities: vec![InputModality::Text],
+                    is_default: true,
+                },
+                ModelOption {
+                    id: "gpt-5.4-vision".to_string(),
+                    display_name: "GPT-5.4 Vision".to_string(),
+                    description: "Vision".to_string(),
+                    default_reasoning_effort: ReasoningEffort::High,
+                    supported_reasoning_efforts: vec![ReasoningEffort::High],
+                    input_modalities: vec![InputModality::Text, InputModality::Image],
+                    is_default: false,
+                },
+            ],
+            collaboration_modes: vec![CollaborationModeOption {
+                id: "build".to_string(),
+                label: "Build".to_string(),
+                mode: CollaborationMode::Build,
+                model: None,
+                reasoning_effort: None,
+            }],
+        };
+
+        assert!(!model_supports_image_input(&capabilities, "gpt-5.4"));
+        assert!(model_supports_image_input(&capabilities, "gpt-5.4-vision"));
+        assert!(!model_supports_image_input(&capabilities, "unknown-model"));
     }
 
     #[tokio::test]

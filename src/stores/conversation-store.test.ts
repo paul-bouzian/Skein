@@ -90,6 +90,7 @@ describe("conversation store", () => {
           id: "assistant-2",
           role: "assistant",
           text: "Running now",
+          images: null,
           isStreaming: true,
         },
       ],
@@ -151,6 +152,32 @@ describe("conversation store", () => {
         model: "gpt-5.3-codex",
         reasoningEffort: "low",
       },
+    });
+  });
+
+  it("forwards attached images to the backend", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-images-1",
+    });
+
+    mockedBridge.sendThreadMessage.mockResolvedValue(nextSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    await useConversationStore.getState().sendMessage("thread-1", "", [
+      { type: "localImage", path: "/tmp/screenshot.png" },
+    ]);
+
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      text: "",
+      composer: initialSnapshot.composer,
+      images: [{ type: "localImage", path: "/tmp/screenshot.png" }],
     });
   });
 

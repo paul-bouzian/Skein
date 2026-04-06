@@ -164,6 +164,10 @@ export function sendThreadMessage(
   return invoke<ThreadConversationSnapshot>("send_thread_message", { input });
 }
 
+export function readImageAsDataUrl(path: string): Promise<string> {
+  return invoke<string>("read_image_as_data_url", { path });
+}
+
 export function interruptThreadTurn(
   threadId: string,
 ): Promise<ThreadConversationSnapshot> {

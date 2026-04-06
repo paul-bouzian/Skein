@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import {
   getThreadComposerCatalog,
@@ -8,13 +16,18 @@ import type {
   ComposerMentionBindingInput,
   ComposerFileSearchResult,
   ConversationComposerSettings,
+  ConversationImageAttachment,
   ModelOption,
   ThreadComposerCatalog,
   ThreadTokenUsageSnapshot,
 } from "../../../lib/types";
-import { MicIcon, SendIcon, StopIcon } from "../../../shared/Icons";
+import { ImageIcon, MicIcon, SendIcon, StopIcon } from "../../../shared/Icons";
 import { ComposerPicker } from "../ComposerPicker";
 import { ContextWindowMeter } from "../ContextWindowMeter";
+import {
+  modelImageSupportMessage,
+  modelSupportsImageInput,
+} from "../conversation-images";
 import {
   APPROVAL_OPTIONS,
   composerModelOptions,
@@ -22,6 +35,7 @@ import {
   reasoningOptionsFor,
 } from "../composerOptions";
 import { ComposerAutocompleteMenu } from "./ComposerAutocompleteMenu";
+import { ComposerImageStrip } from "./ComposerImageStrip";
 import {
   addComposerMentionBinding,
   prepareComposerMentionBindingsForSend,
@@ -35,6 +49,7 @@ import {
   replaceComposerToken,
   type ComposerAutocompleteItem,
 } from "./composer-model";
+import { useComposerImageInput } from "./useComposerImageInput";
 import { useComposerVoiceInput } from "./useComposerVoiceInput";
 import { VoiceRecordingCapsule } from "./VoiceRecordingCapsule";
 import "./ComposerVoice.css";
@@ -48,11 +63,13 @@ type Props = {
   draft: string;
   effortOptions: Array<"low" | "medium" | "high" | "xhigh">;
   focusKey: string;
+  images: ConversationImageAttachment[];
   isBusy: boolean;
   isSending: boolean;
   isRefiningPlan: boolean;
   mentionBindings: ComposerDraftMentionBinding[];
   modelOptions: ModelOption[];
+  onChangeImages: Dispatch<SetStateAction<ConversationImageAttachment[]>>;
   tokenUsage?: ThreadTokenUsageSnapshot | null;
   onCancelRefine: () => void;
   onChangeDraft: (value: string) => void;
@@ -60,6 +77,7 @@ type Props = {
   onInterrupt: () => void;
   onSend: (
     text: string,
+    images: ConversationImageAttachment[],
     mentionBindings: ComposerMentionBindingInput[],
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
@@ -74,11 +92,13 @@ export function InlineComposer({
   draft,
   effortOptions,
   focusKey,
+  images,
   isBusy,
   isSending,
   isRefiningPlan,
   mentionBindings,
   modelOptions,
+  onChangeImages,
   tokenUsage,
   onCancelRefine,
   onChangeDraft,
@@ -115,6 +135,21 @@ export function InlineComposer({
   const placeholder = isRefiningPlan
     ? "Refine the proposed plan..."
     : "Message ThreadEx...";
+  const selectedModel = useMemo(
+    () =>
+      modelOptions.find((candidate) => candidate.id === composer.model) ?? null,
+    [composer.model, modelOptions],
+  );
+  const imagesEnabled = modelSupportsImageInput(selectedModel);
+  const hasAttachedImages = images.length > 0;
+  const hasDraftContent = draft.trim().length > 0;
+  let imageSupportNotice: string | null = null;
+  if (!imagesEnabled) {
+    imageSupportNotice = modelImageSupportMessage(selectedModel);
+    if (hasAttachedImages) {
+      imageSupportNotice = `${imageSupportNotice} Remove the current images or switch to a model with image input.`;
+    }
+  }
   const {
     buttonDisabled: voiceButtonDisabled,
     buttonLabel: voiceButtonLabel,
@@ -137,6 +172,29 @@ export function InlineComposer({
   });
   const inputDisabled = baseInputDisabled || voiceBusy;
   const controlsDisabled = baseControlsDisabled || voiceBusy;
+  const missingRequiredContent = isRefiningPlan
+    ? !hasDraftContent
+    : !hasDraftContent && !hasAttachedImages;
+  const sendDisabled =
+    inputDisabled ||
+    missingRequiredContent ||
+    (hasAttachedImages && !imagesEnabled);
+  const {
+    dropTargetRef,
+    isDragOver,
+    handleDragEnter,
+    handleDragLeave,
+    handleDragOver,
+    handleDrop,
+    handlePaste,
+    pickImages,
+    removeImage,
+  } = useComposerImageInput({
+    disabled: inputDisabled,
+    imagesEnabled,
+    scopeKey: threadId,
+    setImages: onChangeImages,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -306,8 +364,12 @@ export function InlineComposer({
   }
 
   function sendDraft() {
+    if (sendDisabled) {
+      return;
+    }
     onSend(
       draft,
+      images,
       prepareComposerMentionBindingsForSend(draft, mentionBindings),
     );
   }
@@ -336,9 +398,30 @@ export function InlineComposer({
         </div>
       ) : null}
 
-      <div className="tx-composer__body">
+      <div
+        ref={dropTargetRef}
+        className="tx-composer__body"
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={(event) => void handleDrop(event)}
+      >
+        <ComposerImageStrip
+          disabled={inputDisabled}
+          images={images}
+          onRemove={removeImage}
+        />
+        {imageSupportNotice ? (
+          <div className="tx-composer__notice">{imageSupportNotice}</div>
+        ) : null}
         <div
-          className={`tx-inline-composer ${inputDisabled ? "tx-inline-composer--disabled" : ""}`}
+          className={[
+            "tx-inline-composer",
+            inputDisabled ? "tx-inline-composer--disabled" : null,
+            isDragOver ? "tx-inline-composer--drag-over" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
         >
           <ComposerTextMirror
             draft={draft}
@@ -375,6 +458,7 @@ export function InlineComposer({
             }}
             onClick={syncSelection}
             onKeyUp={syncSelection}
+            onPaste={(event) => void handlePaste(event)}
             onSelect={syncSelection}
             onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
             onKeyDown={(event) => {
@@ -421,6 +505,11 @@ export function InlineComposer({
               }
             }}
           />
+          {isDragOver ? (
+            <div className="tx-inline-composer__drop-hint">
+              Drop images to attach them to this message
+            </div>
+          ) : null}
         </div>
         <VoiceRecordingCapsule
           canvasRef={voiceCanvasRef}
@@ -434,6 +523,20 @@ export function InlineComposer({
 
       <div className="tx-composer__controls">
         <div className="tx-composer__controls-group">
+          <button
+            type="button"
+            className="tx-composer__attach-button"
+            aria-label="Attach images"
+            title={
+              imagesEnabled
+                ? "Attach images"
+                : modelImageSupportMessage(selectedModel)
+            }
+            disabled={controlsDisabled || !imagesEnabled}
+            onClick={() => void pickImages()}
+          >
+            <ImageIcon size={14} />
+          </button>
           <ComposerPicker
             label="Model"
             value={composer.model}
@@ -525,7 +628,7 @@ export function InlineComposer({
               type="button"
               className="tx-composer__send-button"
               aria-label={isRefiningPlan ? "Refine plan" : "Send message"}
-              disabled={draft.trim().length === 0 || inputDisabled}
+              disabled={sendDisabled}
               onClick={sendDraft}
             >
               <SendIcon size={12} />

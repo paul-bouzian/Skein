@@ -214,6 +214,30 @@ export function SendIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function ImageIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect
+        x="2.25"
+        y="2.25"
+        width="11.5"
+        height="11.5"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <circle cx="5.5" cy="5.5" r="1.1" fill="currentColor" />
+      <path
+        d="m4 11 2.5-2.5 1.8 1.8L10.4 8 12 9.6"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function StopIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

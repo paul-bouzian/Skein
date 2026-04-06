@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::domain::conversation::{
     ConversationComposerSettings, ConversationInteraction, ConversationItem,
-    ConversationTaskStatus, ProposedPlanSnapshot, ProposedPlanStatus,
+    ConversationTaskStatus, InputModality, ProposedPlanSnapshot, ProposedPlanStatus,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
@@ -11,10 +11,10 @@ use super::protocol::{
     complete_proposed_plan, loaded_subagents_for_primary, model_options_from_response,
     normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
     sandbox_policy_value, subagents_from_collab_item, task_plan_from_item,
-    task_status_from_turn_status, AccountRateLimitsReadResponse, CollaborationModeListResponse,
-    CollaborationModeWire, IncomingMessage, ModelListResponse, ModelWire,
-    ReasoningEffortOptionWire, ServerRequestEnvelope, ThreadListEntryWire, ThreadStatusWire,
-    ThreadWire,
+    task_status_from_turn_status, user_input_payload, AccountRateLimitsReadResponse,
+    CollaborationModeListResponse, CollaborationModeWire, IncomingMessage, ModelListResponse,
+    ModelWire, OutgoingTextElement, OutgoingUserInputPayload, ReasoningEffortOptionWire,
+    ServerRequestEnvelope, ThreadListEntryWire, ThreadStatusWire, ThreadWire,
 };
 
 fn composer() -> ConversationComposerSettings {
@@ -650,6 +650,7 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
                     },
                 ],
                 default_reasoning_effort: ReasoningEffort::High,
+                input_modalities: vec![InputModality::Text, InputModality::Image],
                 is_default: true,
                 hidden: false,
             },
@@ -659,6 +660,7 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
                 description: "Hidden".to_string(),
                 supported_reasoning_efforts: vec![],
                 default_reasoning_effort: ReasoningEffort::Medium,
+                input_modalities: vec![InputModality::Text],
                 is_default: false,
                 hidden: true,
             },
@@ -668,6 +670,59 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].id, "gpt-5.4");
     assert_eq!(models[0].supported_reasoning_efforts.len(), 2);
+}
+
+#[test]
+fn defaults_missing_input_modalities_to_text_only() {
+    let models = model_options_from_response(
+        serde_json::from_value::<ModelListResponse>(json!({
+            "data": [
+                {
+                    "id": "gpt-5.4-mini",
+                    "displayName": "GPT-5.4-mini",
+                    "description": "Mini model",
+                    "supportedReasoningEfforts": [],
+                    "defaultReasoningEffort": "medium",
+                    "isDefault": true,
+                    "hidden": false
+                }
+            ]
+        }))
+        .expect("model list response should decode"),
+    );
+
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].input_modalities, vec![InputModality::Text]);
+}
+
+#[test]
+fn preserves_placeholder_metadata_when_visible_text_is_empty() {
+    let payload = user_input_payload(&OutgoingUserInputPayload {
+        text: String::new(),
+        images: Vec::new(),
+        text_elements: vec![OutgoingTextElement {
+            start: 0,
+            end: 0,
+            placeholder: Some("/prompts:empty".to_string()),
+        }],
+        skills: Vec::new(),
+        mentions: Vec::new(),
+    });
+
+    assert_eq!(
+        payload,
+        json!([{
+            "type": "text",
+            "text": "",
+            "text_elements": [{
+                "byteRange": {
+                    "start": 0,
+                    "end": 0
+                },
+                "placeholder": "/prompts:empty"
+            }]
+        }])
+    );
 }
 
 #[test]
