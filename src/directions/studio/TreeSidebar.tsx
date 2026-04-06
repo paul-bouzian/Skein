@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { createPortal } from "react-dom";
 import {
   deriveEnvironmentConversationStatus,
@@ -58,7 +58,9 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
-  const latestScriptFailure = useWorktreeScriptStore((state) => state.latestFailure);
+  const latestScriptFailure = useWorktreeScriptStore(
+    (state) => state.latestFailure,
+  );
   const dismissLatestScriptFailure = useWorktreeScriptStore(
     (state) => state.dismissLatestFailure,
   );
@@ -111,8 +113,24 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
 
   async function handleRemoveProject(projectId: string, projectName: string) {
     setContextMenu(null);
+    const project = projects.find((candidate) => candidate.id === projectId);
+    const hasManagedWorktrees = project?.environments.some(
+      (environment) => environment.kind !== "local",
+    );
+    if (hasManagedWorktrees) {
+      resetMessages();
+      await message(
+        "Delete this project's worktrees before removing it from ThreadEx.",
+        {
+          title: "Remove project",
+          kind: "info",
+        },
+      );
+      return;
+    }
+
     const approved = await confirm(
-      `Remove "${projectName}" from ThreadEx? The project folder will stay on disk.`,
+      `Remove "${projectName}" from ThreadEx? The repository stays on disk. ThreadEx may also remove its empty managed worktree folder.`,
       {
         title: "Remove project",
         kind: "warning",
@@ -210,8 +228,8 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
           <div className="tree-sidebar__notice tree-sidebar__notice--warning">
             <div className="tree-sidebar__notice-copy">
               <strong>
-                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"} script
-                failed for {latestScriptFailure.worktreeName}
+                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"}{" "}
+                script failed for {latestScriptFailure.worktreeName}
               </strong>
               <span>{latestScriptFailure.message}</span>
               <code>{latestScriptFailure.logPath}</code>
@@ -432,6 +450,15 @@ function environmentIndicatorTone(
 }
 
 function actionErrorMessage(cause: unknown, fallback: string) {
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
+    "message" in cause &&
+    typeof cause.message === "string" &&
+    cause.message.trim().length > 0
+  ) {
+    return cause.message;
+  }
   return cause instanceof Error ? cause.message : fallback;
 }
 
