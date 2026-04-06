@@ -16,11 +16,11 @@ export function handleExternalLinkClick(
   event.preventDefault();
   event.stopPropagation();
 
-  if (!isExternalUrl(href)) {
+  if (!isValidExternalUrl(href)) {
     return;
   }
 
-  void openUrl(href);
+  void Promise.resolve(openUrl(href)).catch(() => undefined);
 }
 
 export function renderTextWithExternalLinks(text: string, keyPrefix: string): ReactNode[] {
@@ -37,7 +37,7 @@ export function renderTextWithExternalLinks(text: string, keyPrefix: string): Re
     const rawUrl = match[0];
     const start = match.index;
     const { url, trailing } = trimTrailingUrl(rawUrl);
-    if (!url) {
+    if (!isValidExternalUrl(url)) {
       continue;
     }
 
@@ -79,8 +79,21 @@ export function renderTextWithExternalLinks(text: string, keyPrefix: string): Re
   return nodes;
 }
 
-function isExternalUrl(value: string) {
-  return /^https?:\/\//i.test(value.trim());
+function isValidExternalUrl(value: string) {
+  const trimmed = value.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      parsed.hostname.length > 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 function trimTrailingUrl(rawUrl: string) {

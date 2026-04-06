@@ -236,6 +236,19 @@ describe("ThreadConversation", () => {
     expect(openUrlMock).toHaveBeenCalledWith("https://openai.com/docs");
   });
 
+  it("keeps malformed protocol-only URL fragments as plain text", () => {
+    const { container } = render(
+      <ConversationMarkdown markdown={"See https://) for details."} />,
+    );
+
+    expect(
+      screen.queryByRole("link", {
+        name: "https://",
+      }),
+    ).toBeNull();
+    expect(container.textContent).toBe("See https://) for details.");
+  });
+
   it("preserves multiline user messages with the plain-text message class", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
