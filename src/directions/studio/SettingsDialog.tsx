@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as bridge from "../../lib/bridge";
 import type {
@@ -51,6 +51,8 @@ export function SettingsDialog({ open, onClose }: Props) {
   const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("codex");
+  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
+  const savingGlobalSettingsRef = useRef(false);
   const modelOptions = useMemo(
     () =>
       settings
@@ -103,6 +105,12 @@ export function SettingsDialog({ open, onClose }: Props) {
   }
 
   async function handleGlobalChange(patch: GlobalSettingsPatch) {
+    if (savingGlobalSettingsRef.current) {
+      return;
+    }
+
+    savingGlobalSettingsRef.current = true;
+    setSavingGlobalSettings(true);
     try {
       setActionError(null);
       await bridge.updateGlobalSettings(patch);
@@ -111,6 +119,9 @@ export function SettingsDialog({ open, onClose }: Props) {
       setActionError(
         cause instanceof Error ? cause.message : "Failed to save settings",
       );
+    } finally {
+      savingGlobalSettingsRef.current = false;
+      setSavingGlobalSettings(false);
     }
   }
 
@@ -203,6 +214,7 @@ export function SettingsDialog({ open, onClose }: Props) {
             {activeTab === "codex" && settings ? (
               <SettingsContent
                 settings={settings}
+                disabled={savingGlobalSettings}
                 modelOptions={modelOptions}
                 onChange={handleGlobalChange}
               />
@@ -229,22 +241,26 @@ export function SettingsDialog({ open, onClose }: Props) {
 
 function SettingsContent({
   settings,
+  disabled,
   modelOptions,
   onChange,
 }: {
   settings: GlobalSettings;
+  disabled: boolean;
   modelOptions: ComposerPickerOption[];
   onChange: (patch: GlobalSettingsPatch) => void;
 }) {
   return (
     <div className="settings-list">
       <SettingsSelect
+        disabled={disabled}
         label="Default model"
         value={settings.defaultModel}
         options={modelOptions}
         onChange={(value) => onChange({ defaultModel: value })}
       />
       <SettingsSelect
+        disabled={disabled}
         label="Default reasoning"
         value={settings.defaultReasoningEffort}
         options={REASONING_OPTIONS}
@@ -253,6 +269,7 @@ function SettingsContent({
         }
       />
       <SettingsSelect
+        disabled={disabled}
         label="Default mode"
         value={settings.defaultCollaborationMode}
         options={COLLABORATION_OPTIONS}
@@ -261,6 +278,7 @@ function SettingsContent({
         }
       />
       <SettingsSelect
+        disabled={disabled}
         label="Default approval"
         value={settings.defaultApprovalPolicy}
         options={APPROVAL_OPTIONS}
@@ -268,7 +286,15 @@ function SettingsContent({
           onChange({ defaultApprovalPolicy: value as ApprovalPolicy })
         }
       />
+      <SettingsToggle
+        disabled={disabled}
+        label="Collapse work activity"
+        description="Hide intermediate thinking, tool calls, task progress, and subagent noise behind one collapsible work block. Plans and user interactions stay visible."
+        checked={settings.collapseWorkActivity}
+        onChange={(value) => onChange({ collapseWorkActivity: value })}
+      />
       <SettingsInput
+        disabled={disabled}
         label="Codex binary"
         value={settings.codexBinaryPath ?? ""}
         placeholder="auto-detect"
@@ -280,11 +306,13 @@ function SettingsContent({
 
 function SettingsSelect<T extends string>({
   label,
+  disabled = false,
   value,
   options,
   onChange,
 }: {
   label: string;
+  disabled?: boolean;
   value: T;
   options: ComposerPickerOption<T>[];
   onChange: (value: T) => void;
@@ -294,6 +322,7 @@ function SettingsSelect<T extends string>({
       label={label}
       value={value}
       options={options}
+      disabled={disabled}
       menuZIndex={SETTINGS_PICKER_Z_INDEX}
       onChange={(nextValue) => onChange(nextValue as T)}
     />
@@ -302,11 +331,13 @@ function SettingsSelect<T extends string>({
 
 function SettingsInput({
   label,
+  disabled = false,
   value,
   placeholder,
   onChange,
 }: {
   label: string;
+  disabled?: boolean;
   value: string;
   placeholder: string;
   onChange: (value: string) => void;
@@ -324,6 +355,7 @@ function SettingsInput({
         className="settings-field__input"
         type="text"
         value={draftValue}
+        disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => setDraftValue(event.target.value)}
         onBlur={(event) => {
@@ -333,6 +365,42 @@ function SettingsInput({
           }
         }}
       />
+    </div>
+  );
+}
+
+function SettingsToggle({
+  label,
+  description,
+  disabled = false,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  disabled?: boolean;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="settings-toggle">
+      <div className="settings-toggle__copy">
+        <label className="settings-field__label">{label}</label>
+        <p className="settings-field__help">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        disabled={disabled}
+        aria-checked={checked}
+        aria-label={label}
+        className={`settings-toggle__control ${
+          checked ? "settings-toggle__control--checked" : ""
+        }`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="settings-toggle__thumb" />
+      </button>
     </div>
   );
 }

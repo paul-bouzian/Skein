@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn default_collapse_work_activity() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
@@ -32,6 +36,8 @@ pub struct GlobalSettings {
     pub default_reasoning_effort: ReasoningEffort,
     pub default_collaboration_mode: CollaborationMode,
     pub default_approval_policy: ApprovalPolicy,
+    #[serde(default = "default_collapse_work_activity")]
+    pub collapse_work_activity: bool,
     pub codex_binary_path: Option<String>,
 }
 
@@ -42,6 +48,7 @@ impl Default for GlobalSettings {
             default_reasoning_effort: ReasoningEffort::High,
             default_collaboration_mode: CollaborationMode::Build,
             default_approval_policy: ApprovalPolicy::AskToEdit,
+            collapse_work_activity: true,
             codex_binary_path: None,
         }
     }
@@ -54,6 +61,7 @@ pub struct GlobalSettingsPatch {
     pub default_reasoning_effort: Option<ReasoningEffort>,
     pub default_collaboration_mode: Option<CollaborationMode>,
     pub default_approval_policy: Option<ApprovalPolicy>,
+    pub collapse_work_activity: Option<bool>,
     pub codex_binary_path: Option<Option<String>>,
 }
 
@@ -70,6 +78,9 @@ impl GlobalSettings {
         }
         if let Some(default_approval_policy) = patch.default_approval_policy {
             self.default_approval_policy = default_approval_policy;
+        }
+        if let Some(collapse_work_activity) = patch.collapse_work_activity {
+            self.collapse_work_activity = collapse_work_activity;
         }
         if let Some(codex_binary_path) = patch.codex_binary_path {
             self.codex_binary_path = codex_binary_path;
@@ -92,6 +103,7 @@ mod tests {
             default_reasoning_effort: Some(ReasoningEffort::Medium),
             default_collaboration_mode: None,
             default_approval_policy: Some(ApprovalPolicy::FullAccess),
+            collapse_work_activity: Some(true),
             codex_binary_path: Some(Some("/opt/homebrew/bin/codex".to_string())),
         });
 
@@ -108,6 +120,7 @@ mod tests {
             settings.default_approval_policy,
             ApprovalPolicy::FullAccess
         ));
+        assert!(settings.collapse_work_activity);
         assert_eq!(
             settings.codex_binary_path.as_deref(),
             Some("/opt/homebrew/bin/codex")
@@ -127,5 +140,28 @@ mod tests {
         });
 
         assert_eq!(settings.codex_binary_path, None);
+    }
+
+    #[test]
+    fn default_settings_enable_collapsed_work_activity() {
+        let settings = GlobalSettings::default();
+
+        assert!(settings.collapse_work_activity);
+    }
+
+    #[test]
+    fn deserialize_legacy_settings_defaults_collapse_work_activity_to_true() {
+        let settings: GlobalSettings = serde_json::from_str(
+            r#"{
+                "defaultModel":"gpt-5.4",
+                "defaultReasoningEffort":"high",
+                "defaultCollaborationMode":"build",
+                "defaultApprovalPolicy":"askToEdit",
+                "codexBinaryPath":"/opt/homebrew/bin/codex"
+            }"#,
+        )
+        .expect("legacy settings should deserialize");
+
+        assert!(settings.collapse_work_activity);
     }
 }

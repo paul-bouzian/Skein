@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
 import {
+  makeGlobalSettings,
   makeProject,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
@@ -61,17 +62,21 @@ vi.mock("../../lib/bridge", () => ({
 
 const mockedBridge = vi.mocked(bridge);
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   storageState.clear();
   mockedBridge.updateGlobalSettings.mockReset();
   mockedBridge.updateProjectSettings.mockReset();
-  mockedBridge.updateGlobalSettings.mockResolvedValue({
-    defaultModel: "gpt-5.4",
-    defaultReasoningEffort: "high",
-    defaultCollaborationMode: "build",
-    defaultApprovalPolicy: "askToEdit",
-    codexBinaryPath: "/opt/homebrew/bin/codex",
-  });
+  mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
   mockedBridge.updateProjectSettings.mockResolvedValue(makeWorkspaceSnapshot().projects[0]);
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -268,6 +273,48 @@ describe("StudioShell", () => {
         "Settings were saved, but the workspace snapshot could not be refreshed.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("saves the compact work activity setting from Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Collapse work activity" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        collapseWorkActivity: false,
+      });
+    });
+  });
+
+  it("ignores repeated compact-toggle clicks while the settings save is in flight", async () => {
+    const saveRequest =
+      createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();
+    mockedBridge.updateGlobalSettings.mockImplementation(() => saveRequest.promise);
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const toggle = screen.getByRole("switch", { name: "Collapse work activity" });
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toBeDisabled();
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(toggle);
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    saveRequest.resolve(makeWorkspaceSnapshot().settings);
+
+    await waitFor(() => {
+      expect(toggle).not.toBeDisabled();
+    });
   });
 
   it("reuses Codex model ids in settings when runtime capabilities are available", async () => {
