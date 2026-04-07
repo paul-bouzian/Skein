@@ -56,7 +56,11 @@ export function ConversationItemRow({ item, compact = false }: Props) {
   }
 
   if (item.kind === "reasoning") {
-    if (!item.isStreaming && item.summary.length === 0 && item.content.length === 0) {
+    if (
+      !item.isStreaming &&
+      item.summary.trim().length === 0 &&
+      item.content.trim().length === 0
+    ) {
       return null;
     }
 

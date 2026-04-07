@@ -1,3 +1,6 @@
+import {
+  DEFAULT_GLOBAL_SETTINGS,
+} from "../../lib/types";
 import type {
   ConversationTaskSnapshot,
   PendingApprovalRequest,
@@ -108,14 +111,7 @@ export function makeWorkspaceSnapshot(
   overrides: Partial<WorkspaceSnapshot> = {},
 ): WorkspaceSnapshot {
   return {
-    settings: {
-      defaultModel: "gpt-5.4",
-      defaultReasoningEffort: "high",
-      defaultCollaborationMode: "build",
-      defaultApprovalPolicy: "askToEdit",
-      collapseWorkActivity: true,
-      codexBinaryPath: "/opt/homebrew/bin/codex",
-    },
+    settings: { ...DEFAULT_GLOBAL_SETTINGS },
     projects: [makeProject()],
     ...overrides,
   };

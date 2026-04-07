@@ -61,6 +61,16 @@ vi.mock("../../lib/bridge", () => ({
 
 const mockedBridge = vi.mocked(bridge);
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   storageState.clear();
   mockedBridge.updateGlobalSettings.mockReset();
@@ -283,6 +293,33 @@ describe("StudioShell", () => {
       expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
         collapseWorkActivity: false,
       });
+    });
+  });
+
+  it("ignores repeated compact-toggle clicks while the settings save is in flight", async () => {
+    const saveRequest =
+      createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();
+    mockedBridge.updateGlobalSettings.mockImplementation(() => saveRequest.promise);
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const toggle = screen.getByRole("switch", { name: "Collapse work activity" });
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toBeDisabled();
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(toggle);
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    saveRequest.resolve(makeWorkspaceSnapshot().settings);
+
+    await waitFor(() => {
+      expect(toggle).not.toBeDisabled();
     });
   });
 

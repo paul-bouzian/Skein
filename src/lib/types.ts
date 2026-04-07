@@ -122,6 +122,15 @@ export type GlobalSettings = {
   codexBinaryPath?: string;
 };
 
+export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
+  defaultModel: "gpt-5.4",
+  defaultReasoningEffort: "high",
+  defaultCollaborationMode: "build",
+  defaultApprovalPolicy: "askToEdit",
+  collapseWorkActivity: true,
+  codexBinaryPath: "/opt/homebrew/bin/codex",
+};
+
 export type WorkspaceSnapshot = {
   settings: GlobalSettings;
   projects: ProjectRecord[];

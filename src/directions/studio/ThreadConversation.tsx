@@ -6,6 +6,7 @@ import type {
   EnvironmentRecord,
   ThreadRecord,
 } from "../../lib/types";
+import { DEFAULT_GLOBAL_SETTINGS } from "../../lib/types";
 import { EmptyState } from "../../shared/EmptyState";
 import {
   selectConversationCapabilities,
@@ -116,7 +117,8 @@ export function ThreadConversation({ environment, thread }: Props) {
     return () => window.clearInterval(interval);
   }, [refreshThread, snapshot?.activeTurnId, snapshot?.codexThreadId, thread.id]);
 
-  const compactWorkActivity = settings?.collapseWorkActivity ?? false;
+  const compactWorkActivity =
+    settings?.collapseWorkActivity ?? DEFAULT_GLOBAL_SETTINGS.collapseWorkActivity;
   const activePlan = snapshot?.proposedPlan ?? null;
   const activeTaskPlan = snapshot?.taskPlan ?? null;
   const shouldRenderPlanCard = shouldRenderProposedPlan(activePlan);

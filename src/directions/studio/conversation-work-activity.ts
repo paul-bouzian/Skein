@@ -150,29 +150,31 @@ function collectFinalAssistantMessageIds(
   effectiveTurnIds: Map<string, string>,
   actionTurnIds: Set<string>,
 ) {
-  const lastItemIndexByTurn = new Map<string, number>();
+  const lastAssistantMessageIdByTurn = new Map<string, string>();
   const suppressedFinalTurnIds = new Set(actionTurnIds);
 
   if (snapshot.activeTurnId) {
     suppressedFinalTurnIds.add(snapshot.activeTurnId);
   }
 
-  items.forEach((item, index) => {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
     const turnId = effectiveTurnIds.get(item.id);
-    if (turnId) {
-      lastItemIndexByTurn.set(turnId, index);
-    }
-  });
-
-  const ids = new Set<string>();
-  for (const [turnId, index] of lastItemIndexByTurn) {
-    if (suppressedFinalTurnIds.has(turnId)) {
+    if (
+      !turnId ||
+      suppressedFinalTurnIds.has(turnId) ||
+      lastAssistantMessageIdByTurn.has(turnId)
+    ) {
       continue;
     }
-    const item = items[index];
     if (item.kind === "message" && item.role === "assistant") {
-      ids.add(item.id);
+      lastAssistantMessageIdByTurn.set(turnId, item.id);
     }
+  }
+
+  const ids = new Set<string>();
+  for (const itemId of lastAssistantMessageIdByTurn.values()) {
+    ids.add(itemId);
   }
 
   return ids;

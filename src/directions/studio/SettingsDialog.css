@@ -169,7 +169,7 @@
     border-color var(--tx-transition-fast);
 }
 
-.settings-toggle__control:hover {
+.settings-toggle__control:not(.settings-toggle__control--checked):hover {
   border-color: var(--tx-border-muted);
 }
 

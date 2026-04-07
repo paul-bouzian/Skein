@@ -70,6 +70,18 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function setCompactWorkActivity(enabled: boolean) {
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    snapshot: makeWorkspaceSnapshot({
+      settings: {
+        ...makeWorkspaceSnapshot().settings,
+        collapseWorkActivity: enabled,
+      },
+    }),
+  }));
+}
+
 function resetStores() {
   teardownConversationListener();
   const conversationState = useConversationStore.getState();
@@ -124,6 +136,7 @@ beforeEach(() => {
 
 describe("ThreadConversation", () => {
   it("renders the conversation timeline with collapsible thinking and tool details", async () => {
+    setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot(),
       capabilities: capabilitiesFixture,
@@ -257,6 +270,7 @@ describe("ThreadConversation", () => {
     }));
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
+        codexThreadId: null,
         status: "running",
         activeTurnId: "turn-live-update-1",
         items: [
@@ -313,6 +327,7 @@ describe("ThreadConversation", () => {
     }));
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
+        codexThreadId: null,
         status: "running",
         activeTurnId: "turn-live-fallback-1",
         items: [
@@ -430,6 +445,37 @@ describe("ThreadConversation", () => {
     );
     expect(screen.getByText("markdown").tagName).toBe("CODE");
     expect(screen.getByText("Avoid raw plaintext")).toBeInTheDocument();
+  });
+
+  it("hides completed reasoning rows when their content is only whitespace", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "reasoning",
+            id: "reason-whitespace-1",
+            turnId: "turn-whitespace-1",
+            summary: "   ",
+            content: "\n\n",
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Show thinking details" }),
+      ).toBeNull();
+    });
   });
 
   it("auto-links bare URLs in markdown and opens them with the desktop opener", async () => {
@@ -588,6 +634,7 @@ describe("ThreadConversation", () => {
   });
 
   it("renders clickable bare URLs in plan and task explanations", async () => {
+    setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         proposedPlan: makeProposedPlan({
@@ -735,6 +782,7 @@ describe("ThreadConversation", () => {
   });
 
   it("renders the subagent strip and context meter for active turns", async () => {
+    setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         status: "running",
@@ -790,6 +838,7 @@ describe("ThreadConversation", () => {
     }));
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
+        codexThreadId: null,
         status: "running",
         activeTurnId: "turn-live-1",
         items: [
@@ -835,6 +884,75 @@ describe("ThreadConversation", () => {
     expect(screen.getByText("Scout")).toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
     expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the last assistant reply visible when trailing work items share the same turn", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "user-tail-1",
+            turnId: "turn-tail-1",
+            role: "user",
+            text: "Inspect the repository",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "reasoning",
+            id: "reason-tail-1",
+            turnId: "turn-tail-1",
+            summary: "Inspecting the workspace",
+            content: "Looking through package.json and the runtime service.",
+            isStreaming: false,
+          },
+          {
+            kind: "message",
+            id: "assistant-tail-1",
+            turnId: "turn-tail-1",
+            role: "assistant",
+            text: "The workspace looks healthy.",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "system",
+            id: "system-tail-1",
+            turnId: "turn-tail-1",
+            tone: "info",
+            title: "Context compacted",
+            body: "Codex compacted the conversation history.",
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("The workspace looks healthy.")).toBeInTheDocument();
+    expect(screen.queryByText("Codex compacted the conversation history.")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show work activity details" }),
+    );
+
+    expect(screen.getByText("Codex compacted the conversation history.")).toBeInTheDocument();
   });
 
   it("renders the interaction panel and paginates request-user-input questions", async () => {
@@ -1144,6 +1262,7 @@ describe("ThreadConversation", () => {
   });
 
   it("renders task progress inline without proposal actions and keeps the composer available", async () => {
+    setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         status: "completed",
@@ -1184,6 +1303,7 @@ describe("ThreadConversation", () => {
   });
 
   it("hides the first-turn empty state when a task tracker is the only visible output", async () => {
+    setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         items: [],
