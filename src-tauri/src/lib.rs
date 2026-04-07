@@ -6,7 +6,7 @@ mod runtime;
 mod services;
 mod state;
 
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,6 +27,13 @@ pub fn run() {
             let app_state = state::AppState::new(app.handle())?;
             app.manage(app_state);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                if let Some(state) = window.try_state::<state::AppState>() {
+                    state.terminal.shutdown_all();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::conversation::open_thread_conversation,
@@ -55,6 +62,10 @@ pub fn run() {
             commands::system::get_project_icon,
             commands::system::read_image_as_data_url,
             commands::system::restart_app,
+            commands::terminal::terminal_spawn,
+            commands::terminal::terminal_write,
+            commands::terminal::terminal_resize,
+            commands::terminal::terminal_kill,
             commands::voice::get_environment_voice_status,
             commands::voice::transcribe_environment_voice,
             commands::workspace::get_workspace_snapshot,

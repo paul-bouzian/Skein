@@ -8,6 +8,7 @@ import {
   selectSelectedEnvironment,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
+import { useTerminalStore } from "../../stores/terminal-store";
 import { SettingsDialog } from "./SettingsDialog";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
@@ -46,6 +47,17 @@ export function StudioShell() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("threadex-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.code === "Backquote") {
+        event.preventDefault();
+        useTerminalStore.getState().toggleVisible();
+      }
+    }
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, []);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));

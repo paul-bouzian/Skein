@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager};
 use crate::error::AppResult;
 use crate::infrastructure::database::AppDatabase;
 use crate::runtime::supervisor::RuntimeSupervisor;
+use crate::services::terminal::TerminalService;
 use crate::services::worktree_scripts::WorktreeScriptService;
 use crate::services::voice::VoiceService;
 use crate::services::workspace::WorkspaceService;
@@ -13,6 +14,7 @@ pub struct AppState {
     pub workspace: WorkspaceService,
     pub runtime: RuntimeSupervisor,
     pub voice: VoiceService,
+    pub terminal: TerminalService,
     pub app_data_dir: PathBuf,
 }
 
@@ -38,6 +40,7 @@ impl AppState {
             ),
             runtime: RuntimeSupervisor::new(app.clone(), env!("CARGO_PKG_VERSION").to_string()),
             voice: VoiceService::new(),
+            terminal: TerminalService::default(),
             app_data_dir,
         })
     }
