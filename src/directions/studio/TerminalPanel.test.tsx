@@ -300,6 +300,43 @@ describe("TerminalPanel", () => {
     expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
   });
 
+  it("does not auto-bootstrap while the panel is hidden", async () => {
+    const snapshotWithTwoEnvs = makeWorkspaceSnapshot();
+    snapshotWithTwoEnvs.projects[0].environments.push({
+      ...snapshotWithTwoEnvs.projects[0].environments[0],
+      id: "env-2",
+      name: "worktree-2",
+      path: "/tmp/env-2",
+    });
+    useWorkspaceStore.setState({
+      snapshot: snapshotWithTwoEnvs,
+      bootstrapStatus: null,
+      loadingState: "ready",
+      error: null,
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-1",
+      selectedThreadId: null,
+    });
+    useTerminalStore.setState({
+      visible: false,
+      height: 280,
+      knownEnvironmentIds: ["env-1", "env-2"],
+      byEnv: {},
+    });
+    mockedBridge.spawnTerminal.mockClear();
+
+    render(<TerminalPanel />);
+
+    act(() => {
+      useWorkspaceStore.setState({ selectedEnvironmentId: "env-2" });
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
+    expect(useTerminalStore.getState().byEnv).toEqual({});
+  });
+
   it("short-circuits bootstrap retry after spawn failure and resumes on hide/show", async () => {
     useTerminalStore.setState({
       visible: true,

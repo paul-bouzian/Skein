@@ -84,7 +84,7 @@ export function TerminalPanel() {
   }, [visible]);
 
   useEffect(() => {
-    if (!environmentId || tabs.length > 0) return;
+    if (!visible || !environmentId || tabs.length > 0) return;
     if (bootstrapInFlight) return;
     if (bootstrapFailedEnvId === environmentId) return;
     if (dismissedBootstrapEnvIds.includes(environmentId)) return;
