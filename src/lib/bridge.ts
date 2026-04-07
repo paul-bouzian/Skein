@@ -330,3 +330,53 @@ export function getProjectIcon(
 export function restartApp(): Promise<void> {
   return invoke<void>("restart_app");
 }
+
+/* ── Terminal ── */
+
+export type TerminalSpawnInput = {
+  environmentId: string;
+  cols: number;
+  rows: number;
+};
+export type TerminalSpawnResult = { ptyId: string; cwd: string };
+export type TerminalWriteInput = { ptyId: string; dataBase64: string };
+export type TerminalResizeInput = { ptyId: string; cols: number; rows: number };
+export type TerminalKillInput = { ptyId: string };
+export type TerminalOutputPayload = { ptyId: string; dataBase64: string };
+export type TerminalExitPayload = { ptyId: string; exitCode: number | null };
+
+export function spawnTerminal(
+  input: TerminalSpawnInput,
+): Promise<TerminalSpawnResult> {
+  return invoke<TerminalSpawnResult>("terminal_spawn", { input });
+}
+
+export function writeTerminal(input: TerminalWriteInput): Promise<void> {
+  return invoke<void>("terminal_write", { input });
+}
+
+export function resizeTerminal(input: TerminalResizeInput): Promise<void> {
+  return invoke<void>("terminal_resize", { input });
+}
+
+export function killTerminal(input: TerminalKillInput): Promise<void> {
+  return invoke<void>("terminal_kill", { input });
+}
+
+export function listenToTerminalOutput(
+  callback: (payload: TerminalOutputPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<TerminalOutputPayload>(
+    "threadex://terminal-output",
+    (event) => callback(event.payload),
+  );
+}
+
+export function listenToTerminalExit(
+  callback: (payload: TerminalExitPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<TerminalExitPayload>(
+    "threadex://terminal-exit",
+    (event) => callback(event.payload),
+  );
+}

@@ -9,6 +9,7 @@ import type {
   ThreadRecord,
   WorkspaceSnapshot,
 } from "../lib/types";
+import { useTerminalStore } from "./terminal-store";
 
 type LoadingState = "idle" | "loading" | "ready" | "error";
 
@@ -47,6 +48,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         bridge.getBootstrapStatus(),
         bridge.getWorkspaceSnapshot(),
       ]);
+      useTerminalStore
+        .getState()
+        .reconcileEnvironments(collectEnvironmentIds(snapshot));
       set((state) => ({
         bootstrapStatus,
         snapshot,
@@ -63,6 +67,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   refreshSnapshot: async () => {
     try {
       const snapshot = await bridge.getWorkspaceSnapshot();
+      useTerminalStore
+        .getState()
+        .reconcileEnvironments(collectEnvironmentIds(snapshot));
       set((state) => ({
         snapshot,
         ...reconcileSelection(snapshot, state),
@@ -275,4 +282,10 @@ function findThread(snapshot: WorkspaceSnapshot, threadId: string | null) {
     }
   }
   return null;
+}
+
+function collectEnvironmentIds(snapshot: WorkspaceSnapshot): string[] {
+  return snapshot.projects.flatMap((project) =>
+    project.environments.map((environment) => environment.id),
+  );
 }

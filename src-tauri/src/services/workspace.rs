@@ -598,6 +598,18 @@ impl WorkspaceService {
         self.thread_by_id(&input.thread_id)
     }
 
+    pub fn environment_path(&self, environment_id: &str) -> AppResult<String> {
+        let connection = self.database.open()?;
+        connection
+            .query_row(
+                "SELECT path FROM environments WHERE id = ?1",
+                params![environment_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
+    }
+
     pub fn environment_runtime_target(
         &self,
         environment_id: &str,

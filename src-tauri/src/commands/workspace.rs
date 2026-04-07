@@ -66,9 +66,12 @@ pub async fn remove_project(
     state: State<'_, AppState>,
 ) -> Result<(), CommandError> {
     let environment_ids = state.workspace.project_environment_ids(&project_id)?;
-    for environment_id in environment_ids {
-        state.runtime.stop(&environment_id).await?;
+    for environment_id in &environment_ids {
+        state.runtime.stop(environment_id).await?;
     }
+    state
+        .terminal
+        .kill_environments(environment_ids.iter().map(String::as_str))?;
     state.workspace.remove_project(&project_id)?;
     Ok(())
 }
@@ -90,6 +93,7 @@ pub async fn delete_worktree_environment(
         .workspace
         .ensure_worktree_environment_can_be_deleted(&environment_id)?;
     state.runtime.stop(&environment_id).await?;
+    state.terminal.kill_environment(&environment_id)?;
     Ok(state
         .workspace
         .delete_worktree_environment(&environment_id)?)

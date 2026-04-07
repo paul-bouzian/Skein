@@ -8,6 +8,7 @@ import {
   selectSelectedEnvironment,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
+import { useTerminalStore } from "../../stores/terminal-store";
 import { SettingsDialog } from "./SettingsDialog";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
@@ -46,6 +47,20 @@ export function StudioShell() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("threadex-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    function handleKeydown(event: KeyboardEvent) {
+      // Ctrl+` on all platforms (matches VS Code / Cursor). We intentionally
+      // do not bind Cmd+` on macOS: it's the native "cycle app windows"
+      // shortcut and stealing it globally is bad UX.
+      if (event.ctrlKey && event.code === "Backquote" && !event.repeat) {
+        event.preventDefault();
+        useTerminalStore.getState().toggleVisible();
+      }
+    }
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, []);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
