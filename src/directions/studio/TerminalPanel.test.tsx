@@ -252,29 +252,100 @@ describe("TerminalPanel", () => {
     mockedBridge.spawnTerminal.mockRejectedValue(new Error("spawn failed"));
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const { rerender } = render(<TerminalPanel />);
+    try {
+      const { rerender } = render(<TerminalPanel />);
 
-    // Wait for the first failure to propagate.
-    await waitFor(() => {
+      // Wait for the first failure to propagate.
+      await waitFor(() => {
+        expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
+      });
+
+      // Give React a handful of render cycles to ensure the effect does NOT
+      // re-fire in a tight loop after the failure.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      rerender(<TerminalPanel />);
+      await new Promise((resolve) => setTimeout(resolve, 50));
       expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
+
+      // Hide + show: the failed-env cache resets and bootstrap retries once.
+      useTerminalStore.setState({ visible: false });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      useTerminalStore.setState({ visible: true });
+      await waitFor(() => {
+        expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
+  it("retries bootstrap after switching away from a failed environment and back", async () => {
+    const snapshotWithTwoEnvs = makeWorkspaceSnapshot();
+    snapshotWithTwoEnvs.projects[0].environments.push({
+      ...snapshotWithTwoEnvs.projects[0].environments[0],
+      id: "env-2",
+      name: "worktree-2",
+      path: "/tmp/env-2",
     });
-
-    // Give React a handful of render cycles to ensure the effect does NOT
-    // re-fire in a tight loop after the failure.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    rerender(<TerminalPanel />);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
-
-    // Hide + show: the failed-env cache resets and bootstrap retries once.
-    useTerminalStore.setState({ visible: false });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    useTerminalStore.setState({ visible: true });
-    await waitFor(() => {
-      expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(2);
+    useWorkspaceStore.setState({
+      snapshot: snapshotWithTwoEnvs,
+      bootstrapStatus: null,
+      loadingState: "ready",
+      error: null,
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-1",
+      selectedThreadId: null,
     });
+    useTerminalStore.setState({
+      visible: true,
+      height: 280,
+      knownEnvironmentIds: ["env-1", "env-2"],
+      byEnv: {
+        "env-2": {
+          tabs: [
+            {
+              id: "t3",
+              ptyId: "pty-existing-3",
+              cwd: "/tmp/env-2",
+              title: "env-2",
+              exited: false,
+            },
+          ],
+          activeTabId: "t3",
+        },
+      },
+    });
+    mockedBridge.spawnTerminal.mockReset();
+    mockedBridge.spawnTerminal
+      .mockRejectedValueOnce(new Error("spawn failed"))
+      .mockResolvedValueOnce({ ptyId: "pty-retry", cwd: "/tmp/env-1" });
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    consoleSpy.mockRestore();
+    try {
+      render(<TerminalPanel />);
+
+      await waitFor(() => {
+        expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
+      });
+
+      act(() => {
+        useWorkspaceStore.setState({ selectedEnvironmentId: "env-2" });
+      });
+      act(() => {
+        useWorkspaceStore.setState({ selectedEnvironmentId: "env-1" });
+      });
+
+      await waitFor(() => {
+        expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(2);
+      });
+      expect(mockedBridge.spawnTerminal).toHaveBeenNthCalledWith(2, {
+        environmentId: "env-1",
+        cols: 80,
+        rows: 24,
+      });
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it("bootstraps the newly selected env when the user switches during a pending spawn", async () => {
@@ -345,5 +416,34 @@ describe("TerminalPanel", () => {
     await waitFor(() => {
       expect(useTerminalStore.getState().byEnv["env-2"]?.tabs.length).toBe(1);
     });
+  });
+
+  it("exposes the tab strip and actions with accessible semantics", async () => {
+    const user = userEvent.setup();
+    render(<TerminalPanel />);
+
+    const tablist = screen.getByRole("tablist", { name: "Terminal tabs" });
+    const firstTab = screen.getByRole("tab", { name: "a" });
+    const secondTab = screen.getByRole("tab", { name: "b" });
+
+    expect(tablist).toBeInTheDocument();
+    expect(firstTab).toHaveAttribute("aria-selected", "true");
+    expect(firstTab).toHaveAttribute("tabindex", "0");
+    expect(secondTab).toHaveAttribute("aria-selected", "false");
+    expect(secondTab).toHaveAttribute("tabindex", "-1");
+    expect(
+      screen.getByRole("button", { name: "New terminal" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Hide terminal" }),
+    ).toBeInTheDocument();
+
+    firstTab.focus();
+    await user.keyboard("{ArrowRight}");
+
+    await waitFor(() => {
+      expect(useTerminalStore.getState().byEnv[ENV_ID]?.activeTabId).toBe("t2");
+    });
+    expect(secondTab).toHaveFocus();
   });
 });

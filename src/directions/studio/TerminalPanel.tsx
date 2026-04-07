@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
@@ -50,6 +51,14 @@ export function TerminalPanel() {
   const [bootstrapFailedEnvId, setBootstrapFailedEnvId] = useState<
     string | null
   >(null);
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    if (bootstrapFailedEnvId && environmentId !== bootstrapFailedEnvId) {
+      setBootstrapFailedEnvId(null);
+    }
+  }, [bootstrapFailedEnvId, environmentId]);
+
   useEffect(() => {
     if (!visible) {
       setBootstrapFailedEnvId(null);
@@ -99,6 +108,35 @@ export function TerminalPanel() {
 
   const atCap = tabs.length >= MAX_TABS;
 
+  function handleTabKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    let nextIndex: number | null = null;
+    switch (event.key) {
+      case "ArrowRight":
+        nextIndex = (index + 1) % tabs.length;
+        break;
+      case "ArrowLeft":
+        nextIndex = (index - 1 + tabs.length) % tabs.length;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    if (!nextTab) return;
+    activateTab(selectedEnvironmentId, nextTab.id);
+    tabButtonRefs.current[nextTab.id]?.focus();
+  }
+
   function handleOpenTab() {
     if (!environmentId) return;
     openTab(environmentId).catch((error) => {
@@ -109,8 +147,12 @@ export function TerminalPanel() {
   return (
     <div className="terminal-panel">
       <div className="terminal-panel__header">
-        <div className="terminal-panel__tabs" role="tablist">
-          {tabs.map((tab) => {
+        <div
+          className="terminal-panel__tabs"
+          role="tablist"
+          aria-label="Terminal tabs"
+        >
+          {tabs.map((tab, index) => {
             const isActive = tab.id === activeTabId;
             const className = [
               "terminal-tab",
@@ -120,17 +162,19 @@ export function TerminalPanel() {
               .filter(Boolean)
               .join(" ");
             return (
-              <div
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                className={className}
-              >
+              <div key={tab.id} className={className}>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  tabIndex={isActive ? 0 : -1}
                   className="terminal-tab__title"
                   title={tab.cwd || tab.title}
+                  ref={(element) => {
+                    tabButtonRefs.current[tab.id] = element;
+                  }}
                   onClick={() => activateTab(selectedEnvironmentId, tab.id)}
+                  onKeyDown={(event) => handleTabKeyDown(event, index)}
                 >
                   {tab.title}
                 </button>
@@ -150,6 +194,13 @@ export function TerminalPanel() {
           <button
             type="button"
             className="terminal-panel__action"
+            aria-label={
+              !environmentId
+                ? "Select a worktree first"
+                : atCap
+                  ? `Maximum ${MAX_TABS} terminals`
+                  : "New terminal"
+            }
             title={
               !environmentId
                 ? "Select a worktree first"
@@ -165,6 +216,7 @@ export function TerminalPanel() {
           <button
             type="button"
             className="terminal-panel__action"
+            aria-label="Hide terminal"
             title="Hide terminal"
             onClick={() => setVisible(false)}
           >

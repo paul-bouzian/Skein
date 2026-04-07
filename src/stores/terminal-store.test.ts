@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
+import * as terminalOutputBus from "../lib/terminal-output-bus";
 import {
   MAX_TABS,
   selectTerminalSlot,
@@ -20,6 +21,7 @@ vi.mock("../lib/terminal-output-bus", () => ({
 }));
 
 const mockedBridge = vi.mocked(bridge);
+const mockedTerminalOutputBus = vi.mocked(terminalOutputBus);
 
 const storageState = new Map<string, string>();
 
@@ -243,6 +245,23 @@ describe("terminal-store", () => {
 
     expect(useTerminalStore.getState().byEnv).toEqual({});
     expect(useTerminalStore.getState().visible).toBe(false);
+  });
+
+  it("kills PTYs for pruned environments during reconciliation", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_B);
+
+    useTerminalStore.getState().reconcileEnvironments([ENV_B]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-1",
+    });
+    expect(mockedTerminalOutputBus.dropPendingTerminalOutput).toHaveBeenCalledWith(
+      "pty-1",
+    );
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
   });
 
   it("preserves visible state when environments exist but tabs have not been restored yet", () => {

@@ -103,7 +103,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({ height: clamped });
   },
 
-  reconcileEnvironments: (environmentIds) =>
+  reconcileEnvironments: (environmentIds) => {
+    const ptyIdsToKill: string[] = [];
     set((state) => {
       const validEnvironmentIds = new Set(environmentIds);
       const nextByEnv: TerminalState["byEnv"] = {};
@@ -111,7 +112,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       for (const [environmentId, slot] of Object.entries(state.byEnv)) {
         if (!validEnvironmentIds.has(environmentId)) {
           for (const tab of slot.tabs) {
-            dropPendingTerminalOutput(tab.ptyId);
+            ptyIdsToKill.push(tab.ptyId);
           }
           continue;
         }
@@ -129,7 +130,19 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         knownEnvironmentIds: environmentIds,
         visible,
       };
-    }),
+    });
+
+    for (const ptyId of ptyIdsToKill) {
+      void bridge
+        .killTerminal({ ptyId })
+        .catch(() => {
+          /* ignore: terminal may already be dead */
+        })
+        .finally(() => {
+          dropPendingTerminalOutput(ptyId);
+        });
+    }
+  },
 
   openTab: async (environmentId) => {
     const slot = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;

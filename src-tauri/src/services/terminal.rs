@@ -50,6 +50,16 @@ fn pty_size(cols: u16, rows: u16) -> PtySize {
     }
 }
 
+fn login_flag_for_shell(shell: &str) -> Option<&'static str> {
+    let shell_name = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())?;
+    match shell_name {
+        "sh" | "bash" | "zsh" | "ksh" | "mksh" | "fish" | "nu" => Some("-l"),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct TerminalService {
     registry: Arc<Mutex<TerminalRegistry>>,
@@ -165,8 +175,11 @@ impl TerminalService {
             });
 
         let mut cmd = CommandBuilder::new(&shell);
-        // Login shell: source .zprofile/.zshrc/etc so PATH/nvm/mise/pyenv work.
-        cmd.arg("-l");
+        // Login shell: source .zprofile/.zshrc/etc so PATH/nvm/mise/pyenv work
+        // on shells that explicitly support login mode.
+        if let Some(login_flag) = login_flag_for_shell(&shell) {
+            cmd.arg(login_flag);
+        }
         cmd.cwd(&resolved_cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
@@ -486,5 +499,14 @@ mod tests {
         assert_eq!(env_one.load(Ordering::SeqCst), 1);
         assert_eq!(env_two.load(Ordering::SeqCst), 0);
         assert_eq!(env_three.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn login_flag_only_targets_supported_shells() {
+        assert_eq!(login_flag_for_shell("/bin/zsh"), Some("-l"));
+        assert_eq!(login_flag_for_shell("/opt/homebrew/bin/fish"), Some("-l"));
+        assert_eq!(login_flag_for_shell("/opt/homebrew/bin/nu"), Some("-l"));
+        assert_eq!(login_flag_for_shell("/usr/local/bin/elvish"), None);
+        assert_eq!(login_flag_for_shell(""), None);
     }
 }

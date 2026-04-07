@@ -8,6 +8,14 @@ import { useWorkspaceStore } from "./workspace-store";
 vi.mock("../lib/bridge", () => ({
   getBootstrapStatus: vi.fn(),
   getWorkspaceSnapshot: vi.fn(),
+  killTerminal: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../lib/terminal-output-bus", () => ({
+  ensureTerminalOutputBusReady: vi.fn().mockResolvedValue(undefined),
+  dropPendingTerminalOutput: vi.fn(),
+  subscribeToTerminalOutput: vi.fn(() => () => {}),
+  __resetTerminalOutputBus: vi.fn(),
 }));
 
 const mockedBridge = vi.mocked(bridge);
