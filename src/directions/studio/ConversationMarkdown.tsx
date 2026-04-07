@@ -368,7 +368,9 @@ function renderInlineMarkdown(
           data-file-line={token.target.line ?? undefined}
           data-file-column={token.target.column ?? undefined}
         >
-          {token.label}
+          {renderInlineMarkdown(token.label, `${key}-label`, {
+            linkifyPlainText: false,
+          })}
         </span>,
       );
     } else if (token.kind === "strong") {
@@ -455,7 +457,7 @@ function findLinkToken(text: string, startIndex: number): InlineTokenMatch | nul
       continue;
     }
 
-    const urlEnd = text.indexOf(")", labelEnd + 2);
+    const urlEnd = findMarkdownTargetEnd(text, labelEnd + 2);
     if (urlEnd === -1) {
       tokenStart = text.indexOf("[", tokenStart + 1);
       continue;
@@ -493,6 +495,32 @@ function findLinkToken(text: string, startIndex: number): InlineTokenMatch | nul
   }
 
   return null;
+}
+
+function findMarkdownTargetEnd(text: string, startIndex: number) {
+  let parenthesisDepth = 0;
+
+  for (let index = startIndex; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+
+    if (character === "(") {
+      parenthesisDepth += 1;
+      continue;
+    }
+
+    if (character === ")") {
+      if (parenthesisDepth === 0) {
+        return index;
+      }
+      parenthesisDepth -= 1;
+    }
+  }
+
+  return -1;
 }
 
 function findStrongToken(text: string, startIndex: number): InlineTokenMatch | null {

@@ -52,6 +52,21 @@ describe("ConversationMarkdown", () => {
     expect(container.textContent).toBe("Updated ConversationMarkdown.tsx in this pass.");
   });
 
+  it("renders inline markdown inside file reference labels", () => {
+    const filePath =
+      "/Users/paulbouzian/.threadex/worktrees/threadex-019d5b55/lively-dolphin/src/directions/studio/ThreadConversation.tsx";
+
+    render(
+      <ConversationMarkdown
+        markdown={`Updated [**ThreadConversation.tsx**](${filePath}) in this pass.`}
+      />,
+    );
+
+    const token = screen.getByTitle(filePath);
+    expect(token).toHaveClass("tx-markdown__file-ref");
+    expect(screen.getByText("ThreadConversation.tsx").tagName).toBe("STRONG");
+  });
+
   it.each([
     [
       "colon line reference",
@@ -81,6 +96,34 @@ describe("ConversationMarkdown", () => {
       "42",
       "7",
     ],
+    [
+      "root-level file reference",
+      "README.md#L8",
+      "README.md",
+      "8",
+      null,
+    ],
+    [
+      "non-whitelisted relative folder reference",
+      "lib/utils.ts",
+      "lib/utils.ts",
+      null,
+      null,
+    ],
+    [
+      "parenthesized relative path reference",
+      "src/app/(auth)/page.tsx:42",
+      "src/app/(auth)/page.tsx",
+      "42",
+      null,
+    ],
+    [
+      "windows absolute path reference",
+      "C:\\repo\\src\\App.tsx:42",
+      "C:\\repo\\src\\App.tsx",
+      "42",
+      null,
+    ],
   ])(
     "parses %s metadata from file references",
     (_name, rawTarget, expectedPath, expectedLine, expectedColumn) => {
@@ -93,7 +136,11 @@ describe("ConversationMarkdown", () => {
       const token = screen.getByText("ConversationMarkdown.tsx");
       expect(token).toHaveAttribute("title", rawTarget);
       expect(token).toHaveAttribute("data-file-path", expectedPath);
-      expect(token).toHaveAttribute("data-file-line", expectedLine);
+      if (expectedLine) {
+        expect(token).toHaveAttribute("data-file-line", expectedLine);
+      } else {
+        expect(token).not.toHaveAttribute("data-file-line");
+      }
       if (expectedColumn) {
         expect(token).toHaveAttribute("data-file-column", expectedColumn);
       } else {
@@ -101,6 +148,19 @@ describe("ConversationMarkdown", () => {
       }
     },
   );
+
+  it("keeps parenthesized markdown targets intact until the matching closing parenthesis", () => {
+    render(
+      <ConversationMarkdown
+        markdown={"Inspect [page.tsx](src/app/(auth)/page.tsx:42) before shipping."}
+      />,
+    );
+
+    const token = screen.getByText("page.tsx");
+    expect(token).toHaveAttribute("title", "src/app/(auth)/page.tsx:42");
+    expect(token).toHaveAttribute("data-file-path", "src/app/(auth)/page.tsx");
+    expect(token).toHaveAttribute("data-file-line", "42");
+  });
 
   it("leaves non-http, non-local markdown targets as plain text", () => {
     const { container } = render(

@@ -418,9 +418,9 @@ ol.tx-markdown__list {
 }
 
 .tx-markdown__file-ref {
-  display: inline-flex;
-  align-items: center;
+  display: inline-block;
   max-width: 100%;
+  min-width: 0;
   padding: 1px 6px;
   border-radius: 8px;
   color: var(--tx-text-primary);
@@ -428,6 +428,8 @@ ol.tx-markdown__list {
   font-size: 0.95em;
   line-height: 1.4;
   vertical-align: baseline;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

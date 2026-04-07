@@ -7,8 +7,9 @@ export type FileReferenceTarget = {
 
 const HASH_POSITION_PATTERN = /#L(\d+)(?:C(\d+))?$/;
 const COLON_POSITION_PATTERN = /:(\d+)(?::(\d+))?$/;
-const KNOWN_RELATIVE_ROOT_PATTERN =
-  /^(?:src|src-tauri|docs|tests?|scripts|assets|public|packages|apps|crates|examples|\.codex|\.github)\//;
+const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const ROOT_LEVEL_FILE_PATTERN =
+  /^(?:\.[A-Za-z0-9._-]+|[A-Za-z0-9_-][A-Za-z0-9() _-]*\.[A-Za-z0-9._-]+)$/;
 
 export function parseFileReferenceTarget(target: string): FileReferenceTarget | null {
   const rawTarget = target.trim();
@@ -51,7 +52,15 @@ export function parseFileReferenceTarget(target: string): FileReferenceTarget | 
 }
 
 function isLikelyLocalFilePath(value: string) {
-  if (!value || hasUriScheme(value) || value.startsWith("//")) {
+  if (!value || value.startsWith("//")) {
+    return false;
+  }
+
+  if (isWindowsAbsolutePath(value)) {
+    return true;
+  }
+
+  if (hasUriScheme(value)) {
     return false;
   }
 
@@ -60,12 +69,27 @@ function isLikelyLocalFilePath(value: string) {
     value.startsWith("~/") ||
     value.startsWith("./") ||
     value.startsWith("../") ||
-    KNOWN_RELATIVE_ROOT_PATTERN.test(value)
+    isLikelyRelativeFilePath(value)
   );
 }
 
 function hasUriScheme(value: string) {
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value);
+}
+
+function isWindowsAbsolutePath(value: string) {
+  return WINDOWS_ABSOLUTE_PATH_PATTERN.test(value);
+}
+
+function isLikelyRelativeFilePath(value: string) {
+  const normalized = value.trim();
+  if (ROOT_LEVEL_FILE_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  const segments = normalized.split(/[\\/]/).filter(Boolean);
+  const tail = segments[segments.length - 1] ?? "";
+  return segments.length > 1 && ROOT_LEVEL_FILE_PATTERN.test(tail);
 }
 
 function parsePositiveInteger(value: string | undefined) {
