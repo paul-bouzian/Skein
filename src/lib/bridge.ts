@@ -333,8 +333,12 @@ export function restartApp(): Promise<void> {
 
 /* ── Terminal ── */
 
-export type TerminalSpawnInput = { cwd: string; cols: number; rows: number };
-export type TerminalSpawnResult = { ptyId: string };
+export type TerminalSpawnInput = {
+  environmentId: string;
+  cols: number;
+  rows: number;
+};
+export type TerminalSpawnResult = { ptyId: string; cwd: string };
 export type TerminalWriteInput = { ptyId: string; dataBase64: string };
 export type TerminalResizeInput = { ptyId: string; cols: number; rows: number };
 export type TerminalKillInput = { ptyId: string };

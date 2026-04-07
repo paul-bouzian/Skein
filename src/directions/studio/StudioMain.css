@@ -84,6 +84,10 @@
   border-top: 1px solid var(--tx-border-subtle);
 }
 
+.studio-main__terminal--hidden {
+  display: none;
+}
+
 .studio-main__content {
   flex: 1;
   min-height: 0;

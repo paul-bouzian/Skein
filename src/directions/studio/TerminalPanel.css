@@ -5,6 +5,16 @@
   min-height: 0;
 }
 
+.terminal-panel--empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.terminal-panel__hint {
+  font-size: var(--tx-text-sm);
+  color: var(--tx-text-muted);
+}
+
 .terminal-panel__header {
   display: flex;
   align-items: stretch;
@@ -64,6 +74,8 @@
 }
 
 .terminal-tab__title {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -73,6 +85,7 @@
   padding: 0;
   font: inherit;
   cursor: pointer;
+  text-align: left;
 }
 
 .terminal-tab__close {

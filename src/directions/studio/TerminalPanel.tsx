@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
-import { MAX_TABS, useTerminalStore } from "../../stores/terminal-store";
+import {
+  MAX_TABS,
+  selectTerminalSlot,
+  useTerminalStore,
+} from "../../stores/terminal-store";
 import {
   selectSelectedEnvironment,
-  selectSelectedProject,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { TerminalView } from "./TerminalView";
 import "./TerminalPanel.css";
 
 export function TerminalPanel() {
-  const tabs = useTerminalStore((s) => s.tabs);
-  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const visible = useTerminalStore((s) => s.visible);
   const openTab = useTerminalStore((s) => s.openTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const activateTab = useTerminalStore((s) => s.activateTab);
@@ -21,24 +23,27 @@ export function TerminalPanel() {
   const setVisible = useTerminalStore((s) => s.setVisible);
 
   const env = useWorkspaceStore(selectSelectedEnvironment);
-  const project = useWorkspaceStore(selectSelectedProject);
+  const environmentId = env?.id ?? null;
 
-  // Empty string => Rust backend will substitute $HOME.
-  const defaultCwd = env?.path ?? project?.rootPath ?? "";
+  const slot = useTerminalStore(selectTerminalSlot(environmentId));
+  const { tabs, activeTabId } = slot;
 
-  const handleOpenTab = useCallback(() => {
-    openTab(defaultCwd).catch((error) => {
-      console.error("Failed to open terminal:", error);
-    });
-  }, [openTab, defaultCwd]);
-
-  // Auto-open one tab the first time the panel mounts with zero tabs.
-  const bootstrapped = useRef(false);
+  // Auto-open one tab whenever the panel becomes visible with zero tabs in
+  // the active env (initial mount with persisted visible=true once the
+  // workspace snapshot resolves the env, or reopening after closing the last
+  // tab). The in-flight ref guards against re-entry while the spawn is
+  // pending.
+  const bootstrapInFlight = useRef(false);
   useEffect(() => {
-    if (bootstrapped.current || tabs.length > 0) return;
-    bootstrapped.current = true;
-    handleOpenTab();
-  }, [tabs.length, handleOpenTab]);
+    if (!visible || !environmentId || tabs.length > 0) return;
+    if (bootstrapInFlight.current) return;
+    bootstrapInFlight.current = true;
+    openTab(environmentId)
+      .catch((error) => console.error("Failed to open terminal:", error))
+      .finally(() => {
+        bootstrapInFlight.current = false;
+      });
+  }, [visible, environmentId, tabs.length, openTab]);
 
   // Subscribe once to terminal-exit events at the panel level.
   useEffect(() => {
@@ -60,6 +65,23 @@ export function TerminalPanel() {
   }, [markExited]);
 
   const atCap = tabs.length >= MAX_TABS;
+
+  function handleOpenTab() {
+    if (!environmentId) return;
+    openTab(environmentId).catch((error) => {
+      console.error("Failed to open terminal:", error);
+    });
+  }
+
+  if (!environmentId) {
+    return (
+      <div className="terminal-panel terminal-panel--empty">
+        <p className="terminal-panel__hint">
+          Select a worktree to open a terminal.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="terminal-panel">
@@ -85,7 +107,7 @@ export function TerminalPanel() {
                   type="button"
                   className="terminal-tab__title"
                   title={tab.cwd || tab.title}
-                  onClick={() => activateTab(tab.id)}
+                  onClick={() => activateTab(environmentId, tab.id)}
                 >
                   {tab.title}
                 </button>
@@ -93,7 +115,7 @@ export function TerminalPanel() {
                   type="button"
                   className="terminal-tab__close"
                   aria-label="Close terminal"
-                  onClick={() => void closeTab(tab.id)}
+                  onClick={() => void closeTab(environmentId, tab.id)}
                 >
                   <CloseIcon size={11} />
                 </button>

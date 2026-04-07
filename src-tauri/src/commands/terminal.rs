@@ -7,7 +7,7 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnTerminalInput {
-    pub cwd: String,
+    pub environment_id: String,
     pub cols: u16,
     pub rows: u16,
 }
@@ -16,6 +16,7 @@ pub struct SpawnTerminalInput {
 #[serde(rename_all = "camelCase")]
 pub struct SpawnTerminalResult {
     pub pty_id: String,
+    pub cwd: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,10 +46,14 @@ pub fn terminal_spawn(
     state: State<'_, AppState>,
     input: SpawnTerminalInput,
 ) -> Result<SpawnTerminalResult, CommandError> {
+    // Resolve cwd from the workspace database, not the renderer. This both
+    // validates that the env exists and ensures the shell only spawns inside a
+    // managed worktree path — the renderer cannot point a PTY at /etc.
+    let cwd = state.workspace.environment_path(&input.environment_id)?;
     let pty_id = state
         .terminal
-        .spawn(&app, &input.cwd, input.cols, input.rows)?;
-    Ok(SpawnTerminalResult { pty_id })
+        .spawn(&app, &cwd, input.cols, input.rows)?;
+    Ok(SpawnTerminalResult { pty_id, cwd })
 }
 
 #[tauri::command]

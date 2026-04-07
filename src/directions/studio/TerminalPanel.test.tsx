@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../../lib/bridge";
 import { useTerminalStore } from "../../stores/terminal-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
+import { makeWorkspaceSnapshot } from "../../test/fixtures/conversation";
 import { TerminalPanel } from "./TerminalPanel";
 
 vi.mock("./TerminalView", () => ({
@@ -22,6 +23,8 @@ vi.mock("../../lib/bridge", () => ({
 const mockedBridge = vi.mocked(bridge);
 
 const storageState = new Map<string, string>();
+
+const ENV_ID = "env-1";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,51 +46,71 @@ beforeEach(() => {
   });
 
   let counter = 0;
-  mockedBridge.spawnTerminal.mockImplementation(async () => {
+  mockedBridge.spawnTerminal.mockImplementation(async ({ environmentId }) => {
     counter += 1;
-    return { ptyId: `pty-${counter}` };
+    return { ptyId: `pty-${counter}`, cwd: `/tmp/${environmentId}` };
   });
 
-  // Reset workspace store so cwd resolution falls back to "".
+  // Workspace with one environment selected so the panel has a real env-id.
   useWorkspaceStore.setState({
-    snapshot: null,
+    snapshot: makeWorkspaceSnapshot(),
     bootstrapStatus: null,
-    loadingState: "idle",
+    loadingState: "ready",
     error: null,
-    selectedProjectId: null,
-    selectedEnvironmentId: null,
+    selectedProjectId: "project-1",
+    selectedEnvironmentId: ENV_ID,
     selectedThreadId: null,
   });
 
-  // Seed terminal store with two tabs to bypass auto-bootstrap.
+  // Seed terminal store with two tabs in this env to bypass auto-bootstrap.
   useTerminalStore.setState({
     visible: true,
     height: 280,
-    tabs: [
-      { id: "t1", ptyId: "pty-existing-1", cwd: "/p/a", title: "a", exited: false },
-      { id: "t2", ptyId: "pty-existing-2", cwd: "/p/b", title: "b", exited: false },
-    ],
-    activeTabId: "t1",
+    byEnv: {
+      [ENV_ID]: {
+        tabs: [
+          {
+            id: "t1",
+            ptyId: "pty-existing-1",
+            cwd: "/p/a",
+            title: "a",
+            exited: false,
+          },
+          {
+            id: "t2",
+            ptyId: "pty-existing-2",
+            cwd: "/p/b",
+            title: "b",
+            exited: false,
+          },
+        ],
+        activeTabId: "t1",
+      },
+    },
   });
 });
 
 describe("TerminalPanel", () => {
-  it("renders one terminal view per tab", () => {
+  it("renders one terminal view per tab in the active env", () => {
     render(<TerminalPanel />);
     expect(screen.getByTestId("terminal-view-pty-existing-1")).toBeInTheDocument();
     expect(screen.getByTestId("terminal-view-pty-existing-2")).toBeInTheDocument();
   });
 
-  it("opens a new terminal when the + button is clicked", async () => {
+  it("opens a new terminal in the active env when + is clicked", async () => {
     const user = userEvent.setup();
     render(<TerminalPanel />);
 
     await user.click(screen.getByTitle("New terminal"));
 
     await waitFor(() => {
-      expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
+      expect(mockedBridge.spawnTerminal).toHaveBeenCalledWith({
+        environmentId: ENV_ID,
+        cols: 80,
+        rows: 24,
+      });
     });
-    expect(useTerminalStore.getState().tabs).toHaveLength(3);
+    expect(useTerminalStore.getState().byEnv[ENV_ID]?.tabs).toHaveLength(3);
   });
 
   it("closes a tab via the per-tab close button", async () => {
@@ -98,7 +121,7 @@ describe("TerminalPanel", () => {
     await user.click(closeButtons[0]);
 
     await waitFor(() => {
-      expect(useTerminalStore.getState().tabs).toHaveLength(1);
+      expect(useTerminalStore.getState().byEnv[ENV_ID]?.tabs).toHaveLength(1);
     });
     expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
       ptyId: "pty-existing-1",
@@ -118,6 +141,26 @@ describe("TerminalPanel", () => {
     render(<TerminalPanel />);
 
     await user.click(screen.getByText("b"));
-    expect(useTerminalStore.getState().activeTabId).toBe("t2");
+    expect(useTerminalStore.getState().byEnv[ENV_ID]?.activeTabId).toBe("t2");
+  });
+
+  it("renders an empty state when no environment is selected", () => {
+    useWorkspaceStore.setState({
+      snapshot: null,
+      bootstrapStatus: null,
+      loadingState: "idle",
+      error: null,
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    });
+    useTerminalStore.setState({ visible: true, height: 280, byEnv: {} });
+
+    render(<TerminalPanel />);
+
+    expect(
+      screen.getByText("Select a worktree to open a terminal."),
+    ).toBeInTheDocument();
+    expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
   });
 });

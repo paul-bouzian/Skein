@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import {
   useWorkspaceStore,
@@ -33,6 +33,14 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
   const terminalVisible = useTerminalStore((s) => s.visible);
   const terminalHeight = useTerminalStore((s) => s.height);
   const toggleTerminal = useTerminalStore((s) => s.toggleVisible);
+
+  // Lazy-mount the terminal panel: stay unmounted until the user opens it the
+  // first time, then keep it mounted (toggled via CSS) so PTYs and xterm
+  // scrollback survive hide/show cycles.
+  const [terminalEverOpened, setTerminalEverOpened] = useState(terminalVisible);
+  useEffect(() => {
+    if (terminalVisible) setTerminalEverOpened(true);
+  }, [terminalVisible]);
 
   let content;
   if (projects.length === 0) {
@@ -79,16 +87,14 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
       >
         {content}
       </div>
-      {terminalVisible && (
-        <>
-          <TerminalResizeHandle />
-          <div
-            className="studio-main__terminal"
-            style={{ height: terminalHeight }}
-          >
-            <TerminalPanel />
-          </div>
-        </>
+      {terminalVisible && <TerminalResizeHandle />}
+      {terminalEverOpened && (
+        <div
+          className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
+          style={{ height: terminalVisible ? terminalHeight : undefined }}
+        >
+          <TerminalPanel />
+        </div>
       )}
     </main>
   );
@@ -99,7 +105,9 @@ function TerminalResizeHandle() {
   const startRef = useRef<{ y: number; height: number } | null>(null);
 
   function endDrag(event: PointerEvent<HTMLDivElement>) {
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     startRef.current = null;
     setDragging(false);
   }

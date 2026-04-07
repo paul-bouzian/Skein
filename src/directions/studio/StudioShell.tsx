@@ -50,7 +50,11 @@ export function StudioShell() {
 
   useEffect(() => {
     function handleKeydown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.code === "Backquote") {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.code === "Backquote" &&
+        !event.repeat
+      ) {
         event.preventDefault();
         useTerminalStore.getState().toggleVisible();
       }

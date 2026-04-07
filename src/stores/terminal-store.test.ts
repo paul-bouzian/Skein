@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
-import { MAX_TABS, useTerminalStore } from "./terminal-store";
+import {
+  MAX_TABS,
+  selectTerminalSlot,
+  useTerminalStore,
+} from "./terminal-store";
 
 vi.mock("../lib/bridge", () => ({
   spawnTerminal: vi.fn(),
@@ -11,6 +15,9 @@ vi.mock("../lib/bridge", () => ({
 const mockedBridge = vi.mocked(bridge);
 
 const storageState = new Map<string, string>();
+
+const ENV_A = "env-a";
+const ENV_B = "env-b";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -37,79 +44,127 @@ beforeEach(() => {
   useTerminalStore.setState({
     visible: false,
     height: 280,
-    tabs: [],
-    activeTabId: null,
+    byEnv: {},
   });
   let counter = 0;
-  mockedBridge.spawnTerminal.mockImplementation(async () => {
+  mockedBridge.spawnTerminal.mockImplementation(async ({ environmentId }) => {
     counter += 1;
-    return { ptyId: `pty-${counter}` };
+    return { ptyId: `pty-${counter}`, cwd: `/path/to/${environmentId}` };
   });
 });
 
+function slotForA() {
+  return selectTerminalSlot(ENV_A)(useTerminalStore.getState());
+}
+
+function slotForB() {
+  return selectTerminalSlot(ENV_B)(useTerminalStore.getState());
+}
+
 describe("terminal-store", () => {
-  it("opens a tab and sets it active", async () => {
-    const id = await useTerminalStore.getState().openTab("/Users/foo/repo");
+  it("opens a tab in the given environment and sets it active", async () => {
+    const id = await useTerminalStore.getState().openTab(ENV_A);
     expect(id).not.toBeNull();
-    const state = useTerminalStore.getState();
-    expect(state.tabs).toHaveLength(1);
-    expect(state.tabs[0]?.title).toBe("repo");
-    expect(state.tabs[0]?.ptyId).toBe("pty-1");
-    expect(state.activeTabId).toBe(id);
+    const slot = slotForA();
+    expect(slot.tabs).toHaveLength(1);
+    expect(slot.tabs[0]?.title).toBe(ENV_A);
+    expect(slot.tabs[0]?.ptyId).toBe("pty-1");
+    expect(slot.tabs[0]?.cwd).toBe(`/path/to/${ENV_A}`);
+    expect(slot.activeTabId).toBe(id);
     expect(mockedBridge.spawnTerminal).toHaveBeenCalledWith({
-      cwd: "/Users/foo/repo",
+      environmentId: ENV_A,
       cols: 80,
       rows: 24,
     });
   });
 
-  it("refuses to open beyond MAX_TABS", async () => {
+  it("keeps tabs from different environments isolated", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_B);
+
+    expect(slotForA().tabs).toHaveLength(2);
+    expect(slotForB().tabs).toHaveLength(1);
+  });
+
+  it("refuses to open beyond MAX_TABS per environment", async () => {
     for (let i = 0; i < MAX_TABS; i++) {
-      await useTerminalStore.getState().openTab(`/p/${i}`);
+      await useTerminalStore.getState().openTab(ENV_A);
     }
-    const overflow = await useTerminalStore.getState().openTab("/p/overflow");
+    const overflow = await useTerminalStore.getState().openTab(ENV_A);
     expect(overflow).toBeNull();
-    expect(useTerminalStore.getState().tabs).toHaveLength(MAX_TABS);
+    expect(slotForA().tabs).toHaveLength(MAX_TABS);
     expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(MAX_TABS);
   });
 
-  it("closeTab removes a tab and re-elects the active one", async () => {
-    const a = await useTerminalStore.getState().openTab("/p/a");
-    const b = await useTerminalStore.getState().openTab("/p/b");
-    await useTerminalStore.getState().openTab("/p/c");
+  it("MAX_TABS cap is per-env, not global", async () => {
+    for (let i = 0; i < MAX_TABS; i++) {
+      await useTerminalStore.getState().openTab(ENV_A);
+    }
+    // Env B is fresh — should still be able to open.
+    const id = await useTerminalStore.getState().openTab(ENV_B);
+    expect(id).not.toBeNull();
+    expect(slotForB().tabs).toHaveLength(1);
+  });
+
+  it("closeTab removes a tab from its env and re-elects the active one", async () => {
+    const a = await useTerminalStore.getState().openTab(ENV_A);
+    const b = await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_A);
     useTerminalStore.setState({ visible: true });
 
-    expect(useTerminalStore.getState().tabs).toHaveLength(3);
+    expect(slotForA().tabs).toHaveLength(3);
 
     // Close the active (last) tab — re-elect to remaining last.
-    const lastId = useTerminalStore.getState().activeTabId;
+    const lastId = slotForA().activeTabId;
     if (!lastId) throw new Error("expected active tab");
-    await useTerminalStore.getState().closeTab(lastId);
-    expect(useTerminalStore.getState().tabs).toHaveLength(2);
-    expect(useTerminalStore.getState().activeTabId).toBe(b);
+    await useTerminalStore.getState().closeTab(ENV_A, lastId);
+    expect(slotForA().tabs).toHaveLength(2);
+    expect(slotForA().activeTabId).toBe(b);
     expect(useTerminalStore.getState().visible).toBe(true);
 
     // Close a non-active tab — active stays put.
     if (!a) throw new Error("expected first tab id");
-    await useTerminalStore.getState().closeTab(a);
-    expect(useTerminalStore.getState().tabs).toHaveLength(1);
-    expect(useTerminalStore.getState().activeTabId).toBe(b);
+    await useTerminalStore.getState().closeTab(ENV_A, a);
+    expect(slotForA().tabs).toHaveLength(1);
+    expect(slotForA().activeTabId).toBe(b);
 
     expect(mockedBridge.killTerminal).toHaveBeenCalledTimes(2);
   });
 
-  it("closing the last tab hides the panel", async () => {
-    await useTerminalStore.getState().openTab("/p/only");
+  it("closing the last tab in an env removes the slot and hides the panel", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
     useTerminalStore.setState({ visible: true });
 
-    const onlyId = useTerminalStore.getState().activeTabId;
+    const onlyId = slotForA().activeTabId;
     if (!onlyId) throw new Error("expected active tab");
 
-    await useTerminalStore.getState().closeTab(onlyId);
+    await useTerminalStore.getState().closeTab(ENV_A, onlyId);
 
-    expect(useTerminalStore.getState().tabs).toHaveLength(0);
-    expect(useTerminalStore.getState().activeTabId).toBeNull();
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
     expect(useTerminalStore.getState().visible).toBe(false);
+  });
+
+  it("closing the last tab in env A leaves env B's slot intact", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_B);
+    useTerminalStore.setState({ visible: true });
+
+    const tabA = slotForA().activeTabId;
+    if (!tabA) throw new Error("expected env A tab");
+    await useTerminalStore.getState().closeTab(ENV_A, tabA);
+
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
+    expect(slotForB().tabs).toHaveLength(1);
+  });
+
+  it("activateTab updates only the targeted env", async () => {
+    const a1 = await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_A);
+    if (!a1) throw new Error("expected first tab id");
+
+    useTerminalStore.getState().activateTab(ENV_A, a1);
+    expect(slotForA().activeTabId).toBe(a1);
   });
 
   it("setHeight clamps below MIN_HEIGHT and above 0.8 * window.innerHeight", () => {
@@ -135,11 +190,24 @@ describe("terminal-store", () => {
     expect(localStorage.getItem("threadex-terminal-visible")).toBe("0");
   });
 
-  it("markExited flags the matching tab", async () => {
-    await useTerminalStore.getState().openTab("/p/a");
-    const ptyId = useTerminalStore.getState().tabs[0]?.ptyId;
-    if (!ptyId) throw new Error("expected ptyId");
-    useTerminalStore.getState().markExited(ptyId);
-    expect(useTerminalStore.getState().tabs[0]?.exited).toBe(true);
+  it("markExited flags the matching tab across all envs", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_B);
+    const ptyB = slotForB().tabs[0]?.ptyId;
+    if (!ptyB) throw new Error("expected ptyId");
+
+    useTerminalStore.getState().markExited(ptyB);
+
+    expect(slotForA().tabs[0]?.exited).toBe(false);
+    expect(slotForB().tabs[0]?.exited).toBe(true);
+  });
+
+  it("selectTerminalSlot returns an empty slot when env is null or unknown", () => {
+    expect(selectTerminalSlot(null)(useTerminalStore.getState()).tabs).toEqual(
+      [],
+    );
+    expect(
+      selectTerminalSlot("nope")(useTerminalStore.getState()).tabs,
+    ).toEqual([]);
   });
 });
