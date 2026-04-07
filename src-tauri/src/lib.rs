@@ -62,6 +62,7 @@ pub fn run() {
             commands::workspace::add_project,
             commands::workspace::rename_project,
             commands::workspace::update_project_settings,
+            commands::workspace::ensure_project_can_be_removed,
             commands::workspace::remove_project,
             commands::workspace::create_managed_worktree,
             commands::workspace::delete_worktree_environment,

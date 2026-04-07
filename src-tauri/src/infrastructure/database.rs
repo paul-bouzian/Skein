@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult};
 
-const CURRENT_SCHEMA_VERSION: i32 = 2;
+const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct AppDatabase {
@@ -58,6 +58,7 @@ impl AppDatabase {
                       id TEXT PRIMARY KEY,
                       name TEXT NOT NULL,
                       root_path TEXT NOT NULL UNIQUE,
+                      managed_worktree_dir TEXT,
                       settings_json TEXT NOT NULL DEFAULT '{}',
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL,
@@ -93,7 +94,10 @@ impl AppDatabase {
                     );
                     CREATE INDEX idx_environments_project_id ON environments(project_id);
                     CREATE INDEX idx_threads_environment_id ON threads(environment_id);
-                    PRAGMA user_version = 2;
+                    CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
+                    ON projects(managed_worktree_dir)
+                    WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
+                    PRAGMA user_version = 3;
                     COMMIT;
                     ",
                 )?;
@@ -104,7 +108,26 @@ impl AppDatabase {
                     BEGIN;
                     ALTER TABLE projects
                     ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';
-                    PRAGMA user_version = 2;
+                    ALTER TABLE projects
+                    ADD COLUMN managed_worktree_dir TEXT;
+                    CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
+                    ON projects(managed_worktree_dir)
+                    WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
+                    PRAGMA user_version = 3;
+                    COMMIT;
+                    ",
+                )?;
+            }
+            2 => {
+                connection.execute_batch(
+                    "
+                    BEGIN;
+                    ALTER TABLE projects
+                    ADD COLUMN managed_worktree_dir TEXT;
+                    CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
+                    ON projects(managed_worktree_dir)
+                    WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
+                    PRAGMA user_version = 3;
                     COMMIT;
                     ",
                 )?;
@@ -126,8 +149,9 @@ mod tests {
     use super::AppDatabase;
     use rusqlite::Connection;
     use uuid::Uuid;
+
     #[test]
-    fn migrate_v1_projects_adds_project_settings_column() {
+    fn migrate_v1_projects_adds_project_settings_and_managed_worktree_dir_columns() {
         let root = std::env::temp_dir().join(format!("threadex-db-test-{}", Uuid::now_v7()));
         std::fs::create_dir_all(&root).expect("test directory should exist");
         let db_path = root.join("threadex.sqlite3");
@@ -191,9 +215,115 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("settings_json column should exist");
+        let managed_worktree_dir_default: Option<String> = connection
+            .query_row(
+                "SELECT dflt_value FROM pragma_table_info('projects') WHERE name = 'managed_worktree_dir'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("managed_worktree_dir column should exist");
+        let managed_worktree_dir_index: String = connection
+            .query_row(
+                "
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index' AND name = 'idx_projects_managed_worktree_dir_active'
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .expect("managed_worktree_dir index should exist");
 
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         assert_eq!(default_settings, "'{}'");
+        assert_eq!(managed_worktree_dir_default, None);
+        assert_eq!(
+            managed_worktree_dir_index,
+            "idx_projects_managed_worktree_dir_active"
+        );
+
+        drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrate_v2_projects_adds_managed_worktree_dir_column() {
+        let root = std::env::temp_dir().join(format!("threadex-db-test-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&root).expect("test directory should exist");
+        let db_path = root.join("threadex.sqlite3");
+        let connection = Connection::open(&db_path).expect("db should open");
+        connection
+            .execute_batch(
+                "
+                BEGIN;
+                CREATE TABLE projects (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  root_path TEXT NOT NULL UNIQUE,
+                  settings_json TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  archived_at TEXT
+                );
+                CREATE TABLE environments (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  path TEXT NOT NULL UNIQUE,
+                  git_branch TEXT,
+                  base_branch TEXT,
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE threads (
+                  id TEXT PRIMARY KEY,
+                  environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+                  title TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  codex_thread_id TEXT,
+                  overrides_json TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  archived_at TEXT
+                );
+                CREATE TABLE global_settings (
+                  singleton_key TEXT PRIMARY KEY CHECK (singleton_key = 'global'),
+                  payload_json TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE INDEX idx_environments_project_id ON environments(project_id);
+                CREATE INDEX idx_threads_environment_id ON threads(environment_id);
+                PRAGMA user_version = 2;
+                COMMIT;
+                ",
+            )
+            .expect("v2 schema should be created");
+        drop(connection);
+
+        let database = AppDatabase::for_test(db_path.clone()).expect("migration should succeed");
+        let connection = database.open().expect("db should reopen");
+        let version: i32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version should be readable");
+        let managed_worktree_dir_index: String = connection
+            .query_row(
+                "
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index' AND name = 'idx_projects_managed_worktree_dir_active'
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .expect("managed_worktree_dir index should exist");
+
+        assert_eq!(version, 3);
+        assert_eq!(
+            managed_worktree_dir_index,
+            "idx_projects_managed_worktree_dir_active"
+        );
 
         drop(connection);
         let _ = std::fs::remove_dir_all(root);

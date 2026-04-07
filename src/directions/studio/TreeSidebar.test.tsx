@@ -16,8 +16,11 @@ import { useWorkspaceStore } from "../../stores/workspace-store";
 import { TreeSidebar } from "./TreeSidebar";
 
 const confirmMock = vi.fn();
+const messageMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
+  ensureProjectCanBeRemoved: vi.fn(),
+  removeProject: vi.fn(),
   createManagedWorktree: vi.fn(),
   deleteWorktreeEnvironment: vi.fn(),
 }));
@@ -41,6 +44,7 @@ vi.mock("./SidebarUsagePanel", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   confirm: (...args: unknown[]) => confirmMock(...args),
+  message: (...args: unknown[]) => messageMock(...args),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -49,6 +53,8 @@ const onToggleTheme = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  messageMock.mockResolvedValue("Ok");
+  mockedBridge.ensureProjectCanBeRemoved.mockResolvedValue(undefined);
   useConversationStore.setState((state) => ({
     ...state,
     snapshotsByThreadId: {},
@@ -105,7 +111,7 @@ describe("TreeSidebar", () => {
               isDefault: false,
               name: "fuzzy-tiger",
               gitBranch: "fuzzy-tiger",
-              path: "/Users/test/.threadex/worktrees/threadex-12345678/fuzzy-tiger",
+              path: "/Users/test/.threadex/worktrees/threadex/fuzzy-tiger",
               threads: [
                 makeThread({
                   id: "thread-worktree-new",
@@ -152,6 +158,132 @@ describe("TreeSidebar", () => {
     });
   });
 
+  it("shows the updated project removal confirmation copy", async () => {
+    confirmMock.mockResolvedValue(false);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [makeEnvironment({ kind: "local", isDefault: true })],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getAllByRole("button", { name: /ThreadEx/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove from ThreadEx" }),
+    );
+
+    expect(mockedBridge.ensureProjectCanBeRemoved).toHaveBeenCalledWith(
+      "project-1",
+    );
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining("The repository stays on disk."),
+      expect.objectContaining({
+        title: "Remove project",
+      }),
+    );
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "ThreadEx may also remove its empty managed worktree folder.",
+      ),
+      expect.any(Object),
+    );
+    expect(mockedBridge.removeProject).not.toHaveBeenCalled();
+  });
+
+  it("blocks project removal before confirmation when managed worktrees still exist", async () => {
+    mockedBridge.ensureProjectCanBeRemoved.mockRejectedValue({
+      code: "validation_error",
+      message:
+        "Delete this project's worktrees before removing it from ThreadEx.",
+    });
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getAllByRole("button", { name: /ThreadEx/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove from ThreadEx" }),
+    );
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(mockedBridge.ensureProjectCanBeRemoved).toHaveBeenCalledWith(
+      "project-1",
+    );
+    expect(messageMock).toHaveBeenCalledWith(
+      "Delete this project's worktrees before removing it from ThreadEx.",
+      expect.objectContaining({
+        title: "Remove project",
+        kind: "info",
+      }),
+    );
+    expect(mockedBridge.removeProject).not.toHaveBeenCalled();
+  });
+
+  it("shows the native blocker dialog when project removal fails in the backend", async () => {
+    confirmMock.mockResolvedValue(true);
+    mockedBridge.removeProject.mockRejectedValue({
+      code: "validation_error",
+      message:
+        "Delete this project's worktrees before removing it from ThreadEx.",
+    });
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [makeEnvironment({ kind: "local", isDefault: true })],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getAllByRole("button", { name: /ThreadEx/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove from ThreadEx" }),
+    );
+
+    await waitFor(() => {
+      expect(messageMock).toHaveBeenCalledWith(
+        "Delete this project's worktrees before removing it from ThreadEx.",
+        expect.objectContaining({
+          title: "Remove project",
+          kind: "info",
+        }),
+      );
+    });
+  });
+
+  it("keeps generic project removal failures in the sidebar notice", async () => {
+    confirmMock.mockResolvedValue(true);
+    mockedBridge.removeProject.mockRejectedValue(new Error("Disk is unavailable."));
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getAllByRole("button", { name: /ThreadEx/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove from ThreadEx" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Disk is unavailable.")).toBeInTheDocument();
+    });
+  });
+
   it("shows a destructive confirmation before deleting a worktree", async () => {
     confirmMock.mockResolvedValue(false);
     useWorkspaceStore.setState((state) => ({
@@ -170,7 +302,7 @@ describe("TreeSidebar", () => {
                 kind: "managedWorktree",
                 name: "fuzzy-tiger",
                 gitBranch: "fuzzy-tiger",
-                path: "/Users/test/.threadex/worktrees/threadex-12345678/fuzzy-tiger",
+                path: "/Users/test/.threadex/worktrees/threadex/fuzzy-tiger",
                 threads: [
                   makeThread({
                     id: "thread-active",
@@ -306,7 +438,9 @@ describe("TreeSidebar", () => {
       screen.getByText("Teardown script failed for fuzzy-tiger"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText('Teardown script failed for "fuzzy-tiger" (exit code 1).'),
+      screen.getByText(
+        'Teardown script failed for "fuzzy-tiger" (exit code 1).',
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("/tmp/threadex-script.log")).toBeInTheDocument();
   });

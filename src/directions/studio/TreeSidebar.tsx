@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { createPortal } from "react-dom";
 import {
   deriveEnvironmentConversationStatus,
@@ -45,6 +45,10 @@ type ContextMenuState = {
   y: number;
 };
 
+const PROJECT_REMOVAL_BLOCKED_MESSAGE =
+  "Delete this project's worktrees before removing it from ThreadEx.";
+const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
+
 export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const projects = useWorkspaceStore(selectProjects);
   const snapshotsByThreadId = useConversationStore(
@@ -58,7 +62,9 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
-  const latestScriptFailure = useWorktreeScriptStore((state) => state.latestFailure);
+  const latestScriptFailure = useWorktreeScriptStore(
+    (state) => state.latestFailure,
+  );
   const dismissLatestScriptFailure = useWorktreeScriptStore(
     (state) => state.dismissLatestFailure,
   );
@@ -111,10 +117,21 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
 
   async function handleRemoveProject(projectId: string, projectName: string) {
     setContextMenu(null);
+    resetMessages();
+    try {
+      await bridge.ensureProjectCanBeRemoved(projectId);
+    } catch (cause: unknown) {
+      if (await showProjectRemovalBlockedDialog(cause)) {
+        return;
+      }
+      setActionError(actionErrorMessage(cause, "Failed to remove project"));
+      return;
+    }
+
     const approved = await confirm(
-      `Remove "${projectName}" from ThreadEx? The project folder will stay on disk.`,
+      `Remove "${projectName}" from ThreadEx? The repository stays on disk. ThreadEx may also remove its empty managed worktree folder.`,
       {
-        title: "Remove project",
+        title: PROJECT_REMOVAL_DIALOG_TITLE,
         kind: "warning",
       },
     );
@@ -124,10 +141,12 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
     }
 
     try {
-      resetMessages();
       await bridge.removeProject(projectId);
       await refreshSnapshot();
     } catch (cause: unknown) {
+      if (await showProjectRemovalBlockedDialog(cause)) {
+        return;
+      }
       setActionError(actionErrorMessage(cause, "Failed to remove project"));
     }
   }
@@ -210,8 +229,8 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
           <div className="tree-sidebar__notice tree-sidebar__notice--warning">
             <div className="tree-sidebar__notice-copy">
               <strong>
-                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"} script
-                failed for {latestScriptFailure.worktreeName}
+                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"}{" "}
+                script failed for {latestScriptFailure.worktreeName}
               </strong>
               <span>{latestScriptFailure.message}</span>
               <code>{latestScriptFailure.logPath}</code>
@@ -431,8 +450,40 @@ function environmentIndicatorTone(
   );
 }
 
+async function showProjectRemovalBlockedDialog(cause: unknown): Promise<boolean> {
+  const errorMessage = extractErrorMessage(cause);
+  if (errorMessage !== PROJECT_REMOVAL_BLOCKED_MESSAGE) {
+    return false;
+  }
+
+  await message(errorMessage, {
+    title: PROJECT_REMOVAL_DIALOG_TITLE,
+    kind: "info",
+  });
+  return true;
+}
+
+function extractErrorMessage(cause: unknown): string | null {
+  if (
+    typeof cause === "object" &&
+    cause !== null &&
+    "message" in cause &&
+    typeof cause.message === "string"
+  ) {
+    const message = cause.message.trim();
+    return message.length > 0 ? message : null;
+  }
+
+  if (cause instanceof Error) {
+    const message = cause.message.trim();
+    return message.length > 0 ? message : null;
+  }
+
+  return null;
+}
+
 function actionErrorMessage(cause: unknown, fallback: string) {
-  return cause instanceof Error ? cause.message : fallback;
+  return extractErrorMessage(cause) ?? fallback;
 }
 
 function buildProjectContextMenuState(

@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::domain::conversation::ConversationComposerSettings;
@@ -11,7 +12,7 @@ use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
     EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord,
     ProjectSettings, ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides,
-    ThreadRecord, ThreadStatus, WorktreeScriptTrigger, WorkspaceSnapshot,
+    ThreadRecord, ThreadStatus, WorkspaceSnapshot, WorktreeScriptTrigger,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
@@ -155,19 +156,22 @@ impl WorkspaceService {
             project_id
         } else {
             let project_id = Uuid::now_v7().to_string();
+            let managed_worktree_dir =
+                self.allocate_managed_worktree_directory(&transaction, None, &root_path)?;
             let project_settings_json = serde_json::to_string(&ProjectSettings::default())
                 .map_err(|error| AppError::Validation(error.to_string()))?;
             transaction.execute(
                 "
                 INSERT INTO projects (
-                  id, name, root_path, settings_json, created_at, updated_at, archived_at
+                  id, name, root_path, managed_worktree_dir, settings_json, created_at, updated_at, archived_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)
                 ",
                 params![
                     project_id,
                     project_name,
                     root_path_string,
+                    managed_worktree_dir,
                     project_settings_json,
                     now,
                     now
@@ -184,6 +188,8 @@ impl WorkspaceService {
             now,
         )?;
         transaction.commit()?;
+
+        self.ensure_project_managed_worktree_dir(&project_id, &root_path)?;
 
         self.project_by_id(&project_id, Vec::new())
     }
@@ -235,38 +241,7 @@ impl WorkspaceService {
 
     pub fn project_environment_ids(&self, project_id: &str) -> AppResult<Vec<String>> {
         let connection = self.database.open()?;
-        let project_exists = connection
-            .query_row(
-                "SELECT 1 FROM projects WHERE id = ?1 AND archived_at IS NULL",
-                params![project_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-
-        if !project_exists {
-            return Err(AppError::NotFound("Project not found.".to_string()));
-        }
-
-        let has_worktrees = connection
-            .query_row(
-                "
-                SELECT 1
-                FROM environments
-                WHERE project_id = ?1 AND kind != 'local'
-                LIMIT 1
-                ",
-                params![project_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-
-        if has_worktrees {
-            return Err(AppError::Validation(
-                "Delete this project's worktrees before removing it from ThreadEx.".to_string(),
-            ));
-        }
+        self.ensure_project_can_be_removed_with_connection(&connection, project_id)?;
 
         let mut statement = connection.prepare(
             "
@@ -283,25 +258,20 @@ impl WorkspaceService {
 
     pub fn remove_project(&self, project_id: &str) -> AppResult<()> {
         let connection = self.database.open()?;
-        let has_worktrees = connection
+        self.ensure_project_can_be_removed_with_connection(&connection, project_id)?;
+
+        let managed_worktree_dir = connection
             .query_row(
                 "
-                SELECT 1
-                FROM environments
-                WHERE project_id = ?1 AND kind != 'local'
-                LIMIT 1
+                SELECT managed_worktree_dir
+                FROM projects
+                WHERE id = ?1 AND archived_at IS NULL
                 ",
                 params![project_id],
-                |_| Ok(()),
+                |row| row.get::<_, Option<String>>(0),
             )
             .optional()?
-            .is_some();
-
-        if has_worktrees {
-            return Err(AppError::Validation(
-                "Delete this project's worktrees before removing it from ThreadEx.".to_string(),
-            ));
-        }
+            .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
 
         let affected = connection.execute(
             "DELETE FROM projects WHERE id = ?1 AND archived_at IS NULL",
@@ -312,7 +282,22 @@ impl WorkspaceService {
             return Err(AppError::NotFound("Project not found.".to_string()));
         }
 
+        if let Some(directory) = managed_worktree_dir {
+            if let Err(error) = self.remove_empty_managed_worktree_directory(&directory) {
+                warn!(
+                    project_id = project_id,
+                    directory = directory,
+                    "failed to clean up managed worktree directory after project removal: {error}"
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    pub fn ensure_project_can_be_removed(&self, project_id: &str) -> AppResult<()> {
+        let connection = self.database.open()?;
+        self.ensure_project_can_be_removed_with_connection(&connection, project_id)
     }
 
     pub fn create_managed_worktree(
@@ -427,11 +412,17 @@ impl WorkspaceService {
             });
         }
 
-        Ok(ManagedWorktreeCreateResult { environment, thread })
+        Ok(ManagedWorktreeCreateResult {
+            environment,
+            thread,
+        })
     }
 
     pub fn delete_worktree_environment(&self, environment_id: &str) -> AppResult<()> {
         let metadata = self.deletable_worktree_environment_metadata(environment_id)?;
+        if matches!(metadata.kind, EnvironmentKind::ManagedWorktree) {
+            self.ensure_project_managed_worktree_dir(&metadata.project_id, &metadata.project_root)?;
+        }
 
         if metadata.project_root.is_dir() {
             git::remove_worktree(&metadata.project_root, &metadata.environment_path)?;
@@ -794,6 +785,227 @@ impl WorkspaceService {
             .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))
     }
 
+    fn ensure_project_managed_worktree_dir(
+        &self,
+        project_id: &str,
+        root_path: &Path,
+    ) -> AppResult<String> {
+        let connection = self.database.open()?;
+        let existing_value = connection
+            .query_row(
+                "
+                SELECT managed_worktree_dir
+                FROM projects
+                WHERE id = ?1 AND archived_at IS NULL
+                ",
+                params![project_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
+
+        if let Some(directory) = existing_value {
+            return validate_managed_worktree_directory_name(&directory);
+        }
+
+        let directory = if let Some(inferred) =
+            self.infer_managed_worktree_directory(&connection, project_id)?
+        {
+            inferred
+        } else {
+            self.allocate_managed_worktree_directory(&connection, Some(project_id), root_path)?
+        };
+        self.persist_project_managed_worktree_dir(&connection, project_id, &directory)?;
+        Ok(directory)
+    }
+
+    fn allocate_managed_worktree_directory(
+        &self,
+        connection: &rusqlite::Connection,
+        exclude_project_id: Option<&str>,
+        root_path: &Path,
+    ) -> AppResult<String> {
+        let base_name = git::sanitize_path_component(&infer_project_name(root_path), "project");
+        let used_directories =
+            self.active_managed_worktree_directories(connection, exclude_project_id)?;
+
+        if self.managed_worktree_directory_available(&used_directories, &base_name)? {
+            return Ok(base_name);
+        }
+
+        for index in 2..10_000 {
+            let candidate = format!("{base_name}-{index}");
+            if self.managed_worktree_directory_available(&used_directories, &candidate)? {
+                return Ok(candidate);
+            }
+        }
+
+        Err(AppError::Runtime(
+            "Unable to allocate a managed worktree directory for this project.".to_string(),
+        ))
+    }
+
+    fn active_managed_worktree_directories(
+        &self,
+        connection: &rusqlite::Connection,
+        exclude_project_id: Option<&str>,
+    ) -> AppResult<HashSet<String>> {
+        let mut statement = connection.prepare(
+            "
+            SELECT managed_worktree_dir
+            FROM projects
+            WHERE archived_at IS NULL
+              AND managed_worktree_dir IS NOT NULL
+              AND (?1 IS NULL OR id != ?1)
+            ",
+        )?;
+        let rows =
+            statement.query_map(params![exclude_project_id], |row| row.get::<_, String>(0))?;
+        let values = rows.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(values
+            .into_iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect())
+    }
+
+    fn managed_worktree_directory_available(
+        &self,
+        used_directories: &HashSet<String>,
+        candidate: &str,
+    ) -> AppResult<bool> {
+        let normalized = validate_managed_worktree_directory_name(candidate)?;
+        Ok(!used_directories.contains(&normalized.to_ascii_lowercase())
+            && !git::managed_worktree_project_path(&self.managed_worktrees_root, &normalized)
+                .exists())
+    }
+
+    fn infer_managed_worktree_directory(
+        &self,
+        connection: &rusqlite::Connection,
+        project_id: &str,
+    ) -> AppResult<Option<String>> {
+        let mut statement = connection.prepare(
+            "
+            SELECT path
+            FROM environments
+            WHERE project_id = ?1 AND kind = 'managedWorktree'
+            ORDER BY created_at ASC
+            ",
+        )?;
+        let rows = statement.query_map(params![project_id], |row| row.get::<_, String>(0))?;
+
+        let mut directories = HashSet::new();
+        for path in rows.collect::<Result<Vec<_>, _>>()? {
+            let directory = managed_worktree_directory_name_from_path(
+                &self.managed_worktrees_root,
+                Path::new(&path),
+            )
+            .ok_or_else(|| {
+                AppError::Runtime(format!(
+                    "Unable to infer the managed worktree directory from '{}'.",
+                    path
+                ))
+            })?;
+            directories.insert(validate_managed_worktree_directory_name(&directory)?);
+        }
+
+        match directories.len() {
+            0 => Ok(None),
+            1 => Ok(directories.into_iter().next()),
+            _ => Err(AppError::Runtime(
+                "Project worktrees are split across multiple managed directories.".to_string(),
+            )),
+        }
+    }
+
+    fn persist_project_managed_worktree_dir(
+        &self,
+        connection: &rusqlite::Connection,
+        project_id: &str,
+        directory: &str,
+    ) -> AppResult<()> {
+        let normalized = validate_managed_worktree_directory_name(directory)?;
+        let affected = connection.execute(
+            "
+            UPDATE projects
+            SET managed_worktree_dir = ?1
+            WHERE id = ?2 AND archived_at IS NULL
+            ",
+            params![normalized, project_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Project not found.".to_string()));
+        }
+
+        Ok(())
+    }
+
+    fn remove_empty_managed_worktree_directory(&self, directory: &str) -> AppResult<()> {
+        let normalized = validate_managed_worktree_directory_name(directory)?;
+        let path = git::managed_worktree_project_path(&self.managed_worktrees_root, &normalized);
+        match std::fs::remove_dir(&path) {
+            Ok(()) => Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn project_has_managed_worktrees(
+        &self,
+        connection: &rusqlite::Connection,
+        project_id: &str,
+    ) -> AppResult<bool> {
+        Ok(connection
+            .query_row(
+                "
+                SELECT 1
+                FROM environments
+                WHERE project_id = ?1 AND kind != 'local'
+                LIMIT 1
+                ",
+                params![project_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
+    }
+
+    fn ensure_project_can_be_removed_with_connection(
+        &self,
+        connection: &rusqlite::Connection,
+        project_id: &str,
+    ) -> AppResult<()> {
+        let project_exists = connection
+            .query_row(
+                "SELECT 1 FROM projects WHERE id = ?1 AND archived_at IS NULL",
+                params![project_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+
+        if !project_exists {
+            return Err(AppError::NotFound("Project not found.".to_string()));
+        }
+
+        if self.project_has_managed_worktrees(connection, project_id)? {
+            return Err(AppError::Validation(
+                "Delete this project's worktrees before removing it from ThreadEx.".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
     fn project_metadata(&self, project_id: &str) -> AppResult<ProjectMetadata> {
         let connection = self.database.open()?;
         connection
@@ -821,6 +1033,8 @@ impl WorkspaceService {
         project_id: &str,
         project: &ProjectMetadata,
     ) -> AppResult<ManagedWorktreeCandidate> {
+        let managed_worktree_dir =
+            self.ensure_project_managed_worktree_dir(project_id, &project.root_path)?;
         let connection = self.database.open()?;
         let mut statement = connection.prepare(
             "
@@ -838,15 +1052,12 @@ impl WorkspaceService {
         let branch_refs = git::list_branch_refs(&project.root_path)?
             .into_iter()
             .collect::<HashSet<_>>();
-        let project_slug =
-            git::sanitize_path_component(&infer_project_name(&project.root_path), "project");
 
         let branch_name = worktree_names::generate_unique_worktree_name(|candidate| {
             let lower_candidate = candidate.to_ascii_lowercase();
             let path = git::managed_worktree_path(
                 &self.managed_worktrees_root,
-                &project_slug,
-                project_id,
+                &managed_worktree_dir,
                 candidate,
             );
             environment_names.contains(&lower_candidate)
@@ -855,8 +1066,7 @@ impl WorkspaceService {
         });
         let destination = git::managed_worktree_path(
             &self.managed_worktrees_root,
-            &project_slug,
-            project_id,
+            &managed_worktree_dir,
             &branch_name,
         );
 
@@ -1134,7 +1344,41 @@ struct WorktreeEnvironmentMetadata {
     project_settings: ProjectSettings,
 }
 
-fn infer_project_name(root_path: &std::path::Path) -> String {
+fn validate_managed_worktree_directory_name(value: &str) -> AppResult<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Runtime(
+            "Managed worktree directory cannot be empty.".to_string(),
+        ));
+    }
+
+    let normalized = git::sanitize_path_component(trimmed, "project");
+    if normalized != trimmed {
+        return Err(AppError::Runtime(format!(
+            "Managed worktree directory '{}' is invalid.",
+            value
+        )));
+    }
+
+    Ok(normalized)
+}
+
+fn managed_worktree_directory_name_from_path(
+    managed_root: &Path,
+    worktree_path: &Path,
+) -> Option<String> {
+    let project_directory = worktree_path.parent()?;
+    if project_directory.parent()? != managed_root {
+        return None;
+    }
+
+    project_directory
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+}
+
+fn infer_project_name(root_path: &Path) -> String {
     root_path
         .file_name()
         .and_then(|value| value.to_str())
@@ -1194,4 +1438,320 @@ fn project_settings_from_json(
             Box::new(error),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use chrono::Utc;
+    use rusqlite::{params, Connection};
+    use uuid::Uuid;
+
+    use super::{AddProjectRequest, WorkspaceService};
+    use crate::services::git;
+    use crate::services::worktree_scripts::WorktreeScriptService;
+
+    #[test]
+    fn add_project_assigns_readable_managed_worktree_directories_with_suffixes() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo_one = harness
+            .create_repo(&harness.temp_root.join("repos-one").join("krewzer"))
+            .expect("repo one");
+        let repo_two = harness
+            .create_repo(&harness.temp_root.join("repos-two").join("krewzer"))
+            .expect("repo two");
+
+        let project_one = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_one.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project one should be added");
+        let project_two = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_two.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project two should be added");
+
+        assert_eq!(
+            harness.project_managed_worktree_dir(&project_one.id),
+            Some("krewzer".to_string())
+        );
+        assert_eq!(
+            harness.project_managed_worktree_dir(&project_two.id),
+            Some("krewzer-2".to_string())
+        );
+    }
+
+    #[test]
+    fn add_project_skips_existing_orphaned_managed_worktree_directory() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        fs::create_dir_all(harness.managed_root.join("krewzer")).expect("orphan dir");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("krewzer"))
+            .expect("repo");
+
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        assert_eq!(
+            harness.project_managed_worktree_dir(&project.id),
+            Some("krewzer-2".to_string())
+        );
+    }
+
+    #[test]
+    fn create_managed_worktree_reuses_inferred_legacy_parent_directory() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("legacy-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let connection = harness.open_connection();
+        connection
+            .execute(
+                "UPDATE projects SET managed_worktree_dir = NULL WHERE id = ?1",
+                params![project.id],
+            )
+            .expect("project dir should be cleared");
+        connection
+            .execute(
+                "
+                INSERT INTO environments (
+                  id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, 'managedWorktree', ?4, ?5, ?6, 0, ?7, ?7)
+                ",
+                params![
+                    Uuid::now_v7().to_string(),
+                    project.id,
+                    "existing-worktree",
+                    harness
+                        .managed_root
+                        .join("legacy-repo-dir")
+                        .join("existing-worktree")
+                        .to_string_lossy()
+                        .to_string(),
+                    "existing-worktree",
+                    "main",
+                    Utc::now(),
+                ],
+            )
+            .expect("legacy environment should be inserted");
+
+        let result = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+
+        assert_eq!(
+            harness.project_managed_worktree_dir(&project.id),
+            Some("legacy-repo-dir".to_string())
+        );
+        assert_eq!(
+            Path::new(&result.environment.path)
+                .parent()
+                .and_then(|path| path.file_name())
+                .and_then(|value| value.to_str())
+                .map(ToString::to_string),
+            Some("legacy-repo-dir".to_string())
+        );
+    }
+
+    #[test]
+    fn remove_project_deletes_an_empty_managed_worktree_directory() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("cleanup-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let managed_dir = harness
+            .project_managed_worktree_dir(&project.id)
+            .expect("managed dir should exist");
+        let managed_path = harness.managed_root.join(&managed_dir);
+        fs::create_dir_all(&managed_path).expect("managed dir should exist");
+
+        harness
+            .service
+            .remove_project(&project.id)
+            .expect("project should be removed");
+
+        assert!(!managed_path.exists());
+        assert!(repo.path.exists());
+    }
+
+    #[test]
+    fn remove_project_preserves_a_non_empty_managed_worktree_directory() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("non-empty-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let managed_dir = harness
+            .project_managed_worktree_dir(&project.id)
+            .expect("managed dir should exist");
+        let managed_path = harness.managed_root.join(&managed_dir);
+        fs::create_dir_all(&managed_path).expect("managed dir should exist");
+        fs::write(managed_path.join("keep.txt"), "persist").expect("marker file");
+
+        harness
+            .service
+            .remove_project(&project.id)
+            .expect("project should be removed");
+
+        assert!(managed_path.exists());
+        assert!(repo.path.exists());
+    }
+
+    #[test]
+    fn deleting_the_last_legacy_worktree_backfills_project_directory_for_cleanup() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("legacy-cleanup-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let result = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+        let managed_dir = harness
+            .project_managed_worktree_dir(&project.id)
+            .expect("managed dir should exist");
+        let managed_path = harness.managed_root.join(&managed_dir);
+
+        harness
+            .open_connection()
+            .execute(
+                "UPDATE projects SET managed_worktree_dir = NULL WHERE id = ?1",
+                params![project.id],
+            )
+            .expect("project dir should be cleared");
+
+        harness
+            .service
+            .delete_worktree_environment(&result.environment.id)
+            .expect("worktree should be deleted");
+
+        assert_eq!(
+            harness.project_managed_worktree_dir(&project.id),
+            Some(managed_dir.clone())
+        );
+
+        harness
+            .service
+            .remove_project(&project.id)
+            .expect("project should be removed");
+
+        assert!(!managed_path.exists());
+        assert!(repo.path.exists());
+    }
+
+    struct WorkspaceHarness {
+        service: WorkspaceService,
+        managed_root: PathBuf,
+        temp_root: PathBuf,
+    }
+
+    impl WorkspaceHarness {
+        fn new() -> Result<Self, Box<dyn std::error::Error>> {
+            let temp_root =
+                std::env::temp_dir().join(format!("threadex-workspace-test-{}", Uuid::now_v7()));
+            fs::create_dir_all(&temp_root)?;
+            let database = crate::infrastructure::database::AppDatabase::for_test(
+                temp_root.join("threadex.sqlite3"),
+            )?;
+            let managed_root = temp_root.join("managed-worktrees");
+            fs::create_dir_all(&managed_root)?;
+            let service = WorkspaceService::new(
+                database,
+                managed_root.clone(),
+                WorktreeScriptService::for_test(temp_root.clone()),
+            );
+
+            Ok(Self {
+                service,
+                managed_root,
+                temp_root,
+            })
+        }
+
+        fn create_repo(&self, path: &Path) -> Result<TestRepo, Box<dyn std::error::Error>> {
+            TestRepo::new(path.to_path_buf())
+        }
+
+        fn open_connection(&self) -> Connection {
+            let connection =
+                Connection::open(self.service.database_path()).expect("database should open");
+            connection
+                .pragma_update(None, "foreign_keys", "ON")
+                .expect("foreign keys should be enabled");
+            connection
+        }
+
+        fn project_managed_worktree_dir(&self, project_id: &str) -> Option<String> {
+            self.open_connection()
+                .query_row(
+                    "SELECT managed_worktree_dir FROM projects WHERE id = ?1",
+                    params![project_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .expect("project query should succeed")
+        }
+    }
+
+    impl Drop for WorkspaceHarness {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.temp_root);
+        }
+    }
+
+    struct TestRepo {
+        path: PathBuf,
+    }
+
+    impl TestRepo {
+        fn new(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+            fs::create_dir_all(&path)?;
+            git::run_git(&path, ["init", "--initial-branch=main"])?;
+            git::run_git(&path, ["config", "user.email", "threadex@example.com"])?;
+            git::run_git(&path, ["config", "user.name", "ThreadEx Tests"])?;
+            fs::write(path.join("README.md"), "# ThreadEx\n")?;
+            git::run_git(&path, ["add", "README.md"])?;
+            git::run_git(&path, ["commit", "-m", "Initial commit"])?;
+            Ok(Self { path })
+        }
+    }
 }

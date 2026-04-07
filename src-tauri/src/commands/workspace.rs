@@ -2,8 +2,8 @@ use tauri::State;
 
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot, ThreadRecord,
-    WorkspaceSnapshot,
+    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot,
+    ThreadRecord, WorkspaceSnapshot,
 };
 use crate::error::CommandError;
 use crate::services::workspace::{
@@ -50,6 +50,14 @@ pub fn update_project_settings(
     state: State<'_, AppState>,
 ) -> Result<ProjectRecord, CommandError> {
     Ok(state.workspace.update_project_settings(input)?)
+}
+
+#[tauri::command]
+pub fn ensure_project_can_be_removed(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state.workspace.ensure_project_can_be_removed(&project_id)?)
 }
 
 #[tauri::command]

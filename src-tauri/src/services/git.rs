@@ -110,20 +110,16 @@ pub fn sanitize_path_component(value: &str, fallback: &str) -> String {
     }
 }
 
+pub fn managed_worktree_project_path(managed_root: &Path, project_directory: &str) -> PathBuf {
+    managed_root.join(sanitize_path_component(project_directory, "project"))
+}
+
 pub fn managed_worktree_path(
     managed_root: &Path,
-    project_slug: &str,
-    project_id: &str,
+    project_directory: &str,
     worktree_name: &str,
 ) -> PathBuf {
-    let project_directory = format!(
-        "{}-{}",
-        sanitize_path_component(project_slug, "project"),
-        short_identifier(project_id)
-    );
-
-    managed_root
-        .join(project_directory)
+    managed_worktree_project_path(managed_root, project_directory)
         .join(sanitize_path_component(worktree_name, "worktree"))
 }
 
@@ -302,15 +298,14 @@ fn stdout_message_lines(buffer: &[u8]) -> Vec<String> {
         .collect()
 }
 
-fn short_identifier(value: &str) -> &str {
-    value.get(..8).unwrap_or(value)
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::{managed_worktree_path, sanitize_path_component, validate_relative_path};
+    use super::{
+        managed_worktree_path, managed_worktree_project_path, sanitize_path_component,
+        validate_relative_path,
+    };
 
     #[test]
     fn path_component_sanitization_removes_unsafe_characters() {
@@ -321,16 +316,24 @@ mod tests {
     }
 
     #[test]
-    fn managed_worktree_path_is_nested_under_threadex_home_directory() {
+    fn managed_worktree_project_path_is_nested_under_threadex_home_directory() {
+        let path = managed_worktree_project_path(
+            Path::new("/Users/test/.threadex/worktrees"),
+            "Acme Repo",
+        );
+        assert_eq!(path, Path::new("/Users/test/.threadex/worktrees/acme-repo"));
+    }
+
+    #[test]
+    fn managed_worktree_path_is_nested_under_project_directory() {
         let path = managed_worktree_path(
             Path::new("/Users/test/.threadex/worktrees"),
             "Acme Repo",
-            "12345678-aaaa-bbbb-cccc-ddddeeeeffff",
             "feature-plan-mode",
         );
         assert_eq!(
             path,
-            Path::new("/Users/test/.threadex/worktrees/acme-repo-12345678/feature-plan-mode")
+            Path::new("/Users/test/.threadex/worktrees/acme-repo/feature-plan-mode")
         );
     }
 

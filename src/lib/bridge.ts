@@ -267,6 +267,10 @@ export function updateProjectSettings(
   return invoke<ProjectRecord>("update_project_settings", { input });
 }
 
+export function ensureProjectCanBeRemoved(projectId: string): Promise<void> {
+  return invoke<void>("ensure_project_can_be_removed", { projectId });
+}
+
 export function removeProject(projectId: string): Promise<void> {
   return invoke<void>("remove_project", { projectId });
 }

@@ -17,7 +17,7 @@ const WORKTREE_SCRIPT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone)]
 pub struct WorktreeScriptService {
-    app: AppHandle,
+    app: Option<AppHandle>,
     logs_root: PathBuf,
 }
 
@@ -37,7 +37,15 @@ pub struct WorktreeScriptRequest {
 impl WorktreeScriptService {
     pub fn new(app: AppHandle, app_data_dir: PathBuf) -> Self {
         Self {
-            app,
+            app: Some(app),
+            logs_root: app_data_dir.join("logs").join("worktree-scripts"),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn for_test(app_data_dir: PathBuf) -> Self {
+        Self {
+            app: None,
             logs_root: app_data_dir.join("logs").join("worktree-scripts"),
         }
     }
@@ -163,7 +171,7 @@ impl WorktreeScriptService {
                             warn!("failed to stop timed out worktree script: {error}");
                         }
                         let _ = child.wait();
-                        emit_failure(&app, &request, &log_path_for_thread, None, message);
+                        emit_failure(app.as_ref(), &request, &log_path_for_thread, None, message);
                         break WorktreeScriptCompletion {
                             exit_code: None,
                             success: false,
@@ -175,7 +183,7 @@ impl WorktreeScriptService {
                         if let Err(log_error) = append_log_message(&log_path_for_thread, &message) {
                             warn!("failed to append worktree script wait error: {log_error}");
                         }
-                        emit_failure(&app, &request, &log_path_for_thread, None, message);
+                        emit_failure(app.as_ref(), &request, &log_path_for_thread, None, message);
                         return;
                     }
                 }
@@ -194,7 +202,7 @@ impl WorktreeScriptService {
 
             if completion.exit_code.is_some() {
                 emit_failure(
-                    &app,
+                    app.as_ref(),
                     &request,
                     &log_path_for_thread,
                     completion.exit_code,
@@ -215,7 +223,7 @@ impl WorktreeScriptService {
         exit_code: Option<i32>,
         message: String,
     ) {
-        emit_failure(&self.app, request, log_path, exit_code, message);
+        emit_failure(self.app.as_ref(), request, log_path, exit_code, message);
     }
 
     fn log_path(&self, request: &WorktreeScriptRequest) -> PathBuf {
@@ -374,7 +382,7 @@ fn append_log_message(path: &Path, message: &str) -> std::io::Result<()> {
 }
 
 fn emit_failure(
-    app: &AppHandle,
+    app: Option<&AppHandle>,
     request: &WorktreeScriptRequest,
     log_path: &Path,
     exit_code: Option<i32>,
@@ -392,8 +400,10 @@ fn emit_failure(
         log_path: log_path.to_string_lossy().to_string(),
         exit_code,
     };
-    if let Err(error) = app.emit(WORKTREE_SCRIPT_FAILURE_EVENT_NAME, payload) {
-        error!("failed to emit worktree script failure: {error}");
+    if let Some(app) = app {
+        if let Err(error) = app.emit(WORKTREE_SCRIPT_FAILURE_EVENT_NAME, payload) {
+            error!("failed to emit worktree script failure: {error}");
+        }
     }
     warn!("{message}");
 }
