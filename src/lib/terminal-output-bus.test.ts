@@ -133,4 +133,24 @@ describe("terminal-output-bus", () => {
 
     expect(listenMock).toHaveBeenCalledTimes(1);
   });
+
+  it("retries listener attachment after an initial failure", async () => {
+    let attempts = 0;
+    listenMock.mockImplementation(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("attach failed");
+      }
+      return () => {};
+    });
+
+    const bus = await loadBus();
+
+    await expect(bus.ensureTerminalOutputBusReady()).rejects.toThrow(
+      "attach failed",
+    );
+    await expect(bus.ensureTerminalOutputBusReady()).resolves.toBeUndefined();
+
+    expect(listenMock).toHaveBeenCalledTimes(2);
+  });
 });

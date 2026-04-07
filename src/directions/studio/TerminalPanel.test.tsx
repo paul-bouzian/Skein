@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -102,6 +102,70 @@ describe("TerminalPanel", () => {
     render(<TerminalPanel />);
     expect(screen.getByTestId("terminal-view-pty-existing-1")).toBeInTheDocument();
     expect(screen.getByTestId("terminal-view-pty-existing-2")).toBeInTheDocument();
+  });
+
+  it("keeps terminal views mounted when switching environments", () => {
+    const snapshotWithTwoEnvs = makeWorkspaceSnapshot();
+    snapshotWithTwoEnvs.projects[0].environments.push({
+      ...snapshotWithTwoEnvs.projects[0].environments[0],
+      id: "env-2",
+      name: "worktree-2",
+      path: "/tmp/env-2",
+    });
+    useWorkspaceStore.setState({
+      snapshot: snapshotWithTwoEnvs,
+      bootstrapStatus: null,
+      loadingState: "ready",
+      error: null,
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-1",
+      selectedThreadId: null,
+    });
+    useTerminalStore.setState((state) => ({
+      ...state,
+      byEnv: {
+        ...state.byEnv,
+        "env-2": {
+          tabs: [
+            {
+              id: "t3",
+              ptyId: "pty-existing-3",
+              cwd: "/p/c",
+              title: "c",
+              exited: false,
+            },
+          ],
+          activeTabId: "t3",
+        },
+      },
+    }));
+
+    const { rerender } = render(<TerminalPanel />);
+
+    expect(screen.getByTestId("terminal-view-pty-existing-1")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    expect(screen.getByTestId("terminal-view-pty-existing-3")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+
+    act(() => {
+      useWorkspaceStore.setState({ selectedEnvironmentId: "env-2" });
+    });
+    rerender(<TerminalPanel />);
+
+    expect(screen.getByTestId("terminal-view-pty-existing-1")).toBeInTheDocument();
+    expect(screen.getByTestId("terminal-view-pty-existing-3")).toBeInTheDocument();
+    expect(screen.getByTestId("terminal-view-pty-existing-1")).toHaveAttribute(
+      "data-active",
+      "false",
+    );
+    expect(screen.getByTestId("terminal-view-pty-existing-3")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   it("opens a new terminal in the active env when + is clicked", async () => {

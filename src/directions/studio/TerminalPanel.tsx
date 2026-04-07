@@ -25,8 +25,17 @@ export function TerminalPanel() {
   const env = useWorkspaceStore(selectSelectedEnvironment);
   const environmentId = env?.id ?? null;
 
+  const byEnv = useTerminalStore((s) => s.byEnv);
   const slot = useTerminalStore(selectTerminalSlot(environmentId));
   const { tabs, activeTabId } = slot;
+  const selectedEnvironmentId = environmentId ?? "";
+  const mountedTabs = Object.entries(byEnv).flatMap(([envId, envSlot]) =>
+    envSlot.tabs.map((tab) => ({
+      envId,
+      tab,
+      active: envId === environmentId && envSlot.activeTabId === tab.id,
+    })),
+  );
 
   // Auto-open one tab whenever the panel becomes visible with zero tabs in
   // the active env (initial mount with persisted visible=true once the
@@ -94,16 +103,6 @@ export function TerminalPanel() {
     });
   }
 
-  if (!environmentId) {
-    return (
-      <div className="terminal-panel terminal-panel--empty">
-        <p className="terminal-panel__hint">
-          Select a worktree to open a terminal.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="terminal-panel">
       <div className="terminal-panel__header">
@@ -128,7 +127,7 @@ export function TerminalPanel() {
                   type="button"
                   className="terminal-tab__title"
                   title={tab.cwd || tab.title}
-                  onClick={() => activateTab(environmentId, tab.id)}
+                  onClick={() => activateTab(selectedEnvironmentId, tab.id)}
                 >
                   {tab.title}
                 </button>
@@ -136,7 +135,7 @@ export function TerminalPanel() {
                   type="button"
                   className="terminal-tab__close"
                   aria-label="Close terminal"
-                  onClick={() => void closeTab(environmentId, tab.id)}
+                  onClick={() => void closeTab(selectedEnvironmentId, tab.id)}
                 >
                   <CloseIcon size={11} />
                 </button>
@@ -148,8 +147,14 @@ export function TerminalPanel() {
           <button
             type="button"
             className="terminal-panel__action"
-            title={atCap ? `Maximum ${MAX_TABS} terminals` : "New terminal"}
-            disabled={atCap}
+            title={
+              !environmentId
+                ? "Select a worktree first"
+                : atCap
+                  ? `Maximum ${MAX_TABS} terminals`
+                  : "New terminal"
+            }
+            disabled={!environmentId || atCap}
             onClick={handleOpenTab}
           >
             <PlusIcon size={13} />
@@ -164,14 +169,25 @@ export function TerminalPanel() {
           </button>
         </div>
       </div>
-      <div className="terminal-panel__body">
-        {tabs.map((tab) => (
+      <div
+        className={`terminal-panel__body ${
+          environmentId ? "" : "terminal-panel__body--empty"
+        }`}
+      >
+        {mountedTabs.map(({ envId, tab, active }) => (
           <TerminalView
-            key={tab.id}
+            key={`${envId}:${tab.id}`}
             ptyId={tab.ptyId}
-            active={tab.id === activeTabId}
+            active={active}
           />
         ))}
+        {!environmentId && (
+          <div className="terminal-panel__empty-state">
+            <p className="terminal-panel__hint">
+              Select a worktree to open a terminal.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

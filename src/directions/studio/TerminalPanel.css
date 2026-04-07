@@ -148,6 +148,21 @@
   background: var(--tx-bg-base);
 }
 
+.terminal-panel__body--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.terminal-panel__empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
 .terminal-view {
   position: absolute;
   inset: 0;

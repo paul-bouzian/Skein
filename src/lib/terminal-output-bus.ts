@@ -71,7 +71,11 @@ export function ensureTerminalOutputBusReady(): Promise<void> {
     .listenToTerminalOutput((payload) => {
       handleOutput(payload.ptyId, decodeBase64(payload.dataBase64));
     })
-    .then(() => undefined);
+    .then(() => undefined)
+    .catch((error) => {
+      subscriptionPromise = null;
+      throw error;
+    });
   return subscriptionPromise;
 }
 

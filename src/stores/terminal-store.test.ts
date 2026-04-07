@@ -209,6 +209,23 @@ describe("terminal-store", () => {
     expect(slotForB().tabs[0]?.exited).toBe(true);
   });
 
+  it("reconcileEnvironments prunes deleted environments and hides the panel when empty", async () => {
+    await useTerminalStore.getState().openTab(ENV_A);
+    await useTerminalStore.getState().openTab(ENV_B);
+    useTerminalStore.setState({ visible: true });
+
+    useTerminalStore.getState().reconcileEnvironments([ENV_B]);
+
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
+    expect(useTerminalStore.getState().byEnv[ENV_B]?.tabs).toHaveLength(1);
+    expect(useTerminalStore.getState().visible).toBe(true);
+
+    useTerminalStore.getState().reconcileEnvironments([]);
+
+    expect(useTerminalStore.getState().byEnv).toEqual({});
+    expect(useTerminalStore.getState().visible).toBe(false);
+  });
+
   it("selectTerminalSlot returns an empty slot when env is null or unknown", () => {
     expect(selectTerminalSlot(null)(useTerminalStore.getState()).tabs).toEqual(
       [],

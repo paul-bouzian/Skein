@@ -69,6 +69,7 @@ type TerminalState = {
   toggleVisible: () => void;
   setVisible: (visible: boolean) => void;
   setHeight: (value: number) => void;
+  reconcileEnvironments: (environmentIds: string[]) => void;
 
   openTab: (environmentId: string) => Promise<string | null>;
   closeTab: (environmentId: string, id: string) => Promise<void>;
@@ -97,6 +98,33 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     localStorage.setItem(HEIGHT_KEY, String(clamped));
     set({ height: clamped });
   },
+
+  reconcileEnvironments: (environmentIds) =>
+    set((state) => {
+      const validEnvironmentIds = new Set(environmentIds);
+      const nextByEnv: TerminalState["byEnv"] = {};
+
+      for (const [environmentId, slot] of Object.entries(state.byEnv)) {
+        if (!validEnvironmentIds.has(environmentId)) {
+          for (const tab of slot.tabs) {
+            dropPendingTerminalOutput(tab.ptyId);
+          }
+          continue;
+        }
+        nextByEnv[environmentId] = slot;
+      }
+
+      const visible =
+        state.visible && Object.keys(nextByEnv).length > 0;
+      if (!visible) {
+        localStorage.setItem(VISIBLE_KEY, "0");
+      }
+
+      return {
+        byEnv: nextByEnv,
+        visible,
+      };
+    }),
 
   openTab: async (environmentId) => {
     const slot = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;

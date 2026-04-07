@@ -52,7 +52,7 @@ pub fn terminal_spawn(
     let cwd = state.workspace.environment_path(&input.environment_id)?;
     let pty_id = state
         .terminal
-        .spawn(&app, &cwd, input.cols, input.rows)?;
+        .spawn(&app, &input.environment_id, &cwd, input.cols, input.rows)?;
     Ok(SpawnTerminalResult { pty_id, cwd })
 }
 
