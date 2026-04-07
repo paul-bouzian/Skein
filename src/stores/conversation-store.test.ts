@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
+import type { ThreadConversationSnapshot } from "../lib/types";
 import { makeConversationSnapshot, capabilitiesFixture } from "../test/fixtures/conversation";
 import {
   teardownConversationListener,
@@ -210,6 +211,45 @@ describe("conversation store", () => {
     );
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
+  });
+
+  it("adds an optimistic user message immediately and rolls it back if send fails", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const deferred = new Promise<ThreadConversationSnapshot>((_, reject) => {
+      queueMicrotask(() => reject(new Error("send failed")));
+    });
+
+    mockedBridge.sendThreadMessage.mockReturnValue(deferred);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    const sendPromise = useConversationStore
+      .getState()
+      .sendMessage("thread-1", "Rename the worktree");
+
+    const optimisticSnapshot =
+      useConversationStore.getState().snapshotsByThreadId["thread-1"];
+    const optimisticItem =
+      optimisticSnapshot.items[optimisticSnapshot.items.length - 1];
+    expect(optimisticItem).toMatchObject({
+      kind: "message",
+      role: "user",
+      text: "Rename the worktree",
+      isStreaming: false,
+    });
+
+    const sent = await sendPromise;
+
+    expect(sent).toBe(false);
+    expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
+      initialSnapshot,
+    );
+    expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBe(
+      "send failed",
+    );
   });
 
   it("keeps submitPlanDecision successful when the workspace refresh fails afterwards", async () => {

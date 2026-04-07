@@ -18,23 +18,30 @@ type WorkspaceState = {
   bootstrapStatus: BootstrapStatus | null;
   loadingState: LoadingState;
   error: string | null;
+  listenerReady: boolean;
 
   selectedProjectId: string | null;
   selectedEnvironmentId: string | null;
   selectedThreadId: string | null;
 
   initialize: () => Promise<void>;
+  initializeListener: () => Promise<void>;
   refreshSnapshot: () => Promise<boolean>;
   selectProject: (id: string | null) => void;
   selectEnvironment: (id: string | null) => void;
   selectThread: (id: string | null) => void;
 };
 
+let unlistenWorkspaceEvents: null | (() => void) = null;
+let listenerInitialization: Promise<void> | null = null;
+let listenerGeneration = 0;
+
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   snapshot: null,
   bootstrapStatus: null,
   loadingState: "idle",
   error: null,
+  listenerReady: false,
 
   selectedProjectId: null,
   selectedEnvironmentId: null,
@@ -48,9 +55,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         bridge.getBootstrapStatus(),
         bridge.getWorkspaceSnapshot(),
       ]);
-      useTerminalStore
-        .getState()
-        .reconcileEnvironments(collectEnvironmentIds(snapshot));
+      useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
       set((state) => ({
         bootstrapStatus,
         snapshot,
@@ -64,12 +69,42 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  initializeListener: async () => {
+    if (get().listenerReady) return;
+    if (listenerInitialization) {
+      await listenerInitialization;
+      return;
+    }
+
+    const generation = listenerGeneration;
+    const initialization = bridge
+      .listenToWorkspaceEvents(() => {
+        void get().refreshSnapshot().catch(() => undefined);
+      })
+      .then((unlisten) => {
+        if (generation !== listenerGeneration) {
+          unlisten();
+          return;
+        }
+
+        unlistenWorkspaceEvents = unlisten;
+        set({ listenerReady: true });
+      });
+    listenerInitialization = initialization;
+
+    try {
+      await initialization;
+    } finally {
+      if (listenerInitialization === initialization) {
+        listenerInitialization = null;
+      }
+    }
+  },
+
   refreshSnapshot: async () => {
     try {
       const snapshot = await bridge.getWorkspaceSnapshot();
-      useTerminalStore
-        .getState()
-        .reconcileEnvironments(collectEnvironmentIds(snapshot));
+      useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
       set((state) => ({
         snapshot,
         ...reconcileSelection(snapshot, state),
@@ -107,6 +142,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       };
     }),
 }));
+
+export function teardownWorkspaceListener() {
+  listenerGeneration += 1;
+  unlistenWorkspaceEvents?.();
+  unlistenWorkspaceEvents = null;
+  listenerInitialization = null;
+  useWorkspaceStore.setState({ listenerReady: false });
+}
 
 /* ── Derived selectors ── */
 
@@ -282,10 +325,4 @@ function findThread(snapshot: WorkspaceSnapshot, threadId: string | null) {
     }
   }
   return null;
-}
-
-function collectEnvironmentIds(snapshot: WorkspaceSnapshot): string[] {
-  return snapshot.projects.flatMap((project) =>
-    project.environments.map((environment) => environment.id),
-  );
 }

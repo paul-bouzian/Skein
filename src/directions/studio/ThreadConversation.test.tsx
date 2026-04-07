@@ -1663,10 +1663,90 @@ describe("ThreadConversation", () => {
     fireEvent.keyDown(input, { key: "Enter" });
 
     expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(input).toHaveValue("");
+    });
+    expect(
+      screen.queryByText("Naming the branch and worktree"),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("Ship the fix")).toBeInTheDocument();
 
     deferred.resolve(makeConversationSnapshot({ status: "running" }));
     await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("shows a naming loader while the first managed worktree prompt is preparing", async () => {
+    const deferred =
+      createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    const thread = makeThread({
+      codexThreadId: undefined,
+      title: "Thread 1",
+    });
+    const environment = makeEnvironment({
+      kind: "managedWorktree",
+      isDefault: false,
+      name: "hazy-linnet",
+      path: "/tmp/hazy-linnet",
+      gitBranch: "hazy-linnet",
+      threads: [thread],
+    });
+
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "idle",
+        codexThreadId: undefined,
+        items: [],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockReturnValue(deferred.promise);
+
+    render(
+      <ThreadConversation
+        environment={environment}
+        thread={thread}
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    await userEvent.type(input, "Add theme support");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
       expect(input).toHaveValue("");
+    });
+    expect(await screen.findByText("Add theme support")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Naming the branch and worktree"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Preparing a readable label before Codex starts/i),
+    ).toBeInTheDocument();
+
+    deferred.resolve(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        items: [
+          {
+            kind: "message",
+            id: "user-live-1",
+            turnId: "turn-live-1",
+            role: "user",
+            text: "Add theme support",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Naming the branch and worktree"),
+      ).not.toBeInTheDocument();
     });
   });
 

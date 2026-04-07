@@ -6,13 +6,19 @@ import {
   teardownWorktreeScriptListener,
   useWorktreeScriptStore,
 } from "./stores/worktree-script-store";
-import { useWorkspaceStore } from "./stores/workspace-store";
+import {
+  teardownWorkspaceListener,
+  useWorkspaceStore,
+} from "./stores/workspace-store";
 import { LoadingState } from "./shared/LoadingState";
 import { StudioShell } from "./directions/studio/StudioShell";
 import "./App.css";
 
 function App() {
   const initialize = useWorkspaceStore((s) => s.initialize);
+  const initializeWorkspaceListener = useWorkspaceStore(
+    (s) => s.initializeListener,
+  );
   const loadingState = useWorkspaceStore((s) => s.loadingState);
   const error = useWorkspaceStore((s) => s.error);
   const initializeConversationListener = useConversationStore(
@@ -29,6 +35,13 @@ function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    void initializeWorkspaceListener();
+    return () => {
+      teardownWorkspaceListener();
+    };
+  }, [initializeWorkspaceListener]);
 
   useEffect(() => {
     void initializeConversationListener();

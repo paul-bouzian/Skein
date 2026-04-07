@@ -85,12 +85,47 @@ pub fn remove_worktree(repo_root: &Path, destination: &Path) -> AppResult<()> {
     )
 }
 
+pub fn move_worktree(repo_root: &Path, current_path: &Path, next_path: &Path) -> AppResult<()> {
+    if current_path == next_path {
+        return Ok(());
+    }
+
+    if next_path.exists() {
+        return Err(AppError::Validation(format!(
+            "The target worktree path '{}' already exists.",
+            next_path.display()
+        )));
+    }
+
+    if let Some(parent) = next_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    run_git(
+        repo_root,
+        [
+            "worktree",
+            "move",
+            &current_path.to_string_lossy(),
+            &next_path.to_string_lossy(),
+        ],
+    )
+}
+
 pub fn delete_branch(repo_root: &Path, branch_name: &str) -> AppResult<()> {
     if !branch_exists(repo_root, branch_name)? {
         return Ok(());
     }
 
     run_git(repo_root, ["branch", "-D", branch_name])
+}
+
+pub fn rename_branch(repo_root: &Path, current_branch: &str, next_branch: &str) -> AppResult<()> {
+    if current_branch.trim() == next_branch.trim() {
+        return Ok(());
+    }
+
+    run_git(repo_root, ["branch", "-m", current_branch, next_branch])
 }
 
 pub fn sanitize_path_component(value: &str, fallback: &str) -> String {

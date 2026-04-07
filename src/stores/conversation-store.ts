@@ -4,6 +4,7 @@ import * as bridge from "../lib/bridge";
 import type {
   ApprovalResponseInput,
   ConversationImageAttachment,
+  ConversationMessageItem,
   ComposerMentionBindingInput,
   ConversationComposerSettings,
   EnvironmentCapabilitiesSnapshot,
@@ -195,6 +196,19 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const composer =
       get().composerByThreadId[threadId] ??
       get().snapshotsByThreadId[threadId]?.composer;
+    const previousSnapshot = get().snapshotsByThreadId[threadId];
+    const optimisticMessage = previousSnapshot
+      ? buildOptimisticUserMessageSnapshot(previousSnapshot, text, images)
+      : null;
+
+    if (optimisticMessage) {
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: optimisticMessage.snapshot,
+        },
+      }));
+    }
     try {
       const snapshot = await bridge.sendThreadMessage({
         threadId,
@@ -219,6 +233,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       const message =
         cause instanceof Error ? cause.message : "Failed to send message";
       set((state) => ({
+        snapshotsByThreadId:
+          optimisticMessage &&
+          previousSnapshot &&
+          snapshotContainsItem(
+            state.snapshotsByThreadId[threadId],
+            optimisticMessage.itemId,
+          )
+            ? {
+                ...state.snapshotsByThreadId,
+                [threadId]: previousSnapshot,
+              }
+            : state.snapshotsByThreadId,
         errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
       }));
       return false;
@@ -352,4 +378,42 @@ export function teardownConversationListener() {
   unlistenConversationEvents = null;
   listenerInitialization = null;
   useConversationStore.setState({ listenerReady: false });
+}
+
+function buildOptimisticUserMessageSnapshot(
+  snapshot: ThreadConversationSnapshot,
+  text: string,
+  images: ConversationImageAttachment[],
+): {
+  itemId: string;
+  snapshot: ThreadConversationSnapshot;
+} | null {
+  if (text.length === 0 && images.length === 0) {
+    return null;
+  }
+
+  const messageItem: ConversationMessageItem = {
+    kind: "message",
+    id: `optimistic-user-${crypto.randomUUID()}`,
+    role: "user",
+    text,
+    images: images.length > 0 ? images : null,
+    isStreaming: false,
+  };
+
+  return {
+    itemId: messageItem.id,
+    snapshot: {
+      ...snapshot,
+      items: [...snapshot.items, messageItem],
+      error: null,
+    },
+  };
+}
+
+function snapshotContainsItem(
+  snapshot: ThreadConversationSnapshot | undefined,
+  itemId: string,
+): boolean {
+  return snapshot?.items.some((item) => item.id === itemId) ?? false;
 }

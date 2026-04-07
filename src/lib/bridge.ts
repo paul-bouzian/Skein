@@ -36,6 +36,7 @@ import type {
   ThreadConversationSnapshot,
   ThreadRecord,
   WorktreeScriptFailureEventPayload,
+  WorkspaceEventPayload,
   VoiceTranscriptionResult,
   WorkspaceSnapshot,
 } from "./types";
@@ -239,6 +240,15 @@ export function listenToWorktreeScriptFailures(
 ): Promise<UnlistenFn> {
   return listen<WorktreeScriptFailureEventPayload>(
     "threadex://worktree-script-failure",
+    (event) => callback(event.payload),
+  );
+}
+
+export function listenToWorkspaceEvents(
+  callback: (payload: WorkspaceEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<WorkspaceEventPayload>(
+    "threadex://workspace-event",
     (event) => callback(event.payload),
   );
 }

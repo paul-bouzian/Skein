@@ -151,6 +151,22 @@ pub struct WorktreeScriptFailureEvent {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceEventKind {
+    EnvironmentRenamed,
+    ThreadAutoRenamed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceEvent {
+    pub kind: WorkspaceEventKind,
+    pub project_id: Option<String>,
+    pub environment_id: Option<String>,
+    pub thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexPlanType {
     Free,

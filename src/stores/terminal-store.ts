@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import * as bridge from "../lib/bridge";
+import type { WorkspaceSnapshot } from "../lib/types";
 import {
   dropPendingTerminalOutput,
   ensureTerminalOutputBusReady,
@@ -73,6 +74,7 @@ type TerminalState = {
   setVisible: (visible: boolean) => void;
   setHeight: (value: number) => void;
   reconcileEnvironments: (environmentIds: string[]) => void;
+  syncWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => void;
 
   openTab: (environmentId: string) => Promise<string | null>;
   closeTab: (environmentId: string, id: string) => Promise<void>;
@@ -105,43 +107,36 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   reconcileEnvironments: (environmentIds) => {
     const ptyIdsToKill: string[] = [];
-    set((state) => {
-      const validEnvironmentIds = new Set(environmentIds);
-      const nextByEnv: TerminalState["byEnv"] = {};
+    set((state) =>
+      reconcileTerminalSnapshot(state, environmentIds, ptyIdsToKill),
+    );
+    disposeTerminals(ptyIdsToKill);
+  },
 
-      for (const [environmentId, slot] of Object.entries(state.byEnv)) {
-        if (!validEnvironmentIds.has(environmentId)) {
-          for (const tab of slot.tabs) {
-            ptyIdsToKill.push(tab.ptyId);
-          }
-          continue;
+  syncWorkspaceSnapshot: (snapshot) => {
+    const metadataByEnv = collectEnvironmentMetadata(snapshot);
+    const environmentIds = [...metadataByEnv.keys()];
+    const ptyIdsToKill: string[] = [];
+
+    set((state) =>
+      reconcileTerminalSnapshot(state, environmentIds, ptyIdsToKill, (slot, environmentId) => {
+        const metadata = metadataByEnv.get(environmentId);
+        if (!metadata) {
+          return slot;
         }
-        nextByEnv[environmentId] = slot;
-      }
 
-      const visible =
-        validEnvironmentIds.size === 0 ? false : state.visible;
-      if (!visible && validEnvironmentIds.size === 0) {
-        localStorage.setItem(VISIBLE_KEY, "0");
-      }
+        return {
+          ...slot,
+          tabs: slot.tabs.map((tab) => ({
+            ...tab,
+            cwd: metadata.path,
+            title: basenameOf(metadata.path),
+          })),
+        };
+      }),
+    );
 
-      return {
-        byEnv: nextByEnv,
-        knownEnvironmentIds: environmentIds,
-        visible,
-      };
-    });
-
-    for (const ptyId of ptyIdsToKill) {
-      void bridge
-        .killTerminal({ ptyId })
-        .catch(() => {
-          /* ignore: terminal may already be dead */
-        })
-        .finally(() => {
-          dropPendingTerminalOutput(ptyId);
-        });
-    }
+    disposeTerminals(ptyIdsToKill);
   },
 
   openTab: async (environmentId) => {
@@ -266,4 +261,65 @@ export function selectTerminalSlot(environmentId: string | null) {
     if (!environmentId) return EMPTY_TERMINAL_SLOT;
     return state.byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
   };
+}
+
+function collectEnvironmentMetadata(snapshot: WorkspaceSnapshot) {
+  return new Map(
+    snapshot.projects.flatMap((project) =>
+      project.environments.map((environment) => [
+        environment.id,
+        { path: environment.path },
+      ] as const),
+    ),
+  );
+}
+
+function reconcileTerminalSnapshot(
+  state: Pick<TerminalState, "byEnv" | "visible">,
+  environmentIds: string[],
+  ptyIdsToKill: string[],
+  transformSlot?: (
+    slot: EnvironmentTerminalSlot,
+    environmentId: string,
+  ) => EnvironmentTerminalSlot,
+) {
+  const validEnvironmentIds = new Set(environmentIds);
+  const nextByEnv: TerminalState["byEnv"] = {};
+
+  for (const [environmentId, slot] of Object.entries(state.byEnv)) {
+    if (!validEnvironmentIds.has(environmentId)) {
+      for (const tab of slot.tabs) {
+        ptyIdsToKill.push(tab.ptyId);
+      }
+      continue;
+    }
+
+    nextByEnv[environmentId] = transformSlot
+      ? transformSlot(slot, environmentId)
+      : slot;
+  }
+
+  const visible = validEnvironmentIds.size === 0 ? false : state.visible;
+  if (!visible && validEnvironmentIds.size === 0) {
+    localStorage.setItem(VISIBLE_KEY, "0");
+  }
+
+  return {
+    byEnv: nextByEnv,
+    knownEnvironmentIds: environmentIds,
+    visible,
+  };
+}
+
+function disposeTerminals(ptyIds: string[]) {
+  for (const ptyId of ptyIds) {
+    void bridge
+      .killTerminal({ ptyId })
+      .catch(() => {
+        /* ignore: terminal may already be dead */
+      })
+      .finally(() => {
+        dropPendingTerminalOutput(ptyId);
+      });
+  }
 }

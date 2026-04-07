@@ -4,6 +4,7 @@ export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
 export type WorktreeScriptTrigger = "setup" | "teardown";
+export type WorkspaceEventKind = "environmentRenamed" | "threadAutoRenamed";
 export type GitReviewScope = "uncommitted" | "branch";
 export type GitChangeSection = "staged" | "unstaged" | "untracked" | "branch";
 export type GitChangeKind =
@@ -211,6 +212,13 @@ export type WorktreeScriptFailureEventPayload = {
   message: string;
   logPath: string;
   exitCode?: number | null;
+};
+
+export type WorkspaceEventPayload = {
+  kind: WorkspaceEventKind;
+  projectId?: string | null;
+  environmentId?: string | null;
+  threadId?: string | null;
 };
 
 /* ── Git review ── */

@@ -1,5 +1,6 @@
 pub mod composer;
 pub mod git;
+pub mod prompt_naming;
 pub mod terminal;
 pub mod thread_titles;
 pub mod voice;

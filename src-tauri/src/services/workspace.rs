@@ -18,7 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
 use crate::services::git::{self, GitEnvironmentContext};
 use crate::services::worktree_scripts::{WorktreeScriptRequest, WorktreeScriptService};
-use crate::services::{thread_titles, worktree_names};
+use crate::services::{prompt_naming, thread_titles, worktree_names};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +77,23 @@ pub struct ThreadRuntimeContext {
     pub codex_thread_id: Option<String>,
     pub composer: ConversationComposerSettings,
     pub codex_binary_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoRenameFirstPromptRequest {
+    pub thread_id: String,
+    pub message: String,
+    pub model: String,
+    pub codex_binary_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoRenameFirstPromptResult {
+    pub project_id: String,
+    pub environment_id: String,
+    pub thread_id: String,
+    pub environment_renamed: bool,
+    pub thread_renamed: bool,
 }
 
 impl WorkspaceService {
@@ -572,6 +589,163 @@ impl WorkspaceService {
         }
 
         self.thread_by_id(thread_id).map(Some)
+    }
+
+    pub fn maybe_auto_rename_first_prompt_environment(
+        &self,
+        input: AutoRenameFirstPromptRequest,
+    ) -> AppResult<Option<AutoRenameFirstPromptResult>> {
+        let metadata = self.first_prompt_naming_metadata(&input.thread_id)?;
+        if !matches!(metadata.kind, EnvironmentKind::ManagedWorktree) {
+            return Ok(None);
+        }
+        if !prompt_naming::is_auto_generated_worktree_name(&metadata.environment_name) {
+            return Ok(None);
+        }
+        if metadata.thread_id != metadata.first_thread_id || metadata.started_thread_count > 0 {
+            return Ok(None);
+        }
+
+        let suggestion = match prompt_naming::generate_first_prompt_naming(
+            prompt_naming::GenerateFirstPromptNamingInput {
+                binary_path: input.codex_binary_path.as_deref(),
+                cwd: &metadata.environment_path,
+                model: &input.model,
+                message: &input.message,
+            },
+        ) {
+            Ok(suggestion) => suggestion,
+            Err(error) => {
+                warn!(
+                    thread_id = metadata.thread_id,
+                    environment_id = metadata.environment_id,
+                    "failed to auto-name first prompt worktree: {error}"
+                );
+                return Ok(None);
+            }
+        };
+
+        let environment_parent = metadata.environment_path.parent().ok_or_else(|| {
+            AppError::Runtime("Managed worktree path is missing its parent directory.".to_string())
+        })?;
+        let branch_refs = git::list_branch_refs(&metadata.project_root)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let next_branch_name =
+            prompt_naming::ensure_unique_branch_slug(&suggestion.branch_slug, |candidate| {
+                let branch_taken =
+                    candidate != metadata.branch_name && branch_ref_exists(&branch_refs, candidate);
+                let path_taken =
+                    candidate != metadata.branch_name && environment_parent.join(candidate).exists();
+                branch_taken || path_taken
+            });
+        let next_environment_path = environment_parent.join(&next_branch_name);
+        let next_environment_name = prompt_naming::clamp_worktree_label(&suggestion.worktree_label)
+            .ok_or_else(|| {
+                AppError::Runtime(
+                    "Codex returned an empty worktree label for first prompt naming.".to_string(),
+                )
+            })?;
+        let next_thread_title =
+            thread_titles::is_auto_generated_thread_title(&metadata.thread_title)
+                .then_some(suggestion.thread_title.clone())
+                .filter(|value| value != &metadata.thread_title);
+
+        let environment_renamed = next_environment_name != metadata.environment_name
+            || next_branch_name != metadata.branch_name
+            || next_environment_path != metadata.environment_path;
+        let thread_renamed = next_thread_title.is_some();
+        if !environment_renamed && !thread_renamed {
+            return Ok(None);
+        }
+
+        let mut branch_renamed = false;
+        let mut worktree_moved = false;
+
+        if next_branch_name != metadata.branch_name {
+            git::rename_branch(&metadata.project_root, &metadata.branch_name, &next_branch_name)?;
+            branch_renamed = true;
+        }
+
+        if next_environment_path != metadata.environment_path {
+            if let Err(error) = git::move_worktree(
+                &metadata.project_root,
+                &metadata.environment_path,
+                &next_environment_path,
+            ) {
+                if branch_renamed {
+                    rollback_branch_rename(
+                        &metadata.project_root,
+                        &next_branch_name,
+                        &metadata.branch_name,
+                    );
+                }
+                return Err(error);
+            }
+            worktree_moved = true;
+        }
+
+        let database_result = (|| -> AppResult<()> {
+            let mut connection = self.database.open()?;
+            let transaction = connection.transaction()?;
+            let now = Utc::now();
+
+            transaction.execute(
+                "
+                UPDATE environments
+                SET name = ?1, path = ?2, git_branch = ?3, updated_at = ?4
+                WHERE id = ?5
+                ",
+                params![
+                    next_environment_name,
+                    next_environment_path.to_string_lossy().to_string(),
+                    next_branch_name,
+                    now,
+                    metadata.environment_id
+                ],
+            )?;
+
+            if let Some(thread_title) = next_thread_title.as_deref() {
+                transaction.execute(
+                    "UPDATE threads SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                    params![thread_title, now, metadata.thread_id],
+                )?;
+            }
+
+            transaction.execute(
+                "UPDATE projects SET updated_at = ?1 WHERE id = ?2 AND archived_at IS NULL",
+                params![now, metadata.project_id],
+            )?;
+
+            transaction.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = database_result {
+            if worktree_moved {
+                rollback_worktree_move(
+                    &metadata.project_root,
+                    &next_environment_path,
+                    &metadata.environment_path,
+                );
+            }
+            if branch_renamed {
+                rollback_branch_rename(
+                    &metadata.project_root,
+                    &next_branch_name,
+                    &metadata.branch_name,
+                );
+            }
+            return Err(error);
+        }
+
+        Ok(Some(AutoRenameFirstPromptResult {
+            project_id: metadata.project_id,
+            environment_id: metadata.environment_id,
+            thread_id: metadata.thread_id,
+            environment_renamed,
+            thread_renamed,
+        }))
     }
 
     pub fn archive_thread(&self, input: ArchiveThreadRequest) -> AppResult<ThreadRecord> {
@@ -1147,6 +1321,74 @@ impl WorkspaceService {
         Ok(metadata)
     }
 
+    fn first_prompt_naming_metadata(&self, thread_id: &str) -> AppResult<FirstPromptNamingMetadata> {
+        let connection = self.database.open()?;
+        let mut metadata = connection
+            .query_row(
+                "
+                SELECT
+                  threads.id,
+                  threads.title,
+                  environments.id,
+                  environments.project_id,
+                  environments.name,
+                  environments.kind,
+                  environments.path,
+                  environments.git_branch,
+                  projects.root_path
+                FROM threads
+                JOIN environments ON environments.id = threads.environment_id
+                JOIN projects ON projects.id = environments.project_id
+                WHERE threads.id = ?1 AND projects.archived_at IS NULL
+                ",
+                params![thread_id],
+                |row| {
+                    Ok(FirstPromptNamingMetadata {
+                        thread_id: row.get(0)?,
+                        thread_title: row.get(1)?,
+                        environment_id: row.get(2)?,
+                        project_id: row.get(3)?,
+                        environment_name: row.get(4)?,
+                        kind: environment_kind_from_str(&row.get::<_, String>(5)?)?,
+                        environment_path: PathBuf::from(row.get::<_, String>(6)?),
+                        branch_name: row.get::<_, Option<String>>(7)?.ok_or_else(|| {
+                            rusqlite::Error::InvalidParameterName(
+                                "Environment branch is missing.".to_string(),
+                            )
+                        })?,
+                        project_root: PathBuf::from(row.get::<_, String>(8)?),
+                        first_thread_id: String::new(),
+                        started_thread_count: 0,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))?;
+
+        metadata.first_thread_id = connection.query_row(
+            "
+            SELECT id
+            FROM threads
+            WHERE environment_id = ?1
+            ORDER BY created_at ASC
+            LIMIT 1
+            ",
+            params![metadata.environment_id],
+            |row| row.get(0),
+        )?;
+        metadata.started_thread_count = connection.query_row(
+            "
+            SELECT COUNT(*)
+            FROM threads
+            WHERE environment_id = ?1 AND codex_thread_id IS NOT NULL
+            ",
+            params![metadata.environment_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(metadata)
+    }
+
     fn ensure_local_environment(
         &self,
         connection: &rusqlite::Transaction<'_>,
@@ -1356,6 +1598,21 @@ struct WorktreeEnvironmentMetadata {
     project_settings: ProjectSettings,
 }
 
+#[derive(Debug)]
+struct FirstPromptNamingMetadata {
+    thread_id: String,
+    thread_title: String,
+    environment_id: String,
+    project_id: String,
+    environment_name: String,
+    kind: EnvironmentKind,
+    environment_path: PathBuf,
+    branch_name: String,
+    project_root: PathBuf,
+    first_thread_id: String,
+    started_thread_count: i64,
+}
+
 fn validate_managed_worktree_directory_name(value: &str) -> AppResult<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -1405,6 +1662,26 @@ fn branch_ref_exists(branch_refs: &HashSet<String>, branch_name: &str) -> bool {
                 .split_once('/')
                 .is_some_and(|(_, remote_branch)| remote_branch == branch_name)
     })
+}
+
+fn rollback_branch_rename(repo_root: &Path, current_branch: &str, previous_branch: &str) {
+    if let Err(error) = git::rename_branch(repo_root, current_branch, previous_branch) {
+        warn!(
+            current_branch = current_branch,
+            previous_branch = previous_branch,
+            "failed to roll back renamed branch: {error}"
+        );
+    }
+}
+
+fn rollback_worktree_move(repo_root: &Path, current_path: &Path, previous_path: &Path) {
+    if let Err(error) = git::move_worktree(repo_root, current_path, previous_path) {
+        warn!(
+            current_path = %current_path.display(),
+            previous_path = %previous_path.display(),
+            "failed to roll back moved worktree: {error}"
+        );
+    }
 }
 
 fn environment_kind_value(kind: EnvironmentKind) -> &'static str {
@@ -1461,7 +1738,7 @@ mod tests {
     use rusqlite::{params, Connection};
     use uuid::Uuid;
 
-    use super::{AddProjectRequest, WorkspaceService};
+    use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
 
@@ -1691,6 +1968,67 @@ mod tests {
         assert!(repo.path.exists());
     }
 
+    #[test]
+    fn first_prompt_auto_rename_updates_the_managed_worktree_and_thread() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("renaming-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let result = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+        let fake_codex = harness.create_fake_codex(
+            r#"{"threadTitle":"Ajouter des themes","worktreeLabel":"Ajouter des themes","branchSlug":"add-themes"}"#,
+        );
+
+        let rename = harness
+            .service
+            .maybe_auto_rename_first_prompt_environment(AutoRenameFirstPromptRequest {
+                thread_id: result.thread.id.clone(),
+                message: "Ajouter un systeme de themes".to_string(),
+                model: "gpt-5.4".to_string(),
+                codex_binary_path: Some(fake_codex.to_string_lossy().to_string()),
+            })
+            .expect("rename should succeed")
+            .expect("rename should apply");
+
+        assert!(rename.environment_renamed);
+        assert!(rename.thread_renamed);
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        let environment = snapshot
+            .projects
+            .into_iter()
+            .flat_map(|project| project.environments.into_iter())
+            .find(|environment| environment.id == result.environment.id)
+            .expect("environment should exist");
+        let thread = environment
+            .threads
+            .into_iter()
+            .find(|thread| thread.id == result.thread.id)
+            .expect("thread should exist");
+
+        assert_eq!(environment.name, "Ajouter des themes");
+        assert_eq!(environment.git_branch.as_deref(), Some("add-themes"));
+        assert!(environment.path.ends_with("/add-themes"));
+        assert_eq!(thread.title, "Ajouter des themes");
+        assert!(Path::new(&environment.path).exists());
+        assert!(
+            git::current_branch(Path::new(&environment.path))
+                .expect("branch should resolve")
+                .as_deref()
+                == Some("add-themes")
+        );
+    }
+
     struct WorkspaceHarness {
         service: WorkspaceService,
         managed_root: PathBuf,
@@ -1741,6 +2079,28 @@ mod tests {
                     |row| row.get::<_, Option<String>>(0),
                 )
                 .expect("project query should succeed")
+        }
+
+        fn create_fake_codex(&self, json: &str) -> PathBuf {
+            let script_path = self.temp_root.join(format!("fake-codex-{}.sh", Uuid::now_v7()));
+            fs::write(
+                &script_path,
+                format!(
+                    "#!/bin/sh\nset -eu\noutput=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output-last-message\" ]; then\n    output=\"$2\"\n    shift 2\n    continue\n  fi\n  shift\n done\ncat >/dev/null\ncat <<'EOF' > \"$output\"\n{json}\nEOF\n"
+                ),
+            )
+            .expect("script should be written");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                let mut permissions = fs::metadata(&script_path)
+                    .expect("script metadata")
+                    .permissions();
+                permissions.set_mode(0o755);
+                fs::set_permissions(&script_path, permissions).expect("permissions");
+            }
+            script_path
         }
     }
 

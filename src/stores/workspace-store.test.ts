@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
+import type { WorkspaceEventPayload } from "../lib/types";
 import { makeEnvironment, makeProject, makeThread, makeWorkspaceSnapshot } from "../test/fixtures/conversation";
 import { useTerminalStore } from "./terminal-store";
-import { useWorkspaceStore } from "./workspace-store";
+import {
+  teardownWorkspaceListener,
+  useWorkspaceStore,
+} from "./workspace-store";
 
 vi.mock("../lib/bridge", () => ({
   getBootstrapStatus: vi.fn(),
   getWorkspaceSnapshot: vi.fn(),
+  listenToWorkspaceEvents: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -22,6 +27,7 @@ const mockedBridge = vi.mocked(bridge);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  teardownWorkspaceListener();
   useTerminalStore.setState({
     visible: false,
     height: 280,
@@ -34,6 +40,7 @@ beforeEach(() => {
     bootstrapStatus: null,
     loadingState: "ready",
     error: null,
+    listenerReady: false,
     selectedProjectId: null,
     selectedEnvironmentId: null,
     selectedThreadId: null,
@@ -223,5 +230,71 @@ describe("workspace store", () => {
     );
 
     expect(useWorkspaceStore.getState().error).toBe("snapshot unavailable");
+  });
+
+  it("refreshSnapshot updates terminal cwd metadata when an environment path changes", async () => {
+    useTerminalStore.setState({
+      visible: true,
+      height: 280,
+      knownEnvironmentIds: ["env-worktree"],
+      byEnv: {
+        "env-worktree": {
+          tabs: [
+            {
+              id: "terminal-1",
+              ptyId: "pty-worktree",
+              cwd: "/tmp/old-worktree",
+              title: "old-worktree",
+              exited: false,
+            },
+          ],
+          activeTabId: "terminal-1",
+        },
+      },
+    });
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+      makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "Add themes",
+                path: "/tmp/add-themes",
+                gitBranch: "add-themes",
+                threads: [makeThread({ environmentId: "env-worktree" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    await useWorkspaceStore.getState().refreshSnapshot();
+
+    const tab = useTerminalStore.getState().byEnv["env-worktree"]?.tabs[0];
+    expect(tab?.cwd).toBe("/tmp/add-themes");
+    expect(tab?.title).toBe("add-themes");
+  });
+
+  it("refreshes the workspace when a workspace event arrives", async () => {
+    let handler: ((payload: WorkspaceEventPayload) => void) | undefined;
+    mockedBridge.listenToWorkspaceEvents.mockImplementation(async (callback) => {
+      handler = callback;
+      return () => undefined;
+    });
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(makeWorkspaceSnapshot());
+
+    await useWorkspaceStore.getState().initializeListener();
+    if (typeof handler !== "function") {
+      throw new Error("Expected workspace listener handler");
+    }
+    handler({ kind: "environmentRenamed" });
+    await Promise.resolve();
+
+    expect(mockedBridge.getWorkspaceSnapshot).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().listenerReady).toBe(true);
   });
 });
