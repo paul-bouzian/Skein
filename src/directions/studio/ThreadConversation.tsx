@@ -1,14 +1,12 @@
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import type {
   ComposerMentionBindingInput,
-  ConversationItem,
   ConversationImageAttachment,
   EnvironmentRecord,
   ThreadRecord,
 } from "../../lib/types";
 import { EmptyState } from "../../shared/EmptyState";
-import { ChevronRightIcon } from "../../shared/Icons";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
@@ -17,16 +15,21 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
-import { ConversationLinkedText } from "./ConversationLinkedText";
-import { ConversationMessageImages } from "./ConversationMessageImages";
-import { ConversationMarkdown } from "./ConversationMarkdown";
+import { ConversationBanner, ConversationItemRow } from "./ConversationItemRow";
 import { ConversationMeta } from "./ConversationMeta";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ConversationTaskCard } from "./ConversationTaskCard";
+import { ConversationWorkActivityGroup } from "./ConversationWorkActivityGroup";
 import { SubagentStrip } from "./SubagentStrip";
 import { InlineComposer } from "./composer/InlineComposer";
 import type { ComposerDraftMentionBinding } from "./composer/composer-mention-bindings";
+import {
+  buildConversationTimeline,
+  hasRenderableTaskPlan,
+  shouldRenderProposedPlan,
+} from "./conversation-work-activity";
 import { modelSupportsImageInput } from "./conversation-images";
+import { selectSettings, useWorkspaceStore } from "../../stores/workspace-store";
 import "./ThreadConversation.css";
 
 type Props = {
@@ -42,6 +45,7 @@ export function ThreadConversation({ environment, thread }: Props) {
   );
   const loading = useConversationStore((state) => state.loadingByThreadId[thread.id] ?? false);
   const storeError = useConversationStore(selectConversationError(thread.id));
+  const settings = useWorkspaceStore(selectSettings);
   const openThread = useConversationStore((state) => state.openThread);
   const refreshThread = useConversationStore((state) => state.refreshThread);
   const updateComposer = useConversationStore((state) => state.updateComposer);
@@ -112,6 +116,21 @@ export function ThreadConversation({ environment, thread }: Props) {
     return () => window.clearInterval(interval);
   }, [refreshThread, snapshot?.activeTurnId, snapshot?.codexThreadId, thread.id]);
 
+  const compactWorkActivity = settings?.collapseWorkActivity ?? false;
+  const activePlan = snapshot?.proposedPlan ?? null;
+  const activeTaskPlan = snapshot?.taskPlan ?? null;
+  const shouldRenderPlanCard = shouldRenderProposedPlan(activePlan);
+  const hasTaskPlanContent = hasRenderableTaskPlan(activeTaskPlan);
+  const timelineEntries = useMemo(() => {
+    if (!snapshot) {
+      return [];
+    }
+
+    return compactWorkActivity
+      ? buildConversationTimeline(snapshot)
+      : snapshot.items.map((item) => ({ kind: "item" as const, item }));
+  }, [compactWorkActivity, snapshot]);
+
   if (!snapshot && loading) {
     return <ConversationLoading />;
   }
@@ -134,18 +153,7 @@ export function ThreadConversation({ environment, thread }: Props) {
   const effortOptions = selectedModel?.supportedReasoningEfforts ?? [
     resolvedComposer.reasoningEffort,
   ];
-  const activePlan = snapshot.proposedPlan;
-  const activeTaskPlan = snapshot.taskPlan;
   const interaction = snapshot.pendingInteractions[0] ?? null;
-  const shouldRenderPlanCard = Boolean(
-    activePlan && (activePlan.isAwaitingDecision || activePlan.status === "streaming"),
-  );
-  const hasRenderableTaskPlan = Boolean(
-    activeTaskPlan &&
-      (activeTaskPlan.steps.length > 0 ||
-        activeTaskPlan.markdown.trim().length > 0 ||
-        activeTaskPlan.explanation.trim().length > 0),
-  );
   const composerLocked =
     Boolean(interaction) || Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan);
   const isRunning = snapshot.status === "running";
@@ -233,12 +241,16 @@ export function ThreadConversation({ environment, thread }: Props) {
         thread={thread}
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
-        {snapshot.items.length === 0 && !shouldRenderPlanCard && !hasRenderableTaskPlan ? (
+        {timelineEntries.length === 0 && !shouldRenderPlanCard && !hasTaskPlanContent ? (
           <ConversationEmpty />
         ) : null}
-        {snapshot.items.map((item) => (
-          <ConversationItemRow key={item.id} item={item} />
-        ))}
+        {timelineEntries.map((entry) =>
+          entry.kind === "item" ? (
+            <ConversationItemRow key={entry.item.id} item={entry.item} />
+          ) : (
+            <ConversationWorkActivityGroup key={entry.group.id} group={entry.group} />
+          ),
+        )}
         {shouldRenderPlanCard && activePlan ? (
           <ConversationPlanCard
             plan={activePlan}
@@ -247,7 +259,7 @@ export function ThreadConversation({ environment, thread }: Props) {
             onRefine={() => setIsRefiningPlan(true)}
           />
         ) : null}
-        {hasRenderableTaskPlan && activeTaskPlan ? (
+        {!compactWorkActivity && hasTaskPlanContent && activeTaskPlan ? (
           <ConversationTaskCard taskPlan={activeTaskPlan} />
         ) : null}
         {snapshot.error ? (
@@ -271,7 +283,7 @@ export function ThreadConversation({ environment, thread }: Props) {
           respondToUserInput(thread.id, interaction?.id ?? "", answers)
         }
       />
-      <SubagentStrip subagents={snapshot.subagents} />
+      {!compactWorkActivity ? <SubagentStrip subagents={snapshot.subagents} /> : null}
       <InlineComposer
         environmentId={environment.id}
         threadId={thread.id}
@@ -310,148 +322,6 @@ export function ThreadConversation({ environment, thread }: Props) {
   );
 }
 
-function ConversationItemRow({ item }: { item: ConversationItem }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (item.kind === "message") {
-    const shouldRenderMarkdown = item.role === "assistant";
-    const hasText = item.text.trim().length > 0;
-    const hasImages = Boolean(item.images && item.images.length > 0);
-    const bodyClassName = [
-      "tx-item__body",
-      "tx-item__body--message",
-      item.role === "user" ? "tx-item__body--message-plain" : null,
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    return (
-      <div className={`tx-item tx-item--message tx-item--${item.role}`}>
-        <div className="tx-item__header">{item.role === "user" ? "You" : "Codex"}</div>
-        {hasImages ? <ConversationMessageImages images={item.images} /> : null}
-        {shouldRenderMarkdown && hasText ? (
-          <ConversationMarkdown
-            markdown={item.text}
-            className={bodyClassName}
-          />
-        ) : null}
-        {!shouldRenderMarkdown && hasText ? (
-          <ConversationLinkedText
-            as="div"
-            className={bodyClassName}
-            text={item.text}
-          />
-        ) : null}
-      </div>
-    );
-  }
-
-  if (item.kind === "reasoning") {
-    if (!item.isStreaming && item.summary.length === 0 && item.content.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="tx-item tx-item--reasoning">
-        <button
-          type="button"
-          className="tx-item__toggle"
-          aria-label={expanded ? "Hide thinking details" : "Show thinking details"}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <div className="tx-item__header">
-            <span className="tx-item__header-main">
-              <ChevronRightIcon
-                size={12}
-                className={`tx-item__chevron ${expanded ? "tx-item__chevron--expanded" : ""}`}
-              />
-              Thinking
-            </span>
-            <span className="tx-pill tx-pill--neutral">
-              {expanded ? "Hide" : item.isStreaming ? "Thinking" : "Hidden"}
-            </span>
-          </div>
-        </button>
-        {expanded ? (
-          <div className="tx-item__body">
-            {item.summary ? (
-              <ConversationMarkdown
-                markdown={item.summary}
-                className="tx-item__body tx-item__body--reasoning"
-              />
-            ) : null}
-            {item.content ? (
-              <ConversationMarkdown
-                markdown={item.content}
-                className="tx-item__body tx-item__body--reasoning"
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (item.kind === "tool") {
-    return (
-      <div className="tx-item tx-item--tool">
-        <button
-          type="button"
-          className="tx-item__toggle"
-          aria-label={expanded ? `Hide ${item.title} details` : `Show ${item.title} details`}
-          onClick={() => setExpanded((value) => !value)}
-        >
-          <div className="tx-item__header">
-            <span className="tx-item__header-main">
-              <ChevronRightIcon
-                size={12}
-                className={`tx-item__chevron ${expanded ? "tx-item__chevron--expanded" : ""}`}
-              />
-              {item.title}
-            </span>
-            <span className={`tx-pill tx-pill--${item.status}`}>
-              {labelForItemStatus(item.status)}
-            </span>
-          </div>
-        </button>
-        {item.summary ? (
-          <ConversationLinkedText
-            as="p"
-            className="tx-item__summary"
-            text={item.summary}
-          />
-        ) : null}
-        {expanded && item.output ? (
-          <ConversationLinkedText
-            as="pre"
-            className="tx-item__body tx-item__body--tool"
-            text={item.output}
-          />
-        ) : null}
-      </div>
-    );
-  }
-
-  return <ConversationBanner tone={item.tone} title={item.title} body={item.body} />;
-}
-
-function ConversationBanner({
-  tone,
-  title,
-  body,
-}: {
-  tone: "info" | "warning" | "error";
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className={`tx-banner tx-banner--${tone}`}>
-      <div className="tx-banner__title">{title}</div>
-      <ConversationLinkedText as="p" className="tx-banner__body" text={body} />
-    </div>
-  );
-}
-
 function ConversationLoading() {
   return (
     <div className="tx-conversation tx-conversation--centered">
@@ -470,9 +340,4 @@ function ConversationEmpty() {
       <p>Codex is connected. Use Build or Plan mode to start the next turn.</p>
     </div>
   );
-}
-
-function labelForItemStatus(status: string) {
-  if (status === "inProgress") return "Running";
-  return status.charAt(0).toUpperCase() + status.slice(1);
 }

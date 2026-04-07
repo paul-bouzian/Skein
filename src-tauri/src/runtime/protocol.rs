@@ -180,8 +180,7 @@ pub struct ItemNotification {
 #[serde(rename_all = "camelCase")]
 pub struct ItemDeltaNotification {
     pub thread_id: String,
-    #[serde(rename = "turnId")]
-    pub _turn_id: String,
+    pub turn_id: String,
     pub item_id: String,
     pub delta: String,
 }
@@ -190,8 +189,7 @@ pub struct ItemDeltaNotification {
 #[serde(rename_all = "camelCase")]
 pub struct ReasoningBoundaryNotification {
     pub thread_id: String,
-    #[serde(rename = "turnId")]
-    pub _turn_id: String,
+    pub turn_id: String,
     pub item_id: String,
 }
 
@@ -731,7 +729,7 @@ pub fn build_history_snapshot(
                 }
                 continue;
             }
-            if let Some(normalized) = normalize_item(&item) {
+            if let Some(normalized) = normalize_item(Some(&turn.id), &item) {
                 upsert_item(&mut snapshot.items, normalized);
             }
         }
@@ -986,9 +984,10 @@ pub fn item_status_from_wire(status: Option<&str>) -> ConversationItemStatus {
     }
 }
 
-pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
+pub fn normalize_item(turn_id: Option<&str>, value: &Value) -> Option<ConversationItem> {
     let id = value.get("id")?.as_str()?.to_string();
     let item_type = value.get("type")?.as_str()?;
+    let turn_id = turn_id.map(ToString::to_string);
 
     match item_type {
         "userMessage" => {
@@ -1017,6 +1016,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
             };
             Some(ConversationItem::Message(ConversationMessageItem {
                 id,
+                turn_id,
                 role: ConversationRole::User,
                 text,
                 images: (!images.is_empty()).then_some(images),
@@ -1025,6 +1025,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         }
         "agentMessage" => Some(ConversationItem::Message(ConversationMessageItem {
             id,
+            turn_id,
             role: ConversationRole::Assistant,
             text: string_field(value, "text"),
             images: None,
@@ -1033,12 +1034,14 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         "plan" => None,
         "reasoning" => Some(ConversationItem::Reasoning(ConversationReasoningItem {
             id,
+            turn_id,
             summary: rich_text_field(value, "summary"),
             content: rich_text_field(value, "content"),
             is_streaming: false,
         })),
         "commandExecution" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
+            turn_id,
             tool_type: "commandExecution".to_string(),
             title: "Command".to_string(),
             status: item_status_from_wire(value.get("status").and_then(Value::as_str)),
@@ -1050,6 +1053,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         })),
         "fileChange" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
+            turn_id,
             tool_type: "fileChange".to_string(),
             title: "File change".to_string(),
             status: item_status_from_wire(value.get("status").and_then(Value::as_str)),
@@ -1072,6 +1076,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         })),
         "mcpToolCall" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
+            turn_id,
             tool_type: "mcpToolCall".to_string(),
             title: "MCP tool".to_string(),
             status: item_status_from_wire(value.get("status").and_then(Value::as_str)),
@@ -1085,6 +1090,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         "collabToolCall" | "collabAgentToolCall" => None,
         "webSearch" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
+            turn_id,
             tool_type: "webSearch".to_string(),
             title: "Web search".to_string(),
             status: ConversationItemStatus::Completed,
@@ -1093,6 +1099,7 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         })),
         "imageView" => Some(ConversationItem::Tool(ConversationToolItem {
             id,
+            turn_id,
             tool_type: "imageView".to_string(),
             title: "Image view".to_string(),
             status: ConversationItemStatus::Completed,
@@ -1101,24 +1108,28 @@ pub fn normalize_item(value: &Value) -> Option<ConversationItem> {
         })),
         "enteredReviewMode" => Some(ConversationItem::System(ConversationSystemItem {
             id,
+            turn_id,
             tone: ConversationTone::Info,
             title: "Review mode".to_string(),
             body: format!("Entered review mode for {}", string_field(value, "review")),
         })),
         "exitedReviewMode" => Some(ConversationItem::System(ConversationSystemItem {
             id,
+            turn_id,
             tone: ConversationTone::Info,
             title: "Review complete".to_string(),
             body: string_field(value, "review"),
         })),
         "contextCompaction" => Some(ConversationItem::System(ConversationSystemItem {
             id,
+            turn_id,
             tone: ConversationTone::Info,
             title: "Context compacted".to_string(),
             body: "Codex compacted the conversation history.".to_string(),
         })),
         other => Some(ConversationItem::System(ConversationSystemItem {
             id,
+            turn_id,
             tone: ConversationTone::Info,
             title: "Unsupported item".to_string(),
             body: format!("ThreadEx recorded the `{other}` item without a dedicated renderer."),
@@ -1442,14 +1453,21 @@ pub fn upsert_item(items: &mut Vec<ConversationItem>, item: ConversationItem) {
     items.push(item);
 }
 
-pub fn append_agent_delta(items: &mut Vec<ConversationItem>, item_id: &str, delta: &str) {
+pub fn append_agent_delta(
+    items: &mut Vec<ConversationItem>,
+    turn_id: &str,
+    item_id: &str,
+    delta: &str,
+) {
     match find_message_mut(items, item_id, ConversationRole::Assistant) {
         Some(item) => {
+            item.turn_id.get_or_insert_with(|| turn_id.to_string());
             item.text.push_str(delta);
             item.is_streaming = true;
         }
         None => items.push(ConversationItem::Message(ConversationMessageItem {
             id: item_id.to_string(),
+            turn_id: Some(turn_id.to_string()),
             role: ConversationRole::Assistant,
             text: delta.to_string(),
             images: None,
@@ -1458,14 +1476,21 @@ pub fn append_agent_delta(items: &mut Vec<ConversationItem>, item_id: &str, delt
     }
 }
 
-pub fn append_reasoning_summary(items: &mut Vec<ConversationItem>, item_id: &str, delta: &str) {
+pub fn append_reasoning_summary(
+    items: &mut Vec<ConversationItem>,
+    turn_id: &str,
+    item_id: &str,
+    delta: &str,
+) {
     match find_reasoning_mut(items, item_id) {
         Some(item) => {
+            item.turn_id.get_or_insert_with(|| turn_id.to_string());
             item.summary.push_str(delta);
             item.is_streaming = true;
         }
         None => items.push(ConversationItem::Reasoning(ConversationReasoningItem {
             id: item_id.to_string(),
+            turn_id: Some(turn_id.to_string()),
             summary: delta.to_string(),
             content: String::new(),
             is_streaming: true,
@@ -1473,8 +1498,9 @@ pub fn append_reasoning_summary(items: &mut Vec<ConversationItem>, item_id: &str
     }
 }
 
-pub fn append_reasoning_boundary(items: &mut [ConversationItem], item_id: &str) {
+pub fn append_reasoning_boundary(items: &mut [ConversationItem], turn_id: &str, item_id: &str) {
     if let Some(item) = find_reasoning_mut(items, item_id) {
+        item.turn_id.get_or_insert_with(|| turn_id.to_string());
         if !item.summary.is_empty() && !item.summary.ends_with("\n\n") {
             item.summary.push_str("\n\n");
         }
@@ -1482,14 +1508,21 @@ pub fn append_reasoning_boundary(items: &mut [ConversationItem], item_id: &str) 
     }
 }
 
-pub fn append_reasoning_content(items: &mut Vec<ConversationItem>, item_id: &str, delta: &str) {
+pub fn append_reasoning_content(
+    items: &mut Vec<ConversationItem>,
+    turn_id: &str,
+    item_id: &str,
+    delta: &str,
+) {
     match find_reasoning_mut(items, item_id) {
         Some(item) => {
+            item.turn_id.get_or_insert_with(|| turn_id.to_string());
             item.content.push_str(delta);
             item.is_streaming = true;
         }
         None => items.push(ConversationItem::Reasoning(ConversationReasoningItem {
             id: item_id.to_string(),
+            turn_id: Some(turn_id.to_string()),
             summary: String::new(),
             content: delta.to_string(),
             is_streaming: true,
@@ -1497,8 +1530,14 @@ pub fn append_reasoning_content(items: &mut Vec<ConversationItem>, item_id: &str
     }
 }
 
-pub fn append_tool_output(items: &mut [ConversationItem], item_id: &str, delta: &str) {
+pub fn append_tool_output(
+    items: &mut [ConversationItem],
+    turn_id: &str,
+    item_id: &str,
+    delta: &str,
+) {
     if let Some(item) = find_tool_mut(items, item_id) {
+        item.turn_id.get_or_insert_with(|| turn_id.to_string());
         item.output.push_str(delta);
     }
 }
@@ -1587,6 +1626,7 @@ fn merge_conversation_items(
             ConversationItem::Reasoning(incoming_reasoning),
         ) => ConversationItem::Reasoning(ConversationReasoningItem {
             id: incoming_reasoning.id,
+            turn_id: incoming_reasoning.turn_id.or(existing_reasoning.turn_id),
             summary: if incoming_reasoning.summary.is_empty() {
                 existing_reasoning.summary
             } else {
@@ -1604,6 +1644,7 @@ fn merge_conversation_items(
             ConversationItem::Message(incoming_message),
         ) => ConversationItem::Message(ConversationMessageItem {
             id: incoming_message.id,
+            turn_id: incoming_message.turn_id.or(existing_message.turn_id),
             role: incoming_message.role,
             text: if incoming_message.text.is_empty() {
                 existing_message.text
@@ -1616,6 +1657,7 @@ fn merge_conversation_items(
         (ConversationItem::Tool(existing_tool), ConversationItem::Tool(incoming_tool)) => {
             ConversationItem::Tool(ConversationToolItem {
                 id: incoming_tool.id,
+                turn_id: incoming_tool.turn_id.or(existing_tool.turn_id),
                 tool_type: incoming_tool.tool_type,
                 title: incoming_tool.title,
                 status: incoming_tool.status,
@@ -2056,7 +2098,7 @@ mod tests {
 
     #[test]
     fn normalize_user_message_joins_visible_content() {
-        let item = normalize_item(&json!({
+        let item = normalize_item(Some("turn-1"), &json!({
             "id": "user-1",
             "type": "userMessage",
             "content": [
@@ -2068,6 +2110,7 @@ mod tests {
 
         match item {
             ConversationItem::Message(message) => {
+                assert_eq!(message.turn_id.as_deref(), Some("turn-1"));
                 assert_eq!(message.role, ConversationRole::User);
                 assert_eq!(message.text, "Hello");
                 assert_eq!(
@@ -2083,7 +2126,7 @@ mod tests {
 
     #[test]
     fn normalize_user_message_replaces_text_elements_and_hides_structured_mentions() {
-        let item = normalize_item(&json!({
+        let item = normalize_item(Some("turn-2"), &json!({
             "id": "user-2",
             "type": "userMessage",
             "content": [
@@ -2111,7 +2154,7 @@ mod tests {
 
     #[test]
     fn normalize_user_message_hides_control_text_but_keeps_images() {
-        let item = normalize_item(&json!({
+        let item = normalize_item(Some("turn-3"), &json!({
             "id": "user-approval-image",
             "type": "userMessage",
             "content": [
@@ -2168,15 +2211,17 @@ mod tests {
     fn append_reasoning_boundary_inserts_visual_gap() {
         let mut items = vec![ConversationItem::Reasoning(ConversationReasoningItem {
             id: "reasoning-1".to_string(),
+            turn_id: None,
             summary: "Exploring files".to_string(),
             content: String::new(),
             is_streaming: true,
         })];
-        append_reasoning_boundary(&mut items, "reasoning-1");
-        append_reasoning_summary(&mut items, "reasoning-1", "Searching routes");
+        append_reasoning_boundary(&mut items, "turn-1", "reasoning-1");
+        append_reasoning_summary(&mut items, "turn-1", "reasoning-1", "Searching routes");
 
         match &items[0] {
             ConversationItem::Reasoning(reasoning) => {
+                assert_eq!(reasoning.turn_id.as_deref(), Some("turn-1"));
                 assert_eq!(reasoning.summary, "Exploring files\n\nSearching routes");
             }
             _ => panic!("expected reasoning item"),
@@ -2187,6 +2232,7 @@ mod tests {
     fn canonical_user_message_replaces_matching_optimistic_entry() {
         let mut items = vec![ConversationItem::Message(ConversationMessageItem {
             id: "local-user-1".to_string(),
+            turn_id: None,
             role: ConversationRole::User,
             text: "Salut".to_string(),
             images: None,
@@ -2197,6 +2243,7 @@ mod tests {
             &mut items,
             ConversationItem::Message(ConversationMessageItem {
                 id: "user-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
                 role: ConversationRole::User,
                 text: "Salut".to_string(),
                 images: None,
@@ -2215,6 +2262,7 @@ mod tests {
     fn canonical_user_message_replaces_optimistic_entry_when_images_are_rewritten() {
         let mut items = vec![ConversationItem::Message(ConversationMessageItem {
             id: "local-user-1".to_string(),
+            turn_id: None,
             role: ConversationRole::User,
             text: "".to_string(),
             images: Some(vec![ConversationImageAttachment::LocalImage {
@@ -2227,6 +2275,7 @@ mod tests {
             &mut items,
             ConversationItem::Message(ConversationMessageItem {
                 id: "user-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
                 role: ConversationRole::User,
                 text: "".to_string(),
                 images: Some(vec![ConversationImageAttachment::Image {
@@ -2253,7 +2302,7 @@ mod tests {
 
     #[test]
     fn rich_text_fields_join_string_arrays_and_drop_empty_arrays() {
-        let item = normalize_item(&json!({
+        let item = normalize_item(Some("turn-4"), &json!({
             "id": "reasoning-1",
             "type": "reasoning",
             "summary": ["First thought", "Second thought"],
@@ -2263,6 +2312,7 @@ mod tests {
 
         match item {
             ConversationItem::Reasoning(reasoning) => {
+                assert_eq!(reasoning.turn_id.as_deref(), Some("turn-4"));
                 assert_eq!(reasoning.summary, "First thought\n\nSecond thought");
                 assert!(reasoning.content.is_empty());
             }
@@ -2272,7 +2322,7 @@ mod tests {
 
     #[test]
     fn web_search_uses_query_as_summary_and_action_details_as_output() {
-        let item = normalize_item(&json!({
+        let item = normalize_item(Some("turn-5"), &json!({
             "id": "search-1",
             "type": "webSearch",
             "query": "",
@@ -2286,6 +2336,7 @@ mod tests {
 
         match item {
             ConversationItem::Tool(tool) => {
+                assert_eq!(tool.turn_id.as_deref(), Some("turn-5"));
                 assert_eq!(tool.summary.as_deref(), Some("Le Monde official homepage"));
                 assert!(tool.output.contains("Action: search"));
                 assert!(tool.output.contains("lemonde.fr"));

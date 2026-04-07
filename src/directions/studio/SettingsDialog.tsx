@@ -268,6 +268,12 @@ function SettingsContent({
           onChange({ defaultApprovalPolicy: value as ApprovalPolicy })
         }
       />
+      <SettingsToggle
+        label="Collapse work activity"
+        description="Hide intermediate thinking, tool calls, task progress, and subagent noise behind one collapsible work block. Plans and user interactions stay visible."
+        checked={settings.collapseWorkActivity}
+        onChange={(value) => onChange({ collapseWorkActivity: value })}
+      />
       <SettingsInput
         label="Codex binary"
         value={settings.codexBinaryPath ?? ""}
@@ -333,6 +339,39 @@ function SettingsInput({
           }
         }}
       />
+    </div>
+  );
+}
+
+function SettingsToggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="settings-toggle">
+      <div className="settings-toggle__copy">
+        <label className="settings-field__label">{label}</label>
+        <p className="settings-field__help">{description}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        className={`settings-toggle__control ${
+          checked ? "settings-toggle__control--checked" : ""
+        }`}
+        onClick={() => onChange(!checked)}
+      >
+        <span className="settings-toggle__thumb" />
+      </button>
     </div>
   );
 }

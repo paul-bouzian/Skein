@@ -477,6 +477,7 @@ pub enum ConversationItem {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMessageItem {
     pub id: String,
+    pub turn_id: Option<String>,
     pub role: ConversationRole,
     pub text: String,
     pub images: Option<Vec<ConversationImageAttachment>>,
@@ -487,6 +488,7 @@ pub struct ConversationMessageItem {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationReasoningItem {
     pub id: String,
+    pub turn_id: Option<String>,
     pub summary: String,
     pub content: String,
     pub is_streaming: bool,
@@ -496,6 +498,7 @@ pub struct ConversationReasoningItem {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationToolItem {
     pub id: String,
+    pub turn_id: Option<String>,
     pub tool_type: String,
     pub title: String,
     pub status: ConversationItemStatus,
@@ -507,6 +510,7 @@ pub struct ConversationToolItem {
 #[serde(rename_all = "camelCase")]
 pub struct ConversationSystemItem {
     pub id: String,
+    pub turn_id: Option<String>,
     pub tone: ConversationTone,
     pub title: String,
     pub body: String,

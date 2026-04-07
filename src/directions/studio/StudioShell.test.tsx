@@ -70,6 +70,7 @@ beforeEach(() => {
     defaultReasoningEffort: "high",
     defaultCollaborationMode: "build",
     defaultApprovalPolicy: "askToEdit",
+    collapseWorkActivity: true,
     codexBinaryPath: "/opt/homebrew/bin/codex",
   });
   mockedBridge.updateProjectSettings.mockResolvedValue(makeWorkspaceSnapshot().projects[0]);
@@ -268,6 +269,21 @@ describe("StudioShell", () => {
         "Settings were saved, but the workspace snapshot could not be refreshed.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("saves the compact work activity setting from Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Collapse work activity" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        collapseWorkActivity: false,
+      });
+    });
   });
 
   it("reuses Codex model ids in settings when runtime capabilities are available", async () => {

@@ -14,6 +14,7 @@ import {
   makeTaskPlan,
   makeThread,
   makeUserInputRequest,
+  makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import {
   teardownConversationListener,
@@ -157,6 +158,204 @@ describe("ThreadConversation", () => {
       screen.getByText("Looking through package.json and the runtime service."),
     ).toBeInTheDocument();
     expect(screen.getByText("3 tests passed")).toBeInTheDocument();
+  });
+
+  it("collapses intermediate work activity into a single live block when the setting is enabled", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [
+          {
+            kind: "message",
+            id: "user-compact-1",
+            turnId: "turn-compact-1",
+            role: "user",
+            text: "Inspect the repository",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "reasoning",
+            id: "reason-compact-1",
+            turnId: "turn-compact-1",
+            summary: "Inspecting the workspace",
+            content: "Looking through package.json and the runtime service.",
+            isStreaming: false,
+          },
+          {
+            kind: "tool",
+            id: "tool-compact-1",
+            turnId: "turn-compact-1",
+            toolType: "commandExecution",
+            title: "Command",
+            status: "completed",
+            summary: "bun run test",
+            output: "3 tests passed",
+          },
+          {
+            kind: "message",
+            id: "assistant-compact-1",
+            turnId: "turn-compact-1",
+            role: "assistant",
+            text: "The workspace looks healthy.",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+    expect(await screen.findByText("The workspace looks healthy.")).toBeInTheDocument();
+    expect(screen.getByText("1 thinking · 1 tool call")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Looking through package.json and the runtime service."),
+    ).toBeNull();
+    expect(screen.queryByText("3 tests passed")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show work activity details" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show thinking details" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show Command details" }),
+    );
+
+    expect(
+      screen.getByText("Looking through package.json and the runtime service."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("3 tests passed")).toBeInTheDocument();
+  });
+
+  it("keeps live assistant updates inside compact work activity until the turn completes", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-update-1",
+        items: [
+          {
+            kind: "message",
+            id: "user-live-update-1",
+            turnId: "turn-live-update-1",
+            role: "user",
+            text: "Inspect the repository",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "message",
+            id: "assistant-live-update-1",
+            turnId: "turn-live-update-1",
+            role: "assistant",
+            text: "I am checking the runtime flow now.",
+            images: null,
+            isStreaming: true,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+    expect(screen.getByText("1 update")).toBeInTheDocument();
+    expect(screen.queryByText("I am checking the runtime flow now.")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show work activity details" }),
+    );
+
+    expect(screen.getByText("I am checking the runtime flow now.")).toBeInTheDocument();
+  });
+
+  it("groups turnless live updates under the active compact work activity", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-fallback-1",
+        items: [
+          {
+            kind: "message",
+            id: "user-live-fallback-1",
+            turnId: "turn-live-fallback-1",
+            role: "user",
+            text: "Inspect the repository",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "message",
+            id: "assistant-live-fallback-1",
+            role: "assistant",
+            text: "Indexing the workspace before answering.",
+            images: null,
+            isStreaming: true,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+    expect(screen.getByText("1 update")).toBeInTheDocument();
+    expect(screen.queryByText("Indexing the workspace before answering.")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show work activity details" }),
+    );
+
+    expect(
+      screen.getByText("Indexing the workspace before answering."),
+    ).toBeInTheDocument();
   });
 
   it("renders assistant markdown for regular Codex messages", async () => {
@@ -579,6 +778,65 @@ describe("ThreadConversation", () => {
     expect(screen.getByText("Atlas")).toBeInTheDocument();
   });
 
+  it("moves task progress and subagents into the compact work activity group", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        items: [
+          {
+            kind: "message",
+            id: "user-live-1",
+            turnId: "turn-live-1",
+            role: "user",
+            text: "Implement the change",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+        taskPlan: makeTaskPlan({ turnId: "turn-live-1" }),
+        subagents: [
+          makeSubagent(),
+          makeSubagent({
+            threadId: "subagent-2",
+            nickname: "Atlas",
+            role: "worker",
+            depth: 2,
+            status: "completed",
+          }),
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("2 subagents")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Subagents/i })).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show work activity details" }),
+    );
+
+    expect(screen.getByText("Scout")).toBeInTheDocument();
+    expect(screen.getByText("Atlas")).toBeInTheDocument();
+    expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
+  });
+
   it("renders the interaction panel and paginates request-user-input questions", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -644,6 +902,58 @@ describe("ThreadConversation", () => {
         },
       });
     });
+  });
+
+  it("keeps approvals, user input, and proposed plans visible outside compact work activity", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          collapseWorkActivity: true,
+        },
+      }),
+    }));
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        items: [
+          {
+            kind: "message",
+            id: "user-plan-1",
+            turnId: "turn-plan-1",
+            role: "user",
+            text: "Plan the change",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "reasoning",
+            id: "reason-plan-1",
+            turnId: "turn-plan-1",
+            summary: "Assessing the request",
+            content: "Checking the safest way to ship this.",
+            isStreaming: false,
+          },
+        ],
+        proposedPlan: makeProposedPlan({ turnId: "turn-plan-1" }),
+        pendingInteractions: [makeUserInputRequest({ turnId: "turn-plan-1" })],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Work activity")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Proposed plan" })).toBeInTheDocument();
+    expect(screen.getByText("Codex needs input")).toBeInTheDocument();
+    expect(screen.queryByText("Checking the safest way to ship this.")).toBeNull();
   });
 
   it("renders a proposed plan card and continues through approve or refine", async () => {
