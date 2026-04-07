@@ -33,6 +33,11 @@ const mockedBridge = vi.mocked(bridge);
 const storageState = new Map<string, string>();
 
 const ENV_ID = "env-1";
+const PANEL_THEME = "dark" as const;
+
+function renderPanel() {
+  return render(<TerminalPanel theme={PANEL_THEME} />);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -101,7 +106,7 @@ beforeEach(() => {
 
 describe("TerminalPanel", () => {
   it("renders only the active terminal view for the selected environment", () => {
-    render(<TerminalPanel />);
+    renderPanel();
     expect(screen.getByTestId("terminal-view-pty-existing-1")).toBeInTheDocument();
     expect(
       screen.queryByTestId("terminal-view-pty-existing-2"),
@@ -144,7 +149,7 @@ describe("TerminalPanel", () => {
       },
     }));
 
-    const { rerender } = render(<TerminalPanel />);
+    const { rerender } = renderPanel();
 
     expect(screen.getByTestId("terminal-view-pty-existing-1")).toHaveAttribute("data-active", "true");
     expect(
@@ -154,7 +159,7 @@ describe("TerminalPanel", () => {
     act(() => {
       useWorkspaceStore.setState({ selectedEnvironmentId: "env-2" });
     });
-    rerender(<TerminalPanel />);
+    rerender(<TerminalPanel theme={PANEL_THEME} />);
 
     expect(
       screen.queryByTestId("terminal-view-pty-existing-1"),
@@ -165,7 +170,7 @@ describe("TerminalPanel", () => {
 
   it("opens a new terminal in the active env when + is clicked", async () => {
     const user = userEvent.setup();
-    render(<TerminalPanel />);
+    renderPanel();
 
     await user.click(screen.getByTitle("New terminal"));
 
@@ -181,7 +186,7 @@ describe("TerminalPanel", () => {
 
   it("closes a tab via the per-tab close button", async () => {
     const user = userEvent.setup();
-    render(<TerminalPanel />);
+    renderPanel();
 
     const closeButtons = screen.getAllByLabelText("Close terminal");
     await user.click(closeButtons[0]);
@@ -245,7 +250,7 @@ describe("TerminalPanel", () => {
     });
     mockedBridge.spawnTerminal.mockClear();
 
-    render(<TerminalPanel />);
+    renderPanel();
 
     await user.click(screen.getByLabelText("Close terminal"));
 
@@ -261,7 +266,7 @@ describe("TerminalPanel", () => {
 
   it("hides the panel when the hide button is clicked", async () => {
     const user = userEvent.setup();
-    render(<TerminalPanel />);
+    renderPanel();
 
     await user.click(screen.getByTitle("Hide terminal"));
     expect(useTerminalStore.getState().visible).toBe(false);
@@ -269,7 +274,7 @@ describe("TerminalPanel", () => {
 
   it("activates a tab when its title is clicked", async () => {
     const user = userEvent.setup();
-    render(<TerminalPanel />);
+    renderPanel();
 
     await user.click(screen.getByText("b"));
     expect(useTerminalStore.getState().byEnv[ENV_ID]?.activeTabId).toBe("t2");
@@ -292,7 +297,7 @@ describe("TerminalPanel", () => {
       byEnv: {},
     });
 
-    render(<TerminalPanel />);
+    renderPanel();
 
     expect(
       screen.getByText("Select a worktree to open a terminal."),
@@ -325,7 +330,7 @@ describe("TerminalPanel", () => {
     });
     mockedBridge.spawnTerminal.mockClear();
 
-    render(<TerminalPanel />);
+    renderPanel();
 
     act(() => {
       useWorkspaceStore.setState({ selectedEnvironmentId: "env-2" });
@@ -349,7 +354,7 @@ describe("TerminalPanel", () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      const { rerender } = render(<TerminalPanel />);
+      const { rerender } = renderPanel();
 
       // Wait for the first failure to propagate.
       await waitFor(() => {
@@ -359,7 +364,7 @@ describe("TerminalPanel", () => {
       // Give React a handful of render cycles to ensure the effect does NOT
       // re-fire in a tight loop after the failure.
       await new Promise((resolve) => setTimeout(resolve, 50));
-      rerender(<TerminalPanel />);
+      rerender(<TerminalPanel theme={PANEL_THEME} />);
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
 
@@ -385,7 +390,7 @@ describe("TerminalPanel", () => {
 
     render(
       <StrictMode>
-        <TerminalPanel />
+        <TerminalPanel theme={PANEL_THEME} />
       </StrictMode>,
     );
 
@@ -438,7 +443,7 @@ describe("TerminalPanel", () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     try {
-      render(<TerminalPanel />);
+      renderPanel();
 
       await waitFor(() => {
         expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
@@ -501,7 +506,7 @@ describe("TerminalPanel", () => {
         cwd: `/tmp/${environmentId}`,
       }));
 
-    render(<TerminalPanel />);
+    renderPanel();
 
     // Bootstrap for env-1 is in flight but not yet resolved.
     await waitFor(() => {
@@ -538,7 +543,7 @@ describe("TerminalPanel", () => {
 
   it("exposes the tab strip and actions with accessible semantics", async () => {
     const user = userEvent.setup();
-    render(<TerminalPanel />);
+    renderPanel();
 
     const tablist = screen.getByRole("tablist", { name: "Terminal tabs" });
     const firstTab = screen.getByRole("tab", { name: "a" });

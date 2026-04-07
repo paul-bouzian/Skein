@@ -16,14 +16,16 @@ import { ThreadConversation } from "./ThreadConversation";
 import { StudioWelcome } from "./StudioWelcome";
 import { TerminalPanel } from "./TerminalPanel";
 import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
+import type { Theme } from "./StudioShell";
 import "./StudioMain.css";
 
 type Props = {
+  theme: Theme;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
 };
 
-export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
+export function StudioMain({ theme, inspectorOpen, onToggleInspector }: Props) {
   const projects = useWorkspaceStore(selectProjects);
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
@@ -93,7 +95,7 @@ export function StudioMain({ inspectorOpen, onToggleInspector }: Props) {
           className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
           style={{ height: terminalVisible ? terminalHeight : undefined }}
         >
-          <TerminalPanel />
+          <TerminalPanel theme={theme} />
         </div>
       )}
     </main>

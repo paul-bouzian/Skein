@@ -76,6 +76,7 @@ export function StudioShell() {
         onToggleTheme={toggleTheme}
       />
       <StudioMain
+        theme={theme}
         inspectorOpen={inspectorOpen}
         onToggleInspector={() => setInspectorOpen((v) => !v)}
       />

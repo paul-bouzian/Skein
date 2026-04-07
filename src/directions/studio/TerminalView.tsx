@@ -1,25 +1,58 @@
 import { useCallback, useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
 import * as bridge from "../../lib/bridge";
 import { subscribeToTerminalOutput } from "../../lib/terminal-output-bus";
+import type { Theme } from "./StudioShell";
 
 type Props = {
   ptyId: string;
   active: boolean;
   exited: boolean;
+  theme: Theme;
 };
 
-const THEME = {
-  background: "#0e0f12",
-  foreground: "#e7e8ec",
-  cursor: "#ff4f4f",
-  cursorAccent: "#0e0f12",
-  selectionBackground: "rgba(255, 79, 79, 0.25)",
-};
+function readCssToken(style: CSSStyleDeclaration, name: string): string {
+  return style.getPropertyValue(name).trim();
+}
+
+function readTerminalTheme(element: HTMLElement): ITheme {
+  const style = getComputedStyle(element);
+  return {
+    background: readCssToken(style, "--tx-terminal-background"),
+    foreground: readCssToken(style, "--tx-terminal-foreground"),
+    cursor: readCssToken(style, "--tx-terminal-cursor"),
+    cursorAccent: readCssToken(style, "--tx-terminal-cursor-accent"),
+    selectionBackground: readCssToken(style, "--tx-terminal-selection"),
+    selectionInactiveBackground: readCssToken(
+      style,
+      "--tx-terminal-selection-inactive",
+    ),
+    selectionForeground: readCssToken(
+      style,
+      "--tx-terminal-selection-foreground",
+    ),
+    black: readCssToken(style, "--tx-terminal-black"),
+    red: readCssToken(style, "--tx-terminal-red"),
+    green: readCssToken(style, "--tx-terminal-green"),
+    yellow: readCssToken(style, "--tx-terminal-yellow"),
+    blue: readCssToken(style, "--tx-terminal-blue"),
+    magenta: readCssToken(style, "--tx-terminal-magenta"),
+    cyan: readCssToken(style, "--tx-terminal-cyan"),
+    white: readCssToken(style, "--tx-terminal-white"),
+    brightBlack: readCssToken(style, "--tx-terminal-bright-black"),
+    brightRed: readCssToken(style, "--tx-terminal-bright-red"),
+    brightGreen: readCssToken(style, "--tx-terminal-bright-green"),
+    brightYellow: readCssToken(style, "--tx-terminal-bright-yellow"),
+    brightBlue: readCssToken(style, "--tx-terminal-bright-blue"),
+    brightMagenta: readCssToken(style, "--tx-terminal-bright-magenta"),
+    brightCyan: readCssToken(style, "--tx-terminal-bright-cyan"),
+    brightWhite: readCssToken(style, "--tx-terminal-bright-white"),
+  } satisfies ITheme;
+}
 
 function encodeBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
@@ -42,7 +75,7 @@ function isTerminalSessionGone(error: unknown): boolean {
   );
 }
 
-export function TerminalView({ ptyId, active, exited }: Props) {
+export function TerminalView({ ptyId, active, exited, theme }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -88,7 +121,7 @@ export function TerminalView({ ptyId, active, exited }: Props) {
       fontFamily:
         "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
       fontSize: 12.5,
-      theme: THEME,
+      theme: readTerminalTheme(container),
       scrollback: 5000,
       allowProposedApi: true,
     });
@@ -138,6 +171,13 @@ export function TerminalView({ ptyId, active, exited }: Props) {
     };
   }, [ptyId, refit]);
 
+  useEffect(() => {
+    const term = termRef.current;
+    const container = containerRef.current;
+    if (!term || !container) return;
+    term.options.theme = { ...readTerminalTheme(container) };
+  }, [theme]);
+
   // When activating after being hidden, the container had clientWidth=0,
   // so the initial fit() couldn't run. Refit + focus on activation.
   useEffect(() => {
@@ -152,6 +192,7 @@ export function TerminalView({ ptyId, active, exited }: Props) {
   return (
     <div
       ref={containerRef}
+      data-terminal-theme={theme}
       className={`terminal-view ${active ? "" : "terminal-view--hidden"}`}
     />
   );

@@ -145,7 +145,7 @@
   position: relative;
   flex: 1;
   min-height: 0;
-  background: var(--tx-bg-base);
+  background: var(--tx-terminal-background);
 }
 
 .terminal-panel__body--empty {

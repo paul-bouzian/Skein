@@ -13,9 +13,14 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { TerminalView } from "./TerminalView";
+import type { Theme } from "./StudioShell";
 import "./TerminalPanel.css";
 
 const bootstrapOpenPromises = new Map<string, Promise<string | null>>();
+
+type Props = {
+  theme: Theme;
+};
 
 function ensureBootstrapTab(
   environmentId: string,
@@ -33,7 +38,7 @@ function ensureBootstrapTab(
   return promise;
 }
 
-export function TerminalPanel() {
+export function TerminalPanel({ theme }: Props) {
   const visible = useTerminalStore((s) => s.visible);
   const openTab = useTerminalStore((s) => s.openTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
@@ -182,7 +187,7 @@ export function TerminalPanel() {
   }
 
   return (
-    <div className="terminal-panel">
+    <div className="terminal-panel" data-terminal-theme={theme}>
       <div className="terminal-panel__header">
         <div
           className="terminal-panel__tabs"
@@ -272,6 +277,7 @@ export function TerminalPanel() {
             ptyId={activeTab.ptyId}
             active
             exited={activeTab.exited}
+            theme={theme}
           />
         )}
         {!environmentId && (

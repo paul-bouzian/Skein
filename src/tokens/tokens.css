@@ -128,4 +128,59 @@
   --tx-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --tx-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
   --tx-shadow-overlay: 0 24px 60px rgba(0, 0, 0, 0.16);
+
+}
+
+:root,
+[data-terminal-theme="dark"] {
+  --tx-terminal-background: #0e0f12;
+  --tx-terminal-foreground: #e7e8ec;
+  --tx-terminal-cursor: #ef4444;
+  --tx-terminal-cursor-accent: #0e0f12;
+  --tx-terminal-selection: rgba(239, 68, 68, 0.24);
+  --tx-terminal-selection-inactive: rgba(239, 68, 68, 0.16);
+  --tx-terminal-selection-foreground: #f7f7fb;
+  --tx-terminal-black: #2d333b;
+  --tx-terminal-red: #f47067;
+  --tx-terminal-green: #57ab5a;
+  --tx-terminal-yellow: #c69026;
+  --tx-terminal-blue: #539bf5;
+  --tx-terminal-magenta: #b083f0;
+  --tx-terminal-cyan: #39c5cf;
+  --tx-terminal-white: #909dab;
+  --tx-terminal-bright-black: #545d68;
+  --tx-terminal-bright-red: #ff938a;
+  --tx-terminal-bright-green: #6bc46d;
+  --tx-terminal-bright-yellow: #daaa3f;
+  --tx-terminal-bright-blue: #6cb6ff;
+  --tx-terminal-bright-magenta: #c297ff;
+  --tx-terminal-bright-cyan: #56d4dd;
+  --tx-terminal-bright-white: #cdd9e5;
+}
+
+:root[data-theme="light"],
+[data-terminal-theme="light"] {
+  --tx-terminal-background: #fcfcfd;
+  --tx-terminal-foreground: #1f232b;
+  --tx-terminal-cursor: #dc2626;
+  --tx-terminal-cursor-accent: #fcfcfd;
+  --tx-terminal-selection: rgba(220, 38, 38, 0.18);
+  --tx-terminal-selection-inactive: rgba(220, 38, 38, 0.1);
+  --tx-terminal-selection-foreground: #111318;
+  --tx-terminal-black: #4b5563;
+  --tx-terminal-red: #cf222e;
+  --tx-terminal-green: #1a7f37;
+  --tx-terminal-yellow: #9a6700;
+  --tx-terminal-blue: #0969da;
+  --tx-terminal-magenta: #8250df;
+  --tx-terminal-cyan: #1b7c83;
+  --tx-terminal-white: #5a6470;
+  --tx-terminal-bright-black: #6e7781;
+  --tx-terminal-bright-red: #a40e26;
+  --tx-terminal-bright-green: #116329;
+  --tx-terminal-bright-yellow: #7d4e00;
+  --tx-terminal-bright-blue: #0550ae;
+  --tx-terminal-bright-magenta: #6f42c1;
+  --tx-terminal-bright-cyan: #0f5f67;
+  --tx-terminal-bright-white: #24292f;
 }
