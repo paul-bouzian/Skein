@@ -829,6 +829,7 @@ impl RuntimeSession {
         if visible_to_user {
             let user_item = ConversationItem::Message(ConversationMessageItem {
                 id: format!("local-user-{}", Uuid::now_v7()),
+                turn_id: None,
                 role: ConversationRole::User,
                 text: trimmed.to_string(),
                 images: (!images.is_empty()).then_some(images.clone()),
@@ -1080,6 +1081,7 @@ impl RuntimeSession {
                 &mut snapshot.items,
                 ConversationItem::System(crate::domain::conversation::ConversationSystemItem {
                     id: format!("system-{}", Uuid::now_v7()),
+                    turn_id: None,
                     tone: crate::domain::conversation::ConversationTone::Info,
                     title: title.to_string(),
                     body: body.to_string(),
@@ -1693,7 +1695,7 @@ async fn handle_notification(
                             reconcile_snapshot_status(snapshot);
                             return;
                         }
-                        if let Some(item) = normalize_item(&event.item).map(|item| {
+                        if let Some(item) = normalize_item(Some(&event.turn_id), &event.item).map(|item| {
                             if is_started {
                                 mark_item_streaming(item)
                             } else {
@@ -1761,7 +1763,12 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        append_agent_delta(&mut snapshot.items, &event.item_id, &event.delta);
+                        append_agent_delta(
+                            &mut snapshot.items,
+                            &event.turn_id,
+                            &event.item_id,
+                            &event.delta,
+                        );
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -1776,7 +1783,12 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        append_reasoning_summary(&mut snapshot.items, &event.item_id, &event.delta);
+                        append_reasoning_summary(
+                            &mut snapshot.items,
+                            &event.turn_id,
+                            &event.item_id,
+                            &event.delta,
+                        );
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -1792,7 +1804,11 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        append_reasoning_boundary(&mut snapshot.items, &event.item_id);
+                        append_reasoning_boundary(
+                            &mut snapshot.items,
+                            &event.turn_id,
+                            &event.item_id,
+                        );
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -1807,7 +1823,12 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        append_reasoning_content(&mut snapshot.items, &event.item_id, &event.delta);
+                        append_reasoning_content(
+                            &mut snapshot.items,
+                            &event.turn_id,
+                            &event.item_id,
+                            &event.delta,
+                        );
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -1822,7 +1843,12 @@ async fn handle_notification(
                     state,
                     &event.thread_id,
                     |snapshot| {
-                        append_tool_output(&mut snapshot.items, &event.item_id, &event.delta);
+                        append_tool_output(
+                            &mut snapshot.items,
+                            &event.turn_id,
+                            &event.item_id,
+                            &event.delta,
+                        );
                         reconcile_snapshot_status(snapshot);
                     },
                     app,
@@ -2387,6 +2413,7 @@ mod tests {
             .items
             .push(ConversationItem::Message(ConversationMessageItem {
                 id: "assistant-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
                 role: ConversationRole::Assistant,
                 text: "Something went wrong".to_string(),
                 images: None,
@@ -2682,6 +2709,7 @@ mod tests {
         );
         snapshot.items = vec![ConversationItem::Tool(ConversationToolItem {
             id: "tool-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
             tool_type: "commandExecution".to_string(),
             title: "Command".to_string(),
             status: ConversationItemStatus::InProgress,

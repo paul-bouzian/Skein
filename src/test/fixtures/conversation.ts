@@ -10,6 +10,7 @@ import type {
   GitChangeSectionSnapshot,
   GitFileDiff,
   GitReviewSnapshot,
+  GlobalSettings,
   ProjectRecord,
   ThreadConversationSnapshot,
   ThreadRecord,
@@ -41,6 +42,20 @@ export const capabilitiesFixture: EnvironmentCapabilitiesSnapshot = {
     { id: "plan", label: "Plan", mode: "plan", reasoningEffort: "high" },
   ],
 };
+
+export function makeGlobalSettings(
+  overrides: Partial<GlobalSettings> = {},
+): GlobalSettings {
+  return {
+    defaultModel: "gpt-5.4",
+    defaultReasoningEffort: "high",
+    defaultCollaborationMode: "build",
+    defaultApprovalPolicy: "askToEdit",
+    collapseWorkActivity: true,
+    codexBinaryPath: undefined,
+    ...overrides,
+  };
+}
 
 export function makeThread(
   overrides: Partial<ThreadRecord> = {},
@@ -108,13 +123,7 @@ export function makeWorkspaceSnapshot(
   overrides: Partial<WorkspaceSnapshot> = {},
 ): WorkspaceSnapshot {
   return {
-    settings: {
-      defaultModel: "gpt-5.4",
-      defaultReasoningEffort: "high",
-      defaultCollaborationMode: "build",
-      defaultApprovalPolicy: "askToEdit",
-      codexBinaryPath: "/opt/homebrew/bin/codex",
-    },
+    settings: makeGlobalSettings(),
     projects: [makeProject()],
     ...overrides,
   };
@@ -133,6 +142,7 @@ export function makeConversationSnapshot(
       {
         kind: "message",
         id: "user-1",
+        turnId: "turn-1",
         role: "user",
         text: "Inspect the repository",
         images: null,
@@ -141,6 +151,7 @@ export function makeConversationSnapshot(
       {
         kind: "reasoning",
         id: "reason-1",
+        turnId: "turn-1",
         summary: "Inspecting the workspace",
         content: "Looking through package.json and the runtime service.",
         isStreaming: false,
@@ -148,6 +159,7 @@ export function makeConversationSnapshot(
       {
         kind: "tool",
         id: "tool-1",
+        turnId: "turn-1",
         toolType: "commandExecution",
         title: "Command",
         status: "completed",
@@ -157,6 +169,7 @@ export function makeConversationSnapshot(
       {
         kind: "message",
         id: "assistant-1",
+        turnId: "turn-1",
         role: "assistant",
         text: "The workspace looks healthy.",
         images: null,

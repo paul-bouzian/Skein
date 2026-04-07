@@ -5,11 +5,14 @@ import { ConversationPlanSteps } from "./ConversationPlanSteps";
 
 type Props = {
   taskPlan: ConversationTaskSnapshot;
+  compact?: boolean;
 };
 
-export function ConversationTaskCard({ taskPlan }: Props) {
+export function ConversationTaskCard({ taskPlan, compact = false }: Props) {
   return (
-    <section className="tx-plan-card tx-task-card">
+    <section
+      className={`tx-plan-card tx-task-card ${compact ? "tx-plan-card--compact" : ""}`}
+    >
       <div className="tx-plan-card__header">
         <div>
           <span className="tx-item__header">Tasks</span>

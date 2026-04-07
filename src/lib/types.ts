@@ -118,6 +118,7 @@ export type GlobalSettings = {
   defaultReasoningEffort: ReasoningEffort;
   defaultCollaborationMode: CollaborationMode;
   defaultApprovalPolicy: ApprovalPolicy;
+  collapseWorkActivity: boolean;
   codexBinaryPath?: string;
 };
 
@@ -525,6 +526,7 @@ export type ConversationImageAttachment =
 export type ConversationMessageItem = {
   kind: "message";
   id: string;
+  turnId?: string | null;
   role: ConversationRole;
   text: string;
   images?: ConversationImageAttachment[] | null;
@@ -534,6 +536,7 @@ export type ConversationMessageItem = {
 export type ConversationReasoningItem = {
   kind: "reasoning";
   id: string;
+  turnId?: string | null;
   summary: string;
   content: string;
   isStreaming: boolean;
@@ -542,6 +545,7 @@ export type ConversationReasoningItem = {
 export type ConversationToolItem = {
   kind: "tool";
   id: string;
+  turnId?: string | null;
   toolType: string;
   title: string;
   status: ConversationItemStatus;
@@ -552,6 +556,7 @@ export type ConversationToolItem = {
 export type ConversationSystemItem = {
   kind: "system";
   id: string;
+  turnId?: string | null;
   tone: ConversationTone;
   title: string;
   body: string;
@@ -725,5 +730,6 @@ export type GlobalSettingsPatch = {
   defaultReasoningEffort?: ReasoningEffort;
   defaultCollaborationMode?: CollaborationMode;
   defaultApprovalPolicy?: ApprovalPolicy;
+  collapseWorkActivity?: boolean;
   codexBinaryPath?: string | null;
 };
