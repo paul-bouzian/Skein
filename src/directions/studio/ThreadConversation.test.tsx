@@ -503,6 +503,87 @@ describe("ThreadConversation", () => {
     expect(within(firstGroup!).queryByText("Second turn reasoning.")).toBeNull();
   });
 
+  it("assigns turnless live updates to the active turn even without an active anchor item", async () => {
+    setCompactWorkActivity(true);
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        codexThreadId: "thr-turnless-unanchored-1",
+        status: "running",
+        activeTurnId: "turn-turnless-unanchored-2",
+        items: [
+          {
+            kind: "message",
+            id: "user-turnless-unanchored-1",
+            turnId: "turn-turnless-unanchored-1",
+            role: "user",
+            text: "Inspect the repository",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "reasoning",
+            id: "reason-turnless-unanchored-1",
+            turnId: "turn-turnless-unanchored-1",
+            summary: "Inspecting the workspace",
+            content: "First turn reasoning.",
+            isStreaming: false,
+          },
+          {
+            kind: "message",
+            id: "assistant-turnless-unanchored-1",
+            turnId: "turn-turnless-unanchored-1",
+            role: "assistant",
+            text: "The workspace looks healthy.",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "reasoning",
+            id: "reason-turnless-unanchored-2",
+            summary: "Inspecting the workspace again",
+            content: "Second turn reasoning without an anchor.",
+            isStreaming: true,
+          },
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+    expect(screen.getByText("The workspace looks healthy.")).toBeInTheDocument();
+
+    const toggles = await screen.findAllByRole("button", {
+      name: "Show work activity details",
+    });
+    expect(toggles).toHaveLength(2);
+
+    const firstGroup = toggles[0]?.closest("section");
+    const secondGroup = toggles[1]?.closest("section");
+    expect(firstGroup).not.toBeNull();
+    expect(secondGroup).not.toBeNull();
+    expect(within(firstGroup!).getByText("Completed")).toBeInTheDocument();
+    expect(within(secondGroup!).getByText("Running")).toBeInTheDocument();
+
+    await userEvent.click(toggles[1]!);
+    await userEvent.click(
+      within(secondGroup!).getByRole("button", { name: "Show thinking details" }),
+    );
+
+    expect(
+      within(secondGroup!).getByText("Second turn reasoning without an anchor."),
+    ).toBeInTheDocument();
+    expect(
+      within(firstGroup!).queryByText("Second turn reasoning without an anchor."),
+    ).toBeNull();
+  });
+
   it.each([
     ["failed", "Failed"],
     ["interrupted", "Interrupted"],

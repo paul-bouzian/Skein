@@ -284,8 +284,12 @@ function inferActiveTurnId(
   index: number,
   activeTurnAnchorIndex: number | null,
 ) {
-  if (!snapshot.activeTurnId || activeTurnAnchorIndex === null) {
+  if (!snapshot.activeTurnId) {
     return null;
+  }
+
+  if (activeTurnAnchorIndex === null) {
+    return snapshot.activeTurnId;
   }
 
   return index > activeTurnAnchorIndex ? snapshot.activeTurnId : null;
