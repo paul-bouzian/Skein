@@ -137,6 +137,10 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
 
   stopSession: async () => {
     const state = get();
+    if (state.phase === "starting") {
+      setVoiceSessionIdle(set);
+      return;
+    }
     if (
       state.phase !== "recording" ||
       !activeCapture ||

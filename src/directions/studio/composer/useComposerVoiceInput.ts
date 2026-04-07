@@ -157,7 +157,6 @@ export function useComposerVoiceInput({
   }, [drawActiveSpectrum, isRecording]);
 
   const buttonDisabled =
-    isStarting ||
     isTranscribing ||
     activeSessionElsewhere ||
     (phase === "idle" && (locked || loading || !voiceAvailable));
@@ -193,7 +192,7 @@ export function useComposerVoiceInput({
       }
     },
     onVoiceButtonClick: useCallback(() => {
-      if (isRecording) {
+      if (isRecording || isStarting) {
         void stopSession();
         return;
       }
@@ -204,6 +203,7 @@ export function useComposerVoiceInput({
     }, [
       environmentId,
       isRecording,
+      isStarting,
       loading,
       locked,
       phase,
@@ -278,7 +278,7 @@ function getVoiceButtonTitle({
     return "Stop recording and transcribe";
   }
   if (isStarting) {
-    return "Starting microphone capture";
+    return "Starting microphone capture. Click to cancel.";
   }
   if (isTranscribing) {
     return "Transcribing voice recording";

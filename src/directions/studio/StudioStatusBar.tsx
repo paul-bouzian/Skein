@@ -90,7 +90,7 @@ export function StudioStatusBar() {
             }}
           >
             <MicIcon size={12} />
-            <span>
+            <span className="studio-statusbar__voice-label">
               {voiceIndicatorLabel}
               {voiceOwner ? ` in ${voiceOwner.thread.title}` : ""}
             </span>

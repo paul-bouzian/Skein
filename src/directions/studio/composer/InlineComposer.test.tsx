@@ -295,6 +295,43 @@ describe("InlineComposer voice dictation", () => {
     expect(await screen.findByDisplayValue("voice note")).toBeInTheDocument();
   });
 
+  it("allows canceling voice capture while the microphone is still starting", async () => {
+    const capture = makeCapture();
+    const startCapture = createDeferred<typeof capture>();
+    mockedStartVoiceCapture.mockReturnValue(startCapture.promise);
+
+    renderComposer("");
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+
+    await userEvent.click(startButton);
+
+    const startingButton = await screen.findByRole("button", {
+      name: "Starting voice dictation",
+    });
+    expect(startingButton).toBeEnabled();
+    expect(startingButton.parentElement).toHaveAttribute(
+      "title",
+      "Starting microphone capture. Click to cancel.",
+    );
+
+    await userEvent.click(startingButton);
+    startCapture.resolve(capture);
+
+    await waitFor(() => {
+      expect(capture.cancel).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      await screen.findByRole("button", { name: "Start voice dictation" }),
+    ).toBeEnabled();
+    expect(screen.queryByText("Listening")).toBeNull();
+  });
+
   it("keeps recording active when switching threads and restores it on return", async () => {
     const capture = makeCapture();
     mockedStartVoiceCapture.mockResolvedValue(capture);
@@ -355,6 +392,7 @@ describe("InlineComposer voice dictation", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
     transcription.resolve({ text: "voice note" });
+    expect(screen.getByPlaceholderText("Message ThreadEx...")).toHaveValue("");
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
 
@@ -692,7 +730,12 @@ function renderComposerWithDynamicDisabledState(initialDraft: string) {
 
 function renderComposerWithDynamicThread(initialDraft: string) {
   function Harness() {
-    const [draft, setDraft] = useState(initialDraft);
+    const [draftByThreadId, setDraftByThreadId] = useState<
+      Record<string, string>
+    >({
+      "thread-1": initialDraft,
+      "thread-2": "",
+    });
     const [images, setImages] = useState<
       Array<
         { type: "image"; url: string } | { type: "localImage"; path: string }
@@ -702,6 +745,7 @@ function renderComposerWithDynamicThread(initialDraft: string) {
       ComposerDraftMentionBinding[]
     >([]);
     const [threadId, setThreadId] = useState("thread-1");
+    const draft = draftByThreadId[threadId] ?? "";
 
     return (
       <>
@@ -729,7 +773,12 @@ function renderComposerWithDynamicThread(initialDraft: string) {
           onChangeImages={setImages}
           tokenUsage={null}
           onCancelRefine={() => undefined}
-          onChangeDraft={setDraft}
+          onChangeDraft={(value) =>
+            setDraftByThreadId((state) => ({
+              ...state,
+              [threadId]: value,
+            }))
+          }
           onChangeMentionBindings={setMentionBindings}
           onInterrupt={() => undefined}
           onSend={() => undefined}

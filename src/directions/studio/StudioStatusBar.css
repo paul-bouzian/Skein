@@ -81,7 +81,9 @@
   outline-offset: 2px;
 }
 
-.studio-statusbar__voice-indicator span {
+.studio-statusbar__voice-label {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

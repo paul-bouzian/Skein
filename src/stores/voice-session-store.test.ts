@@ -19,6 +19,16 @@ vi.mock("../directions/studio/composer/composer-voice-audio", () => ({
 const mockedBridge = vi.mocked(bridge);
 const mockedStartVoiceCapture = vi.mocked(startVoiceCapture);
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.spyOn(performance, "now").mockImplementation(() => Date.now());
@@ -75,6 +85,34 @@ describe("voice session store", () => {
 
     expect(mockedStartVoiceCapture).toHaveBeenCalledTimes(1);
     expect(useVoiceSessionStore.getState().ownerThreadId).toBe("thread-1");
+  });
+
+  it("cancels a session while microphone capture is still starting", async () => {
+    const capture = makeCapture();
+    const startCapture = createDeferred<typeof capture>();
+    mockedStartVoiceCapture.mockReturnValue(startCapture.promise);
+
+    const startSession = useVoiceSessionStore.getState().startSession({
+      environmentId: "env-1",
+      threadId: "thread-1",
+    });
+
+    expect(useVoiceSessionStore.getState().phase).toBe("starting");
+
+    await useVoiceSessionStore.getState().stopSession();
+
+    expect(useVoiceSessionStore.getState().phase).toBe("idle");
+
+    startCapture.resolve(capture);
+    await startSession;
+
+    expect(capture.cancel).toHaveBeenCalledTimes(1);
+    expect(useVoiceSessionStore.getState()).toMatchObject({
+      activeSessionToken: null,
+      ownerEnvironmentId: null,
+      ownerThreadId: null,
+      phase: "idle",
+    });
   });
 });
 
