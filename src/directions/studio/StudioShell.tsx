@@ -9,6 +9,7 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { useTerminalStore } from "../../stores/terminal-store";
+import { useVoiceSessionStore } from "../../stores/voice-session-store";
 import { SettingsDialog } from "./SettingsDialog";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
@@ -34,7 +35,11 @@ export function StudioShell() {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
+  const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
+  const reconcileVoiceSessionSnapshot = useVoiceSessionStore(
+    (state) => state.reconcileWorkspaceSnapshot,
+  );
   const scope = useGitReviewStore(
     selectGitReviewScope(selectedEnvironment?.id ?? null),
   );
@@ -61,6 +66,10 @@ export function StudioShell() {
     window.addEventListener("keydown", handleKeydown);
     return () => window.removeEventListener("keydown", handleKeydown);
   }, []);
+
+  useEffect(() => {
+    void reconcileVoiceSessionSnapshot(workspaceSnapshot);
+  }, [reconcileVoiceSessionSnapshot, workspaceSnapshot]);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));

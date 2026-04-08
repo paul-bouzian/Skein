@@ -26,6 +26,7 @@
 .studio-statusbar__right {
   flex: 1;
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .studio-statusbar__runtimes {
@@ -54,4 +55,41 @@
   white-space: nowrap;
   max-width: 300px;
   color: var(--tx-text-secondary);
+}
+
+.studio-statusbar__voice-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tx-space-xs);
+  max-width: 280px;
+  padding: 0 var(--tx-space-sm);
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--tx-accent) 32%, var(--tx-border-subtle));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tx-accent) 10%, transparent);
+  color: var(--tx-text-primary);
+  cursor: pointer;
+}
+
+.studio-statusbar__voice-indicator:hover {
+  border-color: color-mix(in srgb, var(--tx-accent) 48%, var(--tx-border-subtle));
+  background: color-mix(in srgb, var(--tx-accent) 14%, transparent);
+}
+
+.studio-statusbar__voice-indicator:focus-visible {
+  outline: 2px solid var(--tx-border-focus);
+  outline-offset: 2px;
+}
+
+.studio-statusbar__voice-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-statusbar__voice-duration {
+  color: var(--tx-text-muted);
+  flex-shrink: 0;
 }

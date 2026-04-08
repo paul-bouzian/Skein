@@ -95,7 +95,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         return { selectedThreadId: id };
       }
 
-      const selectedThread = findThread(state.snapshot, id);
+      const selectedThread = findThreadInWorkspace(state.snapshot, id);
       if (!selectedThread) {
         return { selectedThreadId: null };
       }
@@ -162,7 +162,7 @@ function reconcileSelection(
 ) {
   const selectedProject = findProject(snapshot, state.selectedProjectId);
   const selectedEnvironment = findEnvironment(snapshot, state.selectedEnvironmentId);
-  const selectedThread = findThread(snapshot, state.selectedThreadId);
+  const selectedThread = findThreadInWorkspace(snapshot, state.selectedThreadId);
   const fallbackEnvironment = selectedProject
     ? findPrimaryEnvironment(selectedProject)
     : null;
@@ -271,8 +271,11 @@ function findLatestActiveThread(environment: EnvironmentRecord) {
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0] ?? null;
 }
 
-function findThread(snapshot: WorkspaceSnapshot, threadId: string | null) {
-  if (!threadId) return null;
+export function findThreadInWorkspace(
+  snapshot: WorkspaceSnapshot | null,
+  threadId: string | null,
+) {
+  if (!snapshot || !threadId) return null;
   for (const project of snapshot.projects) {
     for (const environment of project.environments) {
       const thread = environment.threads.find((candidate) => candidate.id === threadId);

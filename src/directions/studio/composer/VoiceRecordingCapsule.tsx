@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 
 import { CloseIcon } from "../../../shared/Icons";
+import { formatVoiceDuration } from "./voice-duration";
 
 type Props = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
@@ -64,7 +65,7 @@ export function VoiceRecordingCapsule({
             <span className="tx-voice-capsule__title">Listening</span>
           </div>
           <span className="tx-voice-capsule__duration" aria-hidden="true">
-            {formatDuration(durationMs)}
+            {formatVoiceDuration(durationMs)}
           </span>
         </div>
         <canvas
@@ -90,7 +91,7 @@ export function VoiceRecordingCapsule({
           </span>
         </div>
         <span className="tx-voice-capsule__duration" aria-hidden="true">
-          {formatDuration(durationMs)}
+          {formatVoiceDuration(durationMs)}
         </span>
       </div>
       <div className="tx-voice-capsule__progress" aria-hidden="true" />
@@ -99,11 +100,4 @@ export function VoiceRecordingCapsule({
       </div>
     </div>
   );
-}
-
-function formatDuration(durationMs: number) {
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }

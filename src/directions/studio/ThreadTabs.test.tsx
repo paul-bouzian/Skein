@@ -10,6 +10,10 @@ import {
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import { useConversationStore } from "../../stores/conversation-store";
+import {
+  resetVoiceSessionStore,
+  useVoiceSessionStore,
+} from "../../stores/voice-session-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { ThreadTabs } from "./ThreadTabs";
 
@@ -26,8 +30,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 const mockedBridge = vi.mocked(bridge);
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  await resetVoiceSessionStore();
   useWorkspaceStore.setState((state) => ({
     ...state,
     snapshot: makeWorkspaceSnapshot(),
@@ -77,6 +82,31 @@ describe("ThreadTabs", () => {
       expect(mockedBridge.archiveThread).toHaveBeenCalledWith({ threadId: "thread-1" });
     });
     expect(refreshSnapshot).toHaveBeenCalled();
+  });
+
+  it("prevents archiving the thread that still owns voice work", async () => {
+    useVoiceSessionStore.setState((state) => ({
+      ...state,
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      phase: "recording",
+    }));
+
+    render(<ThreadTabs />);
+
+    const archiveButton = screen.getByRole("button", {
+      name: "Archive Thread 1",
+    });
+    expect(archiveButton).toBeDisabled();
+    expect(archiveButton).toHaveAttribute(
+      "title",
+      "Finish handling voice dictation in Thread 1 before archiving it.",
+    );
+
+    await userEvent.click(archiveButton);
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(mockedBridge.archiveThread).not.toHaveBeenCalled();
   });
 
   it("does not mark a thread as needing attention for a completed task tracker", () => {

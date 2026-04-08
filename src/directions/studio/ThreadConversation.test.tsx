@@ -20,6 +20,7 @@ import {
   teardownConversationListener,
   useConversationStore,
 } from "../../stores/conversation-store";
+import { resetVoiceSessionStore } from "../../stores/voice-session-store";
 import { useVoiceStatusStore } from "../../stores/voice-status-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { ConversationMarkdown } from "./ConversationMarkdown";
@@ -112,9 +113,10 @@ function resetStores() {
   }));
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   openUrlMock.mockReset();
+  await resetVoiceSessionStore();
   resetStores();
   mockedBridge.getThreadComposerCatalog.mockResolvedValue({
     prompts: [],

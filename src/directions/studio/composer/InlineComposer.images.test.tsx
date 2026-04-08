@@ -9,6 +9,7 @@ import {
   baseComposer,
   capabilitiesFixture,
 } from "../../../test/fixtures/conversation";
+import { resetVoiceSessionStore } from "../../../stores/voice-session-store";
 import { useVoiceStatusStore } from "../../../stores/voice-status-store";
 import {
   MAX_CONVERSATION_IMAGE_BYTES,
@@ -45,8 +46,9 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  await resetVoiceSessionStore();
   useVoiceStatusStore.setState((state) => ({
     ...state,
     snapshotsByEnvironmentId: {},

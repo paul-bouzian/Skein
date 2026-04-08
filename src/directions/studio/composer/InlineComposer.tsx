@@ -168,7 +168,7 @@ export function InlineComposer({
     inputRef: textareaRef,
     locked: baseControlsDisabled,
     onChangeDraft,
-    sessionKey: threadId,
+    threadId,
   });
   const inputDisabled = baseInputDisabled || voiceBusy;
   const controlsDisabled = baseControlsDisabled || voiceBusy;
