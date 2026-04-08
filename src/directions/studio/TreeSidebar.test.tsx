@@ -17,6 +17,7 @@ import { TreeSidebar } from "./TreeSidebar";
 
 const confirmMock = vi.fn();
 const messageMock = vi.fn();
+const openUrlMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
   ensureProjectCanBeRemoved: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: (...args: unknown[]) => messageMock(...args),
 }));
 
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: (...args: unknown[]) => openUrlMock(...args),
+}));
+
 const mockedBridge = vi.mocked(bridge);
 const onOpenSettings = vi.fn();
 const onToggleTheme = vi.fn();
@@ -54,6 +59,7 @@ const onToggleTheme = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   messageMock.mockResolvedValue("Ok");
+  openUrlMock.mockResolvedValue(undefined);
   mockedBridge.ensureProjectCanBeRemoved.mockResolvedValue(undefined);
   useConversationStore.setState((state) => ({
     ...state,
@@ -268,7 +274,9 @@ describe("TreeSidebar", () => {
 
   it("keeps generic project removal failures in the sidebar notice", async () => {
     confirmMock.mockResolvedValue(true);
-    mockedBridge.removeProject.mockRejectedValue(new Error("Disk is unavailable."));
+    mockedBridge.removeProject.mockRejectedValue(
+      new Error("Disk is unavailable."),
+    );
 
     renderSidebar();
 
@@ -403,6 +411,151 @@ describe("TreeSidebar", () => {
     expect(
       row.querySelector(".runtime-indicator__dot--waiting"),
     ).not.toBeNull();
+  });
+
+  it("opens the worktree pull request without changing the selected environment", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-local",
+                    environmentId: "env-local",
+                  }),
+                ],
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "add-themes",
+                gitBranch: "add-themes",
+                pullRequest: {
+                  number: 17,
+                  title: "Add themes",
+                  url: "https://github.com/acme/threadex/pull/17",
+                  state: "open",
+                },
+                threads: [
+                  makeThread({
+                    id: "thread-worktree",
+                    environmentId: "env-worktree",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedEnvironmentId: "env-local",
+      selectedThreadId: "thread-local",
+    }));
+
+    renderSidebar();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Open pull request #17: Add themes",
+      }),
+    );
+
+    expect(openUrlMock).toHaveBeenCalledWith(
+      "https://github.com/acme/threadex/pull/17",
+    );
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
+      "env-local",
+    );
+  });
+
+  it("keeps the worktree context menu available when right-clicking the pull request icon", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "add-themes",
+                gitBranch: "add-themes",
+                pullRequest: {
+                  number: 17,
+                  title: "Add themes",
+                  url: "https://github.com/acme/threadex/pull/17",
+                  state: "open",
+                },
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getByRole("button", {
+        name: "Open pull request #17: Add themes",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Delete worktree" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders merged pull request controls with a merged tooltip label", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "release-cut",
+                gitBranch: "release-cut",
+                pullRequest: {
+                  number: 29,
+                  title: "Release cut",
+                  url: "https://github.com/acme/threadex/pull/29",
+                  state: "merged",
+                },
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    expect(
+      screen.getByRole("button", {
+        name: "Merged pull request #29: Release cut",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("renders footer utility actions and forwards clicks", async () => {

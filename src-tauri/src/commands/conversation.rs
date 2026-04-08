@@ -112,6 +112,7 @@ pub async fn send_thread_message(
 
     if let Some(rename) = rename_result.as_ref() {
         if rename.environment_renamed {
+            state.pull_requests.clear_snapshot(&rename.environment_id);
             emit_workspace_event(
                 &app,
                 WorkspaceEvent {
@@ -121,6 +122,7 @@ pub async fn send_thread_message(
                     thread_id: Some(rename.thread_id.clone()),
                 },
             );
+            state.pull_requests.refresh_now();
             if let Err(error) = state.runtime.stop(&rename.environment_id).await {
                 warn!(
                     environment_id = rename.environment_id,

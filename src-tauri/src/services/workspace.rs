@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
@@ -10,9 +10,10 @@ use uuid::Uuid;
 use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::workspace::{
-    EnvironmentKind, EnvironmentRecord, ManagedWorktreeCreateResult, ProjectRecord,
-    ProjectSettings, ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides,
-    ThreadRecord, ThreadStatus, WorkspaceSnapshot, WorktreeScriptTrigger,
+    EnvironmentKind, EnvironmentPullRequestSnapshot, EnvironmentRecord,
+    ManagedWorktreeCreateResult, ProjectRecord, ProjectSettings, ProjectSettingsPatch,
+    RuntimeState, RuntimeStatusSnapshot, ThreadOverrides, ThreadRecord, ThreadStatus,
+    WorkspaceSnapshot, WorktreeScriptTrigger,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
@@ -79,6 +80,14 @@ pub struct ThreadRuntimeContext {
     pub codex_binary_path: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestWatchTarget {
+    pub environment_id: String,
+    pub project_id: String,
+    pub path: String,
+    pub git_branch: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct AutoRenameFirstPromptRequest {
     pub thread_id: String,
@@ -117,6 +126,14 @@ impl WorkspaceService {
         &self,
         runtime_statuses: Vec<RuntimeStatusSnapshot>,
     ) -> AppResult<WorkspaceSnapshot> {
+        self.snapshot_with_pull_requests(runtime_statuses, &HashMap::new())
+    }
+
+    pub fn snapshot_with_pull_requests(
+        &self,
+        runtime_statuses: Vec<RuntimeStatusSnapshot>,
+        pull_requests: &HashMap<String, EnvironmentPullRequestSnapshot>,
+    ) -> AppResult<WorkspaceSnapshot> {
         let connection = self.database.open()?;
         let settings = self.read_or_seed_settings(&connection)?;
         let runtime_map = runtime_statuses
@@ -124,10 +141,67 @@ impl WorkspaceService {
             .map(|status| (status.environment_id.clone(), status))
             .collect::<HashMap<_, _>>();
 
-        let mut projects = self.read_projects(&connection, &runtime_map)?;
+        let mut projects = self.read_projects(&connection, &runtime_map, pull_requests)?;
         projects.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
 
         Ok(WorkspaceSnapshot { settings, projects })
+    }
+
+    pub fn pull_request_watch_targets(&self) -> AppResult<Vec<PullRequestWatchTarget>> {
+        let connection = self.database.open()?;
+        let mut statement = connection.prepare(
+            "
+            SELECT environments.id, environments.project_id, environments.path, environments.git_branch
+            FROM environments
+            JOIN projects ON projects.id = environments.project_id
+            WHERE projects.archived_at IS NULL
+              AND environments.kind IN ('managedWorktree', 'permanentWorktree')
+              AND environments.git_branch IS NOT NULL
+              AND TRIM(environments.git_branch) <> ''
+            ORDER BY environments.created_at ASC
+            ",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(PullRequestWatchTarget {
+                environment_id: row.get(0)?,
+                project_id: row.get(1)?,
+                path: row.get(2)?,
+                git_branch: row.get(3)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
+    pub fn pull_request_watch_target(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<Option<PullRequestWatchTarget>> {
+        let connection = self.database.open()?;
+        connection
+            .query_row(
+                "
+                SELECT environments.id, environments.project_id, environments.path, environments.git_branch
+                FROM environments
+                JOIN projects ON projects.id = environments.project_id
+                WHERE environments.id = ?1
+                  AND projects.archived_at IS NULL
+                  AND environments.kind IN ('managedWorktree', 'permanentWorktree')
+                  AND environments.git_branch IS NOT NULL
+                  AND TRIM(environments.git_branch) <> ''
+                ",
+                params![environment_id],
+                |row| {
+                    Ok(PullRequestWatchTarget {
+                        environment_id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        path: row.get(2)?,
+                        git_branch: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(AppError::from)
     }
 
     pub fn update_settings(&self, patch: GlobalSettingsPatch) -> AppResult<GlobalSettings> {
@@ -635,8 +709,8 @@ impl WorkspaceService {
             prompt_naming::ensure_unique_branch_slug(&suggestion.branch_slug, |candidate| {
                 let branch_taken =
                     candidate != metadata.branch_name && branch_ref_exists(&branch_refs, candidate);
-                let path_taken =
-                    candidate != metadata.branch_name && environment_parent.join(candidate).exists();
+                let path_taken = candidate != metadata.branch_name
+                    && environment_parent.join(candidate).exists();
                 branch_taken || path_taken
             });
         let next_environment_path = environment_parent.join(&next_branch_name);
@@ -663,7 +737,11 @@ impl WorkspaceService {
         let mut worktree_moved = false;
 
         if next_branch_name != metadata.branch_name {
-            git::rename_branch(&metadata.project_root, &metadata.branch_name, &next_branch_name)?;
+            git::rename_branch(
+                &metadata.project_root,
+                &metadata.branch_name,
+                &next_branch_name,
+            )?;
             branch_renamed = true;
         }
 
@@ -1321,7 +1399,10 @@ impl WorkspaceService {
         Ok(metadata)
     }
 
-    fn first_prompt_naming_metadata(&self, thread_id: &str) -> AppResult<FirstPromptNamingMetadata> {
+    fn first_prompt_naming_metadata(
+        &self,
+        thread_id: &str,
+    ) -> AppResult<FirstPromptNamingMetadata> {
         let connection = self.database.open()?;
         let mut metadata = connection
             .query_row(
@@ -1426,6 +1507,7 @@ impl WorkspaceService {
         &self,
         connection: &rusqlite::Connection,
         runtime_map: &HashMap<String, RuntimeStatusSnapshot>,
+        pull_requests: &HashMap<String, EnvironmentPullRequestSnapshot>,
     ) -> AppResult<Vec<ProjectRecord>> {
         let mut project_statement = connection.prepare(
             "
@@ -1471,6 +1553,7 @@ impl WorkspaceService {
                 git_branch: row.get(5)?,
                 base_branch: row.get(6)?,
                 is_default: row.get::<_, i64>(7)? == 1,
+                pull_request: pull_requests.get(&environment_id).cloned(),
                 created_at: row.get(8)?,
                 updated_at: row.get(9)?,
                 threads: thread_map.remove(&environment_id).unwrap_or_default(),
@@ -1731,14 +1814,16 @@ fn project_settings_from_json(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::fs;
     use std::path::{Path, PathBuf};
 
     use chrono::Utc;
-    use rusqlite::{params, Connection};
+    use rusqlite::{Connection, params};
     use uuid::Uuid;
 
     use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};
+    use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
 
@@ -2029,6 +2114,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn snapshot_with_pull_requests_projects_worktree_pull_request_state() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("pr-sync-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let result = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+
+        let snapshot = harness
+            .service
+            .snapshot_with_pull_requests(
+                Vec::new(),
+                &HashMap::from([(
+                    result.environment.id.clone(),
+                    EnvironmentPullRequestSnapshot {
+                        number: 42,
+                        title: "Add PR sync".to_string(),
+                        url: "https://github.com/acme/threadex/pull/42".to_string(),
+                        state: PullRequestState::Open,
+                    },
+                )]),
+            )
+            .expect("snapshot should resolve");
+        let environment = snapshot
+            .projects
+            .into_iter()
+            .flat_map(|project| project.environments.into_iter())
+            .find(|environment| environment.id == result.environment.id)
+            .expect("environment should exist");
+
+        assert_eq!(
+            environment.pull_request.as_ref().map(|value| value.number),
+            Some(42)
+        );
+        assert_eq!(
+            environment.pull_request.as_ref().map(|value| value.state),
+            Some(PullRequestState::Open)
+        );
+    }
+
     struct WorkspaceHarness {
         service: WorkspaceService,
         managed_root: PathBuf,
@@ -2082,7 +2217,9 @@ mod tests {
         }
 
         fn create_fake_codex(&self, json: &str) -> PathBuf {
-            let script_path = self.temp_root.join(format!("fake-codex-{}.sh", Uuid::now_v7()));
+            let script_path = self
+                .temp_root
+                .join(format!("fake-codex-{}.sh", Uuid::now_v7()));
             fs::write(
                 &script_path,
                 format!(

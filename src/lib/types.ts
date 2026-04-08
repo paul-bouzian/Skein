@@ -3,8 +3,12 @@
 export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
+export type PullRequestState = "open" | "merged";
 export type WorktreeScriptTrigger = "setup" | "teardown";
-export type WorkspaceEventKind = "environmentRenamed" | "threadAutoRenamed";
+export type WorkspaceEventKind =
+  | "environmentRenamed"
+  | "environmentPullRequestChanged"
+  | "threadAutoRenamed";
 export type GitReviewScope = "uncommitted" | "branch";
 export type GitChangeSection = "staged" | "unstaged" | "untracked" | "branch";
 export type GitChangeKind =
@@ -84,6 +88,13 @@ export type ThreadRecord = {
   archivedAt?: string;
 };
 
+export type EnvironmentPullRequestSnapshot = {
+  number: number;
+  title: string;
+  url: string;
+  state: PullRequestState;
+};
+
 export type EnvironmentRecord = {
   id: string;
   projectId: string;
@@ -93,6 +104,7 @@ export type EnvironmentRecord = {
   gitBranch?: string;
   baseBranch?: string;
   isDefault: boolean;
+  pullRequest?: EnvironmentPullRequestSnapshot;
   createdAt: string;
   updatedAt: string;
   threads: ThreadRecord[];

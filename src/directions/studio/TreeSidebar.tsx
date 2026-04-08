@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { createPortal } from "react-dom";
 import {
   deriveEnvironmentConversationStatus,
@@ -17,6 +18,7 @@ import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { GitBranchIcon, PlusIcon } from "../../shared/Icons";
 import type {
   EnvironmentRecord,
+  EnvironmentPullRequestSnapshot,
   ThreadConversationSnapshot,
 } from "../../lib/types";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
@@ -314,12 +316,11 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                 {project.environments
                   .filter((environment) => environment.kind !== "local")
                   .map((environment) => (
-                    <button
+                    <div
                       key={environment.id}
-                      type="button"
-                      className={`environment-item ${
+                      className={`environment-item-shell ${
                         selectedEnvironmentId === environment.id
-                          ? "environment-item--selected"
+                          ? "environment-item-shell--selected"
                           : ""
                       }`}
                       onClick={() => handleEnvironmentSelect(environment.id)}
@@ -335,35 +336,39 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                         );
                       }}
                     >
-                      <span className="environment-item__primary">
-                        <span className="environment-item__name-row">
-                          <GitBranchIcon
-                            size={13}
-                            className="environment-item__icon"
-                          />
-                          <span className="environment-item__name">
-                            {environment.name}
-                          </span>
-                        </span>
-                        {environment.gitBranch &&
-                          environment.gitBranch !== environment.name && (
-                            <span
-                              className="environment-item__branch"
-                              title={environment.gitBranch}
-                            >
-                              {environment.gitBranch}
+                      <span className="environment-item__icon-slot">
+                        {renderPullRequestControl(environment)}
+                      </span>
+                      <button
+                        type="button"
+                        className="environment-item"
+                      >
+                        <span className="environment-item__primary">
+                          <span className="environment-item__name-row">
+                            <span className="environment-item__name">
+                              {environment.name}
                             </span>
-                          )}
-                      </span>
-                      <span className="environment-item__secondary">
-                        <RuntimeIndicator
-                          tone={environmentIndicatorTone(
-                            environment,
-                            snapshotsByThreadId,
-                          )}
-                        />
-                      </span>
-                    </button>
+                          </span>
+                          {environment.gitBranch &&
+                            environment.gitBranch !== environment.name && (
+                              <span
+                                className="environment-item__branch"
+                                title={environment.gitBranch}
+                              >
+                                {environment.gitBranch}
+                              </span>
+                            )}
+                        </span>
+                        <span className="environment-item__secondary">
+                          <RuntimeIndicator
+                            tone={environmentIndicatorTone(
+                              environment,
+                              snapshotsByThreadId,
+                            )}
+                          />
+                        </span>
+                      </button>
+                    </div>
                   ))}
               </div>
             </section>
@@ -450,7 +455,49 @@ function environmentIndicatorTone(
   );
 }
 
-async function showProjectRemovalBlockedDialog(cause: unknown): Promise<boolean> {
+function renderPullRequestControl(environment: EnvironmentRecord) {
+  const pullRequest = environment.pullRequest;
+  if (!pullRequest) {
+    return (
+      <span className="environment-item__icon-shell" aria-hidden="true">
+        <GitBranchIcon size={13} className="environment-item__icon" />
+      </span>
+    );
+  }
+
+  const label = pullRequestAriaLabel(pullRequest);
+
+  return (
+    <button
+      type="button"
+      className="environment-item__icon-button"
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
+      }}
+    >
+      <GitBranchIcon
+        size={13}
+        className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
+      />
+    </button>
+  );
+}
+
+function pullRequestAriaLabel(pullRequest: EnvironmentPullRequestSnapshot) {
+  const stateLabel =
+    pullRequest.state === "merged"
+      ? "Merged pull request"
+      : "Open pull request";
+  return `${stateLabel} #${pullRequest.number}: ${pullRequest.title}`;
+}
+
+async function showProjectRemovalBlockedDialog(
+  cause: unknown,
+): Promise<boolean> {
   const errorMessage = extractErrorMessage(cause);
   if (errorMessage !== PROJECT_REMOVAL_BLOCKED_MESSAGE) {
     return false;

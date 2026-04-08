@@ -86,6 +86,7 @@ export function makeEnvironment(
     gitBranch: "main",
     baseBranch: undefined,
     isDefault: true,
+    pullRequest: undefined,
     createdAt: "2026-04-03T08:00:00Z",
     updatedAt: "2026-04-03T08:00:00Z",
     threads: [makeThread()],
@@ -281,7 +282,8 @@ export function makeProposedPlan(
       { step: "Implement the plan UI", status: "inProgress" },
       { step: "Validate interactions", status: "pending" },
     ],
-    markdown: "## Proposed plan\n\n- Inspect the runtime layer\n- Implement the plan UI\n- Validate interactions",
+    markdown:
+      "## Proposed plan\n\n- Inspect the runtime layer\n- Implement the plan UI\n- Validate interactions",
     status: "ready",
     isAwaitingDecision: true,
     ...overrides,
@@ -300,7 +302,8 @@ export function makeTaskPlan(
       { step: "Implement the task UI", status: "inProgress" },
       { step: "Validate interactions", status: "pending" },
     ],
-    markdown: "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI\n- Validate interactions",
+    markdown:
+      "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI\n- Validate interactions",
     status: "running",
     ...overrides,
   };

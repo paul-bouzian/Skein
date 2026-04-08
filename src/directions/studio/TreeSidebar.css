@@ -194,6 +194,8 @@
 .project-group__header *,
 .project-group__header-shell,
 .project-group__header-shell *,
+.environment-item-shell,
+.environment-item-shell *,
 .environment-item,
 .environment-item *,
 .tree-sidebar__context-item {
@@ -290,15 +292,14 @@
   background: color-mix(in srgb, var(--tx-border-subtle) 84%, transparent);
 }
 
-.environment-item {
+.environment-item-shell {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--tx-space-sm);
   width: 100%;
+  cursor: pointer;
   padding: 7px var(--tx-space-md);
   border-radius: var(--tx-radius-md);
-  text-align: left;
   background: color-mix(in srgb, var(--tx-bg-raised) 28%, transparent);
   border: 1px solid transparent;
   transition:
@@ -306,14 +307,55 @@
     border-color var(--tx-transition-fast);
 }
 
-.environment-item:hover {
+.environment-item-shell:hover {
   background: color-mix(in srgb, var(--tx-bg-hover) 88%, var(--tx-bg-raised));
   border-color: var(--tx-border-subtle);
 }
 
-.environment-item--selected {
+.environment-item-shell--selected,
+.environment-item-shell--selected:hover {
   background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
   border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
+}
+
+.environment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tx-space-sm);
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+}
+
+.environment-item__icon-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.environment-item__icon-shell,
+.environment-item__icon-button {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--tx-radius-sm);
+}
+
+.environment-item__icon-button {
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.environment-item__icon-button:hover,
+.environment-item__icon-button:focus-visible {
+  background: var(--tx-bg-hover);
 }
 
 .environment-item__primary,
@@ -334,7 +376,6 @@
 .environment-item__name-row {
   display: flex;
   align-items: center;
-  gap: var(--tx-space-xs);
   width: 100%;
   min-width: 0;
 }
@@ -342,6 +383,14 @@
 .environment-item__icon {
   flex-shrink: 0;
   color: var(--tx-text-muted);
+}
+
+.environment-item__icon--open {
+  color: var(--tx-success);
+}
+
+.environment-item__icon--merged {
+  color: var(--tx-pr-merged);
 }
 
 .environment-item__name {

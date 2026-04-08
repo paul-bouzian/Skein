@@ -17,7 +17,10 @@ pub async fn get_workspace_snapshot(
     state: State<'_, AppState>,
 ) -> Result<WorkspaceSnapshot, CommandError> {
     let runtime_statuses = state.runtime.refresh_statuses().await?;
-    Ok(state.workspace.snapshot(runtime_statuses)?)
+    let pull_requests = state.pull_requests.snapshot();
+    Ok(state
+        .workspace
+        .snapshot_with_pull_requests(runtime_statuses, &pull_requests)?)
 }
 
 #[tauri::command]
@@ -73,6 +76,7 @@ pub async fn remove_project(
         .terminal
         .kill_environments(environment_ids.iter().map(String::as_str))?;
     state.workspace.remove_project(&project_id)?;
+    state.pull_requests.refresh_now();
     Ok(())
 }
 
@@ -81,7 +85,9 @@ pub fn create_managed_worktree(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<ManagedWorktreeCreateResult, CommandError> {
-    Ok(state.workspace.create_managed_worktree(&project_id)?)
+    let result = state.workspace.create_managed_worktree(&project_id)?;
+    state.pull_requests.refresh_now();
+    Ok(result)
 }
 
 #[tauri::command]
@@ -94,9 +100,11 @@ pub async fn delete_worktree_environment(
         .ensure_worktree_environment_can_be_deleted(&environment_id)?;
     state.runtime.stop(&environment_id).await?;
     state.terminal.kill_environment(&environment_id)?;
-    Ok(state
+    state
         .workspace
-        .delete_worktree_environment(&environment_id)?)
+        .delete_worktree_environment(&environment_id)?;
+    state.pull_requests.refresh_now();
+    Ok(())
 }
 
 #[tauri::command]
