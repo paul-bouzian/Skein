@@ -109,6 +109,10 @@ export function deriveEnvironmentConversationStatus(
     return "idle";
   }
 
+  if (hasPersistedConversationHistory(environment)) {
+    return historicalFallbackConversationStatus(environment.runtime.state);
+  }
+
   return fallbackConversationStatus(environment.runtime.state);
 }
 
@@ -121,4 +125,21 @@ function fallbackConversationStatus(runtimeState: RuntimeState): ConversationSta
     case "stopped":
       return "idle";
   }
+}
+
+function historicalFallbackConversationStatus(
+  runtimeState: RuntimeState,
+): ConversationStatus {
+  switch (runtimeState) {
+    case "running":
+      return "running";
+    case "exited":
+      return "interrupted";
+    case "stopped":
+      return "completed";
+  }
+}
+
+function hasPersistedConversationHistory(environment: EnvironmentRecord) {
+  return environment.threads.some((thread) => Boolean(thread.codexThreadId));
 }

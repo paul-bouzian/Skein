@@ -127,4 +127,36 @@ describe("conversation status helpers", () => {
 
     expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
   });
+
+  it("treats stopped environments with persisted conversation history as completed", () => {
+    const environment = makeEnvironment({
+      runtime: {
+        environmentId: "env-1",
+        state: "stopped",
+      },
+      threads: [
+        makeThread({
+          codexThreadId: "thr-existing",
+        }),
+      ],
+    });
+
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("completed");
+  });
+
+  it("treats exited environments with persisted conversation history as interrupted", () => {
+    const environment = makeEnvironment({
+      runtime: {
+        environmentId: "env-1",
+        state: "exited",
+      },
+      threads: [
+        makeThread({
+          codexThreadId: "thr-existing",
+        }),
+      ],
+    });
+
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("interrupted");
+  });
 });

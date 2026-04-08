@@ -413,6 +413,49 @@ describe("TreeSidebar", () => {
     ).not.toBeNull();
   });
 
+  it("shows a completed indicator for a stopped worktree with persisted chat history", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "slate-hawk",
+                gitBranch: "slate-hawk",
+                runtime: {
+                  environmentId: "env-worktree",
+                  state: "stopped",
+                },
+                threads: [
+                  makeThread({
+                    id: "thread-worktree",
+                    environmentId: "env-worktree",
+                    codexThreadId: "thr_completed",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    const row = screen.getByRole("button", { name: /slate-hawk/i });
+    expect(
+      row.querySelector(".runtime-indicator__dot--completed"),
+    ).not.toBeNull();
+  });
+
   it("opens the worktree pull request without changing the selected environment", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
