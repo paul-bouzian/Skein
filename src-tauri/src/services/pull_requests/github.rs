@@ -185,7 +185,7 @@ fn list_matching_pull_requests(
                 "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
             ],
         )?;
-        let raw_stdout = stdout_message(&output.stdout);
+        let raw_stdout = git::stdout_message(&output.stdout);
         if raw_stdout.is_empty() {
             continue;
         }
@@ -360,14 +360,11 @@ fn resolve_remote_repository_context(
 }
 
 fn read_git_config_value(repo_root: &Path, key: &str) -> AppResult<Option<String>> {
-    let output = Command::new("git")
-        .current_dir(repo_root)
-        .args(["config", "--get", key])
-        .output()?;
+    let output = git::command_output(repo_root, ["config", "--get", key])?;
     if !output.status.success() {
         return Ok(None);
     }
-    let value = stdout_message(&output.stdout);
+    let value = git::stdout_message(&output.stdout);
     Ok((!value.is_empty()).then_some(value))
 }
 
@@ -396,7 +393,7 @@ where
         return Ok(output);
     }
 
-    let message = stderr_message(&output.stderr);
+    let message = gh_stderr_message(&output.stderr);
     if is_expected_gh_failure(&message) {
         debug!(cwd = %repo_root.display(), "pull request lookup unavailable: {message}");
         return Ok(Output {
@@ -489,11 +486,7 @@ fn push_unique_selector(selectors: &mut Vec<String>, candidate: Option<&str>) {
     selectors.push(candidate.to_string());
 }
 
-fn stdout_message(buffer: &[u8]) -> String {
-    String::from_utf8_lossy(buffer).trim().to_string()
-}
-
-fn stderr_message(buffer: &[u8]) -> String {
+fn gh_stderr_message(buffer: &[u8]) -> String {
     let message = String::from_utf8_lossy(buffer).trim().to_string();
     if message.is_empty() {
         "GitHub command failed.".to_string()
