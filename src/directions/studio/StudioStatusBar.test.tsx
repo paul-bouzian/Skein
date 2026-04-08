@@ -83,4 +83,65 @@ describe("StudioStatusBar", () => {
       screen.queryByRole("button", { name: /Listening in Thread 1/i }),
     ).toBeNull();
   });
+
+  it("keeps a completed voice result discoverable away from the owner thread", async () => {
+    useVoiceSessionStore.setState((state) => ({
+      ...state,
+      durationMs: 12_000,
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      pendingOutcomesByThreadId: {
+        "thread-1": {
+          id: 1,
+          kind: "transcript",
+          text: "voice note",
+          threadId: "thread-1",
+        },
+      },
+      phase: "idle",
+    }));
+
+    render(<StudioStatusBar />);
+
+    const indicator = screen.getByRole("button", {
+      name: /Voice note ready in Thread 1/i,
+    });
+    expect(indicator).toHaveAttribute(
+      "title",
+      "Return to Thread 1 to review the voice result",
+    );
+    expect(indicator).toHaveTextContent("00:12");
+
+    await userEvent.click(indicator);
+
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
+  });
+
+  it("keeps an off-thread voice error discoverable until the owner thread is revisited", () => {
+    useVoiceSessionStore.setState((state) => ({
+      ...state,
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      pendingOutcomesByThreadId: {
+        "thread-1": {
+          id: 1,
+          kind: "error",
+          message: "Voice transcription failed.",
+          threadId: "thread-1",
+        },
+      },
+      phase: "idle",
+    }));
+
+    render(<StudioStatusBar />);
+
+    const indicator = screen.getByRole("button", {
+      name: /Voice transcription failed in Thread 1/i,
+    });
+    expect(indicator).toHaveAttribute(
+      "title",
+      "Return to Thread 1 to review the voice error",
+    );
+    expect(indicator).not.toHaveTextContent("00:00");
+  });
 });

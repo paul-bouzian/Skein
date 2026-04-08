@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
+import type { WorkspaceSnapshot } from "../lib/types";
 import { transcribeEnvironmentVoice } from "../lib/bridge";
+import { findThreadInWorkspace } from "./workspace-store";
 import { useVoiceStatusStore } from "./voice-status-store";
 import {
   MAX_RECORDING_DURATION_MS,
@@ -45,6 +47,7 @@ type VoiceSessionState = {
 
   clearPendingOutcome: (threadId: string, outcomeId?: number) => void;
   drawActiveSpectrum: (canvas: HTMLCanvasElement | null) => void;
+  reconcileWorkspaceSnapshot: (snapshot: WorkspaceSnapshot | null) => Promise<void>;
   resetSession: () => Promise<void>;
   startSession: (input: StartVoiceSessionInput) => Promise<void>;
   stopSession: () => Promise<void>;
@@ -84,6 +87,19 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
 
       const nextPendingOutcomes = { ...state.pendingOutcomesByThreadId };
       delete nextPendingOutcomes[threadId];
+      if (
+        state.phase === "idle" &&
+        state.ownerThreadId === threadId &&
+        nextPendingOutcomes[threadId] === undefined
+      ) {
+        return {
+          durationMs: 0,
+          ownerEnvironmentId: null,
+          ownerThreadId: null,
+          pendingOutcomesByThreadId: nextPendingOutcomes,
+        };
+      }
+
       return { pendingOutcomesByThreadId: nextPendingOutcomes };
     });
   },
@@ -95,6 +111,17 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
     activeCapture.drawSpectrum(canvas);
   },
 
+  reconcileWorkspaceSnapshot: async (snapshot) => {
+    const { ownerThreadId } = get();
+    if (!snapshot || !ownerThreadId) {
+      return;
+    }
+    if (findThreadInWorkspace(snapshot, ownerThreadId)) {
+      return;
+    }
+    await get().resetSession();
+  },
+
   resetSession: async () => {
     await cancelActiveCapture();
     clearDurationInterval();
@@ -103,7 +130,7 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
 
   startSession: async ({ environmentId, threadId }) => {
     const state = get();
-    if (state.phase !== "idle") {
+    if (state.phase !== "idle" || selectOwnerPendingVoiceOutcome(state)) {
       return;
     }
 
@@ -126,12 +153,12 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
       if (get().activeSessionToken !== sessionToken) {
         return;
       }
-      setVoiceSessionIdle(set);
-      setPendingOutcome(
-        set,
-        threadId,
-        buildErrorOutcome(readVoiceErrorMessage(cause)),
-      );
+      setVoiceSessionPendingOutcome(set, {
+        durationMs: 0,
+        ownerEnvironmentId: environmentId,
+        ownerThreadId: threadId,
+        outcome: buildErrorOutcome(readVoiceErrorMessage(cause)),
+      });
     }
   },
 
@@ -176,29 +203,35 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
         return;
       }
 
-      setVoiceSessionIdle(set);
-      setPendingOutcome(
-        set,
+      setVoiceSessionPendingOutcome(set, {
+        durationMs: clip.durationMs,
+        ownerEnvironmentId,
         ownerThreadId,
-        buildTranscriptOutcome(result.text),
-      );
+        outcome: buildTranscriptOutcome(result.text),
+      });
     } catch (cause: unknown) {
       if (get().activeSessionToken !== activeSessionToken) {
         return;
       }
 
-      setVoiceSessionIdle(set);
-      setPendingOutcome(
-        set,
+      setVoiceSessionPendingOutcome(set, {
+        durationMs: get().durationMs,
+        ownerEnvironmentId,
         ownerThreadId,
-        buildErrorOutcome(readVoiceErrorMessage(cause)),
-      );
+        outcome: buildErrorOutcome(readVoiceErrorMessage(cause)),
+      });
       void useVoiceStatusStore
         .getState()
         .refreshEnvironmentVoiceStatus(ownerEnvironmentId);
     }
   },
 }));
+
+export function selectOwnerPendingVoiceOutcome(state: VoiceSessionState) {
+  return state.ownerThreadId
+    ? state.pendingOutcomesByThreadId[state.ownerThreadId] ?? null
+    : null;
+}
 
 function buildErrorOutcome(message: string): PendingVoiceOutcome {
   return {
@@ -243,16 +276,32 @@ function nextVoiceOutcomeId() {
   return nextOutcomeId;
 }
 
-function setPendingOutcome(
+function setVoiceSessionPendingOutcome(
   set: VoiceSessionSet,
-  threadId: string,
-  outcome: PendingVoiceOutcome,
+  {
+    durationMs,
+    ownerEnvironmentId,
+    ownerThreadId,
+    outcome,
+  }: {
+    durationMs: number;
+    ownerEnvironmentId: string;
+    ownerThreadId: string;
+    outcome: PendingVoiceOutcome;
+  },
 ) {
+  clearDurationInterval();
   set((state) => ({
+    activeSessionToken: null,
+    durationMs,
+    ownerEnvironmentId,
+    ownerThreadId,
     pendingOutcomesByThreadId: {
       ...state.pendingOutcomesByThreadId,
-      [threadId]: { ...outcome, threadId },
+      [ownerThreadId]: { ...outcome, threadId: ownerThreadId },
     },
+    phase: "idle",
+    recordingStartedAt: null,
   }));
 }
 

@@ -11,7 +11,10 @@ import {
 import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import { useGitReviewStore } from "../../stores/git-review-store";
-import { resetVoiceSessionStore } from "../../stores/voice-session-store";
+import {
+  resetVoiceSessionStore,
+  useVoiceSessionStore,
+} from "../../stores/voice-session-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { StudioShell } from "./StudioShell";
 
@@ -207,6 +210,42 @@ describe("StudioShell", () => {
     });
     expect(menu).toBeInTheDocument();
     expect(menu).toHaveStyle({ zIndex: "1310" });
+  });
+
+  it("reconciles and clears voice state when the owner thread disappears from the workspace snapshot", async () => {
+    render(<StudioShell />);
+
+    useVoiceSessionStore.setState((state) => ({
+      ...state,
+      durationMs: 4_000,
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      phase: "recording",
+    }));
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              {
+                ...state.snapshot!.projects[0]!.environments[0]!,
+                threads: [],
+              },
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    await waitFor(() => {
+      expect(useVoiceSessionStore.getState()).toMatchObject({
+        ownerEnvironmentId: null,
+        ownerThreadId: null,
+        phase: "idle",
+      });
+    });
   });
 
   it("closes an open settings picker before dismissing the modal on Escape", async () => {

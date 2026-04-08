@@ -92,6 +92,11 @@
   background: var(--tx-bg-active);
 }
 
+.thread-tab__close:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .thread-tabs__new {
   display: flex;
   align-items: center;

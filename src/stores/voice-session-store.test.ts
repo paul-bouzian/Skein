@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
 import {
+  makeEnvironment,
+  makeProject,
+  makeThread,
+  makeWorkspaceSnapshot,
+} from "../test/fixtures/conversation";
+import {
   resetVoiceSessionStore,
   useVoiceSessionStore,
 } from "./voice-session-store";
@@ -87,6 +93,36 @@ describe("voice session store", () => {
     expect(useVoiceSessionStore.getState().ownerThreadId).toBe("thread-1");
   });
 
+  it("keeps the current owner while a voice result is pending review", async () => {
+    useVoiceSessionStore.setState((state) => ({
+      ...state,
+      durationMs: 1_200,
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      pendingOutcomesByThreadId: {
+        "thread-1": {
+          id: 1,
+          kind: "error",
+          message: "Voice transcription failed.",
+          threadId: "thread-1",
+        },
+      },
+      phase: "idle",
+    }));
+
+    await useVoiceSessionStore.getState().startSession({
+      environmentId: "env-2",
+      threadId: "thread-2",
+    });
+
+    expect(mockedStartVoiceCapture).not.toHaveBeenCalled();
+    expect(useVoiceSessionStore.getState()).toMatchObject({
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      phase: "idle",
+    });
+  });
+
   it("cancels a session while microphone capture is still starting", async () => {
     const capture = makeCapture();
     const startCapture = createDeferred<typeof capture>();
@@ -111,6 +147,81 @@ describe("voice session store", () => {
       activeSessionToken: null,
       ownerEnvironmentId: null,
       ownerThreadId: null,
+      phase: "idle",
+    });
+  });
+
+  it("resets the session when the owner thread disappears during recording", async () => {
+    const capture = makeCapture();
+    mockedStartVoiceCapture.mockResolvedValue(capture);
+
+    await useVoiceSessionStore.getState().startSession({
+      environmentId: "env-1",
+      threadId: "thread-1",
+    });
+
+    await useVoiceSessionStore.getState().reconcileWorkspaceSnapshot(
+      makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                threads: [makeThread({ id: "thread-2", title: "Thread 2" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(capture.cancel).toHaveBeenCalledTimes(1);
+    expect(useVoiceSessionStore.getState()).toMatchObject({
+      activeSessionToken: null,
+      ownerEnvironmentId: null,
+      ownerThreadId: null,
+      pendingOutcomesByThreadId: {},
+      phase: "idle",
+    });
+  });
+
+  it("drops an in-flight transcription if the owner thread disappears", async () => {
+    const transcription = createDeferred<{ text: string }>();
+    const capture = makeCapture();
+    mockedStartVoiceCapture.mockResolvedValue(capture);
+    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(transcription.promise);
+
+    await useVoiceSessionStore.getState().startSession({
+      environmentId: "env-1",
+      threadId: "thread-1",
+    });
+
+    const stopSession = useVoiceSessionStore.getState().stopSession();
+    expect(useVoiceSessionStore.getState().phase).toBe("transcribing");
+
+    await useVoiceSessionStore.getState().reconcileWorkspaceSnapshot(
+      makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                threads: [makeThread({ id: "thread-2", title: "Thread 2" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    transcription.resolve({ text: "voice note" });
+    await stopSession;
+
+    expect(useVoiceSessionStore.getState()).toMatchObject({
+      activeSessionToken: null,
+      ownerEnvironmentId: null,
+      ownerThreadId: null,
+      pendingOutcomesByThreadId: {},
       phase: "idle",
     });
   });

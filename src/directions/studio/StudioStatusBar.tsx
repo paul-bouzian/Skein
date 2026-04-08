@@ -1,13 +1,17 @@
 import { useMemo } from "react";
 
 import {
+  findThreadInWorkspace,
   useWorkspaceStore,
   selectProjects,
   selectSelectedProject,
   selectSelectedEnvironment,
   selectSelectedThread,
 } from "../../stores/workspace-store";
-import { useVoiceSessionStore } from "../../stores/voice-session-store";
+import {
+  selectOwnerPendingVoiceOutcome,
+  useVoiceSessionStore,
+} from "../../stores/voice-session-store";
 import { MicIcon } from "../../shared/Icons";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { formatVoiceDuration } from "./composer/voice-duration";
@@ -15,6 +19,7 @@ import "./StudioStatusBar.css";
 
 export function StudioStatusBar() {
   const projects = useWorkspaceStore(selectProjects);
+  const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
   const bootstrapStatus = useWorkspaceStore((s) => s.bootstrapStatus);
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
@@ -23,24 +28,39 @@ export function StudioStatusBar() {
   const voicePhase = useVoiceSessionStore((state) => state.phase);
   const voiceDurationMs = useVoiceSessionStore((state) => state.durationMs);
   const voiceOwnerThreadId = useVoiceSessionStore((state) => state.ownerThreadId);
+  const voiceOwnerPendingOutcome = useVoiceSessionStore(
+    selectOwnerPendingVoiceOutcome,
+  );
 
   const runningEnvironments = projects.flatMap((p) =>
     p.environments.filter((e) => e.runtime.state === "running"),
   );
   const voiceOwner = useMemo(
-    () => findVoiceOwner(projects, voiceOwnerThreadId),
-    [projects, voiceOwnerThreadId],
+    () => findThreadInWorkspace(workspaceSnapshot, voiceOwnerThreadId),
+    [voiceOwnerThreadId, workspaceSnapshot],
   );
   const showVoiceIndicator =
-    voicePhase !== "idle" &&
     voiceOwnerThreadId !== null &&
-    voiceOwnerThreadId !== selectedThread?.id;
+    voiceOwnerThreadId !== selectedThread?.id &&
+    (voicePhase !== "idle" || voiceOwnerPendingOutcome !== null);
+  const showVoiceDuration = voicePhase !== "idle" || voiceDurationMs > 0;
   const voiceIndicatorLabel =
-    voicePhase === "transcribing"
-      ? "Transcribing voice"
-      : voicePhase === "starting"
-        ? "Starting voice"
-        : "Listening";
+    voiceOwnerPendingOutcome?.kind === "error"
+      ? "Voice transcription failed"
+      : voiceOwnerPendingOutcome?.kind === "transcript"
+        ? "Voice note ready"
+        : voicePhase === "transcribing"
+          ? "Transcribing voice"
+          : voicePhase === "starting"
+            ? "Starting voice"
+            : "Listening";
+  const voiceIndicatorTitle = voiceOwner
+    ? voiceOwnerPendingOutcome?.kind === "error"
+      ? `Return to ${voiceOwner.thread.title} to review the voice error`
+      : voiceOwnerPendingOutcome?.kind === "transcript"
+        ? `Return to ${voiceOwner.thread.title} to review the voice result`
+        : `Return to ${voiceOwner.thread.title}`
+    : "Return to the source thread";
 
   const breadcrumb = [
     selectedProject?.name,
@@ -78,11 +98,7 @@ export function StudioStatusBar() {
           <button
             type="button"
             className="studio-statusbar__voice-indicator"
-            title={
-              voiceOwner
-                ? `Return to ${voiceOwner.thread.title}`
-                : "Return to the source thread"
-            }
+            title={voiceIndicatorTitle}
             onClick={() => {
               if (voiceOwnerThreadId) {
                 selectThread(voiceOwnerThreadId);
@@ -94,9 +110,11 @@ export function StudioStatusBar() {
               {voiceIndicatorLabel}
               {voiceOwner ? ` in ${voiceOwner.thread.title}` : ""}
             </span>
-            <span className="studio-statusbar__voice-duration">
-              {formatVoiceDuration(voiceDurationMs)}
-            </span>
+            {showVoiceDuration ? (
+              <span className="studio-statusbar__voice-duration">
+                {formatVoiceDuration(voiceDurationMs)}
+              </span>
+            ) : null}
           </button>
         ) : null}
         {breadcrumb && (
@@ -105,24 +123,4 @@ export function StudioStatusBar() {
       </div>
     </div>
   );
-}
-
-function findVoiceOwner(
-  projects: ReturnType<typeof selectProjects>,
-  threadId: string | null,
-) {
-  if (!threadId) {
-    return null;
-  }
-
-  for (const project of projects) {
-    for (const environment of project.environments) {
-      const thread = environment.threads.find((candidate) => candidate.id === threadId);
-      if (thread) {
-        return { environment, project, thread };
-      }
-    }
-  }
-
-  return null;
 }

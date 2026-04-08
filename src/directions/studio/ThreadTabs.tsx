@@ -1,5 +1,9 @@
 import { useWorkspaceStore, selectSelectedEnvironment } from "../../stores/workspace-store";
 import { useConversationStore } from "../../stores/conversation-store";
+import {
+  selectOwnerPendingVoiceOutcome,
+  useVoiceSessionStore,
+} from "../../stores/voice-session-store";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
@@ -12,6 +16,11 @@ export function ThreadTabs() {
   const selectThread = useWorkspaceStore((s) => s.selectThread);
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
   const snapshotsByThreadId = useConversationStore((state) => state.snapshotsByThreadId);
+  const voicePhase = useVoiceSessionStore((state) => state.phase);
+  const voiceOwnerThreadId = useVoiceSessionStore((state) => state.ownerThreadId);
+  const ownerPendingVoiceOutcome = useVoiceSessionStore(
+    selectOwnerPendingVoiceOutcome,
+  );
 
   if (!selectedEnvironment) return null;
 
@@ -45,33 +54,43 @@ export function ThreadTabs() {
   return (
     <div className="thread-tabs">
       <div className="thread-tabs__list">
-        {activeThreads.map((thread) => (
-          <div
-            key={thread.id}
-            className={`thread-tab ${selectedThreadId === thread.id ? "thread-tab--active" : ""}`}
-          >
-            <button
-              type="button"
-              className="thread-tab__select"
-              title={thread.title}
-              onClick={() => selectThread(thread.id)}
+        {activeThreads.map((thread) => {
+          const voiceWorkOwnedByThread =
+            voiceOwnerThreadId === thread.id &&
+            (voicePhase !== "idle" || ownerPendingVoiceOutcome !== null);
+          const archiveTitle = voiceWorkOwnedByThread
+            ? `Finish handling voice dictation in ${thread.title} before archiving it.`
+            : `Archive ${thread.title}`;
+
+          return (
+            <div
+              key={thread.id}
+              className={`thread-tab ${selectedThreadId === thread.id ? "thread-tab--active" : ""}`}
             >
-              {needsAttention(snapshotsByThreadId[thread.id]) ? (
-                <span className="thread-tab__status-dot" aria-hidden="true" />
-              ) : null}
-              <span className="thread-tab__title">{thread.title}</span>
-            </button>
-            <button
-              type="button"
-              className="thread-tab__close"
-              aria-label={`Archive ${thread.title}`}
-              title={`Archive ${thread.title}`}
-              onClick={() => void handleArchiveThread(thread)}
-            >
-              <CloseIcon size={10} />
-            </button>
-          </div>
-        ))}
+              <button
+                type="button"
+                className="thread-tab__select"
+                title={thread.title}
+                onClick={() => selectThread(thread.id)}
+              >
+                {needsAttention(snapshotsByThreadId[thread.id]) ? (
+                  <span className="thread-tab__status-dot" aria-hidden="true" />
+                ) : null}
+                <span className="thread-tab__title">{thread.title}</span>
+              </button>
+              <button
+                type="button"
+                className="thread-tab__close"
+                aria-label={`Archive ${thread.title}`}
+                disabled={voiceWorkOwnedByThread}
+                title={archiveTitle}
+                onClick={() => void handleArchiveThread(thread)}
+              >
+                <CloseIcon size={10} />
+              </button>
+            </div>
+          );
+        })}
       </div>
       <button
         type="button"

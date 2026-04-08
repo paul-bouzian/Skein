@@ -7,8 +7,15 @@ import {
 } from "react";
 
 import { useVoiceStatusStore } from "../../../stores/voice-status-store";
-import { useVoiceSessionStore } from "../../../stores/voice-session-store";
-import { useWorkspaceStore } from "../../../stores/workspace-store";
+import {
+  selectOwnerPendingVoiceOutcome,
+  type PendingVoiceOutcome,
+  useVoiceSessionStore,
+} from "../../../stores/voice-session-store";
+import {
+  findThreadInWorkspace,
+  useWorkspaceStore,
+} from "../../../stores/workspace-store";
 
 type Props = {
   currentDraft: string;
@@ -48,6 +55,7 @@ export function useComposerVoiceInput({
   const phase = useVoiceSessionStore((state) => state.phase);
   const ownerThreadId = useVoiceSessionStore((state) => state.ownerThreadId);
   const durationMs = useVoiceSessionStore((state) => state.durationMs);
+  const ownerPendingOutcome = useVoiceSessionStore(selectOwnerPendingVoiceOutcome);
   const pendingOutcome = useVoiceSessionStore(
     (state) => state.pendingOutcomesByThreadId[threadId] ?? null,
   );
@@ -80,13 +88,19 @@ export function useComposerVoiceInput({
     );
   }, [browserSupported, snapshot?.message, storeError]);
   const ownerThreadTitle = useMemo(
-    () => findThreadTitle(workspaceSnapshot, ownerThreadId),
+    () => findThreadInWorkspace(workspaceSnapshot, ownerThreadId)?.thread.title ?? null,
     [ownerThreadId, workspaceSnapshot],
   );
   const ownsActiveSession =
     ownerThreadId !== null && ownerThreadId === threadId && phase !== "idle";
   const activeSessionElsewhere =
     ownerThreadId !== null && ownerThreadId !== threadId && phase !== "idle";
+  const pendingOutcomeNeedsReview = phase === "idle" && pendingOutcome !== null;
+  const pendingOutcomeElsewhere =
+    ownerThreadId !== null &&
+    ownerThreadId !== threadId &&
+    phase === "idle" &&
+    ownerPendingOutcome !== null;
   const isRecording = ownsActiveSession && phase === "recording";
   const isStarting = ownsActiveSession && phase === "starting";
   const isTranscribing = ownsActiveSession && phase === "transcribing";
@@ -159,7 +173,9 @@ export function useComposerVoiceInput({
   const buttonDisabled =
     isTranscribing ||
     activeSessionElsewhere ||
-    (phase === "idle" && (locked || loading || !voiceAvailable));
+    pendingOutcomeElsewhere ||
+    (phase === "idle" &&
+      (locked || loading || !voiceAvailable || pendingOutcomeNeedsReview));
   const buttonLabel = getVoiceButtonLabel({
     isRecording,
     isStarting,
@@ -174,7 +190,10 @@ export function useComposerVoiceInput({
     isTranscribing,
     loading,
     locked,
+    ownerPendingOutcome,
     ownerThreadTitle,
+    pendingOutcome,
+    pendingOutcomeElsewhere,
     voiceAvailable,
   });
 
@@ -196,7 +215,13 @@ export function useComposerVoiceInput({
         void stopSession();
         return;
       }
-      if (phase !== "idle" || locked || loading || !voiceAvailable) {
+      if (
+        phase !== "idle" ||
+        pendingOutcome !== null ||
+        locked ||
+        loading ||
+        !voiceAvailable
+      ) {
         return;
       }
       void startSession({ environmentId, threadId });
@@ -206,6 +231,7 @@ export function useComposerVoiceInput({
       isStarting,
       loading,
       locked,
+      pendingOutcome,
       phase,
       startSession,
       stopSession,
@@ -260,7 +286,10 @@ function getVoiceButtonTitle({
   isTranscribing,
   loading,
   locked,
+  ownerPendingOutcome,
   ownerThreadTitle,
+  pendingOutcome,
+  pendingOutcomeElsewhere,
   voiceAvailable,
 }: {
   activeSessionElsewhere: boolean;
@@ -271,7 +300,10 @@ function getVoiceButtonTitle({
   isTranscribing: boolean;
   loading: boolean;
   locked: boolean;
+  ownerPendingOutcome: PendingVoiceOutcome | null;
   ownerThreadTitle: string | null;
+  pendingOutcome: PendingVoiceOutcome | null;
+  pendingOutcomeElsewhere: boolean;
   voiceAvailable: boolean;
 }) {
   if (isRecording) {
@@ -282,6 +314,19 @@ function getVoiceButtonTitle({
   }
   if (isTranscribing) {
     return "Transcribing voice recording";
+  }
+  if (pendingOutcomeElsewhere) {
+    if (ownerPendingOutcome?.kind === "error") {
+      return ownerThreadTitle
+        ? `Voice dictation failed in ${ownerThreadTitle}. Return there to review it before starting a new recording.`
+        : "Voice dictation failed in another thread. Return there to review it before starting a new recording.";
+    }
+    return ownerThreadTitle
+      ? `Voice dictation result is waiting in ${ownerThreadTitle}. Return there to review it before starting a new recording.`
+      : "Voice dictation result is waiting in another thread. Return there to review it before starting a new recording.";
+  }
+  if (pendingOutcome) {
+    return "Finish handling the current voice result before starting another recording.";
   }
   if (activeSessionElsewhere) {
     return ownerThreadTitle
@@ -298,26 +343,6 @@ function getVoiceButtonTitle({
     return "Record a voice message";
   }
   return availabilityMessage;
-}
-
-function findThreadTitle(
-  snapshot: ReturnType<typeof useWorkspaceStore.getState>["snapshot"],
-  threadId: string | null,
-) {
-  if (!snapshot || !threadId) {
-    return null;
-  }
-
-  for (const project of snapshot.projects) {
-    for (const environment of project.environments) {
-      const thread = environment.threads.find((candidate) => candidate.id === threadId);
-      if (thread) {
-        return thread.title;
-      }
-    }
-  }
-
-  return null;
 }
 
 export { appendVoiceTranscript };
