@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
 import type { ThreadConversationSnapshot } from "../lib/types";
-import { makeConversationSnapshot, capabilitiesFixture } from "../test/fixtures/conversation";
+import {
+  capabilitiesFixture,
+  makeConversationSnapshot,
+  makeEnvironment,
+  makeProject,
+  makeThread,
+  makeWorkspaceSnapshot,
+} from "../test/fixtures/conversation";
 import {
   teardownConversationListener,
   useConversationStore,
@@ -30,6 +37,16 @@ function requireListenerResolver(
     throw new Error("Expected listener initialization to be pending");
   }
   return resolver;
+}
+
+function deferredPromise<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 function resetConversationState() {
@@ -77,6 +94,121 @@ describe("conversation store", () => {
     expect(state.capabilitiesByEnvironmentId["env-1"]).toEqual(capabilitiesFixture);
     expect(state.composerByThreadId["thread-1"]).toEqual(snapshot.composer);
     expect(state.loadingByThreadId["thread-1"]).toBe(false);
+  });
+
+  it("does not reopen a thread that is already hydrated", async () => {
+    const snapshot = makeConversationSnapshot();
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": snapshot },
+      capabilitiesByEnvironmentId: { "env-1": capabilitiesFixture },
+    }));
+
+    await useConversationStore.getState().openThread("thread-1");
+
+    expect(mockedBridge.openThreadConversation).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates concurrent thread openings", async () => {
+    const deferred = deferredPromise<{
+      snapshot: ReturnType<typeof makeConversationSnapshot>;
+      capabilities: typeof capabilitiesFixture;
+    }>();
+    mockedBridge.openThreadConversation.mockReturnValue(deferred.promise);
+
+    const first = useConversationStore.getState().openThread("thread-1");
+    const second = useConversationStore.getState().openThread("thread-1");
+
+    expect(mockedBridge.openThreadConversation).toHaveBeenCalledTimes(1);
+
+    deferred.resolve({
+      snapshot: makeConversationSnapshot(),
+      capabilities: capabilitiesFixture,
+    });
+    await Promise.all([first, second]);
+  });
+
+  it("preloads every active thread and refreshes the workspace once", async () => {
+    const refreshSnapshot = vi.fn(async () => true);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-running",
+                runtime: {
+                  environmentId: "env-running",
+                  state: "running",
+                },
+                threads: [
+                  makeThread({
+                    id: "thread-running-1",
+                    environmentId: "env-running",
+                    updatedAt: "2026-04-03T10:00:00Z",
+                  }),
+                  makeThread({
+                    id: "thread-running-2",
+                    environmentId: "env-running",
+                    updatedAt: "2026-04-03T09:00:00Z",
+                  }),
+                ],
+              }),
+              makeEnvironment({
+                id: "env-stopped",
+                runtime: {
+                  environmentId: "env-stopped",
+                  state: "stopped",
+                },
+                threads: [
+                  makeThread({
+                    id: "thread-stopped-1",
+                    environmentId: "env-stopped",
+                  }),
+                  makeThread({
+                    id: "thread-archived",
+                    environmentId: "env-stopped",
+                    status: "archived",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      refreshSnapshot,
+    }));
+    mockedBridge.openThreadConversation.mockImplementation(async (threadId) => ({
+      snapshot: makeConversationSnapshot({
+        threadId,
+        environmentId: threadId.startsWith("thread-running")
+          ? "env-running"
+          : "env-stopped",
+      }),
+      capabilities: {
+        ...capabilitiesFixture,
+        environmentId: threadId.startsWith("thread-running")
+          ? "env-running"
+          : "env-stopped",
+      },
+    }));
+
+    await useConversationStore.getState().preloadActiveThreads();
+
+    const openedThreadIds = mockedBridge.openThreadConversation.mock.calls.map(
+      ([threadId]) => threadId,
+    );
+    expect(openedThreadIds).toHaveLength(3);
+    expect(openedThreadIds[0]).toBe("thread-running-1");
+    expect(openedThreadIds).toEqual(
+      expect.arrayContaining([
+        "thread-running-1",
+        "thread-running-2",
+        "thread-stopped-1",
+      ]),
+    );
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("sends a message with the persisted composer selection", async () => {

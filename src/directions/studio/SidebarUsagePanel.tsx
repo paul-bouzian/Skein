@@ -1,33 +1,33 @@
 import { useEffect } from "react";
 
 import { buildCodexUsageRows } from "../../lib/codex-usage";
+import type { WorkspaceSnapshot } from "../../lib/types";
 import { selectSelectedEnvironment, useWorkspaceStore } from "../../stores/workspace-store";
 import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import "./SidebarUsagePanel.css";
 
 export function SidebarUsagePanel() {
+  const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
-  const ensureEnvironmentUsage = useCodexUsageStore((state) => state.ensureEnvironmentUsage);
-  const snapshot = useCodexUsageStore(
-    (state) =>
-      (selectedEnvironment ? state.snapshotsByEnvironmentId[selectedEnvironment.id] : null) ?? null,
-  );
-  const loading = useCodexUsageStore(
-    (state) => (selectedEnvironment ? state.loadingByEnvironmentId[selectedEnvironment.id] : false) ?? false,
-  );
-  const error = useCodexUsageStore(
-    (state) => (selectedEnvironment ? state.errorByEnvironmentId[selectedEnvironment.id] : null) ?? null,
+  const ensureAccountUsage = useCodexUsageStore((state) => state.ensureAccountUsage);
+  const snapshot = useCodexUsageStore((state) => state.snapshot);
+  const loading = useCodexUsageStore((state) => state.loading);
+  const error = useCodexUsageStore((state) => state.error);
+  const sourceEnvironmentId = resolveUsageSourceEnvironmentId(
+    workspaceSnapshot,
+    selectedEnvironment?.id ?? null,
   );
 
   useEffect(() => {
-    void ensureEnvironmentUsage(selectedEnvironment?.id ?? null);
-  }, [ensureEnvironmentUsage, selectedEnvironment?.id]);
+    void ensureAccountUsage(sourceEnvironmentId);
+  }, [ensureAccountUsage, sourceEnvironmentId]);
 
   const rows = buildCodexUsageRows(snapshot);
+  const showLoadingState = loading && snapshot === null;
   const placeholder = resolveUsagePlaceholder(
-    selectedEnvironment !== null,
+    sourceEnvironmentId !== null,
     snapshot !== null,
-    loading,
+    showLoadingState,
     error,
     rows,
   );
@@ -36,15 +36,13 @@ export function SidebarUsagePanel() {
     <section className="sidebar-usage" aria-label="Codex usage">
       <div className="sidebar-usage__header">
         <span className="sidebar-usage__title">Usage</span>
-        <span className="sidebar-usage__subtitle">
-          {selectedEnvironment?.name ?? "No environment selected"}
-        </span>
+        <span className="sidebar-usage__subtitle">Account-wide</span>
       </div>
 
       <div className="sidebar-usage__rows">
         {rows.map((row) => {
           const percentLabel = row.percentUsed === null ? "--" : `${row.percentUsed}%`;
-          const fillWidth = loading ? "100%" : `${row.percentUsed ?? 0}%`;
+          const fillWidth = showLoadingState ? "100%" : `${row.percentUsed ?? 0}%`;
 
           return (
             <div key={row.label} className="sidebar-usage__row">
@@ -55,7 +53,7 @@ export function SidebarUsagePanel() {
               <div className="sidebar-usage__bar">
                 <span
                   className={`sidebar-usage__fill sidebar-usage__fill--${row.label.toLowerCase()} ${
-                    loading ? "sidebar-usage__fill--loading" : ""
+                    showLoadingState ? "sidebar-usage__fill--loading" : ""
                   }`}
                   style={{ width: fillWidth }}
                 />
@@ -65,7 +63,7 @@ export function SidebarUsagePanel() {
                   row.percentUsed === null ? "sidebar-usage__reset--muted" : ""
                 }`}
               >
-                {loading ? "Loading…" : row.resetLabel}
+                {showLoadingState ? "Loading…" : row.resetLabel}
               </span>
             </div>
           );
@@ -84,14 +82,44 @@ function resolveUsagePlaceholder(
   error: string | null,
   rows: ReturnType<typeof buildCodexUsageRows>,
 ) {
-  if (!hasEnvironment) {
-    return "Select an environment to inspect Codex usage.";
+  if (!hasEnvironment && !hasSnapshot) {
+    return "Add a project to inspect Codex usage.";
   }
   if (!loading && error) {
     return error;
   }
   if (!loading && hasSnapshot && rows.every((row) => row.percentUsed === null)) {
-    return "Usage unavailable for this environment.";
+    return "Usage unavailable for this account.";
   }
   return null;
+}
+
+function resolveUsageSourceEnvironmentId(
+  snapshot: WorkspaceSnapshot | null,
+  selectedEnvironmentId: string | null,
+) {
+  if (!snapshot) {
+    return null;
+  }
+
+  const environments = snapshot.projects.flatMap((project) => project.environments);
+  if (environments.length === 0) {
+    return null;
+  }
+
+  const selectedEnvironment =
+    environments.find((environment) => environment.id === selectedEnvironmentId) ?? null;
+  const runningEnvironments = environments.filter(
+    (environment) => environment.runtime.state === "running",
+  );
+
+  return (
+    (selectedEnvironment?.runtime.state === "running"
+      ? selectedEnvironment.id
+      : runningEnvironments[0]?.id) ??
+    selectedEnvironment?.id ??
+    runningEnvironments[0]?.id ??
+    environments[0]?.id ??
+    null
+  );
 }

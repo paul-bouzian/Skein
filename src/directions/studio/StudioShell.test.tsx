@@ -122,12 +122,12 @@ beforeEach(async () => {
   }));
   useCodexUsageStore.setState((state) => ({
     ...state,
-    snapshotsByEnvironmentId: {},
-    loadingByEnvironmentId: {},
-    errorByEnvironmentId: {},
-    lastFetchedAtByEnvironmentId: {},
+    snapshot: null,
+    loading: false,
+    error: null,
+    lastFetchedAt: null,
     listenerReady: false,
-    ensureEnvironmentUsage: vi.fn(async () => {}),
+    ensureAccountUsage: vi.fn(async () => {}),
   }));
   useGitReviewStore.setState((state) => ({
     ...state,

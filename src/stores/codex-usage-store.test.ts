@@ -27,10 +27,10 @@ beforeEach(() => {
   teardownCodexUsageListener();
   useCodexUsageStore.setState((state) => ({
     ...state,
-    snapshotsByEnvironmentId: {},
-    loadingByEnvironmentId: {},
-    errorByEnvironmentId: {},
-    lastFetchedAtByEnvironmentId: {},
+    snapshot: null,
+    loading: false,
+    error: null,
+    lastFetchedAt: null,
     listenerReady: false,
   }));
 });
@@ -50,12 +50,10 @@ describe("codex usage store", () => {
       },
     });
 
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
 
     expect(mockedBridge.getEnvironmentCodexRateLimits).toHaveBeenCalledWith("env-1");
-    expect(useCodexUsageStore.getState().snapshotsByEnvironmentId["env-1"]?.primary?.usedPercent).toBe(
-      18,
-    );
+    expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(18);
   });
 
   it("reuses fresh cached usage instead of refetching", async () => {
@@ -66,8 +64,8 @@ describe("codex usage store", () => {
       secondary: { usedPercent: 44 },
     });
 
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
 
     expect(mockedBridge.getEnvironmentCodexRateLimits).toHaveBeenCalledTimes(1);
   });
@@ -80,15 +78,13 @@ describe("codex usage store", () => {
         secondary: { usedPercent: 48 },
       });
 
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
-    expect(useCodexUsageStore.getState().lastFetchedAtByEnvironmentId["env-1"]).toBeNull();
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
+    expect(useCodexUsageStore.getState().lastFetchedAt).toBeNull();
 
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
 
     expect(mockedBridge.getEnvironmentCodexRateLimits).toHaveBeenCalledTimes(2);
-    expect(useCodexUsageStore.getState().snapshotsByEnvironmentId["env-1"]?.primary?.usedPercent).toBe(
-      21,
-    );
+    expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(21);
   });
 
   it("applies live usage updates from the runtime event stream", async () => {
@@ -107,10 +103,8 @@ describe("codex usage store", () => {
       },
     });
 
-    expect(useCodexUsageStore.getState().snapshotsByEnvironmentId["env-1"]?.primary?.usedPercent).toBe(
-      72,
-    );
-    expect(useCodexUsageStore.getState().loadingByEnvironmentId["env-1"]).toBe(false);
+    expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(72);
+    expect(useCodexUsageStore.getState().loading).toBe(false);
   });
 
   it("ignores stale fetch responses after a newer live update", async () => {
@@ -130,9 +124,7 @@ describe("codex usage store", () => {
 
     await useCodexUsageStore.getState().initializeListener();
 
-    const refreshPromise = useCodexUsageStore
-      .getState()
-      .refreshEnvironmentUsage("env-1");
+    const refreshPromise = useCodexUsageStore.getState().refreshAccountUsage("env-1");
 
     vi.setSystemTime(new Date("2026-04-04T10:00:01Z"));
     callback!({
@@ -148,7 +140,7 @@ describe("codex usage store", () => {
     });
     await refreshPromise;
 
-    const snapshot = useCodexUsageStore.getState().snapshotsByEnvironmentId["env-1"];
+    const { snapshot } = useCodexUsageStore.getState();
     expect(snapshot?.primary?.usedPercent).toBe(72);
     expect(snapshot?.secondary?.usedPercent).toBe(44);
   });
@@ -168,9 +160,7 @@ describe("codex usage store", () => {
 
     await useCodexUsageStore.getState().initializeListener();
 
-    const refreshPromise = useCodexUsageStore
-      .getState()
-      .refreshEnvironmentUsage("env-1");
+    const refreshPromise = useCodexUsageStore.getState().refreshAccountUsage("env-1");
 
     vi.setSystemTime(new Date("2026-04-04T10:00:01Z"));
     callback!({
@@ -185,11 +175,9 @@ describe("codex usage store", () => {
     await refreshPromise;
 
     const state = useCodexUsageStore.getState();
-    expect(state.snapshotsByEnvironmentId["env-1"]?.primary?.usedPercent).toBe(72);
-    expect(state.errorByEnvironmentId["env-1"]).toBeNull();
-    expect(state.lastFetchedAtByEnvironmentId["env-1"]).toBe(
-      new Date("2026-04-04T10:00:01Z").valueOf(),
-    );
+    expect(state.snapshot?.primary?.usedPercent).toBe(72);
+    expect(state.error).toBeNull();
+    expect(state.lastFetchedAt).toBe(new Date("2026-04-04T10:00:01Z").valueOf());
   });
 
   it("merges partial live usage updates into the existing snapshot", async () => {
@@ -213,7 +201,7 @@ describe("codex usage store", () => {
     });
 
     await useCodexUsageStore.getState().initializeListener();
-    await useCodexUsageStore.getState().ensureEnvironmentUsage("env-1");
+    await useCodexUsageStore.getState().ensureAccountUsage("env-1");
 
     callback!({
       environmentId: "env-1",
@@ -224,7 +212,7 @@ describe("codex usage store", () => {
       },
     });
 
-    const snapshot = useCodexUsageStore.getState().snapshotsByEnvironmentId["env-1"];
+    const { snapshot } = useCodexUsageStore.getState();
     expect(snapshot?.planType).toBe("pro");
     expect(snapshot?.primary).toEqual({
       usedPercent: 72,
@@ -236,5 +224,68 @@ describe("codex usage store", () => {
       windowDurationMins: 10_080,
       resetsAt: 1_775_910_400,
     });
+  });
+
+  it("keeps prior usage visible during a silent refresh", async () => {
+    const deferred = deferredPromise<{
+      primary: { usedPercent: number };
+      secondary: { usedPercent: number };
+    }>();
+
+    useCodexUsageStore.setState((state) => ({
+      ...state,
+      snapshot: {
+        primary: { usedPercent: 18 },
+        secondary: { usedPercent: 44 },
+      },
+      lastFetchedAt: 1,
+    }));
+    mockedBridge.getEnvironmentCodexRateLimits.mockReturnValue(deferred.promise);
+
+    const refreshPromise = useCodexUsageStore.getState().refreshAccountUsage("env-1", {
+      silent: true,
+    });
+
+    expect(useCodexUsageStore.getState().loading).toBe(true);
+    expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(18);
+
+    deferred.resolve({
+      primary: { usedPercent: 21 },
+      secondary: { usedPercent: 48 },
+    });
+    await refreshPromise;
+
+    expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(21);
+    expect(useCodexUsageStore.getState().loading).toBe(false);
+  });
+
+  it("retries the latest environment after an in-flight fetch fails", async () => {
+    const deferred = deferredPromise<{
+      primary: { usedPercent: number };
+      secondary: { usedPercent: number };
+    }>();
+
+    mockedBridge.getEnvironmentCodexRateLimits
+      .mockReturnValueOnce(deferred.promise)
+      .mockResolvedValueOnce({
+        primary: { usedPercent: 33 },
+        secondary: { usedPercent: 67 },
+      });
+
+    const first = useCodexUsageStore.getState().ensureAccountUsage("env-a");
+    const second = useCodexUsageStore.getState().ensureAccountUsage("env-b");
+
+    deferred.reject(new Error("temporary failure"));
+    await Promise.all([first, second]);
+
+    expect(
+      mockedBridge.getEnvironmentCodexRateLimits.mock.calls.map(
+        ([environmentId]) => environmentId,
+      ),
+    ).toEqual(["env-a", "env-b"]);
+
+    const state = useCodexUsageStore.getState();
+    expect(state.snapshot?.primary?.usedPercent).toBe(33);
+    expect(state.error).toBeNull();
   });
 });

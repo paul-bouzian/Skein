@@ -10,12 +10,26 @@ import type {
   EnvironmentCapabilitiesSnapshot,
   SubmitPlanDecisionInput,
   ThreadConversationSnapshot,
+  WorkspaceSnapshot,
 } from "../lib/types";
 import { useWorkspaceStore } from "./workspace-store";
+
+const PRELOAD_ENVIRONMENT_CONCURRENCY = 4;
 
 function refreshWorkspaceSnapshotNonBlocking() {
   void useWorkspaceStore.getState().refreshSnapshot().catch(() => undefined);
 }
+
+type ConversationSet = (
+  updater: (state: ConversationState) => Partial<ConversationState>,
+) => void;
+
+type ConversationGet = () => ConversationState;
+
+type OpenThreadOptions = {
+  refreshWorkspace?: boolean;
+  skipIfLoaded?: boolean;
+};
 
 type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
@@ -27,6 +41,7 @@ type ConversationState = {
 
   initializeListener: () => Promise<void>;
   openThread: (threadId: string) => Promise<void>;
+  preloadActiveThreads: () => Promise<void>;
   refreshThread: (threadId: string) => Promise<void>;
   updateComposer: (
     threadId: string,
@@ -57,6 +72,8 @@ type ConversationState = {
 let unlistenConversationEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
+let preloadActiveThreadsPromise: Promise<void> | null = null;
+const inflightThreadLoads = new Map<string, Promise<boolean>>();
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
   snapshotsByThreadId: {},
@@ -118,36 +135,27 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
 
   openThread: async (threadId) => {
-    if (get().loadingByThreadId[threadId]) return;
-    set((state) => ({
-      loadingByThreadId: { ...state.loadingByThreadId, [threadId]: true },
-      errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
-    }));
+    await openThreadWithOptions(get, set, threadId, {
+      refreshWorkspace: true,
+      skipIfLoaded: true,
+    });
+  },
+
+  preloadActiveThreads: async () => {
+    if (preloadActiveThreadsPromise) {
+      await preloadActiveThreadsPromise;
+      return;
+    }
+
+    const task = preloadAllActiveThreads(get, set);
+    preloadActiveThreadsPromise = task;
+
     try {
-      const response = await bridge.openThreadConversation(threadId);
-      set((state) => ({
-        snapshotsByThreadId: {
-          ...state.snapshotsByThreadId,
-          [threadId]: response.snapshot,
-        },
-        capabilitiesByEnvironmentId: {
-          ...state.capabilitiesByEnvironmentId,
-          [response.capabilities.environmentId]: response.capabilities,
-        },
-        composerByThreadId: {
-          ...state.composerByThreadId,
-          [threadId]: response.snapshot.composer,
-        },
-        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
-      }));
-      await useWorkspaceStore.getState().refreshSnapshot();
-    } catch (cause: unknown) {
-      const message =
-        cause instanceof Error ? cause.message : "Failed to open conversation";
-      set((state) => ({
-        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
-        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
-      }));
+      await task;
+    } finally {
+      if (preloadActiveThreadsPromise === task) {
+        preloadActiveThreadsPromise = null;
+      }
     }
   },
 
@@ -377,7 +385,112 @@ export function teardownConversationListener() {
   unlistenConversationEvents?.();
   unlistenConversationEvents = null;
   listenerInitialization = null;
+  preloadActiveThreadsPromise = null;
+  inflightThreadLoads.clear();
   useConversationStore.setState({ listenerReady: false });
+}
+
+async function preloadAllActiveThreads(
+  get: ConversationGet,
+  set: ConversationSet,
+): Promise<void> {
+  const snapshot = useWorkspaceStore.getState().snapshot;
+  if (!snapshot) {
+    return;
+  }
+
+  const targets = collectEnvironmentPreloadTargets(snapshot);
+  if (targets.length === 0) {
+    return;
+  }
+
+  let shouldRefreshWorkspace = false;
+  await runWithConcurrency(
+    targets,
+    PRELOAD_ENVIRONMENT_CONCURRENCY,
+    async (target) => {
+      for (const threadId of target.threadIds) {
+        const opened = await openThreadWithOptions(get, set, threadId, {
+          refreshWorkspace: false,
+          skipIfLoaded: true,
+        });
+        shouldRefreshWorkspace = shouldRefreshWorkspace || opened;
+      }
+    },
+  );
+
+  if (shouldRefreshWorkspace) {
+    await useWorkspaceStore.getState().refreshSnapshot();
+  }
+}
+
+async function openThreadWithOptions(
+  get: ConversationGet,
+  set: ConversationSet,
+  threadId: string,
+  options: OpenThreadOptions,
+): Promise<boolean> {
+  if (options.skipIfLoaded && isThreadHydrated(get(), threadId)) {
+    return false;
+  }
+
+  const inflight = inflightThreadLoads.get(threadId);
+  if (inflight) {
+    return inflight;
+  }
+
+  const loadPromise = (async () => {
+    if (options.skipIfLoaded && isThreadHydrated(get(), threadId)) {
+      return false;
+    }
+
+    set((state) => ({
+      loadingByThreadId: { ...state.loadingByThreadId, [threadId]: true },
+      errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
+    }));
+
+    try {
+      const response = await bridge.openThreadConversation(threadId);
+      set((state) => ({
+        snapshotsByThreadId: {
+          ...state.snapshotsByThreadId,
+          [threadId]: response.snapshot,
+        },
+        capabilitiesByEnvironmentId: {
+          ...state.capabilitiesByEnvironmentId,
+          [response.capabilities.environmentId]: response.capabilities,
+        },
+        composerByThreadId: {
+          ...state.composerByThreadId,
+          [threadId]: response.snapshot.composer,
+        },
+        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+      }));
+
+      if (options.refreshWorkspace !== false) {
+        await useWorkspaceStore.getState().refreshSnapshot();
+      }
+
+      return true;
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to open conversation";
+      set((state) => ({
+        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+        errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
+      }));
+      return false;
+    }
+  })();
+
+  inflightThreadLoads.set(threadId, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (inflightThreadLoads.get(threadId) === loadPromise) {
+      inflightThreadLoads.delete(threadId);
+    }
+  }
 }
 
 function buildOptimisticUserMessageSnapshot(
@@ -416,4 +529,56 @@ function snapshotContainsItem(
   itemId: string,
 ): boolean {
   return snapshot?.items.some((item) => item.id === itemId) ?? false;
+}
+
+function isThreadHydrated(
+  state: Pick<
+    ConversationState,
+    "capabilitiesByEnvironmentId" | "snapshotsByThreadId"
+  >,
+  threadId: string,
+) {
+  const snapshot = state.snapshotsByThreadId[threadId];
+  return Boolean(
+    snapshot && state.capabilitiesByEnvironmentId[snapshot.environmentId],
+  );
+}
+
+function collectEnvironmentPreloadTargets(snapshot: WorkspaceSnapshot) {
+  return snapshot.projects
+    .flatMap((project) =>
+      project.environments.map((environment) => ({
+        environmentId: environment.id,
+        isRunning: environment.runtime.state === "running",
+        threadIds: [...environment.threads]
+          .filter((thread) => thread.status === "active")
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+          .map((thread) => thread.id),
+      })),
+    )
+    .filter((environment) => environment.threadIds.length > 0)
+    .sort(
+      (left, right) =>
+        Number(right.isRunning) - Number(left.isRunning) ||
+        left.environmentId.localeCompare(right.environmentId),
+    );
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let index = 0;
+  const concurrency = Math.max(1, Math.min(limit, items.length));
+
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (index < items.length) {
+        const item = items[index];
+        index += 1;
+        await worker(item);
+      }
+    }),
+  );
 }

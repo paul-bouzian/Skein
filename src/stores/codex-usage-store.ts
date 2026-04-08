@@ -5,16 +5,23 @@ import type { CodexRateLimitSnapshot } from "../lib/types";
 
 const USAGE_CACHE_TTL_MS = 60_000;
 
+type RefreshAccountUsageOptions = {
+  silent?: boolean;
+};
+
 type CodexUsageState = {
-  snapshotsByEnvironmentId: Record<string, CodexRateLimitSnapshot | null>;
-  loadingByEnvironmentId: Record<string, boolean>;
-  errorByEnvironmentId: Record<string, string | null>;
-  lastFetchedAtByEnvironmentId: Record<string, number | null>;
+  snapshot: CodexRateLimitSnapshot | null;
+  loading: boolean;
+  error: string | null;
+  lastFetchedAt: number | null;
   listenerReady: boolean;
 
   initializeListener: () => Promise<void>;
-  ensureEnvironmentUsage: (environmentId: string | null) => Promise<void>;
-  refreshEnvironmentUsage: (environmentId: string) => Promise<void>;
+  ensureAccountUsage: (environmentId: string | null) => Promise<void>;
+  refreshAccountUsage: (
+    environmentId: string,
+    options?: RefreshAccountUsageOptions,
+  ) => Promise<void>;
 };
 
 type CodexUsageSet = (
@@ -24,12 +31,13 @@ type CodexUsageSet = (
 let unlistenCodexUsageEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
+let inflightUsageFetch: Promise<void> | null = null;
 
 export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
-  snapshotsByEnvironmentId: {},
-  loadingByEnvironmentId: {},
-  errorByEnvironmentId: {},
-  lastFetchedAtByEnvironmentId: {},
+  snapshot: null,
+  loading: false,
+  error: null,
+  lastFetchedAt: null,
   listenerReady: false,
 
   initializeListener: async () => {
@@ -42,7 +50,7 @@ export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
     const generation = listenerGeneration;
     const initialization = bridge
       .listenToCodexUsageEvents((payload) => {
-        setUsageSnapshot(set, payload.environmentId, payload.rateLimits);
+        setUsageSnapshot(set, payload.rateLimits);
       })
       .then((unlisten) => {
         if (generation !== listenerGeneration) {
@@ -63,39 +71,59 @@ export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
     }
   },
 
-  ensureEnvironmentUsage: async (environmentId) => {
+  ensureAccountUsage: async (environmentId) => {
     if (!environmentId) return;
 
+    if (inflightUsageFetch) {
+      await inflightUsageFetch;
+    }
+
     const state = get();
-    if (state.loadingByEnvironmentId[environmentId]) {
+    const lastFetchedAt = state.lastFetchedAt;
+    if (isUsageSnapshotFresh(lastFetchedAt)) {
       return;
     }
 
-    const lastFetchedAt = state.lastFetchedAtByEnvironmentId[environmentId] ?? null;
-    if (lastFetchedAt !== null && Date.now() - lastFetchedAt < USAGE_CACHE_TTL_MS) {
-      return;
-    }
-
-    await state.refreshEnvironmentUsage(environmentId);
+    await state.refreshAccountUsage(environmentId, {
+      silent: state.snapshot !== null,
+    });
   },
 
-  refreshEnvironmentUsage: async (environmentId) => {
-    const requestStartedAt = Date.now();
-    setUsageLoading(set, environmentId);
+  refreshAccountUsage: async (environmentId, options = {}) => {
+    while (inflightUsageFetch) {
+      await inflightUsageFetch;
+      if (isUsageSnapshotFresh(get().lastFetchedAt)) {
+        return;
+      }
+    }
 
+    const requestStartedAt = Date.now();
+    const request = (async () => {
+      setUsageLoading(set);
+
+      try {
+        const snapshot = await bridge.getEnvironmentCodexRateLimits(environmentId);
+        if (isUsageFetchStale(get, requestStartedAt)) {
+          return;
+        }
+        setUsageSnapshot(set, snapshot);
+      } catch (cause: unknown) {
+        if (isUsageFetchStale(get, requestStartedAt)) {
+          return;
+        }
+        const message =
+          cause instanceof Error ? cause.message : "Failed to load Codex usage";
+        setUsageError(set, message, options.silent ?? false);
+      }
+    })();
+
+    inflightUsageFetch = request;
     try {
-      const snapshot = await bridge.getEnvironmentCodexRateLimits(environmentId);
-      if (isUsageFetchStale(get, environmentId, requestStartedAt)) {
-        return;
+      await request;
+    } finally {
+      if (inflightUsageFetch === request) {
+        inflightUsageFetch = null;
       }
-      setUsageSnapshot(set, environmentId, snapshot);
-    } catch (cause: unknown) {
-      if (isUsageFetchStale(get, environmentId, requestStartedAt)) {
-        return;
-      }
-      const message =
-        cause instanceof Error ? cause.message : "Failed to load Codex usage";
-      setUsageError(set, environmentId, message);
     }
   },
 }));
@@ -105,51 +133,27 @@ export function teardownCodexUsageListener() {
   unlistenCodexUsageEvents?.();
   unlistenCodexUsageEvents = null;
   listenerInitialization = null;
+  inflightUsageFetch = null;
   useCodexUsageStore.setState({ listenerReady: false });
 }
 
-function setUsageLoading(
-  set: CodexUsageSet,
-  environmentId: string,
-) {
+function setUsageLoading(set: CodexUsageSet) {
   set((state) => ({
-    loadingByEnvironmentId: {
-      ...state.loadingByEnvironmentId,
-      [environmentId]: true,
-    },
-    errorByEnvironmentId: {
-      ...state.errorByEnvironmentId,
-      [environmentId]: null,
-    },
+    loading: true,
+    error: state.snapshot === null ? null : state.error,
   }));
 }
 
 function setUsageSnapshot(
   set: CodexUsageSet,
-  environmentId: string,
   snapshot: CodexRateLimitSnapshot,
 ) {
   const fetchedAt = Date.now();
   set((state) => ({
-    snapshotsByEnvironmentId: {
-      ...state.snapshotsByEnvironmentId,
-      [environmentId]: mergeUsageSnapshot(
-        state.snapshotsByEnvironmentId[environmentId] ?? null,
-        snapshot,
-      ),
-    },
-    loadingByEnvironmentId: {
-      ...state.loadingByEnvironmentId,
-      [environmentId]: false,
-    },
-    errorByEnvironmentId: {
-      ...state.errorByEnvironmentId,
-      [environmentId]: null,
-    },
-    lastFetchedAtByEnvironmentId: {
-      ...state.lastFetchedAtByEnvironmentId,
-      [environmentId]: fetchedAt,
-    },
+    snapshot: mergeUsageSnapshot(state.snapshot, snapshot),
+    loading: false,
+    error: null,
+    lastFetchedAt: fetchedAt,
   }));
 }
 
@@ -193,31 +197,24 @@ function mergeUsageWindow(
 
 function isUsageFetchStale(
   get: () => CodexUsageState,
-  environmentId: string,
   requestStartedAt: number,
 ) {
-  const latestAppliedAt =
-    get().lastFetchedAtByEnvironmentId[environmentId] ?? Number.NEGATIVE_INFINITY;
+  const latestAppliedAt = get().lastFetchedAt ?? Number.NEGATIVE_INFINITY;
   return latestAppliedAt > requestStartedAt;
+}
+
+function isUsageSnapshotFresh(lastFetchedAt: number | null) {
+  return lastFetchedAt !== null && Date.now() - lastFetchedAt < USAGE_CACHE_TTL_MS;
 }
 
 function setUsageError(
   set: CodexUsageSet,
-  environmentId: string,
   message: string,
+  silent: boolean,
 ) {
   set((state) => ({
-    loadingByEnvironmentId: {
-      ...state.loadingByEnvironmentId,
-      [environmentId]: false,
-    },
-    errorByEnvironmentId: {
-      ...state.errorByEnvironmentId,
-      [environmentId]: message,
-    },
-    lastFetchedAtByEnvironmentId: {
-      ...state.lastFetchedAtByEnvironmentId,
-      [environmentId]: null,
-    },
+    loading: false,
+    error: silent && state.snapshot !== null ? null : message,
+    lastFetchedAt: silent && state.snapshot !== null ? state.lastFetchedAt : null,
   }));
 }
