@@ -134,7 +134,7 @@ export function InlineComposer({
   const baseControlsDisabled = isBusy || isSending || disabled;
   const placeholder = isRefiningPlan
     ? "Refine the proposed plan..."
-    : "Message ThreadEx...";
+    : "Message Loom...";
   const selectedModel = useMemo(
     () =>
       modelOptions.find((candidate) => candidate.id === composer.model) ?? null,
@@ -435,7 +435,7 @@ export function InlineComposer({
             rows={1}
             value={draft}
             aria-label={
-              isRefiningPlan ? "Refine the proposed plan" : "Message ThreadEx"
+              isRefiningPlan ? "Refine the proposed plan" : "Message Loom"
             }
             placeholder={placeholder}
             disabled={inputDisabled}

@@ -82,7 +82,7 @@ export function makeEnvironment(
     projectId: "project-1",
     name: "Local",
     kind: "local",
-    path: "/tmp/threadex",
+    path: "/tmp/loom",
     gitBranch: "main",
     baseBranch: undefined,
     isDefault: true,
@@ -107,8 +107,8 @@ export function makeProject(
 ): ProjectRecord {
   return {
     id: "project-1",
-    name: "ThreadEx",
-    rootPath: "/tmp/threadex",
+    name: "Loom",
+    rootPath: "/tmp/loom",
     settings: {
       worktreeSetupScript: undefined,
       worktreeTeardownScript: undefined,
@@ -260,7 +260,7 @@ export function makeApprovalRequest(
     summary: "bun run test",
     reason: "Codex wants to run the test suite.",
     command: "bun run test",
-    cwd: "/tmp/threadex",
+    cwd: "/tmp/loom",
     grantRoot: null,
     permissions: null,
     networkContext: null,
@@ -317,7 +317,7 @@ export function makeGitReviewSnapshot(
     scope: "uncommitted",
     summary: {
       environmentId: "env-1",
-      repoPath: "/tmp/threadex",
+      repoPath: "/tmp/loom",
       branch: "main",
       baseBranch: "origin/main",
       upstreamBranch: "origin/main",

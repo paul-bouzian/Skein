@@ -345,30 +345,30 @@ mod tests {
     #[test]
     fn path_component_sanitization_removes_unsafe_characters() {
         assert_eq!(
-            sanitize_path_component("ThreadEx Workspace!", "fallback"),
-            "threadex-workspace"
+            sanitize_path_component("Loom Workspace!", "fallback"),
+            "loom-workspace"
         );
     }
 
     #[test]
-    fn managed_worktree_project_path_is_nested_under_threadex_home_directory() {
+    fn managed_worktree_project_path_is_nested_under_loom_home_directory() {
         let path = managed_worktree_project_path(
-            Path::new("/Users/test/.threadex/worktrees"),
+            Path::new("/Users/test/.loom/worktrees"),
             "Acme Repo",
         );
-        assert_eq!(path, Path::new("/Users/test/.threadex/worktrees/acme-repo"));
+        assert_eq!(path, Path::new("/Users/test/.loom/worktrees/acme-repo"));
     }
 
     #[test]
     fn managed_worktree_path_is_nested_under_project_directory() {
         let path = managed_worktree_path(
-            Path::new("/Users/test/.threadex/worktrees"),
+            Path::new("/Users/test/.loom/worktrees"),
             "Acme Repo",
             "feature-plan-mode",
         );
         assert_eq!(
             path,
-            Path::new("/Users/test/.threadex/worktrees/acme-repo/feature-plan-mode")
+            Path::new("/Users/test/.loom/worktrees/acme-repo/feature-plan-mode")
         );
     }
 

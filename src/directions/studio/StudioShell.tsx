@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  LEGACY_THEME_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+} from "../../lib/app-identity";
+import {
   selectGitReviewScope,
   selectGitReviewSelectedFile,
   useGitReviewStore,
@@ -23,7 +27,13 @@ export type Theme = "dark" | "light";
 
 function readTheme(): Theme {
   try {
-    const v = localStorage.getItem("threadex-theme");
+    const v =
+      localStorage.getItem(THEME_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+    if (v != null) {
+      localStorage.setItem(THEME_STORAGE_KEY, v);
+      localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+    }
     if (v === "light") return "light";
   } catch {
     /* ignore */
@@ -50,7 +60,7 @@ export function StudioShell() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("threadex-theme", theme);
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   useEffect(() => {

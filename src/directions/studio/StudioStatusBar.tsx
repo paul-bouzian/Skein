@@ -89,7 +89,7 @@ export function StudioStatusBar() {
       <div className="studio-statusbar__center">
         {bootstrapStatus && (
           <span className="studio-statusbar__version">
-            ThreadEx {bootstrapStatus.appVersion}
+            Loom {bootstrapStatus.appVersion}
           </span>
         )}
       </div>

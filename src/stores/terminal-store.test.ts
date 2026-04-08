@@ -95,6 +95,21 @@ describe("terminal-store", () => {
     expect(freshStore.getState().height).toBe(280);
   });
 
+  it("migrates legacy persisted terminal preferences into the Loom namespace", async () => {
+    storageState.set("threadex-terminal-height", "360");
+    storageState.set("threadex-terminal-visible", "1");
+
+    vi.resetModules();
+    const { useTerminalStore: freshStore } = await import("./terminal-store");
+
+    expect(freshStore.getState().height).toBe(360);
+    expect(freshStore.getState().visible).toBe(true);
+    expect(localStorage.getItem("loom-terminal-height")).toBe("360");
+    expect(localStorage.getItem("loom-terminal-visible")).toBe("1");
+    expect(localStorage.getItem("threadex-terminal-height")).toBeNull();
+    expect(localStorage.getItem("threadex-terminal-visible")).toBeNull();
+  });
+
   it("keeps tabs from different environments isolated", async () => {
     await useTerminalStore.getState().openTab(ENV_A);
     await useTerminalStore.getState().openTab(ENV_A);
@@ -206,17 +221,17 @@ describe("terminal-store", () => {
 
     useTerminalStore.getState().setHeight(300);
     expect(useTerminalStore.getState().height).toBe(300);
-    expect(localStorage.getItem("threadex-terminal-height")).toBe("300");
+    expect(localStorage.getItem("loom-terminal-height")).toBe("300");
   });
 
   it("toggleVisible flips visibility and persists to localStorage", () => {
     expect(useTerminalStore.getState().visible).toBe(false);
     useTerminalStore.getState().toggleVisible();
     expect(useTerminalStore.getState().visible).toBe(true);
-    expect(localStorage.getItem("threadex-terminal-visible")).toBe("1");
+    expect(localStorage.getItem("loom-terminal-visible")).toBe("1");
     useTerminalStore.getState().toggleVisible();
     expect(useTerminalStore.getState().visible).toBe(false);
-    expect(localStorage.getItem("threadex-terminal-visible")).toBe("0");
+    expect(localStorage.getItem("loom-terminal-visible")).toBe("0");
   });
 
   it("markExited flags the matching tab across all envs", async () => {
@@ -266,7 +281,7 @@ describe("terminal-store", () => {
   });
 
   it("preserves visible state when environments exist but tabs have not been restored yet", () => {
-    localStorage.setItem("threadex-terminal-visible", "1");
+    localStorage.setItem("loom-terminal-visible", "1");
     useTerminalStore.setState({
       visible: true,
       height: 280,
@@ -277,7 +292,7 @@ describe("terminal-store", () => {
     useTerminalStore.getState().reconcileEnvironments([ENV_A]);
 
     expect(useTerminalStore.getState().visible).toBe(true);
-    expect(localStorage.getItem("threadex-terminal-visible")).toBe("1");
+    expect(localStorage.getItem("loom-terminal-visible")).toBe("1");
   });
 
   it("kills the PTY if the environment disappears while openTab is in flight", async () => {

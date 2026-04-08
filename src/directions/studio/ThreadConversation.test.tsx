@@ -883,7 +883,7 @@ describe("ThreadConversation", () => {
 
   it("renders assistant file references as compact tokens instead of inline paths", async () => {
     const filePath =
-      "/Users/tester/.threadex/worktrees/threadex-019d5b55/lively-dolphin/src/directions/studio/ThreadConversation.tsx";
+      "/Users/tester/.loom/worktrees/loom-019d5b55/lively-dolphin/src/directions/studio/ThreadConversation.tsx";
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         items: [
@@ -1161,15 +1161,15 @@ describe("ThreadConversation", () => {
             toolType: "commandExecution",
             title: "Command",
             status: "completed",
-            summary: "Logs: https://threadex.dev/docs",
-            output: "Output: https://threadex.dev/output",
+            summary: "Logs: https://loom.dev/docs",
+            output: "Output: https://loom.dev/output",
           },
           {
             kind: "system",
             id: "system-links-1",
             tone: "info",
             title: "Status",
-            body: "Read https://threadex.dev/status for details.",
+            body: "Read https://loom.dev/status for details.",
           },
         ],
       }),
@@ -1184,30 +1184,30 @@ describe("ThreadConversation", () => {
     );
 
     const summaryLink = await screen.findByRole("link", {
-      name: "https://threadex.dev/docs",
+      name: "https://loom.dev/docs",
     });
-    expect(summaryLink).toHaveAttribute("href", "https://threadex.dev/docs");
+    expect(summaryLink).toHaveAttribute("href", "https://loom.dev/docs");
 
     await userEvent.click(summaryLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/docs");
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://loom.dev/docs");
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show Command details" }),
     );
 
     const outputLink = screen.getByRole("link", {
-      name: "https://threadex.dev/output",
+      name: "https://loom.dev/output",
     });
     const systemLink = screen.getByRole("link", {
-      name: "https://threadex.dev/status",
+      name: "https://loom.dev/status",
     });
 
     await userEvent.click(outputLink);
     await userEvent.click(systemLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/output");
-    expect(openUrlMock).toHaveBeenNthCalledWith(3, "https://threadex.dev/status");
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://loom.dev/output");
+    expect(openUrlMock).toHaveBeenNthCalledWith(3, "https://loom.dev/status");
   });
 
   it("renders clickable bare URLs in approval interaction copy", async () => {
@@ -1215,8 +1215,8 @@ describe("ThreadConversation", () => {
       snapshot: makeConversationSnapshot({
         pendingInteractions: [
           makeApprovalRequest({
-            summary: "Summary https://threadex.dev/approval",
-            reason: "Reason https://threadex.dev/reason",
+            summary: "Summary https://loom.dev/approval",
+            reason: "Reason https://loom.dev/reason",
           }),
         ],
       }),
@@ -1231,17 +1231,17 @@ describe("ThreadConversation", () => {
     );
 
     const summaryLink = await screen.findByRole("link", {
-      name: "https://threadex.dev/approval",
+      name: "https://loom.dev/approval",
     });
     const reasonLink = screen.getByRole("link", {
-      name: "https://threadex.dev/reason",
+      name: "https://loom.dev/reason",
     });
 
     await userEvent.click(summaryLink);
     await userEvent.click(reasonLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/approval");
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/reason");
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://loom.dev/approval");
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://loom.dev/reason");
   });
 
   it("renders clickable bare URLs in plan and task explanations", async () => {
@@ -1249,10 +1249,10 @@ describe("ThreadConversation", () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         proposedPlan: makeProposedPlan({
-          explanation: "Plan docs: https://threadex.dev/plan",
+          explanation: "Plan docs: https://loom.dev/plan",
         }),
         taskPlan: makeTaskPlan({
-          explanation: "Task docs: https://threadex.dev/task",
+          explanation: "Task docs: https://loom.dev/task",
         }),
       }),
       capabilities: capabilitiesFixture,
@@ -1266,17 +1266,17 @@ describe("ThreadConversation", () => {
     );
 
     const planLink = await screen.findByRole("link", {
-      name: "https://threadex.dev/plan",
+      name: "https://loom.dev/plan",
     });
     const taskLink = screen.getByRole("link", {
-      name: "https://threadex.dev/task",
+      name: "https://loom.dev/task",
     });
 
     await userEvent.click(planLink);
     await userEvent.click(taskLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://threadex.dev/plan");
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://threadex.dev/task");
+    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://loom.dev/plan");
+    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://loom.dev/task");
   });
 
   it("renders clickable bare URLs in unsupported interaction messages", async () => {
@@ -1291,7 +1291,7 @@ describe("ThreadConversation", () => {
             turnId: "turn-1",
             itemId: "item-unsupported-1",
             title: "Unsupported interaction",
-            message: "Follow https://threadex.dev/help for manual steps.",
+            message: "Follow https://loom.dev/help for manual steps.",
           },
         ],
       }),
@@ -1306,12 +1306,12 @@ describe("ThreadConversation", () => {
     );
 
     const helpLink = await screen.findByRole("link", {
-      name: "https://threadex.dev/help",
+      name: "https://loom.dev/help",
     });
 
     await userEvent.click(helpLink);
 
-    expect(openUrlMock).toHaveBeenCalledWith("https://threadex.dev/help");
+    expect(openUrlMock).toHaveBeenCalledWith("https://loom.dev/help");
   });
 
   it("renders attached user images in the timeline", async () => {
@@ -1372,7 +1372,7 @@ describe("ThreadConversation", () => {
     const { open } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(open).mockResolvedValue(["/tmp/diagram.png"]);
 
-    await screen.findByPlaceholderText("Message ThreadEx...");
+    await screen.findByPlaceholderText("Message Loom...");
     await userEvent.click(screen.getByRole("button", { name: "Attach images" }));
     await waitFor(() => {
       expect(screen.getByText("diagram.png")).toBeInTheDocument();
@@ -1705,7 +1705,7 @@ describe("ThreadConversation", () => {
             id: "system-plan-approved",
             tone: "info",
             title: "Plan approved",
-            body: "ThreadEx approved the current plan and switched the thread to Build mode.",
+            body: "Loom approved the current plan and switched the thread to Build mode.",
           },
           {
             kind: "message",
@@ -1759,7 +1759,7 @@ describe("ThreadConversation", () => {
       expect(screen.getByText("Plan approved")).toBeInTheDocument();
       expect(
         screen.getByText(
-          "ThreadEx approved the current plan and switched the thread to Build mode.",
+          "Loom approved the current plan and switched the thread to Build mode.",
         ),
       ).toBeInTheDocument();
       expect(
@@ -1874,7 +1874,7 @@ describe("ThreadConversation", () => {
       screen.queryByPlaceholderText("Refine the proposed plan..."),
     ).toBeNull();
     expect(
-      screen.getByPlaceholderText("Message ThreadEx..."),
+      screen.getByPlaceholderText("Message Loom..."),
     ).toBeInTheDocument();
   });
 
@@ -1915,7 +1915,7 @@ describe("ThreadConversation", () => {
     expect(screen.queryByRole("button", { name: "Refine" })).toBeNull();
     expect(screen.queryByText("Codex is still shaping the plan…")).toBeNull();
     expect(
-      screen.getByPlaceholderText("Message ThreadEx..."),
+      screen.getByPlaceholderText("Message Loom..."),
     ).not.toBeDisabled();
   });
 
@@ -2066,7 +2066,7 @@ describe("ThreadConversation", () => {
     );
 
     const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Run");
     await user.keyboard("{Shift>}{Enter}{/Shift}");
     await user.type(input, "tests");
@@ -2100,7 +2100,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await userEvent.type(input, "Ship the fix");
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -2139,7 +2139,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await userEvent.type(input, "  Ship the fix  ");
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -2190,7 +2190,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await userEvent.type(input, "Add theme support");
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -2243,7 +2243,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await userEvent.type(input, "こんにちは");
     fireEvent.keyDown(input, { key: "Enter", isComposing: true });
 
@@ -2285,7 +2285,7 @@ describe("ThreadConversation", () => {
     );
 
     const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Please use /prom");
     expect(
       await screen.findByRole("option", { name: /prompts:review/i }),
@@ -2320,7 +2320,7 @@ describe("ThreadConversation", () => {
         {
           name: "create-pr",
           description: "Draft polished GitHub pull requests in English",
-          path: "/tmp/threadex/.codex/skills/create-pr/SKILL.md",
+          path: "/tmp/loom/.codex/skills/create-pr/SKILL.md",
         },
       ],
       apps: [],
@@ -2334,7 +2334,7 @@ describe("ThreadConversation", () => {
     );
 
     const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Use $crea");
     expect(
       await screen.findByRole("option", { name: /create-pr/i }),
@@ -2361,7 +2361,7 @@ describe("ThreadConversation", () => {
         {
           name: "github",
           description: "GitHub CLI skill",
-          path: "/tmp/threadex/.codex/skills/github/SKILL.md",
+          path: "/tmp/loom/.codex/skills/github/SKILL.md",
         },
       ],
       apps: [
@@ -2389,7 +2389,7 @@ describe("ThreadConversation", () => {
     );
 
     const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Use $git");
     expect(
       await screen.findAllByRole("option", { name: /github/i }),
@@ -2425,7 +2425,7 @@ describe("ThreadConversation", () => {
         {
           name: "github",
           description: "GitHub CLI skill",
-          path: "/tmp/threadex/.codex/skills/github/SKILL.md",
+          path: "/tmp/loom/.codex/skills/github/SKILL.md",
         },
       ],
       apps: [
@@ -2453,7 +2453,7 @@ describe("ThreadConversation", () => {
     );
 
     const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText("Message ThreadEx...");
+    const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Use $git");
     expect(
       await screen.findAllByRole("option", { name: /github/i }),
@@ -2472,7 +2472,7 @@ describe("ThreadConversation", () => {
     );
 
     const switchedInput = await screen.findByPlaceholderText(
-      "Message ThreadEx...",
+      "Message Loom...",
     );
     expect(switchedInput).toHaveValue("Use $github ");
 
@@ -2538,7 +2538,7 @@ describe("ThreadConversation", () => {
     });
 
     await userEvent.type(
-      await screen.findByPlaceholderText("Message ThreadEx..."),
+      await screen.findByPlaceholderText("Message Loom..."),
       "Only text here",
     );
     await userEvent.keyboard("{Enter}");

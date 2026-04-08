@@ -146,7 +146,7 @@ export function ThreadConversation({ environment, thread }: Props) {
       <div className="tx-conversation">
         <EmptyState
           heading="Conversation unavailable"
-          body={storeError ?? "ThreadEx could not open this thread yet."}
+          body={storeError ?? "Loom could not open this thread yet."}
         />
       </div>
     );

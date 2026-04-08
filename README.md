@@ -1,15 +1,17 @@
-# ThreadEx
+# Loom
 
-[![CI](https://github.com/paul-bouzian/ThreadEx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/paul-bouzian/ThreadEx/actions/workflows/ci.yml)
-[![Latest Release](https://img.shields.io/github/v/release/paul-bouzian/ThreadEx?display_name=tag)](https://github.com/paul-bouzian/ThreadEx/releases)
-[![macOS](https://img.shields.io/badge/platform-macOS-black)](https://github.com/paul-bouzian/ThreadEx/releases)
-[![Apple Silicon](https://img.shields.io/badge/chip-Apple%20Silicon-111111)](https://github.com/paul-bouzian/ThreadEx/releases)
+[<img src="branding/loom-logo.png" alt="Loom logo" width="160" />](branding/loom-logo.png)
 
-ThreadEx is a local-first macOS desktop app for working with Codex through a native, review-first interface.
+[![CI](https://github.com/paul-bouzian/Loom/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/paul-bouzian/Loom/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/paul-bouzian/Loom?display_name=tag)](https://github.com/paul-bouzian/Loom/releases)
+[![macOS](https://img.shields.io/badge/platform-macOS-black)](https://github.com/paul-bouzian/Loom/releases)
+[![Apple Silicon](https://img.shields.io/badge/chip-Apple%20Silicon-111111)](https://github.com/paul-bouzian/Loom/releases)
+
+Loom is a local-first macOS desktop app for working with Codex through a native, review-first interface.
 
 It talks directly to `codex app-server`, keeps Git and runtime state environment-scoped, and is designed around the workflow most coding agents actually need: prompt, inspect, iterate, review, commit.
 
-## What ThreadEx already does
+## What Loom already does
 
 - Real Codex conversations backed by `codex app-server`
 - Project, environment, and thread management with the canonical model `Project -> Environment -> Thread`
@@ -21,7 +23,7 @@ It talks directly to `codex app-server`, keeps Git and runtime state environment
 
 ## Product shape
 
-ThreadEx is intentionally:
+Loom is intentionally:
 
 - Codex-only, not a multi-provider shell
 - Local-first, not a hosted runtime product
@@ -32,7 +34,7 @@ The local repository itself is the default environment for a project. Worktrees 
 
 ## Current status
 
-ThreadEx is already usable as a serious local Codex desktop workflow, but it is still an early public build.
+Loom is already usable as a serious local Codex desktop workflow, but it is still an early public build.
 
 Current public focus:
 
@@ -77,7 +79,7 @@ Useful commands:
 
 ## Architecture
 
-ThreadEx keeps a strict desktop boundary:
+Loom keeps a strict desktop boundary:
 
 - Rust owns privileged logic, runtime supervision, persistence, Git, worktrees, and release/update plumbing
 - React owns rendering, local UI state, and typed interaction with the backend
@@ -95,7 +97,7 @@ Key product surfaces already implemented:
 
 ## Releases and updates
 
-ThreadEx is distributed through GitHub Releases and uses Tauri updater artifacts for in-app updates.
+Loom is distributed through GitHub Releases and uses Tauri updater artifacts for in-app updates.
 
 The current release target is:
 
@@ -104,7 +106,7 @@ The current release target is:
 
 ## Why this exists
 
-Most Codex workflows are still either terminal-first or web-shell-first. ThreadEx aims at a more native desktop loop:
+Most Codex workflows are still either terminal-first or web-shell-first. Loom aims at a more native desktop loop:
 
 1. pick a repo or worktree
 2. talk to Codex in a real thread

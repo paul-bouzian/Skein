@@ -184,17 +184,29 @@ describe("StudioShell", () => {
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     });
-    expect(localStorage.getItem("threadex-theme")).toBe("dark");
+    expect(localStorage.getItem("loom-theme")).toBe("dark");
 
     await userEvent.click(screen.getByRole("button", { name: "Light mode" }));
 
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     });
-    expect(localStorage.getItem("threadex-theme")).toBe("light");
+    expect(localStorage.getItem("loom-theme")).toBe("light");
     expect(
       screen.getByRole("button", { name: "Dark mode" }),
     ).toBeInTheDocument();
+  });
+
+  it("migrates the legacy theme key into the Loom namespace", async () => {
+    storageState.set("threadex-theme", "light");
+
+    render(<StudioShell />);
+
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    });
+    expect(localStorage.getItem("loom-theme")).toBe("light");
+    expect(localStorage.getItem("threadex-theme")).toBeNull();
   });
 
   it("renders settings picker menus above the modal backdrop", async () => {
@@ -461,7 +473,7 @@ describe("StudioShell", () => {
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [
-          makeProject({ id: "project-1", name: "ThreadEx" }),
+          makeProject({ id: "project-1", name: "Loom" }),
           makeProject({
             id: "project-2",
             name: "Sandbox",
@@ -486,7 +498,7 @@ describe("StudioShell", () => {
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [
-          makeProject({ id: "project-1", name: "ThreadEx" }),
+          makeProject({ id: "project-1", name: "Loom" }),
           makeProject({
             id: "project-2",
             name: "Sandbox",

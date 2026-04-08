@@ -1,3 +1,4 @@
+mod app_identity;
 mod commands;
 mod domain;
 mod error;

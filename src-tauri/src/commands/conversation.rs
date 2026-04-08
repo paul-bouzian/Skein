@@ -2,6 +2,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 use tracing::warn;
 
+use crate::app_identity::WORKSPACE_EVENT_NAME;
 use crate::domain::conversation::{
     ComposerFileSearchResult, ComposerMentionBindingInput, ConversationComposerSettings,
     ConversationImageAttachment, RespondToApprovalRequestInput, RespondToUserInputRequestInput,
@@ -246,7 +247,7 @@ pub async fn submit_plan_decision(
 }
 
 fn emit_workspace_event(app: &AppHandle, payload: WorkspaceEvent) {
-    if let Err(error) = app.emit("threadex://workspace-event", payload) {
+    if let Err(error) = app.emit(WORKSPACE_EVENT_NAME, payload) {
         warn!("failed to emit workspace event: {error}");
     }
 }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub use crate::app_identity::{CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME};
 use crate::domain::conversation::{
     CollaborationModeOption, ConversationApprovalKind, ConversationComposerSettings,
     ConversationErrorSnapshot, ConversationImageAttachment, ConversationInteraction,
@@ -17,9 +18,6 @@ use crate::domain::conversation::{
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
-
-pub const CONVERSATION_EVENT_NAME: &str = "threadex://conversation-event";
-pub const CODEX_USAGE_EVENT_NAME: &str = "threadex://codex-usage-event";
 
 #[derive(Debug, Clone)]
 pub enum IncomingMessage {
@@ -587,7 +585,7 @@ pub fn parse_incoming_message(line: &str) -> AppResult<IncomingMessage> {
 pub fn initialize_params(version: &str) -> Value {
     json!(InitializeParams {
         client_info: ClientInfo {
-            name: "ThreadEx".to_string(),
+            name: "Loom".to_string(),
             version: version.to_string(),
         },
         capabilities: InitializeCapabilities {
@@ -1132,7 +1130,7 @@ pub fn normalize_item(turn_id: Option<&str>, value: &Value) -> Option<Conversati
             turn_id,
             tone: ConversationTone::Info,
             title: "Unsupported item".to_string(),
-            body: format!("ThreadEx recorded the `{other}` item without a dedicated renderer."),
+            body: format!("Loom recorded the `{other}` item without a dedicated renderer."),
         })),
     }
 }
@@ -1300,7 +1298,7 @@ pub fn normalize_server_interaction(
                     item_id,
                     title: "Interactive request not supported yet".to_string(),
                     message: format!(
-                        "`{}` is visible in ThreadEx, but responding to it is part of the next milestone.",
+                        "`{}` is visible in Loom, but responding to it is part of the next milestone.",
                         request.method
                     ),
                 },
@@ -2138,7 +2136,7 @@ mod tests {
                         "placeholder": "/prompts:debug(\"boom\")"
                     }]
                 },
-                { "type": "skill", "name": "threadex-standards", "path": "/tmp/skill" },
+                { "type": "skill", "name": "loom-standards", "path": "/tmp/skill" },
                 { "type": "mention", "name": "github", "path": "app://github" }
             ]
         }))

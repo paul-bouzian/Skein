@@ -1,4 +1,0 @@
-interface:
-  display_name: "ThreadEx Standards"
-  short_description: "Prod standards for ThreadEx desktop work"
-  default_prompt: "Use $threadex-standards before changing ThreadEx so the Tauri, React, TypeScript, and Rust implementation stays production-grade."

@@ -758,11 +758,11 @@ fn normalizes_collaboration_modes_and_sandbox_mapping() {
         "on-request"
     );
     assert_eq!(
-        sandbox_policy_value(ApprovalPolicy::AskToEdit, "/tmp/threadex")["type"],
+        sandbox_policy_value(ApprovalPolicy::AskToEdit, "/tmp/loom")["type"],
         "workspaceWrite"
     );
     assert_eq!(
-        sandbox_policy_value(ApprovalPolicy::FullAccess, "/tmp/threadex")["type"],
+        sandbox_policy_value(ApprovalPolicy::FullAccess, "/tmp/loom")["type"],
         "dangerFullAccess"
     );
 }

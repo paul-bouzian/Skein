@@ -1,3 +1,5 @@
+import { VOICE_PROCESSOR_NAME } from "../../../lib/app-identity";
+
 const TARGET_SAMPLE_RATE_HZ = 24_000;
 const TARGET_BITS_PER_SAMPLE = 16;
 export const MAX_RECORDING_DURATION_MS = 120_000;
@@ -234,7 +236,7 @@ async function createCollectorNode(
       new Blob(
         [
           `
-          class ThreadExVoiceProcessor extends AudioWorkletProcessor {
+          class LoomVoiceProcessor extends AudioWorkletProcessor {
             process(inputs) {
               const channels = inputs[0];
               if (channels && channels.length > 0) {
@@ -251,7 +253,7 @@ async function createCollectorNode(
               return true;
             }
           }
-          registerProcessor("threadex-voice-processor", ThreadExVoiceProcessor);
+          registerProcessor(VOICE_PROCESSOR_NAME, LoomVoiceProcessor);
         `,
         ],
         { type: "application/javascript" },
@@ -262,7 +264,7 @@ async function createCollectorNode(
       await audioContext.audioWorklet.addModule(moduleUrl);
       const workletNode = new AudioWorkletNode(
         audioContext,
-        "threadex-voice-processor",
+        VOICE_PROCESSOR_NAME,
         {
           numberOfInputs: 1,
           numberOfOutputs: 1,

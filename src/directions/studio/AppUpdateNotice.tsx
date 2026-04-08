@@ -28,7 +28,7 @@ export function AppUpdateNotice() {
         <div>
           <p className="tx-update-notice__eyebrow">Update available</p>
           <h3 className="tx-update-notice__title">
-            ThreadEx {snapshot.availableVersion}
+            Loom {snapshot.availableVersion}
           </h3>
           <p className="tx-update-notice__meta">
             Installed {snapshot.currentVersion}

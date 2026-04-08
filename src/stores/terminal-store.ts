@@ -1,5 +1,12 @@
 import { create } from "zustand";
 
+import {
+  LEGACY_TERMINAL_HEIGHT_STORAGE_KEY,
+  LEGACY_TERMINAL_VISIBLE_STORAGE_KEY,
+  TERMINAL_HEIGHT_STORAGE_KEY,
+  TERMINAL_VISIBLE_STORAGE_KEY,
+  readLocalStorageWithMigration,
+} from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
 import type { WorkspaceSnapshot } from "../lib/types";
 import {
@@ -7,8 +14,6 @@ import {
   ensureTerminalOutputBusReady,
 } from "../lib/terminal-output-bus";
 
-const HEIGHT_KEY = "threadex-terminal-height";
-const VISIBLE_KEY = "threadex-terminal-visible";
 const DEFAULT_HEIGHT = 280;
 const MIN_HEIGHT = 120;
 export const MAX_TABS = 10;
@@ -20,7 +25,10 @@ function clampHeight(value: number): number {
 
 function readHeight(): number {
   try {
-    const rawValue = localStorage.getItem(HEIGHT_KEY);
+    const rawValue = readLocalStorageWithMigration(
+      TERMINAL_HEIGHT_STORAGE_KEY,
+      LEGACY_TERMINAL_HEIGHT_STORAGE_KEY,
+    );
     if (rawValue == null) return DEFAULT_HEIGHT;
     const value = Number(rawValue);
     if (Number.isFinite(value)) return clampHeight(value);
@@ -32,7 +40,12 @@ function readHeight(): number {
 
 function readVisible(): boolean {
   try {
-    return localStorage.getItem(VISIBLE_KEY) === "1";
+    return (
+      readLocalStorageWithMigration(
+        TERMINAL_VISIBLE_STORAGE_KEY,
+        LEGACY_TERMINAL_VISIBLE_STORAGE_KEY,
+      ) === "1"
+    );
   } catch {
     return false;
   }
@@ -90,18 +103,18 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   toggleVisible: () => {
     const next = !get().visible;
-    localStorage.setItem(VISIBLE_KEY, next ? "1" : "0");
+    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, next ? "1" : "0");
     set({ visible: next });
   },
 
   setVisible: (visible) => {
-    localStorage.setItem(VISIBLE_KEY, visible ? "1" : "0");
+    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, visible ? "1" : "0");
     set({ visible });
   },
 
   setHeight: (value) => {
     const clamped = clampHeight(value);
-    localStorage.setItem(HEIGHT_KEY, String(clamped));
+    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(clamped));
     set({ height: clamped });
   },
 
@@ -215,7 +228,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           (slot) => slot.tabs.length > 0,
         );
         if (!hasTabsRemaining) {
-          localStorage.setItem(VISIBLE_KEY, "0");
+          localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "0");
         }
         return { byEnv: nextByEnv, visible: hasTabsRemaining ? state.visible : false };
       }
@@ -301,7 +314,7 @@ function reconcileTerminalSnapshot(
 
   const visible = validEnvironmentIds.size === 0 ? false : state.visible;
   if (!visible && validEnvironmentIds.size === 0) {
-    localStorage.setItem(VISIBLE_KEY, "0");
+    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "0");
   }
 
   return {

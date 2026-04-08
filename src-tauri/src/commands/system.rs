@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use crate::app_identity::APP_NAME;
 use crate::error::{AppError, CommandError};
 use crate::state::AppState;
 
@@ -40,7 +41,7 @@ pub async fn get_bootstrap_status(
         .sum::<usize>();
 
     Ok(BootstrapStatus {
-        app_name: "ThreadEx".to_string(),
+        app_name: APP_NAME.to_string(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         backend: "registry-ready".to_string(),
         platform: std::env::consts::OS.to_string(),
@@ -199,7 +200,7 @@ mod tests {
     #[test]
     fn icon_data_url_embeds_the_file_as_base64() {
         let temp_dir = std::env::temp_dir().join(format!(
-            "threadex-icon-{}",
+            "loom-icon-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp directory should exist");
@@ -216,7 +217,7 @@ mod tests {
     #[test]
     fn image_data_url_rejects_files_that_exceed_the_preview_limit() {
         let temp_dir = std::env::temp_dir().join(format!(
-            "threadex-image-limit-{}",
+            "loom-image-limit-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp directory should exist");

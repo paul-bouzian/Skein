@@ -9,7 +9,7 @@ export function StudioWelcome() {
     <div className="studio-welcome">
       <EmptyState
         icon={<span className="studio-welcome__icon">TX</span>}
-        heading="Welcome to ThreadEx"
+        heading="Welcome to Loom"
         body={
           error ??
           "Add your first project to start managing Codex environments and threads."

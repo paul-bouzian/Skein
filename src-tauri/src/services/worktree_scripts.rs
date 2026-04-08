@@ -8,10 +8,9 @@ use chrono::Utc;
 use tauri::{AppHandle, Emitter};
 use tracing::{error, warn};
 
+use crate::app_identity::WORKTREE_SCRIPT_FAILURE_EVENT_NAME;
 use crate::domain::workspace::{WorktreeScriptFailureEvent, WorktreeScriptTrigger};
 use crate::services::git;
-
-pub const WORKTREE_SCRIPT_FAILURE_EVENT_NAME: &str = "threadex://worktree-script-failure";
 const WORKTREE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const WORKTREE_SCRIPT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -324,7 +323,7 @@ fn write_log_header(
     shell: &ScriptShell,
     cwd: &Path,
 ) -> std::io::Result<()> {
-    writeln!(file, "ThreadEx worktree script")?;
+    writeln!(file, "Loom worktree script")?;
     writeln!(
         file,
         "started_at={}",
@@ -346,18 +345,18 @@ fn write_log_header(
 }
 
 fn apply_script_environment(command: &mut Command, request: &WorktreeScriptRequest) {
-    command.env("THREADEX_SCRIPT_TRIGGER", trigger_value(request.trigger));
-    command.env("THREADEX_PROJECT_ID", &request.project_id);
-    command.env("THREADEX_PROJECT_NAME", &request.project_name);
+    command.env("LOOM_SCRIPT_TRIGGER", trigger_value(request.trigger));
+    command.env("LOOM_PROJECT_ID", &request.project_id);
+    command.env("LOOM_PROJECT_NAME", &request.project_name);
     command.env(
-        "THREADEX_PROJECT_ROOT",
+        "LOOM_PROJECT_ROOT",
         request.project_root.to_string_lossy().to_string(),
     );
-    command.env("THREADEX_WORKTREE_ID", &request.worktree_id);
-    command.env("THREADEX_WORKTREE_NAME", &request.worktree_name);
-    command.env("THREADEX_WORKTREE_BRANCH", &request.worktree_branch);
+    command.env("LOOM_WORKTREE_ID", &request.worktree_id);
+    command.env("LOOM_WORKTREE_NAME", &request.worktree_name);
+    command.env("LOOM_WORKTREE_BRANCH", &request.worktree_branch);
     command.env(
-        "THREADEX_WORKTREE_PATH",
+        "LOOM_WORKTREE_PATH",
         request.worktree_path.to_string_lossy().to_string(),
     );
 }
@@ -464,7 +463,7 @@ mod tests {
             trigger,
             script: "echo hi".to_string(),
             project_id: "project-1".to_string(),
-            project_name: "ThreadEx".to_string(),
+            project_name: "Loom".to_string(),
             project_root: PathBuf::from("/tmp/project"),
             worktree_id: "env-1".to_string(),
             worktree_name: "fuzzy-tiger".to_string(),

@@ -2,10 +2,9 @@ import { create } from "zustand";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { RELEASES_BASE_URL } from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
 import type { AppUpdateSnapshot, AppUpdateState } from "../lib/types";
-
-const RELEASES_BASE_URL = "https://github.com/paul-bouzian/ThreadEx/releases/tag";
 
 type UpdateStore = {
   state: AppUpdateState;

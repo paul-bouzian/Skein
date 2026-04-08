@@ -1,186 +1,156 @@
-# ThreadEx Release Runbook
+# Loom Release Runbook
 
-This file captures the current release state, the active Apple notarization submissions, and the exact commands to continue the release without rediscovering context.
+This runbook is the canonical path for cutting Loom releases while GitHub-hosted macOS runners remain unreliable or blocked by billing. It assumes the repository name is `paul-bouzian/Loom` and the first official release is `v0.1.0`.
 
-## Current State
+## Release Target
 
-- Repository version on `main`: `0.1.1`
-- Release commit on `main`: `8770b31`
-- Git tag already pushed: `v0.1.1`
-- GitHub release for `v0.1.1`: not created yet
-- GitHub Actions release path: currently blocked by GitHub account billing / spending-limit state, so the release is being finished locally on macOS
+- product name: `Loom`
+- bundle id: `com.paulbouzian.loom`
+- current official target: `v0.1.0`
+- primary distribution: macOS Apple Silicon
+- release flow: local signed + notarized build, then GitHub upload
 
-## Active Apple Notarization Submissions
-
-Two Developer ID submissions currently exist for the same app family:
-
-1. Current submission to follow:
-   - `941e7c7f-c23b-4f4e-afed-56247a2de964`
-   - created at `2026-04-04T13:55:04.841Z`
-   - archive name: `ThreadEx-notary.zip`
-
-2. Older submission from the overnight GitHub Actions attempt:
-   - `29f36548-c46e-4549-93d4-40e62919a6a0`
-   - created at `2026-04-04T00:37:00.637Z`
-   - archive name: `ThreadEx.zip`
-
-Important:
-
-- The current installed `xcrun notarytool` does not expose a `cancel` subcommand.
-- The old submission does not have to be cancelled to continue the new one.
-- For practical purposes, only track `941e7c7f-c23b-4f4e-afed-56247a2de964`.
-
-## Local Files Used For Release
-
-These are the local inputs currently used on Paul's Mac:
+## Local Inputs
 
 - Developer ID certificate export:
-  - `~/Documents/threadex-developer-id.p12`
+  - `${LOOM_APPLE_CERTIFICATE_P12}`
 - App Store Connect API key:
-  - `$LOOM_APPLE_API_KEY_PATH`
-- Tauri updater private key:
-  - `~/.threadex/release/threadex-updater.key`
-- Tauri updater private key password:
-  - `~/.threadex/release/tauri-updater-password.txt`
+  - `${LOOM_APPLE_API_KEY_PATH}`
+- App Store Connect API key metadata:
+  - `${LOOM_APPLE_API_KEY_ID}`
+  - `${LOOM_APPLE_API_ISSUER}`
+- updater private key:
+  - `~/.loom/release/loom-updater.key`
+- updater private key password:
+  - `~/.loom/release/tauri-updater-password.txt`
 
-Local output paths after a successful release build:
-
-- signed release app bundle:
-  - `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app`
-- updater tarball:
-  - `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app.tar.gz`
-- updater signature:
-  - `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app.tar.gz.sig`
-
-## How To Check Notarization Status
-
-### Show all recent submissions
+Suggested local exports:
 
 ```bash
-xcrun notarytool history \
-  --key "$HOME/Downloads/AuthKey_YOUR_KEY_ID.p8" \
-  --key-id YOUR_KEY_ID \
-  --issuer YOUR_ISSUER_ID \
-  --output-format json
+export LOOM_APPLE_CERTIFICATE_P12="$HOME/Documents/loom-developer-id.p12"
+export LOOM_APPLE_API_KEY_PATH="$HOME/Downloads/AuthKey_XXXXXXXXXX.p8"
+export LOOM_APPLE_API_KEY_ID="YOUR_KEY_ID"
+export LOOM_APPLE_API_ISSUER="YOUR_ISSUER_ID"
 ```
 
-### Check the current submission only
+## One-Time Reset Before The Official `v0.1.0`
+
+Older unpublished attempts used `v0.1.0` and `v0.1.1` tags. Clean them before reusing `v0.1.0` as the first real Loom release.
 
 ```bash
-xcrun notarytool info 941e7c7f-c23b-4f4e-afed-56247a2de964 \
-  --key "$HOME/Downloads/AuthKey_YOUR_KEY_ID.p8" \
-  --key-id YOUR_KEY_ID \
-  --issuer YOUR_ISSUER_ID \
-  --output-format json
+git tag -d v0.1.0 v0.1.1 2>/dev/null || true
+git push origin :refs/tags/v0.1.0 :refs/tags/v0.1.1
 ```
 
-### Poll in a loop every 20 seconds
+## Prepare The Release Source
+
+Run from the repository root on `main`:
 
 ```bash
-while true; do
-  clear
-  date
-  xcrun notarytool info 941e7c7f-c23b-4f4e-afed-56247a2de964 \
-    --key "$HOME/Downloads/AuthKey_YOUR_KEY_ID.p8" \
-    --key-id YOUR_KEY_ID \
-    --issuer YOUR_ISSUER_ID \
-    --output-format json
-  sleep 20
-done
-```
-
-### Retrieve the notarization log after completion
-
-Use this only once the submission is no longer `In Progress`:
-
-```bash
-xcrun notarytool log 941e7c7f-c23b-4f4e-afed-56247a2de964 \
-  --key "$HOME/Downloads/AuthKey_YOUR_KEY_ID.p8" \
-  --key-id YOUR_KEY_ID \
-  --issuer YOUR_ISSUER_ID
-```
-
-## What Was Already Verified
-
-Before the local notarization submission was started, the following already passed locally:
-
-```bash
+git pull --ff-only
+node scripts/update-version.mjs 0.1.0
+bun install --frozen-lockfile
 bun run verify
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-The release bundle is also already signed correctly. This was verified with:
+If the repo is ready, commit the release source and tag it:
 
 ```bash
-codesign -dv --verbose=4 src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app
+git add .
+git commit -m "chore(release): cut v0.1.0" -m "Co-authored-by: Codex <noreply@openai.com>"
+git tag v0.1.0
 ```
 
-Expected authority chain includes:
+## Build, Sign, Notarize
 
-- `Developer ID Application: Paul Bouzian (YOUR_TEAM_ID)`
-- `Developer ID Certification Authority`
-- `Apple Root CA`
-
-## Important Implementation Detail
-
-When using a temporary keychain for local signing, the `Developer ID G2` intermediate certificate must also be present. Otherwise `security find-identity -v -p codesigning` may report `0 valid identities found` even though the `.p12` import succeeded.
-
-Working fix:
+Use the local signing flow. If you use a temporary keychain, also import the Developer ID G2 intermediate certificate first.
 
 ```bash
 curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$TMPDIR/DeveloperIDG2CA.cer"
-security import "$TMPDIR/DeveloperIDG2CA.cer" -k "$KEYCHAIN_PATH"
 ```
 
-## How To Finish The Release Once Apple Accepts The Submission
-
-1. Staple the accepted notarization ticket to the app bundle:
+Build the signed app bundle:
 
 ```bash
-xcrun stapler staple src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app
+bun run tauri build --target aarch64-apple-darwin --bundles app
 ```
 
-2. Build local release artifacts:
+The signed app bundle should exist at:
+
+- `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app`
+
+Create the notarization archive and submit it:
+
+```bash
+ditto -c -k --keepParent \
+  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
+  release-artifacts/Loom-notary.zip
+
+xcrun notarytool submit release-artifacts/Loom-notary.zip \
+  --key "$LOOM_APPLE_API_KEY_PATH" \
+  --key-id "$LOOM_APPLE_API_KEY_ID" \
+  --issuer "$LOOM_APPLE_API_ISSUER" \
+  --wait \
+  --output-format json
+```
+
+If Apple is slow, check status manually:
+
+```bash
+xcrun notarytool history \
+  --key "$LOOM_APPLE_API_KEY_PATH" \
+  --key-id "$LOOM_APPLE_API_KEY_ID" \
+  --issuer "$LOOM_APPLE_API_ISSUER" \
+  --output-format json
+```
+
+Once accepted:
+
+```bash
+xcrun stapler staple src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app
+```
+
+## Package Release Artifacts
 
 ```bash
 mkdir -p release-artifacts release-artifacts/dmg-root
-ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app \
-  release-artifacts/dmg-root/ThreadEx.app
+ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
+  release-artifacts/dmg-root/Loom.app
 ditto -c -k --keepParent \
-  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/ThreadEx.app \
-  release-artifacts/ThreadEx.zip
+  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
+  release-artifacts/Loom.zip
 hdiutil create \
-  -volname "ThreadEx" \
+  -volname "Loom" \
   -srcfolder release-artifacts/dmg-root \
   -ov \
   -format UDZO \
-  release-artifacts/ThreadEx_0.1.1_aarch64.dmg
+  release-artifacts/Loom_0.1.0_aarch64.dmg
 COPYFILE_DISABLE=1 tar -czf \
-  release-artifacts/ThreadEx.app.tar.gz \
+  release-artifacts/Loom.app.tar.gz \
   -C src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
-  ThreadEx.app
+  Loom.app
 ```
 
-3. Sign the updater tarball:
+Sign the updater archive:
 
 ```bash
 bun run tauri signer sign -- \
-  -f "$HOME/.threadex/release/threadex-updater.key" \
-  -p "$(cat "$HOME/.threadex/release/tauri-updater-password.txt")" \
-  release-artifacts/ThreadEx.app.tar.gz
+  -f "$HOME/.loom/release/loom-updater.key" \
+  -p "$(cat "$HOME/.loom/release/tauri-updater-password.txt")" \
+  release-artifacts/Loom.app.tar.gz
 ```
 
-4. Generate release notes:
+Generate release notes and `latest.json`:
 
 ```bash
-gh api "repos/paul-bouzian/ThreadEx/releases/generate-notes" \
+gh api "repos/paul-bouzian/Loom/releases/generate-notes" \
   -X POST \
-  -F "tag_name=v0.1.1" \
+  -F "tag_name=v0.1.0" \
   -F "target_commitish=$(git rev-parse HEAD)" \
   --jq .body > release-artifacts/release-notes.md
 ```
-
-5. Generate `latest.json` for the Tauri updater:
 
 ```bash
 python3 <<'PY'
@@ -188,11 +158,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-repo = "paul-bouzian/ThreadEx"
-version = "0.1.1"
-tag = "v0.1.1"
+repo = "paul-bouzian/Loom"
+version = "0.1.0"
+tag = "v0.1.0"
 notes = Path("release-artifacts/release-notes.md").read_text().strip()
-signature = Path("release-artifacts/ThreadEx.app.tar.gz.sig").read_text().strip()
+signature = Path("release-artifacts/Loom.app.tar.gz.sig").read_text().strip()
 payload = {
   "version": version,
   "notes": notes,
@@ -200,7 +170,7 @@ payload = {
   "platforms": {
     "darwin-aarch64": {
       "signature": signature,
-      "url": f"https://github.com/{repo}/releases/download/{tag}/ThreadEx.app.tar.gz",
+      "url": f"https://github.com/{repo}/releases/download/{tag}/Loom.app.tar.gz",
     }
   },
 }
@@ -208,51 +178,45 @@ Path("release-artifacts/latest.json").write_text(json.dumps(payload, indent=2) +
 PY
 ```
 
-6. Publish the GitHub release:
+## Publish The GitHub Release
 
 ```bash
-gh release create v0.1.1 \
-  --title "ThreadEx v0.1.1" \
+gh release create v0.1.0 \
+  --title "Loom v0.1.0" \
   --notes-file release-artifacts/release-notes.md \
   --target "$(git rev-parse HEAD)" \
-  release-artifacts/ThreadEx.zip \
-  release-artifacts/ThreadEx_0.1.1_aarch64.dmg \
-  release-artifacts/ThreadEx.app.tar.gz \
-  release-artifacts/ThreadEx.app.tar.gz.sig \
+  release-artifacts/Loom.zip \
+  release-artifacts/Loom_0.1.0_aarch64.dmg \
+  release-artifacts/Loom.app.tar.gz \
+  release-artifacts/Loom.app.tar.gz.sig \
   release-artifacts/latest.json
 ```
 
 If the release already exists:
 
 ```bash
-gh release edit v0.1.1 \
-  --title "ThreadEx v0.1.1" \
+gh release edit v0.1.0 \
+  --title "Loom v0.1.0" \
   --notes-file release-artifacts/release-notes.md
 
-gh release upload v0.1.1 \
-  release-artifacts/ThreadEx.zip \
-  release-artifacts/ThreadEx_0.1.1_aarch64.dmg \
-  release-artifacts/ThreadEx.app.tar.gz \
-  release-artifacts/ThreadEx.app.tar.gz.sig \
+gh release upload v0.1.0 \
+  release-artifacts/Loom.zip \
+  release-artifacts/Loom_0.1.0_aarch64.dmg \
+  release-artifacts/Loom.app.tar.gz \
+  release-artifacts/Loom.app.tar.gz.sig \
   release-artifacts/latest.json \
   --clobber
 ```
 
-## Known External Blockers
+## Validation Checklist
 
-### GitHub Actions billing hold
+- `bun run verify`
+- `cargo test --manifest-path src-tauri/Cargo.toml`
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
+- bundled app launches from `/Applications`
+- Codex runtime works from Finder launch
+- updater notice links target `paul-bouzian/Loom`
 
-At the time of writing, GitHub-hosted Actions jobs are refusing to start with this annotation:
+## Known External Risk
 
-`The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings`
-
-That is why the release is being finished locally for now.
-
-### Apple notarization delays
-
-The current behavior is not healthy:
-
-- the old submission has been stuck for many hours
-- the current submission has also remained `In Progress` far longer than expected
-
-This appears to be at least partially consistent with broader Apple notary service instability reports in late 2025 / early 2026.
+Apple notarization can remain slow or flaky for long stretches. If `notarytool submit --wait` stalls for too long, prefer checking `history` / `info` manually instead of resubmitting repeatedly.

@@ -392,7 +392,7 @@ describe("InlineComposer voice dictation", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
     transcription.resolve({ text: "voice note" });
-    expect(screen.getByPlaceholderText("Message ThreadEx...")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Message Loom...")).toHaveValue("");
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
 
@@ -468,7 +468,7 @@ describe("InlineComposer image attachments", () => {
     try {
       renderComposer("");
 
-      const input = await screen.findByPlaceholderText("Message ThreadEx...");
+      const input = await screen.findByPlaceholderText("Message Loom...");
       fireEvent.paste(input, {
         clipboardData: {
           items: [
@@ -523,7 +523,7 @@ describe("InlineComposer image attachments", () => {
     try {
       renderComposerWithDynamicDisabledState("");
 
-      const input = await screen.findByPlaceholderText("Message ThreadEx...");
+      const input = await screen.findByPlaceholderText("Message Loom...");
       fireEvent.paste(input, {
         clipboardData: {
           items: [

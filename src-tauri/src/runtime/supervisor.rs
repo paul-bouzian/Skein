@@ -636,7 +636,7 @@ mod tests {
         let task = spawn_fake_codex(server_reader, server_writer, requests.clone());
         let session = RuntimeSession::from_test_transport(
             "env-1".to_string(),
-            "/tmp/threadex".to_string(),
+            "/tmp/loom".to_string(),
             "0.1.0".to_string(),
             client_writer,
             client_reader,
@@ -693,7 +693,7 @@ mod tests {
                     "skills/list" => json!({
                         "jsonrpc": "2.0",
                         "id": id,
-                        "result": { "data": [{ "cwd": "/tmp/threadex", "skills": [], "errors": [] }] }
+                        "result": { "data": [{ "cwd": "/tmp/loom", "skills": [], "errors": [] }] }
                     }),
                     "app/list" => json!({
                         "jsonrpc": "2.0",

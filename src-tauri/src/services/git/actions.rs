@@ -60,7 +60,7 @@ pub fn revert_file(repo_root: &Path, path: &str, section: GitChangeSection) -> A
         GitChangeSection::Untracked | GitChangeSection::Branch
     ) {
         return Err(AppError::Validation(
-            "This change type cannot be reverted from ThreadEx yet.".to_string(),
+            "This change type cannot be reverted from Loom yet.".to_string(),
         ));
     }
 
@@ -222,7 +222,7 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
         .clone()
         .unwrap_or_else(|| "codex".to_string());
     let output_path = std::env::temp_dir().join(format!(
-        "threadex-commit-message-{}.txt",
+        "loom-commit-message-{}.txt",
         uuid::Uuid::now_v7()
     ));
     let output_guard = TempFileGuard::new(output_path.clone());
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn wait_for_child_output_drains_large_stdout_without_timing_out() -> AppResult<()> {
         let fixture_dir = std::env::temp_dir().join(format!(
-            "threadex-git-actions-diff-{}",
+            "loom-git-actions-diff-{}",
             uuid::Uuid::now_v7()
         ));
         fs::create_dir_all(&fixture_dir)?;
@@ -599,12 +599,12 @@ mod tests {
     impl TestRepo {
         fn new() -> AppResult<Self> {
             let path =
-                std::env::temp_dir().join(format!("threadex-git-actions-{}", uuid::Uuid::now_v7()));
+                std::env::temp_dir().join(format!("loom-git-actions-{}", uuid::Uuid::now_v7()));
             fs::create_dir_all(&path)?;
             let repo = Self { path };
             repo.run(["init", "--initial-branch=main"])?;
-            repo.run(["config", "user.email", "threadex@example.com"])?;
-            repo.run(["config", "user.name", "ThreadEx Tests"])?;
+            repo.run(["config", "user.email", "loom@example.com"])?;
+            repo.run(["config", "user.name", "Loom Tests"])?;
             Ok(repo)
         }
 

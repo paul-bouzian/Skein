@@ -8,13 +8,13 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 use tracing::warn;
 
+use crate::app_identity::WORKSPACE_EVENT_NAME;
 use crate::domain::workspace::{
     EnvironmentPullRequestSnapshot, WorkspaceEvent, WorkspaceEventKind,
 };
 use crate::error::AppResult;
 use crate::services::workspace::{PullRequestWatchTarget, WorkspaceService};
 
-const WORKSPACE_EVENT_NAME: &str = "threadex://workspace-event";
 const PULL_REQUEST_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const PULL_REQUEST_REFRESH_CONCURRENCY: usize = 4;
 
@@ -298,7 +298,7 @@ mod tests {
             Some(EnvironmentPullRequestSnapshot {
                 number: 3,
                 title: "Initial".to_string(),
-                url: "https://github.com/acme/threadex/pull/3".to_string(),
+                url: "https://github.com/acme/loom/pull/3".to_string(),
                 state: PullRequestState::Open,
             }),
         );
@@ -308,7 +308,7 @@ mod tests {
             Some(EnvironmentPullRequestSnapshot {
                 number: 4,
                 title: "Updated".to_string(),
-                url: "https://github.com/acme/threadex/pull/4".to_string(),
+                url: "https://github.com/acme/loom/pull/4".to_string(),
                 state: PullRequestState::Merged,
             }),
         );
@@ -332,7 +332,7 @@ mod tests {
             Some(EnvironmentPullRequestSnapshot {
                 number: 3,
                 title: "Initial".to_string(),
-                url: "https://github.com/acme/threadex/pull/3".to_string(),
+                url: "https://github.com/acme/loom/pull/3".to_string(),
                 state: PullRequestState::Open,
             }),
         );
@@ -350,10 +350,10 @@ mod tests {
     impl MonitorHarness {
         fn new() -> Self {
             let temp_root = std::env::temp_dir()
-                .join(format!("threadex-pr-monitor-test-{}", uuid::Uuid::now_v7()));
+                .join(format!("loom-pr-monitor-test-{}", uuid::Uuid::now_v7()));
             fs::create_dir_all(&temp_root).expect("temp root should be created");
             let database = crate::infrastructure::database::AppDatabase::for_test(
-                temp_root.join("threadex.sqlite3"),
+                temp_root.join("loom.sqlite3"),
             )
             .expect("test database should be created");
 
@@ -371,11 +371,11 @@ mod tests {
             let repo_root = self.temp_root.join("repo");
             fs::create_dir_all(&repo_root).expect("repo root should exist");
             git::run_git(&repo_root, ["init", "--initial-branch=main"]).expect("git init");
-            git::run_git(&repo_root, ["config", "user.email", "threadex@example.com"])
+            git::run_git(&repo_root, ["config", "user.email", "loom@example.com"])
                 .expect("git email config");
-            git::run_git(&repo_root, ["config", "user.name", "ThreadEx Tests"])
+            git::run_git(&repo_root, ["config", "user.name", "Loom Tests"])
                 .expect("git name config");
-            fs::write(repo_root.join("README.md"), "# ThreadEx\n").expect("readme should write");
+            fs::write(repo_root.join("README.md"), "# Loom\n").expect("readme should write");
             git::run_git(&repo_root, ["add", "README.md"]).expect("git add");
             git::run_git(&repo_root, ["commit", "-m", "Initial commit"]).expect("git commit");
 

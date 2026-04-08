@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
+use crate::app_identity::prepare_storage_paths;
 use crate::error::AppResult;
 use crate::infrastructure::database::AppDatabase;
 use crate::runtime::supervisor::RuntimeSupervisor;
@@ -22,20 +23,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(app: &AppHandle) -> AppResult<Self> {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| crate::error::AppError::Runtime(error.to_string()))?;
-        let threadex_home_dir = app
-            .path()
-            .home_dir()
-            .map_err(|error| crate::error::AppError::Runtime(error.to_string()))?
-            .join(".threadex");
-        std::fs::create_dir_all(threadex_home_dir.join("worktrees"))?;
-        let database = AppDatabase::new(app)?;
+        let storage_paths = prepare_storage_paths(app)?;
+        let app_data_dir = storage_paths.app_data_dir.clone();
+        let database = AppDatabase::new(&storage_paths)?;
         let workspace = WorkspaceService::new(
             database,
-            threadex_home_dir.join("worktrees"),
+            storage_paths.app_home_dir.join("worktrees"),
             WorktreeScriptService::new(app.clone(), app_data_dir.clone()),
         );
 

@@ -101,7 +101,7 @@ export function ProjectSettingsTab({
                     Setup Script
                   </label>
                   <p className="settings-field__help">
-                    Runs once after ThreadEx creates the worktree, with the new
+                    Runs once after Loom creates the worktree, with the new
                     worktree as the current directory. It runs in the
                     background and does not block opening the thread.
                   </p>
@@ -135,8 +135,8 @@ export function ProjectSettingsTab({
                     Teardown Script
                   </label>
                   <p className="settings-field__help">
-                    Runs after ThreadEx deletes the worktree, from the project
-                    root. Context is exposed through `THREADEX_*` environment
+                    Runs after Loom deletes the worktree, from the project
+                    root. Context is exposed through `LOOM_*` environment
                     variables.
                   </p>
                   <textarea

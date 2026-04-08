@@ -502,7 +502,7 @@ impl RuntimeSession {
                     .push_system_item(
                         &result.snapshot.thread_id,
                         "Plan approved",
-                        "ThreadEx approved the current plan and switched the thread to Build mode.",
+                        "Loom approved the current plan and switched the thread to Build mode.",
                     )
                     .await?;
                 Ok(result)

@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
-use tauri::{AppHandle, Manager};
 
+use crate::app_identity::{
+    AppStoragePaths, APP_DATABASE_FILE_NAME, LEGACY_APP_DATABASE_FILE_NAME,
+};
 use crate::error::{AppError, AppResult};
 
 const CURRENT_SCHEMA_VERSION: i32 = 3;
@@ -13,17 +15,18 @@ pub struct AppDatabase {
 }
 
 impl AppDatabase {
-    pub fn new(app: &AppHandle) -> AppResult<Self> {
-        let app_data_dir = app
-            .path()
-            .app_data_dir()
-            .map_err(|error| AppError::Runtime(error.to_string()))?;
-        let db_dir = app_data_dir.join("state");
+    pub fn new(storage_paths: &AppStoragePaths) -> AppResult<Self> {
+        let db_dir = storage_paths.app_data_dir.join("state");
         std::fs::create_dir_all(&db_dir)?;
+        migrate_legacy_database_file(&db_dir)?;
 
-        let db_path = db_dir.join("threadex.sqlite3");
+        let db_path = db_dir.join(APP_DATABASE_FILE_NAME);
         let database = Self { db_path };
         database.migrate()?;
+        database.normalize_workspace_paths(
+            &storage_paths.legacy_app_home_dir,
+            &storage_paths.app_home_dir,
+        )?;
         Ok(database)
     }
 
@@ -142,19 +145,52 @@ impl AppDatabase {
 
         Ok(())
     }
+
+    fn normalize_workspace_paths(
+        &self,
+        legacy_app_home_dir: &Path,
+        app_home_dir: &Path,
+    ) -> AppResult<()> {
+        if legacy_app_home_dir == app_home_dir {
+            return Ok(());
+        }
+
+        let legacy = legacy_app_home_dir.to_string_lossy().to_string();
+        let current = app_home_dir.to_string_lossy().to_string();
+        let connection = self.open()?;
+        connection.execute(
+            "UPDATE projects SET root_path = REPLACE(root_path, ?1, ?2) WHERE INSTR(root_path, ?1) > 0",
+            [&legacy, &current],
+        )?;
+        connection.execute(
+            "UPDATE environments SET path = REPLACE(path, ?1, ?2) WHERE INSTR(path, ?1) > 0",
+            [&legacy, &current],
+        )?;
+        Ok(())
+    }
+}
+
+fn migrate_legacy_database_file(db_dir: &Path) -> AppResult<()> {
+    let legacy_db_path = db_dir.join(LEGACY_APP_DATABASE_FILE_NAME);
+    let db_path = db_dir.join(APP_DATABASE_FILE_NAME);
+    if !db_path.exists() && legacy_db_path.exists() {
+        std::fs::rename(legacy_db_path, db_path)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::AppDatabase;
+    use super::{migrate_legacy_database_file, AppDatabase};
     use rusqlite::Connection;
+    use std::path::Path;
     use uuid::Uuid;
 
     #[test]
     fn migrate_v1_projects_adds_project_settings_and_managed_worktree_dir_columns() {
-        let root = std::env::temp_dir().join(format!("threadex-db-test-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir().join(format!("loom-db-test-{}", Uuid::now_v7()));
         std::fs::create_dir_all(&root).expect("test directory should exist");
-        let db_path = root.join("threadex.sqlite3");
+        let db_path = root.join("loom.sqlite3");
         let connection = Connection::open(&db_path).expect("db should open");
         connection
             .execute_batch(
@@ -248,9 +284,9 @@ mod tests {
 
     #[test]
     fn migrate_v2_projects_adds_managed_worktree_dir_column() {
-        let root = std::env::temp_dir().join(format!("threadex-db-test-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir().join(format!("loom-db-test-{}", Uuid::now_v7()));
         std::fs::create_dir_all(&root).expect("test directory should exist");
-        let db_path = root.join("threadex.sqlite3");
+        let db_path = root.join("loom.sqlite3");
         let connection = Connection::open(&db_path).expect("db should open");
         connection
             .execute_batch(
@@ -326,6 +362,79 @@ mod tests {
         );
 
         drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrate_legacy_database_file_renames_the_old_database_name() {
+        let root = std::env::temp_dir().join(format!("loom-db-rename-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&root).expect("test directory should exist");
+        let legacy_db_path = root.join("threadex.sqlite3");
+        Connection::open(&legacy_db_path).expect("legacy db should open");
+
+        migrate_legacy_database_file(&root).expect("legacy db rename should succeed");
+
+        assert!(!legacy_db_path.exists());
+        assert!(root.join("loom.sqlite3").exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn normalize_workspace_paths_rewrites_legacy_home_prefixes() {
+        let root = std::env::temp_dir().join(format!("loom-db-paths-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&root).expect("test directory should exist");
+        let db_path = root.join("loom.sqlite3");
+        let database = AppDatabase::for_test(db_path).expect("db should initialize");
+        let connection = database.open().expect("db should open");
+        connection
+            .execute(
+                "
+                INSERT INTO projects (
+                  id, name, root_path, managed_worktree_dir, settings_json, created_at, updated_at, archived_at
+                )
+                VALUES (?1, ?2, ?3, NULL, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL)
+                ",
+                rusqlite::params![
+                    "project-1",
+                    "Loom",
+                    "/Users/test/.threadex/worktrees/loom/project-root"
+                ],
+            )
+            .expect("project should insert");
+        connection
+            .execute(
+                "
+                INSERT INTO environments (
+                  id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, 'managedWorktree', ?4, 'main', 'origin/main', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ",
+                rusqlite::params![
+                    "env-1",
+                    "project-1",
+                    "feature",
+                    "/Users/test/.threadex/worktrees/loom/feature"
+                ],
+            )
+            .expect("environment should insert");
+        drop(connection);
+
+        database
+            .normalize_workspace_paths(Path::new("/Users/test/.threadex"), Path::new("/Users/test/.loom"))
+            .expect("path migration should succeed");
+
+        let connection = database.open().expect("db should reopen");
+        let project_root: String = connection
+            .query_row("SELECT root_path FROM projects WHERE id = 'project-1'", [], |row| row.get(0))
+            .expect("project path should read");
+        let environment_path: String = connection
+            .query_row("SELECT path FROM environments WHERE id = 'env-1'", [], |row| row.get(0))
+            .expect("environment path should read");
+
+        assert_eq!(project_root, "/Users/test/.loom/worktrees/loom/project-root");
+        assert_eq!(environment_path, "/Users/test/.loom/worktrees/loom/feature");
+
         let _ = std::fs::remove_dir_all(root);
     }
 }

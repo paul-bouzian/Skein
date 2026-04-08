@@ -1,6 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import {
+  CODEX_USAGE_EVENT_NAME,
+  CONVERSATION_EVENT_NAME,
+  TERMINAL_EXIT_EVENT_NAME,
+  TERMINAL_OUTPUT_EVENT_NAME,
+  WORKSPACE_EVENT_NAME,
+  WORKTREE_SCRIPT_FAILURE_EVENT_NAME,
+} from "./app-identity";
 import type {
   AddProjectRequest,
   ArchiveThreadRequest,
@@ -198,9 +206,8 @@ export function submitPlanDecision(
 export function listenToConversationEvents(
   callback: (payload: ConversationEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<ConversationEventPayload>(
-    "threadex://conversation-event",
-    (event) => callback(event.payload),
+  return listen<ConversationEventPayload>(CONVERSATION_EVENT_NAME, (event) =>
+    callback(event.payload),
   );
 }
 
@@ -229,9 +236,8 @@ export function transcribeEnvironmentVoice(
 export function listenToCodexUsageEvents(
   callback: (payload: CodexUsageEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<CodexUsageEventPayload>(
-    "threadex://codex-usage-event",
-    (event) => callback(event.payload),
+  return listen<CodexUsageEventPayload>(CODEX_USAGE_EVENT_NAME, (event) =>
+    callback(event.payload),
   );
 }
 
@@ -239,7 +245,7 @@ export function listenToWorktreeScriptFailures(
   callback: (payload: WorktreeScriptFailureEventPayload) => void,
 ): Promise<UnlistenFn> {
   return listen<WorktreeScriptFailureEventPayload>(
-    "threadex://worktree-script-failure",
+    WORKTREE_SCRIPT_FAILURE_EVENT_NAME,
     (event) => callback(event.payload),
   );
 }
@@ -247,9 +253,8 @@ export function listenToWorktreeScriptFailures(
 export function listenToWorkspaceEvents(
   callback: (payload: WorkspaceEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<WorkspaceEventPayload>(
-    "threadex://workspace-event",
-    (event) => callback(event.payload),
+  return listen<WorkspaceEventPayload>(WORKSPACE_EVENT_NAME, (event) =>
+    callback(event.payload),
   );
 }
 
@@ -376,17 +381,15 @@ export function killTerminal(input: TerminalKillInput): Promise<void> {
 export function listenToTerminalOutput(
   callback: (payload: TerminalOutputPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<TerminalOutputPayload>(
-    "threadex://terminal-output",
-    (event) => callback(event.payload),
+  return listen<TerminalOutputPayload>(TERMINAL_OUTPUT_EVENT_NAME, (event) =>
+    callback(event.payload),
   );
 }
 
 export function listenToTerminalExit(
   callback: (payload: TerminalExitPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<TerminalExitPayload>(
-    "threadex://terminal-exit",
-    (event) => callback(event.payload),
+  return listen<TerminalExitPayload>(TERMINAL_EXIT_EVENT_NAME, (event) =>
+    callback(event.payload),
   );
 }

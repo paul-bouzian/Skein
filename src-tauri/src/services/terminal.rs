@@ -8,6 +8,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::app_identity::{TERMINAL_EXIT_EVENT_NAME, TERMINAL_OUTPUT_EVENT_NAME};
 use crate::error::{AppError, AppResult};
 
 #[derive(Clone, Serialize)]
@@ -227,7 +228,7 @@ impl TerminalService {
                             pty_id: pty_id_for_reader.clone(),
                             data_base64: B64.encode(&buf[..n]),
                         };
-                        let _ = app_for_reader.emit("threadex://terminal-output", payload);
+                        let _ = app_for_reader.emit(TERMINAL_OUTPUT_EVENT_NAME, payload);
                     }
                     Err(_) => break,
                 }
@@ -244,7 +245,7 @@ impl TerminalService {
                 .and_then(|s| i32::try_from(s.exit_code()).ok());
             if service_for_reader.finalize_exited_session(&pty_id_for_reader) {
                 let _ = app_for_reader.emit(
-                    "threadex://terminal-exit",
+                    TERMINAL_EXIT_EVENT_NAME,
                     TerminalExitPayload {
                         pty_id: pty_id_for_reader,
                         exit_code,

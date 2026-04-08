@@ -48,7 +48,7 @@ type ContextMenuState = {
 };
 
 const PROJECT_REMOVAL_BLOCKED_MESSAGE =
-  "Delete this project's worktrees before removing it from ThreadEx.";
+  "Delete this project's worktrees before removing it from Loom.";
 const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
 
 export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
@@ -131,7 +131,7 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
     }
 
     const approved = await confirm(
-      `Remove "${projectName}" from ThreadEx? The repository stays on disk. ThreadEx may also remove its empty managed worktree folder.`,
+      `Remove "${projectName}" from Loom? The repository stays on disk. Loom may also remove its empty managed worktree folder.`,
       {
         title: PROJECT_REMOVAL_DIALOG_TITLE,
         kind: "warning",
@@ -402,7 +402,7 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                   )
                 }
               >
-                Remove from ThreadEx
+                Remove from Loom
               </button>
             ) : (
               <button

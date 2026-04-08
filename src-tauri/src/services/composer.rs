@@ -951,10 +951,10 @@ mod tests {
     #[test]
     fn unknown_prompts_do_not_hide_skill_or_app_mentions() {
         let resolved = resolve_composer_text(
-            "Run /prompts:unknown($threadex-standards, $github)",
+            "Run /prompts:unknown($loom-standards, $github)",
             &[],
             &[SkillBinding {
-                name: "threadex-standards".to_string(),
+                name: "loom-standards".to_string(),
                 description: "Standards".to_string(),
                 path: "/tmp/skill".to_string(),
             }],
@@ -971,7 +971,7 @@ mod tests {
 
         assert_eq!(
             resolved.text,
-            "Run /prompts:unknown($threadex-standards, $github)"
+            "Run /prompts:unknown($loom-standards, $github)"
         );
         assert_eq!(resolved.skills.len(), 1);
         assert_eq!(resolved.mentions.len(), 1);
@@ -1008,10 +1008,10 @@ mod tests {
     #[test]
     fn resolves_unique_skills_and_apps_without_duplicates() {
         let resolved = resolve_composer_text(
-            "Run $threadex-standards and $github then $threadex-standards again.",
+            "Run $loom-standards and $github then $loom-standards again.",
             &[],
             &[SkillBinding {
-                name: "threadex-standards".to_string(),
+                name: "loom-standards".to_string(),
                 description: "Standards".to_string(),
                 path: "/tmp/skill".to_string(),
             }],

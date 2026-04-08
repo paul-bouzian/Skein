@@ -83,7 +83,7 @@ pub fn generate_first_prompt_naming(
     let binary = input.binary_path.unwrap_or("codex");
     let reasoning_config = format!("model_reasoning_effort=\"{NAMING_REASONING_EFFORT}\"");
     let output_path = std::env::temp_dir().join(format!(
-        "threadex-first-prompt-naming-{}.json",
+        "loom-first-prompt-naming-{}.json",
         uuid::Uuid::now_v7()
     ));
     let output_guard = TempFileGuard::new(output_path.clone());
