@@ -82,7 +82,7 @@ function resolveUsagePlaceholder(
   error: string | null,
   rows: ReturnType<typeof buildCodexUsageRows>,
 ) {
-  if (!hasEnvironment) {
+  if (!hasEnvironment && !hasSnapshot) {
     return "Add a project to inspect Codex usage.";
   }
   if (!loading && error) {

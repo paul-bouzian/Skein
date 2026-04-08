@@ -258,4 +258,34 @@ describe("codex usage store", () => {
     expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(21);
     expect(useCodexUsageStore.getState().loading).toBe(false);
   });
+
+  it("retries the latest environment after an in-flight fetch fails", async () => {
+    const deferred = deferredPromise<{
+      primary: { usedPercent: number };
+      secondary: { usedPercent: number };
+    }>();
+
+    mockedBridge.getEnvironmentCodexRateLimits
+      .mockReturnValueOnce(deferred.promise)
+      .mockResolvedValueOnce({
+        primary: { usedPercent: 33 },
+        secondary: { usedPercent: 67 },
+      });
+
+    const first = useCodexUsageStore.getState().ensureAccountUsage("env-a");
+    const second = useCodexUsageStore.getState().ensureAccountUsage("env-b");
+
+    deferred.reject(new Error("temporary failure"));
+    await Promise.all([first, second]);
+
+    expect(
+      mockedBridge.getEnvironmentCodexRateLimits.mock.calls.map(
+        ([environmentId]) => environmentId,
+      ),
+    ).toEqual(["env-a", "env-b"]);
+
+    const state = useCodexUsageStore.getState();
+    expect(state.snapshot?.primary?.usedPercent).toBe(33);
+    expect(state.error).toBeNull();
+  });
 });

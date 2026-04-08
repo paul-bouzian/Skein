@@ -101,4 +101,26 @@ describe("SidebarUsagePanel", () => {
     expect(screen.getByText("12%")).toBeInTheDocument();
     expect(screen.queryByText("Loading…")).toBeNull();
   });
+
+  it("keeps cached usage visible without the empty-workspace placeholder", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({ projects: [] }),
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+    }));
+    useCodexUsageStore.setState((state) => ({
+      ...state,
+      snapshot: {
+        primary: { usedPercent: 38 },
+        secondary: { usedPercent: 12 },
+      },
+    }));
+
+    render(<SidebarUsagePanel />);
+
+    expect(screen.getByText("38%")).toBeInTheDocument();
+    expect(screen.getByText("12%")).toBeInTheDocument();
+    expect(screen.queryByText("Add a project to inspect Codex usage.")).toBeNull();
+  });
 });

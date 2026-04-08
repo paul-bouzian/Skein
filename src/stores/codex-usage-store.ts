@@ -74,14 +74,13 @@ export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
   ensureAccountUsage: async (environmentId) => {
     if (!environmentId) return;
 
-    const state = get();
-    if (state.loading) {
+    if (inflightUsageFetch) {
       await inflightUsageFetch;
-      return;
     }
 
+    const state = get();
     const lastFetchedAt = state.lastFetchedAt;
-    if (lastFetchedAt !== null && Date.now() - lastFetchedAt < USAGE_CACHE_TTL_MS) {
+    if (isUsageSnapshotFresh(lastFetchedAt)) {
       return;
     }
 
@@ -91,9 +90,11 @@ export const useCodexUsageStore = create<CodexUsageState>((set, get) => ({
   },
 
   refreshAccountUsage: async (environmentId, options = {}) => {
-    if (inflightUsageFetch) {
+    while (inflightUsageFetch) {
       await inflightUsageFetch;
-      return;
+      if (isUsageSnapshotFresh(get().lastFetchedAt)) {
+        return;
+      }
     }
 
     const requestStartedAt = Date.now();
@@ -200,6 +201,10 @@ function isUsageFetchStale(
 ) {
   const latestAppliedAt = get().lastFetchedAt ?? Number.NEGATIVE_INFINITY;
   return latestAppliedAt > requestStartedAt;
+}
+
+function isUsageSnapshotFresh(lastFetchedAt: number | null) {
+  return lastFetchedAt !== null && Date.now() - lastFetchedAt < USAGE_CACHE_TTL_MS;
 }
 
 function setUsageError(
