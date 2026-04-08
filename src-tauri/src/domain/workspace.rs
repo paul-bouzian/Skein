@@ -112,6 +112,7 @@ pub struct EnvironmentRecord {
     pub git_branch: Option<String>,
     pub base_branch: Option<String>,
     pub is_default: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<EnvironmentPullRequestSnapshot>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -237,7 +238,13 @@ fn normalize_project_script(value: Option<String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProjectSettings, ProjectSettingsPatch};
+    use chrono::{DateTime, Utc};
+    use serde_json::Value;
+
+    use super::{
+        EnvironmentKind, EnvironmentRecord, ProjectSettings, ProjectSettingsPatch,
+        PullRequestState, RuntimeState, RuntimeStatusSnapshot,
+    };
 
     #[test]
     fn project_settings_patch_trims_and_clears_scripts() {
@@ -260,5 +267,50 @@ mod tests {
         });
 
         assert_eq!(settings.worktree_setup_script, None);
+    }
+
+    #[test]
+    fn environment_record_omits_absent_pull_request_in_serialized_payload() {
+        let payload = serde_json::to_value(EnvironmentRecord {
+            id: "env-1".to_string(),
+            project_id: "project-1".to_string(),
+            name: "feature".to_string(),
+            kind: EnvironmentKind::ManagedWorktree,
+            path: "/tmp/feature".to_string(),
+            git_branch: Some("feature".to_string()),
+            base_branch: Some("main".to_string()),
+            is_default: false,
+            pull_request: None,
+            created_at: parse_datetime("2026-04-08T12:00:00Z"),
+            updated_at: parse_datetime("2026-04-08T12:00:00Z"),
+            threads: Vec::new(),
+            runtime: RuntimeStatusSnapshot {
+                environment_id: "env-1".to_string(),
+                state: RuntimeState::Stopped,
+                pid: None,
+                binary_path: None,
+                started_at: None,
+                last_exit_code: None,
+            },
+        })
+        .expect("environment should serialize");
+
+        let object = payload
+            .as_object()
+            .expect("environment payload should be a JSON object");
+        assert!(!object.contains_key("pullRequest"));
+    }
+
+    #[test]
+    fn pull_request_state_serializes_with_camel_case_labels() {
+        let payload = serde_json::to_value(PullRequestState::Merged)
+            .expect("pull request state should serialize");
+        assert_eq!(payload, Value::String("merged".to_string()));
+    }
+
+    fn parse_datetime(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .expect("timestamp should parse")
+            .with_timezone(&Utc)
     }
 }

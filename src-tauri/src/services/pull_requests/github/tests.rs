@@ -148,17 +148,9 @@ fn resolver_prefers_open_pull_requests_and_ignores_closed_only_matches() {
         .expect("worktree should be created");
     let worktree_path = PathBuf::from(&worktree.environment.path);
 
-    fs::write(
-        harness.gh_path.join("gh"),
-        format!(
-            "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\ncat <<'EOF'\n[{open},{merged},{closed}]\nEOF\nexit 0\nfi\necho unexpected >&2\nexit 1\n",
-            open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/threadex/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
-            merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/threadex/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
-            closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/threadex/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
-        ),
-    )
-    .expect("gh script should be written");
-    make_executable(&harness.gh_path.join("gh"));
+    let gh_path = mock_gh_command_path(&harness.gh_path);
+    fs::write(&gh_path, mock_gh_command_script()).expect("gh script should be written");
+    make_executable(&gh_path);
     let previous_path = std::env::var_os("PATH");
     std::env::set_var(
         "PATH",
@@ -278,18 +270,47 @@ fn make_executable(path: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn mock_gh_command_path(directory: &Path) -> PathBuf {
+    directory.join("gh")
+}
+
+#[cfg(windows)]
+fn mock_gh_command_path(directory: &Path) -> PathBuf {
+    directory.join("gh.cmd")
+}
+
+#[cfg(unix)]
+fn mock_gh_command_script() -> String {
+    format!(
+        "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\ncat <<'EOF'\n[{open},{merged},{closed}]\nEOF\nexit 0\nfi\necho unexpected >&2\nexit 1\n",
+        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/threadex/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
+        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/threadex/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
+        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/threadex/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
+    )
+}
+
+#[cfg(windows)]
+fn mock_gh_command_script() -> String {
+    format!(
+        "@echo off\r\nif \"%1\"==\"pr\" if \"%2\"==\"list\" (\r\necho [{open},{merged},{closed}]\r\nexit /b 0\r\n)\r\necho unexpected 1>&2\r\nexit /b 1\r\n",
+        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/threadex/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
+        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/threadex/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
+        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/threadex/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
+    )
+}
+
 fn environment_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
 fn prefixed_path(prefix: &Path, existing: Option<&std::ffi::OsStr>) -> OsString {
-    let mut value = prefix.as_os_str().to_os_string();
+    let mut paths = vec![prefix.to_path_buf()];
     if let Some(existing) = existing.filter(|value| !value.is_empty()) {
-        value.push(":");
-        value.push(existing);
+        paths.extend(std::env::split_paths(existing));
     }
-    value
+    std::env::join_paths(paths).expect("path entries should be valid")
 }
 
 fn restore_path(previous_path: Option<OsString>) {

@@ -312,7 +312,8 @@
   border-color: var(--tx-border-subtle);
 }
 
-.environment-item-shell--selected {
+.environment-item-shell--selected,
+.environment-item-shell--selected:hover {
   background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
   border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
 }

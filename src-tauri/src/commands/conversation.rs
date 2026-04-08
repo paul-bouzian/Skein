@@ -112,6 +112,7 @@ pub async fn send_thread_message(
 
     if let Some(rename) = rename_result.as_ref() {
         if rename.environment_renamed {
+            state.pull_requests.clear_snapshot(&rename.environment_id);
             emit_workspace_event(
                 &app,
                 WorkspaceEvent {

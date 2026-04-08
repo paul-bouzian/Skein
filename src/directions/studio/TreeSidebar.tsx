@@ -478,10 +478,6 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
         event.stopPropagation();
         void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
       }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
     >
       <GitBranchIcon
         size={13}

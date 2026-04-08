@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
@@ -171,6 +171,37 @@ impl WorkspaceService {
         })?;
 
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
+    pub fn pull_request_watch_target(
+        &self,
+        environment_id: &str,
+    ) -> AppResult<Option<PullRequestWatchTarget>> {
+        let connection = self.database.open()?;
+        connection
+            .query_row(
+                "
+                SELECT environments.id, environments.project_id, environments.path, environments.git_branch
+                FROM environments
+                JOIN projects ON projects.id = environments.project_id
+                WHERE environments.id = ?1
+                  AND projects.archived_at IS NULL
+                  AND environments.kind IN ('managedWorktree', 'permanentWorktree')
+                  AND environments.git_branch IS NOT NULL
+                  AND TRIM(environments.git_branch) <> ''
+                ",
+                params![environment_id],
+                |row| {
+                    Ok(PullRequestWatchTarget {
+                        environment_id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        path: row.get(2)?,
+                        git_branch: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(AppError::from)
     }
 
     pub fn update_settings(&self, patch: GlobalSettingsPatch) -> AppResult<GlobalSettings> {
@@ -1788,7 +1819,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use chrono::Utc;
-    use rusqlite::{params, Connection};
+    use rusqlite::{Connection, params};
     use uuid::Uuid;
 
     use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};

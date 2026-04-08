@@ -474,6 +474,50 @@ describe("TreeSidebar", () => {
     );
   });
 
+  it("keeps the worktree context menu available when right-clicking the pull request icon", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "add-themes",
+                gitBranch: "add-themes",
+                pullRequest: {
+                  number: 17,
+                  title: "Add themes",
+                  url: "https://github.com/acme/threadex/pull/17",
+                  state: "open",
+                },
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    fireEvent.contextMenu(
+      screen.getByRole("button", {
+        name: "Open pull request #17: Add themes",
+      }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Delete worktree" }),
+    ).toBeInTheDocument();
+  });
+
   it("renders merged pull request controls with a merged tooltip label", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
