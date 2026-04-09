@@ -206,9 +206,10 @@ fn build_first_prompt_naming_prompt(message: &str) -> String {
          Return valid JSON only with this exact schema:\n\
          {{\"threadTitle\":\"...\",\"worktreeLabel\":\"...\",\"branchSlug\":\"...\"}}\n\n\
          Requirements:\n\
-         - threadTitle: concise, readable, same language as the user, no trailing punctuation.\n\
-         - worktreeLabel: short sidebar label, same language as the user, no generic filler.\n\
-         - branchSlug: lowercase ASCII kebab-case, short, descriptive, no quotes.\n\
+         - Translate the task intent to English before naming anything.\n\
+         - threadTitle: concise, readable English title, no trailing punctuation.\n\
+         - worktreeLabel: short English sidebar label, no generic filler.\n\
+         - branchSlug: lowercase ASCII kebab-case English slug, short, descriptive, no quotes.\n\
          - Keep all values specific to the requested task.\n\
          - This is a fast naming task. Use minimal reasoning and answer immediately.\n\
          - Do not mention the repository or project name unless the user explicitly asked for it.\n\
@@ -587,5 +588,18 @@ mod tests {
             excerpt,
             "Add a full theming system | Support light and dark themes | Add user theme persistence | Update the settings panel"
         );
+    }
+
+    #[test]
+    fn first_prompt_naming_prompt_requires_english_output() {
+        let prompt = super::build_first_prompt_naming_prompt(
+            "Ajouter un systeme de themes pour les modes clair et sombre",
+        );
+
+        assert!(prompt.contains("Translate the task intent to English before naming anything."));
+        assert!(prompt.contains("threadTitle: concise, readable English title"));
+        assert!(prompt.contains("worktreeLabel: short English sidebar label"));
+        assert!(prompt.contains("branchSlug: lowercase ASCII kebab-case English slug"));
+        assert!(!prompt.contains("same language as the user"));
     }
 }
