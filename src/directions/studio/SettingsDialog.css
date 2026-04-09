@@ -11,7 +11,7 @@
 
 .settings-dialog {
   width: min(700px, calc(100vw - (var(--tx-space-xl) * 2)));
-  max-height: min(720px, calc(100vh - (var(--tx-space-xl) * 2)));
+  height: min(720px, calc(100vh - (var(--tx-space-xl) * 2)));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--tx-border-muted);
