@@ -46,7 +46,6 @@ type VoiceSessionState = {
   recordingStartedAt: number | null;
 
   clearPendingOutcome: (threadId: string, outcomeId?: number) => void;
-  drawActiveSpectrum: (canvas: HTMLCanvasElement | null) => void;
   reconcileWorkspaceSnapshot: (snapshot: WorkspaceSnapshot | null) => Promise<void>;
   resetSession: () => Promise<void>;
   startSession: (input: StartVoiceSessionInput) => Promise<void>;
@@ -102,13 +101,6 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
 
       return { pendingOutcomesByThreadId: nextPendingOutcomes };
     });
-  },
-
-  drawActiveSpectrum: (canvas) => {
-    if (!canvas || get().phase !== "recording" || !activeCapture) {
-      return;
-    }
-    activeCapture.drawSpectrum(canvas);
   },
 
   reconcileWorkspaceSnapshot: async (snapshot) => {

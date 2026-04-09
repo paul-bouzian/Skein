@@ -3,7 +3,6 @@ import { VOICE_PROCESSOR_NAME } from "../../../lib/app-identity";
 const TARGET_SAMPLE_RATE_HZ = 24_000;
 const TARGET_BITS_PER_SAMPLE = 16;
 export const MAX_RECORDING_DURATION_MS = 120_000;
-const ANALYSER_FFT_SIZE = 512;
 const SCRIPT_PROCESSOR_BUFFER_SIZE = 4_096;
 
 type EncodedVoiceClip = {
@@ -15,7 +14,6 @@ type EncodedVoiceClip = {
 
 type VoiceCapture = {
   cancel: () => Promise<void>;
-  drawSpectrum: (canvas: HTMLCanvasElement | null) => void;
   stop: () => Promise<EncodedVoiceClip>;
 };
 
@@ -47,14 +45,9 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
   await audioContext.resume();
 
   const source = audioContext.createMediaStreamSource(stream);
-  const analyser = audioContext.createAnalyser();
-  analyser.fftSize = ANALYSER_FFT_SIZE;
-  analyser.smoothingTimeConstant = 0.78;
-
   const silenceGain = audioContext.createGain();
   silenceGain.gain.value = 0;
-  source.connect(analyser);
-  analyser.connect(silenceGain);
+  source.connect(silenceGain);
   silenceGain.connect(audioContext.destination);
 
   const chunks: Float32Array[] = [];
@@ -63,8 +56,6 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
   collector.connect(silenceGain);
 
   let closed = false;
-  let palette: { accent: string; muted: string } | null = null;
-  const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
   async function cleanup() {
     if (closed) {
@@ -74,11 +65,6 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
 
     try {
       collector.disconnect();
-    } catch {
-      // noop
-    }
-    try {
-      analyser.disconnect();
     } catch {
       // noop
     }
@@ -108,84 +94,6 @@ export async function startVoiceCapture(): Promise<VoiceCapture> {
 
   return {
     cancel: cleanup,
-    drawSpectrum: (canvas) => {
-      if (!canvas || closed) {
-        return;
-      }
-
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return;
-      }
-
-      if (!palette) {
-        const computedStyle = getComputedStyle(canvas);
-        palette = {
-          accent:
-            computedStyle.getPropertyValue("--tx-accent").trim() || "#57a2ff",
-          muted:
-            computedStyle.getPropertyValue("--tx-text-muted").trim() ||
-            "#8b93a7",
-        };
-      }
-
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const width = Math.max(
-        1,
-        Math.round(canvas.clientWidth * devicePixelRatio),
-      );
-      const height = Math.max(
-        1,
-        Math.round(canvas.clientHeight * devicePixelRatio),
-      );
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-
-      analyser.getByteFrequencyData(frequencyData);
-      context.clearRect(0, 0, width, height);
-
-      const barCount = 20;
-      const gap = Math.max(2, Math.floor(width / 120));
-      const barWidth = Math.max(
-        3,
-        Math.floor((width - gap * (barCount - 1)) / barCount),
-      );
-      const maxBarHeight = height - 4;
-      const bucketSize = Math.max(
-        1,
-        Math.floor(frequencyData.length / barCount),
-      );
-
-      for (let index = 0; index < barCount; index += 1) {
-        const offset = index * bucketSize;
-        let sum = 0;
-        for (
-          let frequencyIndex = 0;
-          frequencyIndex < bucketSize;
-          frequencyIndex += 1
-        ) {
-          sum += frequencyData[offset + frequencyIndex] ?? 0;
-        }
-        const normalized = sum / bucketSize / 255;
-        const eased = Math.pow(normalized, 1.15);
-        const barHeight = Math.max(4, eased * maxBarHeight);
-        const x = index * (barWidth + gap);
-        const y = height - barHeight;
-        const fill = index % 4 === 0 ? palette.muted : palette.accent;
-
-        context.fillStyle = fill;
-        roundRect(
-          context,
-          x,
-          y,
-          barWidth,
-          barHeight,
-          Math.min(4, barWidth / 2),
-        );
-      }
-    },
     stop: async () => {
       try {
         const combinedSamples = combineChunks(chunks);
@@ -416,31 +324,4 @@ async function bytesToBase64(bytes: Uint8Array) {
 
   const commaIndex = dataUrl.indexOf(",");
   return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-}
-
-function roundRect(
-  context: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number,
-) {
-  const clampedRadius = Math.min(radius, width / 2, height / 2);
-  context.beginPath();
-  context.moveTo(x + clampedRadius, y);
-  context.lineTo(x + width - clampedRadius, y);
-  context.quadraticCurveTo(x + width, y, x + width, y + clampedRadius);
-  context.lineTo(x + width, y + height - clampedRadius);
-  context.quadraticCurveTo(
-    x + width,
-    y + height,
-    x + width - clampedRadius,
-    y + height,
-  );
-  context.lineTo(x + clampedRadius, y + height);
-  context.quadraticCurveTo(x, y + height, x, y + height - clampedRadius);
-  context.lineTo(x, y + clampedRadius);
-  context.quadraticCurveTo(x, y, x + clampedRadius, y);
-  context.fill();
 }
