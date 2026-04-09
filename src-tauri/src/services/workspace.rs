@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
@@ -1837,7 +1837,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use chrono::Utc;
-    use rusqlite::{Connection, params};
+    use rusqlite::{params, Connection};
     use uuid::Uuid;
 
     use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};
@@ -2091,7 +2091,7 @@ mod tests {
             .create_managed_worktree(&project.id)
             .expect("worktree should be created");
         let fake_codex = harness.create_fake_codex(
-            r#"{"threadTitle":"Ajouter des themes","worktreeLabel":"Ajouter des themes","branchSlug":"add-themes"}"#,
+            r#"{"threadTitle":"Add themes","worktreeLabel":"Add themes","branchSlug":"add-themes"}"#,
         );
 
         let rename = harness
@@ -2121,10 +2121,10 @@ mod tests {
             .find(|thread| thread.id == result.thread.id)
             .expect("thread should exist");
 
-        assert_eq!(environment.name, "Ajouter des themes");
+        assert_eq!(environment.name, "Add themes");
         assert_eq!(environment.git_branch.as_deref(), Some("add-themes"));
         assert!(environment.path.ends_with("/add-themes"));
-        assert_eq!(thread.title, "Ajouter des themes");
+        assert_eq!(thread.title, "Add themes");
         assert!(Path::new(&environment.path).exists());
         assert!(
             git::current_branch(Path::new(&environment.path))
