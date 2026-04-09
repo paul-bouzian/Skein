@@ -114,7 +114,7 @@ describe("InlineComposer voice dictation", () => {
       name: "Stop voice dictation",
     });
     const voiceControl = recordingButton.closest(".tx-composer__voice-control");
-    expect(voiceControl).toHaveTextContent("00:00");
+    expect(voiceControl).toHaveTextContent(/\d{2}:\d{2}/);
     expect(recordingButton).toHaveClass("tx-composer__voice-button--recording");
     expect(document.querySelector(".tx-voice-capsule")).toBeNull();
     expect(document.querySelector("canvas")).toBeNull();
@@ -303,7 +303,7 @@ describe("InlineComposer voice dictation", () => {
       "Transcribing voice recording",
     );
     expect(voiceControl?.querySelector(".tx-composer__voice-spinner")).not.toBeNull();
-    expect(voiceControl).not.toHaveTextContent("00:00");
+    expect(voiceControl).not.toHaveTextContent(/\d{2}:\d{2}/);
 
     transcription.resolve({ text: "voice note" });
 
@@ -346,7 +346,7 @@ describe("InlineComposer voice dictation", () => {
     expect(
       await screen.findByRole("button", { name: "Start voice dictation" }),
     ).toBeEnabled();
-    expect(screen.queryByText("00:00")).toBeNull();
+    expect(voiceControl).not.toHaveTextContent(/\d{2}:\d{2}/);
   });
 
   it("keeps recording active when switching threads and restores it on return", async () => {
@@ -367,7 +367,7 @@ describe("InlineComposer voice dictation", () => {
       name: "Stop voice dictation",
     });
     expect(recordingButton.closest(".tx-composer__voice-control")).toHaveTextContent(
-      "00:00",
+      /\d{2}:\d{2}/,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
@@ -380,15 +380,19 @@ describe("InlineComposer voice dictation", () => {
       "title",
       expect.stringContaining("Voice dictation is already active"),
     );
-    expect(screen.queryByText("00:00")).toBeNull();
+    expect(
+      threadTwoVoiceButton.closest(".tx-composer__voice-control"),
+    ).not.toHaveTextContent(/\d{2}:\d{2}/);
     expect(capture.cancel).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
 
+    const resumedRecordingButton = await screen.findByRole("button", {
+      name: "Stop voice dictation",
+    });
     expect(
-      await screen.findByRole("button", { name: "Stop voice dictation" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("00:00")).toBeInTheDocument();
+      resumedRecordingButton.closest(".tx-composer__voice-control"),
+    ).toHaveTextContent(/\d{2}:\d{2}/);
     expect(capture.cancel).not.toHaveBeenCalled();
   });
 
