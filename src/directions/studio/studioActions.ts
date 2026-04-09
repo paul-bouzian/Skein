@@ -52,7 +52,13 @@ export async function archiveThreadWithConfirmation(threadId: string) {
     return false;
   }
 
-  await bridge.archiveThread({ threadId: target.thread.id });
+  const latestSnapshot = useWorkspaceStore.getState().snapshot;
+  const latestTarget = findThread(latestSnapshot, threadId);
+  if (!latestTarget || ownsPendingVoiceWork(threadId)) {
+    return false;
+  }
+
+  await bridge.archiveThread({ threadId: latestTarget.thread.id });
   return await useWorkspaceStore.getState().refreshSnapshot();
 }
 

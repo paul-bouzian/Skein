@@ -6,6 +6,7 @@ import {
   makeThread,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
+import { useVoiceSessionStore } from "../../stores/voice-session-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import {
   archiveThreadWithConfirmation,
@@ -33,6 +34,15 @@ describe("studioActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     confirmMock.mockReset();
+    useVoiceSessionStore.setState({
+      activeSessionToken: null,
+      durationMs: 0,
+      ownerEnvironmentId: null,
+      ownerThreadId: null,
+      pendingOutcomesByThreadId: {},
+      phase: "idle",
+      recordingStartedAt: null,
+    });
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -188,6 +198,26 @@ describe("studioActions", () => {
   });
 
   it("preserves a newer thread selection made while the archive confirmation is open", async () => {
+    const refreshedSnapshot = makeWorkspaceSnapshot({
+      projects: [
+        {
+          ...makeWorkspaceSnapshot().projects[0]!,
+          environments: [
+            makeEnvironment({
+              threads: [makeThread({ id: "thread-2", title: "Thread 2" })],
+            }),
+          ],
+        },
+      ],
+    });
+    const refreshSnapshot = vi.fn(async () => {
+      useWorkspaceStore.setState((state) => ({ ...state, snapshot: refreshedSnapshot }));
+      return true;
+    });
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+    }));
     let resolveConfirm!: (value: boolean) => void;
     confirmMock.mockImplementation(
       () =>
@@ -201,9 +231,10 @@ describe("studioActions", () => {
     useWorkspaceStore.getState().selectThread("thread-2");
     resolveConfirm(true);
 
-    await archivePromise;
+    await expect(archivePromise).resolves.toBe(true);
 
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-2");
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(mockedBridge.archiveThread).toHaveBeenCalledWith({ threadId: "thread-1" });
   });
 
@@ -221,5 +252,27 @@ describe("studioActions", () => {
 
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
+  });
+
+  it("does not archive when voice work starts while the archive confirmation is open", async () => {
+    let resolveConfirm!: (value: boolean) => void;
+    confirmMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve;
+        }),
+    );
+
+    const archivePromise = archiveThreadWithConfirmation("thread-1");
+    useVoiceSessionStore.setState({
+      ownerEnvironmentId: "env-1",
+      ownerThreadId: "thread-1",
+      pendingOutcomesByThreadId: {},
+      phase: "recording",
+    });
+    resolveConfirm(true);
+
+    await expect(archivePromise).resolves.toBe(false);
+    expect(mockedBridge.archiveThread).not.toHaveBeenCalled();
   });
 });
