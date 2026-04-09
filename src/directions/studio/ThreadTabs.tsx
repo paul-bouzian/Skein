@@ -1,12 +1,16 @@
 import { useWorkspaceStore, selectSelectedEnvironment } from "../../stores/workspace-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import {
+  indicatorToneForConversationStatus,
+} from "../../lib/conversation-status";
+import {
   selectOwnerPendingVoiceOutcome,
   useVoiceSessionStore,
 } from "../../stores/voice-session-store";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
+import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import type { ThreadConversationSnapshot, ThreadRecord } from "../../lib/types";
 import "./ThreadTabs.css";
 
@@ -73,9 +77,12 @@ export function ThreadTabs() {
                 title={thread.title}
                 onClick={() => selectThread(thread.id)}
               >
-                {needsAttention(snapshotsByThreadId[thread.id]) ? (
-                  <span className="thread-tab__status-dot" aria-hidden="true" />
-                ) : null}
+                <span className="thread-tab__status-dot" aria-hidden="true">
+                  <RuntimeIndicator
+                    tone={threadIndicatorTone(snapshotsByThreadId[thread.id])}
+                    size="sm"
+                  />
+                </span>
                 <span className="thread-tab__title">{thread.title}</span>
               </button>
               <button
@@ -104,10 +111,8 @@ export function ThreadTabs() {
   );
 }
 
-function needsAttention(snapshot: ThreadConversationSnapshot | undefined) {
-  if (!snapshot) return false;
-  return (
-    snapshot.pendingInteractions.length > 0 ||
-    Boolean(snapshot.proposedPlan?.isAwaitingDecision)
-  );
+function threadIndicatorTone(snapshot: ThreadConversationSnapshot | undefined) {
+  return snapshot
+    ? indicatorToneForConversationStatus(snapshot.status)
+    : "neutral";
 }
