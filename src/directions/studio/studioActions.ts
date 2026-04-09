@@ -31,7 +31,6 @@ export async function createManagedWorktreeForSelection() {
 
 export async function archiveThreadWithConfirmation(threadId: string) {
   const snapshot = useWorkspaceStore.getState().snapshot;
-  const selectedThreadId = useWorkspaceStore.getState().selectedThreadId;
   const target = findThread(snapshot, threadId);
   if (!target || ownsPendingVoiceWork(threadId)) {
     return false;
@@ -48,7 +47,7 @@ export async function archiveThreadWithConfirmation(threadId: string) {
   }
 
   await bridge.archiveThread({ threadId: target.thread.id });
-  if (selectedThreadId === target.thread.id) {
+  if (useWorkspaceStore.getState().selectedThreadId === target.thread.id) {
     useWorkspaceStore.getState().selectThread(null);
   }
   await useWorkspaceStore.getState().refreshSnapshot();
