@@ -35,6 +35,7 @@ const MODIFIER_TOKENS = new Set([
 ]);
 
 const KEY_LABELS: Record<string, string> = {
+  plus: "+",
   comma: ",",
   period: ".",
   slash: "/",
@@ -244,6 +245,13 @@ function normalizeKeyboardEventKey(event: KeyboardEvent): string | null {
 
 function normalizeKeyToken(token: string): string {
   switch (token) {
+    case "+":
+    case "plus":
+      return "plus";
+    case "{":
+      return "[";
+    case "}":
+      return "]";
     case ",":
     case "comma":
       return "comma";

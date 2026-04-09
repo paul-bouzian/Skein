@@ -184,12 +184,12 @@ export function useStudioShortcuts({
       }
 
       if (matchesShortcut(event, activeShortcuts.cycleCollaborationMode)) {
+        event.preventDefault();
         const values = capabilities?.collaborationModes.map(
           (option) => option.id as CollaborationMode,
         ) ?? [composer.collaborationMode];
         const next = cycleValue(values, composer.collaborationMode);
         if (next) {
-          event.preventDefault();
           updateComposer(selectedThreadId, { collaborationMode: next });
         }
         return;

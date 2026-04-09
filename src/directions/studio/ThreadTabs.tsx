@@ -5,7 +5,7 @@ import {
   useVoiceSessionStore,
 } from "../../stores/voice-session-store";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
-import type { ThreadConversationSnapshot, ThreadRecord } from "../../lib/types";
+import type { ThreadConversationSnapshot } from "../../lib/types";
 import {
   archiveThreadWithConfirmation,
   createThreadForSelection,
@@ -28,14 +28,6 @@ export function ThreadTabs() {
   const activeThreads = selectedEnvironment.threads.filter(
     (t) => t.status === "active",
   );
-
-  async function handleNewThread() {
-    await createThreadForSelection();
-  }
-
-  async function handleArchiveThread(thread: ThreadRecord) {
-    await archiveThreadWithConfirmation(thread.id);
-  }
 
   return (
     <div className="thread-tabs">
@@ -70,7 +62,11 @@ export function ThreadTabs() {
                 aria-label={`Archive ${thread.title}`}
                 disabled={voiceWorkOwnedByThread}
                 title={archiveTitle}
-                onClick={() => void handleArchiveThread(thread)}
+                onClick={() => {
+                  void archiveThreadWithConfirmation(thread.id).catch((error) => {
+                    reportThreadTabError(`archive ${thread.title}`, error);
+                  });
+                }}
               >
                 <CloseIcon size={10} />
               </button>
@@ -82,7 +78,11 @@ export function ThreadTabs() {
         type="button"
         className="thread-tabs__new"
         title="New thread"
-        onClick={() => void handleNewThread()}
+        onClick={() => {
+          void createThreadForSelection().catch((error) => {
+            reportThreadTabError("create a thread", error);
+          });
+        }}
       >
         <PlusIcon size={12} />
       </button>
@@ -96,4 +96,8 @@ function needsAttention(snapshot: ThreadConversationSnapshot | undefined) {
     snapshot.pendingInteractions.length > 0 ||
     Boolean(snapshot.proposedPlan?.isAwaitingDecision)
   );
+}
+
+function reportThreadTabError(action: string, error: unknown) {
+  console.error(`Failed to ${action}:`, error);
 }

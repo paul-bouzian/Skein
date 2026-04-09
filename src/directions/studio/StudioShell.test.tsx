@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as bridge from "../../lib/bridge";
 import { isMacPlatform } from "../../lib/shortcuts";
 import {
+  baseComposer,
+  capabilitiesFixture,
+  makeConversationSnapshot,
   makeGlobalSettings,
   makeProject,
   makeWorkspaceSnapshot,
@@ -261,6 +264,35 @@ describe("StudioShell", () => {
     });
 
     expect(useTerminalStore.getState().visible).toBe(false);
+  });
+
+  it("prevents native Shift+Tab navigation even when mode cycling has no next value", () => {
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        "thread-1": makeConversationSnapshot(),
+      },
+      composerByThreadId: {
+        "thread-1": baseComposer,
+      },
+      capabilitiesByEnvironmentId: {
+        "env-1": {
+          ...capabilitiesFixture,
+          collaborationModes: [{ id: "build", label: "Build", mode: "build" }],
+        },
+      },
+    }));
+
+    render(<StudioShell />);
+
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      shiftKey: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("toggles theme from the sidebar footer and persists the selected theme", async () => {

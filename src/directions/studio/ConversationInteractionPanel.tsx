@@ -27,14 +27,19 @@ export function ConversationInteractionPanel({
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [freeText, setFreeText] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const latestSubmitShortcutKeyRef = useRef(submitShortcutKey);
   const lastSubmitShortcutKeyRef = useRef(0);
+
+  useEffect(() => {
+    latestSubmitShortcutKeyRef.current = submitShortcutKey;
+  }, [submitShortcutKey]);
 
   useEffect(() => {
     setQuestionIndex(0);
     setSelectedOptions({});
     setFreeText({});
     setSubmitting(false);
-    lastSubmitShortcutKeyRef.current = 0;
+    lastSubmitShortcutKeyRef.current = latestSubmitShortcutKeyRef.current;
   }, [interaction?.id]);
 
   const currentQuestion =

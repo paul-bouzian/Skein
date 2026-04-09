@@ -240,6 +240,7 @@ pub fn shortcut_to_menu_accelerator(value: &str) -> Option<String> {
         parts.push("Shift".to_string());
     }
     let key = match parsed.key.as_str() {
+        "plus" => "+".to_string(),
         "comma" => ",".to_string(),
         "period" => ".".to_string(),
         "slash" => "/".to_string(),
@@ -356,6 +357,9 @@ fn parse_shortcut(value: &str) -> Result<ShortcutDefinition, String> {
 
 fn normalize_key_token(token: &str) -> String {
     match token {
+        "+" | "plus" => "plus".to_string(),
+        "{" => "[".to_string(),
+        "}" => "]".to_string(),
         "," | "comma" => "comma".to_string(),
         "." | "period" => "period".to_string(),
         "/" | "slash" => "slash".to_string(),
@@ -436,6 +440,22 @@ mod tests {
         assert_eq!(shortcut.key, "comma");
         assert!(shortcut.shift);
         assert!(shortcut.mod_);
+    }
+
+    #[test]
+    fn parse_normalizes_shifted_brackets_and_plus_keys() {
+        assert_eq!(
+            parse_shortcut("mod+shift+}")
+                .expect("shifted bracket should parse")
+                .key,
+            "]"
+        );
+        assert_eq!(
+            parse_shortcut("mod+shift+plus")
+                .expect("plus should parse")
+                .key,
+            "plus"
+        );
     }
 
     #[cfg(target_os = "macos")]

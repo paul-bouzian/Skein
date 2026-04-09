@@ -69,8 +69,8 @@ export function selectAdjacentThread(direction: "next" | "previous") {
   const currentIndex = activeThreads.findIndex(
     (thread) => thread.id === useWorkspaceStore.getState().selectedThreadId,
   );
-  const fallbackIndex = direction === "next" ? 0 : activeThreads.length - 1;
-  const baseIndex = currentIndex === -1 ? fallbackIndex : currentIndex;
+  const baseIndex =
+    currentIndex === -1 ? (direction === "next" ? -1 : 0) : currentIndex;
   const offset = direction === "next" ? 1 : -1;
   const nextIndex = (baseIndex + offset + activeThreads.length) % activeThreads.length;
   const nextThread = activeThreads[nextIndex];

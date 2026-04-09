@@ -113,8 +113,13 @@ describe("ShortcutsSettingsTab", () => {
     const input = screen.getByLabelText("Toggle terminal shortcut");
     const item = input.closest(".settings-shortcuts__item");
     expect(item).not.toBeNull();
+    const resetButton = within(item as HTMLElement).getByRole("button", { name: "Reset" });
 
-    await userEvent.click(within(item as HTMLElement).getByRole("button", { name: "Reset" }));
+    await waitFor(() => {
+      expect(resetButton).toBeEnabled();
+    });
+
+    await userEvent.click(resetButton);
 
     expect(onChange).toHaveBeenCalledWith({ toggleTerminal: "mod+j" });
   });

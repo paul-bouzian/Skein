@@ -123,4 +123,33 @@ describe("ThreadTabs", () => {
 
     expect(container.querySelector(".thread-tab__status-dot")).toBeNull();
   });
+
+  it("logs create-thread failures instead of leaking a rejected click handler", async () => {
+    const error = new Error("create failed");
+    mockedBridge.createThread.mockRejectedValue(error);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<ThreadTabs />);
+
+    await userEvent.click(screen.getByTitle("New thread"));
+
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith("Failed to create a thread:", error);
+    });
+  });
+
+  it("logs archive failures instead of leaking a rejected click handler", async () => {
+    const error = new Error("archive failed");
+    confirmMock.mockResolvedValue(true);
+    mockedBridge.archiveThread.mockRejectedValue(error);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<ThreadTabs />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Archive Thread 1" }));
+
+    await waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith("Failed to archive Thread 1:", error);
+    });
+  });
 });

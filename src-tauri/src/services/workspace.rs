@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
+use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
     EnvironmentKind, EnvironmentPullRequestSnapshot, EnvironmentRecord,
     ManagedWorktreeCreateResult, ProjectRecord, ProjectSettings, ProjectSettingsPatch,
@@ -227,6 +228,11 @@ impl WorkspaceService {
         )?;
         transaction.commit()?;
         Ok(settings)
+    }
+
+    pub fn current_settings(&self) -> AppResult<GlobalSettings> {
+        let connection = self.database.open()?;
+        self.read_or_seed_settings(&connection)
     }
 
     pub fn add_project(&self, input: AddProjectRequest) -> AppResult<ProjectRecord> {
@@ -1639,11 +1645,17 @@ impl WorkspaceService {
             .optional()?;
 
         if let Some(payload) = payload {
-            let settings: GlobalSettings = serde_json::from_str(&payload)
-                .map_err(|error| AppError::Validation(error.to_string()))?;
-            settings
-                .validate()
-                .map_err(AppError::Validation)?;
+            let mut settings: GlobalSettings = match serde_json::from_str(&payload) {
+                Ok(settings) => settings,
+                Err(error) => {
+                    warn!("failed to parse stored global settings, using defaults: {error}");
+                    return Ok(GlobalSettings::default());
+                }
+            };
+            if let Err(error) = settings.validate() {
+                warn!("stored global settings had invalid shortcuts, restoring defaults: {error}");
+                settings.shortcuts = ShortcutSettings::default();
+            }
             return Ok(settings);
         }
 
@@ -1829,6 +1841,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};
+    use crate::domain::settings::GlobalSettings;
+    use crate::domain::shortcuts::ShortcutSettings;
     use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
@@ -2168,6 +2182,39 @@ mod tests {
             environment.pull_request.as_ref().map(|value| value.state),
             Some(PullRequestState::Open)
         );
+    }
+
+    #[test]
+    fn snapshot_repairs_invalid_shortcut_settings_without_losing_other_values() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let mut settings = GlobalSettings {
+            default_model: "gpt-5.4-mini".to_string(),
+            ..GlobalSettings::default()
+        };
+        settings.shortcuts.toggle_terminal = Some("mod+j".to_string());
+        settings.shortcuts.new_thread = Some("mod+j".to_string());
+
+        harness
+            .open_connection()
+            .execute(
+                "
+                INSERT INTO global_settings (singleton_key, payload_json, updated_at)
+                VALUES ('global', ?1, ?2)
+                ON CONFLICT(singleton_key) DO UPDATE SET
+                  payload_json = excluded.payload_json,
+                  updated_at = excluded.updated_at
+                ",
+                params![
+                    serde_json::to_string(&settings).expect("settings payload"),
+                    Utc::now(),
+                ],
+            )
+            .expect("settings should be persisted");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+
+        assert_eq!(snapshot.settings.default_model, "gpt-5.4-mini");
+        assert_eq!(snapshot.settings.shortcuts, ShortcutSettings::default());
     }
 
     struct WorkspaceHarness {
