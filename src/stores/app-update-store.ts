@@ -13,6 +13,7 @@ type UpdateStore = {
   downloadedBytes: number;
   contentLength: number | null;
   noticeVisible: boolean;
+  hasInitialized: boolean;
   initialize: () => Promise<void>;
   checkNow: (options?: { announceNoUpdate?: boolean }) => Promise<void>;
   dismiss: () => void;
@@ -38,8 +39,13 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   downloadedBytes: 0,
   contentLength: null,
   noticeVisible: false,
+  hasInitialized: false,
 
   initialize: async () => {
+    if (get().hasInitialized) {
+      return;
+    }
+
     if (initialization) {
       await initialization;
       return;
@@ -50,6 +56,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     try {
       await task;
     } finally {
+      set({ hasInitialized: true });
       if (initialization === task) {
         initialization = null;
       }

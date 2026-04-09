@@ -55,6 +55,7 @@ beforeEach(async () => {
     downloadedBytes: 0,
     contentLength: null,
     noticeVisible: false,
+    hasInitialized: false,
   });
 });
 
@@ -98,6 +99,17 @@ describe("app-update-store", () => {
     expect(checkMock).toHaveBeenCalledTimes(2);
     expect(useAppUpdateStore.getState().state).toBe("latest");
     expect(useAppUpdateStore.getState().noticeVisible).toBe(true);
+  });
+
+  it("runs initialize only once across the app lifetime", async () => {
+    checkMock.mockResolvedValue(null);
+
+    await useAppUpdateStore.getState().initialize();
+    await useAppUpdateStore.getState().initialize();
+
+    expect(checkMock).toHaveBeenCalledTimes(1);
+    expect(useAppUpdateStore.getState().hasInitialized).toBe(true);
+    expect(useAppUpdateStore.getState().state).toBe("idle");
   });
 
   it("downloads, installs, and restarts the app", async () => {
