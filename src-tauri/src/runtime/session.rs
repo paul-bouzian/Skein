@@ -478,16 +478,16 @@ impl RuntimeSession {
         mut context: ThreadRuntimeContext,
         input: SubmitPlanDecisionInput,
     ) -> AppResult<SendMessageResult> {
-        self.ensure_pending_plan(&context.thread_id).await?;
-
         if let Some(composer) = input.composer {
             context.composer = composer;
         }
 
         match input.action {
             PlanDecisionAction::Approve => {
+                let thread_id = context.thread_id.clone();
+                self.take_pending_plan_decision(&thread_id).await?;
                 context.composer.collaboration_mode = CollaborationMode::Build;
-                let mut result = self
+                let mut result = match self
                     .send_message_with_visibility(
                         context,
                         plan_approval_message().to_string(),
@@ -495,7 +495,14 @@ impl RuntimeSession {
                         false,
                         Vec::new(),
                     )
-                    .await?;
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.restore_pending_plan_decision(&thread_id).await;
+                        return Err(error);
+                    }
+                };
                 self.mark_plan_state(&result.snapshot.thread_id, mark_plan_approved)
                     .await?;
                 result.snapshot = self
@@ -516,7 +523,9 @@ impl RuntimeSession {
                             .to_string(),
                     ));
                 }
-                let mut result = self
+                let thread_id = context.thread_id.clone();
+                self.take_pending_plan_decision(&thread_id).await?;
+                let mut result = match self
                     .send_message_with_visibility(
                         context,
                         trimmed.to_string(),
@@ -524,7 +533,14 @@ impl RuntimeSession {
                         true,
                         input.mention_bindings.unwrap_or_default(),
                     )
-                    .await?;
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.restore_pending_plan_decision(&thread_id).await;
+                        return Err(error);
+                    }
+                };
                 result.snapshot = self
                     .mark_plan_state(&result.snapshot.thread_id, mark_plan_superseded)
                     .await?;
@@ -1051,23 +1067,54 @@ impl RuntimeSession {
         .await
     }
 
-    async fn ensure_pending_plan(&self, thread_id: &str) -> AppResult<()> {
-        let state = self.state.lock().await;
-        let snapshot = state
-            .snapshots_by_thread
-            .get(thread_id)
-            .ok_or_else(|| AppError::NotFound("Thread conversation is not open.".to_string()))?;
-        let plan = snapshot.proposed_plan.as_ref().ok_or_else(|| {
-            AppError::Validation("There is no proposed plan to update.".to_string())
-        })?;
+    async fn take_pending_plan_decision(
+        &self,
+        thread_id: &str,
+    ) -> AppResult<ThreadConversationSnapshot> {
+        self.mutate_snapshot(thread_id, |snapshot| {
+            let plan = snapshot.proposed_plan.as_mut().ok_or_else(|| {
+                AppError::Validation("There is no proposed plan to update.".to_string())
+            })?;
+            if !matches!(
+                plan.status,
+                crate::domain::conversation::ProposedPlanStatus::Ready
+            ) {
+                return Err(AppError::Validation(
+                    "There is no proposed plan to update.".to_string(),
+                ));
+            }
+            if !plan.is_awaiting_decision {
+                return Err(AppError::Validation(
+                    "The current plan is no longer awaiting a decision.".to_string(),
+                ));
+            }
+            plan.is_awaiting_decision = false;
+            Ok(())
+        })
+        .await
+    }
 
-        if !plan.is_awaiting_decision {
-            return Err(AppError::Validation(
-                "The current plan is no longer awaiting a decision.".to_string(),
-            ));
-        }
-
-        Ok(())
+    async fn restore_pending_plan_decision(&self, thread_id: &str) {
+        let snapshot = {
+            let mut state = self.state.lock().await;
+            let Some(snapshot) = state.snapshots_by_thread.get_mut(thread_id) else {
+                return;
+            };
+            let Some(plan) = snapshot.proposed_plan.as_mut() else {
+                return;
+            };
+            if !matches!(
+                plan.status,
+                crate::domain::conversation::ProposedPlanStatus::Ready
+            ) || plan.is_awaiting_decision
+            {
+                return;
+            }
+            plan.is_awaiting_decision = true;
+            reconcile_snapshot_status(snapshot);
+            snapshot.clone()
+        };
+        self.emit_snapshot(&snapshot);
     }
 
     async fn push_system_item(
@@ -2394,6 +2441,27 @@ mod tests {
     };
     use crate::domain::settings::{ApprovalPolicy, ReasoningEffort};
 
+    fn test_session_with_snapshot(snapshot: ThreadConversationSnapshot) -> RuntimeSession {
+        RuntimeSession {
+            app: None,
+            environment_id: snapshot.environment_id.clone(),
+            writer: Arc::new(Mutex::new(Box::new(tokio::io::sink()))),
+            child: None,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(Mutex::new(SessionState {
+                snapshots_by_thread: HashMap::from([(snapshot.thread_id.clone(), snapshot)]),
+                local_thread_by_codex_id: HashMap::new(),
+                capabilities: None,
+                pending_server_requests: HashMap::new(),
+                turn_modes_by_id: HashMap::new(),
+                pending_turn_mode_by_thread: HashMap::new(),
+            })),
+            next_request_id: AtomicU64::new(1),
+            stdout_task: Mutex::new(None),
+            stderr_task: Mutex::new(None),
+        }
+    }
+
     #[test]
     fn reconcile_snapshot_status_preserves_failed_without_error_payload() {
         let mut snapshot = ThreadConversationSnapshot::new(
@@ -2614,6 +2682,95 @@ mod tests {
             .get("thread-1")
             .expect("snapshot should exist");
         assert!(snapshot.proposed_plan.is_none());
+    }
+
+    #[tokio::test]
+    async fn take_pending_plan_decision_consumes_the_ready_plan_once() {
+        let mut snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Plan,
+                approval_policy: ApprovalPolicy::AskToEdit,
+            },
+        );
+        snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
+            turn_id: "turn-1".to_string(),
+            item_id: Some("plan-item-1".to_string()),
+            explanation: "Inspect runtime".to_string(),
+            steps: Vec::new(),
+            markdown: "## Proposed plan\n\n- Inspect runtime".to_string(),
+            status: crate::domain::conversation::ProposedPlanStatus::Ready,
+            is_awaiting_decision: true,
+        });
+        let session = test_session_with_snapshot(snapshot);
+
+        let consumed = session
+            .take_pending_plan_decision("thread-1")
+            .await
+            .expect("first consume should succeed");
+        assert!(
+            !consumed
+                .proposed_plan
+                .as_ref()
+                .is_some_and(|plan| plan.is_awaiting_decision)
+        );
+
+        let error = session
+            .take_pending_plan_decision("thread-1")
+            .await
+            .expect_err("second consume should fail");
+        assert!(matches!(
+            error,
+            AppError::Validation(message)
+                if message == "The current plan is no longer awaiting a decision."
+        ));
+    }
+
+    #[tokio::test]
+    async fn restore_pending_plan_decision_reopens_a_ready_plan_after_rollback() {
+        let mut snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Plan,
+                approval_policy: ApprovalPolicy::AskToEdit,
+            },
+        );
+        snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
+            turn_id: "turn-1".to_string(),
+            item_id: Some("plan-item-1".to_string()),
+            explanation: "Inspect runtime".to_string(),
+            steps: Vec::new(),
+            markdown: "## Proposed plan\n\n- Inspect runtime".to_string(),
+            status: crate::domain::conversation::ProposedPlanStatus::Ready,
+            is_awaiting_decision: true,
+        });
+        let session = test_session_with_snapshot(snapshot);
+
+        session
+            .take_pending_plan_decision("thread-1")
+            .await
+            .expect("consume should succeed");
+        session.restore_pending_plan_decision("thread-1").await;
+
+        let state = session.state.lock().await;
+        let snapshot = state
+            .snapshots_by_thread
+            .get("thread-1")
+            .expect("snapshot should exist");
+        assert!(
+            snapshot
+                .proposed_plan
+                .as_ref()
+                .is_some_and(|plan| plan.is_awaiting_decision)
+        );
     }
 
     #[tokio::test]

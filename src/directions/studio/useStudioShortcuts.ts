@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { matchesShortcut } from "../../lib/shortcuts";
 import type {
@@ -37,68 +37,70 @@ export function useStudioShortcuts({
   onToggleProjectsSidebar,
   onToggleReviewPanel,
 }: Props) {
-  const settings = useWorkspaceStore(selectSettings);
-  const selectedThreadId = useWorkspaceStore((state) => state.selectedThreadId);
-  const selectedEnvironmentId = useWorkspaceStore((state) => state.selectedEnvironmentId);
-  const snapshot = useConversationStore((state) =>
-    selectedThreadId ? state.snapshotsByThreadId[selectedThreadId] ?? null : null,
-  );
-  const composerOverride = useConversationStore((state) =>
-    selectedThreadId ? state.composerByThreadId[selectedThreadId] ?? null : null,
-  );
-  const capabilities = useConversationStore((state) =>
-    selectedEnvironmentId
-      ? state.capabilitiesByEnvironmentId[selectedEnvironmentId] ?? null
-      : null,
-  );
-  const interruptThread = useConversationStore((state) => state.interruptThread);
-  const submitPlanDecision = useConversationStore((state) => state.submitPlanDecision);
-  const updateComposer = useConversationStore((state) => state.updateComposer);
-  const toggleTerminal = useTerminalStore((state) => state.toggleVisible);
-  const shortcuts = settings?.shortcuts;
+  const settingsOpenRef = useRef(settingsOpen);
+  const callbacksRef = useRef({
+    onOpenSettings,
+    onRequestApproveOrSubmit,
+    onRequestComposerFocus,
+    onToggleProjectsSidebar,
+    onToggleReviewPanel,
+  });
+
+  settingsOpenRef.current = settingsOpen;
+  callbacksRef.current = {
+    onOpenSettings,
+    onRequestApproveOrSubmit,
+    onRequestComposerFocus,
+    onToggleProjectsSidebar,
+    onToggleReviewPanel,
+  };
 
   useEffect(() => {
-    if (!shortcuts || settingsOpen) {
-      return undefined;
-    }
-    const activeShortcuts = shortcuts;
-
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.repeat) {
+      if (event.defaultPrevented || event.repeat || settingsOpenRef.current) {
+        return;
+      }
+
+      const {
+        capabilities,
+        composer,
+        selectedThreadId,
+        shortcuts,
+        snapshot,
+      } = readShortcutState();
+      if (!shortcuts) {
         return;
       }
 
       const standardShortcutBlocked = shouldIgnoreStandardShortcut(event);
-      const composer = composerOverride ?? snapshot?.composer ?? null;
+      const {
+        onOpenSettings,
+        onRequestApproveOrSubmit,
+        onRequestComposerFocus,
+        onToggleProjectsSidebar,
+        onToggleReviewPanel,
+      } = callbacksRef.current;
+      const { interruptThread, updateComposer } = useConversationStore.getState();
+      const { toggleVisible } = useTerminalStore.getState();
 
-      if (matchesShortcut(event, activeShortcuts.openSettings)) {
+      if (matchesShortcut(event, shortcuts.openSettings)) {
         event.preventDefault();
         onOpenSettings();
         return;
       }
 
       if (
-        matchesShortcut(event, activeShortcuts.approveOrSubmit) &&
+        matchesShortcut(event, shortcuts.approveOrSubmit) &&
         (snapshot?.proposedPlan?.isAwaitingDecision ||
           snapshot?.pendingInteractions[0]?.kind === "userInput")
       ) {
         event.preventDefault();
-        if (snapshot?.pendingInteractions[0]?.kind === "userInput") {
-          onRequestApproveOrSubmit();
-          return;
-        }
-        if (composer && selectedThreadId) {
-          void submitPlanDecision({
-            threadId: selectedThreadId,
-            action: "approve",
-            composer: { ...composer, collaborationMode: "build" },
-          }).catch(reportShortcutError);
-        }
+        onRequestApproveOrSubmit();
         return;
       }
 
       if (
-        matchesShortcut(event, activeShortcuts.interruptThread) &&
+        matchesShortcut(event, shortcuts.interruptThread) &&
         selectedThreadId &&
         snapshot?.status === "running" &&
         !isEditableTarget(event.target) &&
@@ -109,7 +111,7 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.focusComposer)) {
+      if (matchesShortcut(event, shortcuts.focusComposer)) {
         event.preventDefault();
         onRequestComposerFocus();
         return;
@@ -119,61 +121,61 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.toggleProjectsSidebar)) {
+      if (matchesShortcut(event, shortcuts.toggleProjectsSidebar)) {
         event.preventDefault();
         onToggleProjectsSidebar();
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.toggleReviewPanel)) {
+      if (matchesShortcut(event, shortcuts.toggleReviewPanel)) {
         event.preventDefault();
         onToggleReviewPanel();
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.toggleTerminal)) {
+      if (matchesShortcut(event, shortcuts.toggleTerminal)) {
         event.preventDefault();
-        toggleTerminal();
+        toggleVisible();
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.newThread)) {
+      if (matchesShortcut(event, shortcuts.newThread)) {
         event.preventDefault();
         void createThreadForSelection().catch(reportShortcutError);
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.newWorktree)) {
+      if (matchesShortcut(event, shortcuts.newWorktree)) {
         event.preventDefault();
         void createManagedWorktreeForSelection().catch(reportShortcutError);
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.archiveCurrentThread) && selectedThreadId) {
+      if (matchesShortcut(event, shortcuts.archiveCurrentThread) && selectedThreadId) {
         event.preventDefault();
         void archiveThreadWithConfirmation(selectedThreadId).catch(reportShortcutError);
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.nextThread)) {
+      if (matchesShortcut(event, shortcuts.nextThread)) {
         event.preventDefault();
         selectAdjacentThread("next");
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.previousThread)) {
+      if (matchesShortcut(event, shortcuts.previousThread)) {
         event.preventDefault();
         selectAdjacentThread("previous");
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.nextEnvironment)) {
+      if (matchesShortcut(event, shortcuts.nextEnvironment)) {
         event.preventDefault();
         selectAdjacentEnvironment("next");
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.previousEnvironment)) {
+      if (matchesShortcut(event, shortcuts.previousEnvironment)) {
         event.preventDefault();
         selectAdjacentEnvironment("previous");
         return;
@@ -183,7 +185,7 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.cycleCollaborationMode)) {
+      if (matchesShortcut(event, shortcuts.cycleCollaborationMode)) {
         event.preventDefault();
         const values = capabilities?.collaborationModes.map(
           (option) => option.id as CollaborationMode,
@@ -195,7 +197,7 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.cycleModel)) {
+      if (matchesShortcut(event, shortcuts.cycleModel)) {
         const values = capabilities?.models.map((option) => option.id) ?? [composer.model];
         const next = cycleValue(values, composer.model);
         if (next) {
@@ -205,7 +207,7 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.cycleReasoningEffort)) {
+      if (matchesShortcut(event, shortcuts.cycleReasoningEffort)) {
         const values = supportedEffortsForComposer(composer, capabilities?.models);
         const next = cycleValue(values, composer.reasoningEffort);
         if (next) {
@@ -215,7 +217,7 @@ export function useStudioShortcuts({
         return;
       }
 
-      if (matchesShortcut(event, activeShortcuts.cycleApprovalPolicy)) {
+      if (matchesShortcut(event, shortcuts.cycleApprovalPolicy)) {
         const next = cycleValue(APPROVAL_VALUES, composer.approvalPolicy);
         if (next) {
           event.preventDefault();
@@ -226,25 +228,7 @@ export function useStudioShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    capabilities?.collaborationModes,
-    capabilities?.models,
-    composerOverride,
-    interruptThread,
-    onOpenSettings,
-    onRequestApproveOrSubmit,
-    onRequestComposerFocus,
-    onToggleProjectsSidebar,
-    onToggleReviewPanel,
-    selectedEnvironmentId,
-    selectedThreadId,
-    settingsOpen,
-    shortcuts,
-    snapshot,
-    submitPlanDecision,
-    toggleTerminal,
-    updateComposer,
-  ]);
+  }, []);
 }
 
 function supportedEffortsForComposer(
@@ -256,6 +240,33 @@ function supportedEffortsForComposer(
       composer.reasoningEffort,
     ]
   );
+}
+
+function readShortcutState() {
+  const workspaceState = useWorkspaceStore.getState();
+  const conversationState = useConversationStore.getState();
+  const selectedThreadId = workspaceState.selectedThreadId;
+  const selectedEnvironmentId = workspaceState.selectedEnvironmentId;
+  const snapshot = selectedThreadId
+    ? conversationState.snapshotsByThreadId[selectedThreadId] ?? null
+    : null;
+  const composer =
+    (selectedThreadId
+      ? conversationState.composerByThreadId[selectedThreadId] ?? null
+      : null) ??
+    snapshot?.composer ??
+    null;
+  const capabilities = selectedEnvironmentId
+    ? conversationState.capabilitiesByEnvironmentId[selectedEnvironmentId] ?? null
+    : null;
+
+  return {
+    capabilities,
+    composer,
+    selectedThreadId,
+    shortcuts: selectSettings(workspaceState)?.shortcuts ?? null,
+    snapshot,
+  };
 }
 
 function cycleValue<T extends string>(values: T[], current: T) {

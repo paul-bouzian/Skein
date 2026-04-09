@@ -92,8 +92,8 @@ export function selectAdjacentEnvironment(direction: "next" | "previous") {
   const currentIndex = orderedEnvironments.findIndex(
     (environment) => environment.id === selectedEnvironmentId,
   );
-  const fallbackIndex = direction === "next" ? 0 : orderedEnvironments.length - 1;
-  const baseIndex = currentIndex === -1 ? fallbackIndex : currentIndex;
+  const baseIndex =
+    currentIndex === -1 ? (direction === "next" ? -1 : 0) : currentIndex;
   const offset = direction === "next" ? 1 : -1;
   const nextIndex =
     (baseIndex + offset + orderedEnvironments.length) % orderedEnvironments.length;

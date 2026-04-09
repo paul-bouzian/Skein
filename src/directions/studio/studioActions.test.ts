@@ -9,6 +9,7 @@ import {
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import {
   archiveThreadWithConfirmation,
+  selectAdjacentEnvironment,
   selectAdjacentThread,
 } from "./studioActions";
 
@@ -59,6 +60,96 @@ describe("studioActions", () => {
   it("selects the first active thread when navigating next with no current selection", () => {
     expect(selectAdjacentThread("next")).toBe(true);
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
+  });
+
+  it("selects the first environment when navigating next with no current selection", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          {
+            ...makeWorkspaceSnapshot().projects[0]!,
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                kind: "local",
+                name: "Local",
+                createdAt: "2026-04-03T08:00:00Z",
+              }),
+              makeEnvironment({
+                id: "env-2",
+                kind: "managedWorktree",
+                name: "Feature A",
+                isDefault: false,
+                createdAt: "2026-04-03T09:00:00Z",
+              }),
+              makeEnvironment({
+                id: "env-3",
+                kind: "managedWorktree",
+                name: "Feature B",
+                isDefault: false,
+                createdAt: "2026-04-03T10:00:00Z",
+              }),
+            ],
+          },
+        ],
+      }),
+      selectedEnvironmentId: null,
+      selectEnvironment: vi.fn((environmentId: string | null) =>
+        useWorkspaceStore.setState((current) => ({
+          ...current,
+          selectedEnvironmentId: environmentId,
+        })),
+      ),
+    }));
+
+    expect(selectAdjacentEnvironment("next")).toBe(true);
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-1");
+  });
+
+  it("selects the last environment when navigating previous with no current selection", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          {
+            ...makeWorkspaceSnapshot().projects[0]!,
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                kind: "local",
+                name: "Local",
+                createdAt: "2026-04-03T08:00:00Z",
+              }),
+              makeEnvironment({
+                id: "env-2",
+                kind: "managedWorktree",
+                name: "Feature A",
+                isDefault: false,
+                createdAt: "2026-04-03T09:00:00Z",
+              }),
+              makeEnvironment({
+                id: "env-3",
+                kind: "managedWorktree",
+                name: "Feature B",
+                isDefault: false,
+                createdAt: "2026-04-03T10:00:00Z",
+              }),
+            ],
+          },
+        ],
+      }),
+      selectedEnvironmentId: null,
+      selectEnvironment: vi.fn((environmentId: string | null) =>
+        useWorkspaceStore.setState((current) => ({
+          ...current,
+          selectedEnvironmentId: environmentId,
+        })),
+      ),
+    }));
+
+    expect(selectAdjacentEnvironment("previous")).toBe(true);
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-3");
   });
 
   it("preserves a newer thread selection made while the archive confirmation is open", async () => {
