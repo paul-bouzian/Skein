@@ -6,7 +6,9 @@ import * as bridge from "../../lib/bridge";
 import {
   makeConversationSnapshot,
   makeEnvironment,
+  makeProject,
   makeTaskPlan,
+  makeThread,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import { useConversationStore } from "../../stores/conversation-store";
@@ -29,6 +31,13 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 const mockedBridge = vi.mocked(bridge);
+
+function expectThreadIndicator(title: string, tone: string) {
+  const threadButton = screen.getByRole("button", { name: title });
+  expect(
+    threadButton.querySelector(`.runtime-indicator__dot--${tone}`),
+  ).not.toBeNull();
+}
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -109,19 +118,87 @@ describe("ThreadTabs", () => {
     expect(mockedBridge.archiveThread).not.toHaveBeenCalled();
   });
 
-  it("does not mark a thread as needing attention for a completed task tracker", () => {
+  it("renders a neutral indicator before a thread snapshot is loaded", () => {
+    render(<ThreadTabs />);
+
+    expectThreadIndicator("Thread 1", "neutral");
+  });
+
+  it("renders per-thread indicators from canonical conversation status", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                threads: [
+                  makeThread({ id: "thread-idle", title: "Idle thread" }),
+                  makeThread({ id: "thread-running", title: "Running thread" }),
+                  makeThread({
+                    id: "thread-completed",
+                    title: "Completed thread",
+                  }),
+                  makeThread({ id: "thread-failed", title: "Failed thread" }),
+                  makeThread({ id: "thread-waiting", title: "Waiting thread" }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedThreadId: "thread-idle",
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        "thread-idle": makeConversationSnapshot({
+          threadId: "thread-idle",
+          status: "idle",
+        }),
+        "thread-running": makeConversationSnapshot({
+          threadId: "thread-running",
+          status: "running",
+        }),
+        "thread-completed": makeConversationSnapshot({
+          threadId: "thread-completed",
+          status: "completed",
+        }),
+        "thread-failed": makeConversationSnapshot({
+          threadId: "thread-failed",
+          status: "failed",
+        }),
+        "thread-waiting": makeConversationSnapshot({
+          threadId: "thread-waiting",
+          status: "waitingForExternalAction",
+        }),
+      },
+    }));
+
+    render(<ThreadTabs />);
+
+    expectThreadIndicator("Idle thread", "neutral");
+    expectThreadIndicator("Running thread", "progress");
+    expectThreadIndicator("Completed thread", "completed");
+    expectThreadIndicator("Failed thread", "failed");
+    expectThreadIndicator("Waiting thread", "waiting");
+  });
+
+  it("keeps completed task trackers on the completed indicator path", () => {
     useConversationStore.setState((state) => ({
       ...state,
       snapshotsByThreadId: {
         "thread-1": makeConversationSnapshot({
+          status: "completed",
           taskPlan: makeTaskPlan({ status: "completed" }),
         }),
       },
     }));
 
-    const { container } = render(<ThreadTabs />);
+    render(<ThreadTabs />);
 
-    expect(container.querySelector(".thread-tab__status-dot")).toBeNull();
+    expectThreadIndicator("Thread 1", "completed");
   });
 
   it("logs create-thread failures instead of leaking a rejected click handler", async () => {
@@ -129,13 +206,17 @@ describe("ThreadTabs", () => {
     mockedBridge.createThread.mockRejectedValue(error);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    render(<ThreadTabs />);
+    try {
+      render(<ThreadTabs />);
 
-    await userEvent.click(screen.getByTitle("New thread"));
+      await userEvent.click(screen.getByTitle("New thread"));
 
-    await waitFor(() => {
-      expect(consoleError).toHaveBeenCalledWith("Failed to create a thread:", error);
-    });
+      await waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith("Failed to create a thread:", error);
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("logs archive failures instead of leaking a rejected click handler", async () => {
@@ -144,12 +225,16 @@ describe("ThreadTabs", () => {
     mockedBridge.archiveThread.mockRejectedValue(error);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    render(<ThreadTabs />);
+    try {
+      render(<ThreadTabs />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Archive Thread 1" }));
+      await userEvent.click(screen.getByRole("button", { name: "Archive Thread 1" }));
 
-    await waitFor(() => {
-      expect(consoleError).toHaveBeenCalledWith("Failed to archive Thread 1:", error);
-    });
+      await waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith("Failed to archive Thread 1:", error);
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

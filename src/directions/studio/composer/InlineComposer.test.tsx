@@ -99,7 +99,7 @@ describe("InlineComposer voice dictation", () => {
       text: "Transcribed words",
     });
 
-    renderComposer("");
+    const { container } = renderComposer("");
 
     const startButton = await screen.findByRole("button", {
       name: "Start voice dictation",
@@ -110,11 +110,16 @@ describe("InlineComposer voice dictation", () => {
 
     await userEvent.click(startButton);
     expect(mockedStartVoiceCapture).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Listening")).toBeInTheDocument();
+    const recordingButton = await screen.findByRole("button", {
+      name: "Stop voice dictation",
+    });
+    const voiceControl = recordingButton.closest(".tx-composer__voice-control");
+    expect(voiceControl).toHaveTextContent(/\d{2}:\d{2}/);
+    expect(recordingButton).toHaveClass("tx-composer__voice-button--recording");
+    expect(container.querySelector(".tx-voice-capsule")).toBeNull();
+    expect(container.querySelector("canvas")).toBeNull();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Stop voice dictation" }),
-    );
+    await userEvent.click(recordingButton);
 
     await waitFor(() => {
       expect(mockedBridge.transcribeEnvironmentVoice).toHaveBeenCalledWith({
@@ -220,7 +225,7 @@ describe("InlineComposer voice dictation", () => {
     );
 
     expect(
-      await screen.findByText("Voice transcription failed"),
+      await screen.findByText(/Voice transcription failed\./),
     ).toBeInTheDocument();
     expect(
       await screen.findByText(
@@ -228,6 +233,13 @@ describe("InlineComposer voice dictation", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByDisplayValue("Keep draft")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Dismiss voice error" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(/Voice transcription failed\./)).toBeNull();
+    });
   });
 
   it("appends the transcript onto the latest draft state after async transcription", async () => {
@@ -284,11 +296,14 @@ describe("InlineComposer voice dictation", () => {
     const transcribingButton = await screen.findByRole("button", {
       name: "Transcribing voice dictation",
     });
+    const voiceControl = transcribingButton.closest(".tx-composer__voice-control");
     expect(transcribingButton).toBeDisabled();
     expect(transcribingButton.parentElement).toHaveAttribute(
       "title",
       "Transcribing voice recording",
     );
+    expect(voiceControl?.querySelector(".tx-composer__voice-spinner")).not.toBeNull();
+    expect(voiceControl).not.toHaveTextContent(/\d{2}:\d{2}/);
 
     transcription.resolve({ text: "voice note" });
 
@@ -314,11 +329,13 @@ describe("InlineComposer voice dictation", () => {
     const startingButton = await screen.findByRole("button", {
       name: "Starting voice dictation",
     });
+    const voiceControl = startingButton.closest(".tx-composer__voice-control");
     expect(startingButton).toBeEnabled();
     expect(startingButton.parentElement).toHaveAttribute(
       "title",
       "Starting microphone capture. Click to cancel.",
     );
+    expect(voiceControl?.querySelector(".tx-composer__voice-spinner")).not.toBeNull();
 
     await userEvent.click(startingButton);
     startCapture.resolve(capture);
@@ -329,7 +346,7 @@ describe("InlineComposer voice dictation", () => {
     expect(
       await screen.findByRole("button", { name: "Start voice dictation" }),
     ).toBeEnabled();
-    expect(screen.queryByText("Listening")).toBeNull();
+    expect(voiceControl).not.toHaveTextContent(/\d{2}:\d{2}/);
   });
 
   it("keeps recording active when switching threads and restores it on return", async () => {
@@ -346,7 +363,12 @@ describe("InlineComposer voice dictation", () => {
     });
 
     await userEvent.click(startButton);
-    expect(await screen.findByText("Listening")).toBeInTheDocument();
+    const recordingButton = await screen.findByRole("button", {
+      name: "Stop voice dictation",
+    });
+    expect(recordingButton.closest(".tx-composer__voice-control")).toHaveTextContent(
+      /\d{2}:\d{2}/,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
 
@@ -358,12 +380,19 @@ describe("InlineComposer voice dictation", () => {
       "title",
       expect.stringContaining("Voice dictation is already active"),
     );
-    expect(screen.queryByText("Listening")).toBeNull();
+    expect(
+      threadTwoVoiceButton.closest(".tx-composer__voice-control"),
+    ).not.toHaveTextContent(/\d{2}:\d{2}/);
     expect(capture.cancel).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
 
-    expect(await screen.findByText("Listening")).toBeInTheDocument();
+    const resumedRecordingButton = await screen.findByRole("button", {
+      name: "Stop voice dictation",
+    });
+    expect(
+      resumedRecordingButton.closest(".tx-composer__voice-control"),
+    ).toHaveTextContent(/\d{2}:\d{2}/);
     expect(capture.cancel).not.toHaveBeenCalled();
   });
 
@@ -794,7 +823,6 @@ function renderComposerWithDynamicThread(initialDraft: string) {
 function makeCapture() {
   return {
     cancel: vi.fn(async () => undefined),
-    drawSpectrum: vi.fn(),
     stop: vi.fn(async () => ({
       audioBase64: "dGVzdA==",
       durationMs: 1_200,

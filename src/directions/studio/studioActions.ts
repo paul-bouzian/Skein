@@ -12,7 +12,10 @@ export async function createThreadForSelection() {
   }
 
   const thread = await bridge.createThread({ environmentId: environment.id });
-  await useWorkspaceStore.getState().refreshSnapshot();
+  const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
+  if (!refreshed) {
+    return false;
+  }
   useWorkspaceStore.getState().selectThread(thread.id);
   return true;
 }
@@ -24,7 +27,10 @@ export async function createManagedWorktreeForSelection() {
   }
 
   const result = await bridge.createManagedWorktree(projectId);
-  await useWorkspaceStore.getState().refreshSnapshot();
+  const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
+  if (!refreshed) {
+    return false;
+  }
   useWorkspaceStore.getState().selectThread(result.thread.id);
   return true;
 }
@@ -47,11 +53,7 @@ export async function archiveThreadWithConfirmation(threadId: string) {
   }
 
   await bridge.archiveThread({ threadId: target.thread.id });
-  if (useWorkspaceStore.getState().selectedThreadId === target.thread.id) {
-    useWorkspaceStore.getState().selectThread(null);
-  }
-  await useWorkspaceStore.getState().refreshSnapshot();
-  return true;
+  return await useWorkspaceStore.getState().refreshSnapshot();
 }
 
 export function selectAdjacentThread(direction: "next" | "previous") {

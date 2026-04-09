@@ -230,7 +230,6 @@ describe("voice session store", () => {
 function makeCapture() {
   return {
     cancel: vi.fn(async () => undefined),
-    drawSpectrum: vi.fn(),
     stop: vi.fn(async () => ({
       audioBase64: "dGVzdA==",
       durationMs: 1_200,

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 import { useVoiceStatusStore } from "../../../stores/voice-status-store";
 import {
@@ -34,7 +28,6 @@ export function useComposerVoiceInput({
   onChangeDraft,
   threadId,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const currentDraftRef = useRef(currentDraft);
   const handledOutcomeIdRef = useRef<number | null>(null);
   const snapshot = useVoiceStatusStore(
@@ -61,9 +54,6 @@ export function useComposerVoiceInput({
   );
   const clearPendingOutcome = useVoiceSessionStore(
     (state) => state.clearPendingOutcome,
-  );
-  const drawActiveSpectrum = useVoiceSessionStore(
-    (state) => state.drawActiveSpectrum,
   );
   const startSession = useVoiceSessionStore((state) => state.startSession);
   const stopSession = useVoiceSessionStore((state) => state.stopSession);
@@ -152,24 +142,6 @@ export function useComposerVoiceInput({
     });
   }, [clearPendingOutcome, inputRef, onChangeDraft, pendingOutcome, threadId]);
 
-  useEffect(() => {
-    if (!isRecording) {
-      return;
-    }
-
-    let frameId = 0;
-
-    const renderFrame = () => {
-      drawActiveSpectrum(canvasRef.current);
-      frameId = window.requestAnimationFrame(renderFrame);
-    };
-
-    frameId = window.requestAnimationFrame(renderFrame);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [drawActiveSpectrum, isRecording]);
-
   const buttonDisabled =
     isTranscribing ||
     activeSessionElsewhere ||
@@ -201,9 +173,9 @@ export function useComposerVoiceInput({
     buttonDisabled,
     buttonLabel,
     buttonTitle,
-    canvasRef,
     errorMessage: pendingError,
     isRecording,
+    isStarting,
     isTranscribing,
     onDismissError: () => {
       if (pendingOutcome?.kind === "error") {

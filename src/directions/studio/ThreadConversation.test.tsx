@@ -1825,6 +1825,39 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("does not auto-approve a plan while another interaction is pending", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+        pendingInteractions: [makeApprovalRequest()],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+        approveOrSubmitKey={0}
+      />,
+    );
+
+    await screen.findByRole("button", { name: "Approve plan" });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+        approveOrSubmitKey={1}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockedBridge.submitPlanDecision).not.toHaveBeenCalled();
+  });
+
   it("sends plan-refinement feedback through the composer", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({

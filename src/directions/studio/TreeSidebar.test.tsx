@@ -360,7 +360,7 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.deleteWorktreeEnvironment).not.toHaveBeenCalled();
   });
 
-  it("shows a waiting indicator on a worktree when the latest snapshot awaits action", () => {
+  it("shows a waiting indicator on a worktree when any active thread awaits action", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -379,8 +379,14 @@ describe("TreeSidebar", () => {
                 gitBranch: "slate-hawk",
                 threads: [
                   makeThread({
-                    id: "thread-worktree",
+                    id: "thread-worktree-completed",
                     environmentId: "env-worktree",
+                    updatedAt: "2026-04-03T08:00:00Z",
+                  }),
+                  makeThread({
+                    id: "thread-worktree-waiting",
+                    environmentId: "env-worktree",
+                    updatedAt: "2026-04-03T09:00:00Z",
                   }),
                 ],
               }),
@@ -392,8 +398,18 @@ describe("TreeSidebar", () => {
     useConversationStore.setState((state) => ({
       ...state,
       snapshotsByThreadId: {
-        "thread-worktree": makeConversationSnapshot({
-          threadId: "thread-worktree",
+        "thread-worktree-completed": makeConversationSnapshot({
+          threadId: "thread-worktree-completed",
+          environmentId: "env-worktree",
+          codexThreadId: "thr_completed",
+          status: "completed",
+          items: [],
+          tokenUsage: null,
+          pendingInteractions: [],
+          proposedPlan: null,
+        }),
+        "thread-worktree-waiting": makeConversationSnapshot({
+          threadId: "thread-worktree-waiting",
           environmentId: "env-worktree",
           codexThreadId: "thr_waiting",
           status: "waitingForExternalAction",

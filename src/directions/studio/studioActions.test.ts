@@ -9,6 +9,8 @@ import {
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import {
   archiveThreadWithConfirmation,
+  createManagedWorktreeForSelection,
+  createThreadForSelection,
   selectAdjacentEnvironment,
   selectAdjacentThread,
 } from "./studioActions";
@@ -59,6 +61,39 @@ describe("studioActions", () => {
 
   it("selects the first active thread when navigating next with no current selection", () => {
     expect(selectAdjacentThread("next")).toBe(true);
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
+  });
+
+  it("does not select a newly created thread when the snapshot refresh fails", async () => {
+    mockedBridge.createThread.mockResolvedValue(makeThread({ id: "thread-3" }));
+    const refreshSnapshot = vi.fn(async () => false);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+      selectedThreadId: "thread-1",
+    }));
+
+    await expect(createThreadForSelection()).resolves.toBe(false);
+
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
+  });
+
+  it("does not select a managed-worktree thread when the snapshot refresh fails", async () => {
+    mockedBridge.createManagedWorktree.mockResolvedValue({
+      environment: makeEnvironment({ id: "env-2", kind: "managedWorktree" }),
+      thread: makeThread({ id: "thread-3", environmentId: "env-2" }),
+    });
+    const refreshSnapshot = vi.fn(async () => false);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+      selectedThreadId: "thread-1",
+    }));
+
+    await expect(createManagedWorktreeForSelection()).resolves.toBe(false);
+
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
   });
 
@@ -170,5 +205,21 @@ describe("studioActions", () => {
 
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-2");
     expect(mockedBridge.archiveThread).toHaveBeenCalledWith({ threadId: "thread-1" });
+  });
+
+  it("returns false and preserves the current selection when archive refresh fails", async () => {
+    confirmMock.mockResolvedValue(true);
+    mockedBridge.archiveThread.mockResolvedValue(makeThread({ id: "thread-1" }));
+    const refreshSnapshot = vi.fn(async () => false);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+      selectedThreadId: "thread-1",
+    }));
+
+    await expect(archiveThreadWithConfirmation("thread-1")).resolves.toBe(false);
+
+    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-1");
   });
 });

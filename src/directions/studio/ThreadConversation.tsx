@@ -195,7 +195,7 @@ export function ThreadConversation({
     lastApproveOrSubmitKeyRef.current = approveOrSubmitKey;
     if (
       approveOrSubmitKey === 0 ||
-      interaction?.kind === "userInput" ||
+      interaction != null ||
       !snapshot?.proposedPlan?.isAwaitingDecision
     ) {
       return;
@@ -205,7 +205,7 @@ export function ThreadConversation({
     approvePlan,
     approveComposer,
     approveOrSubmitKey,
-    interaction?.kind,
+    interaction,
     snapshot?.proposedPlan?.isAwaitingDecision,
   ]);
 

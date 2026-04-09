@@ -21,7 +21,13 @@ import type {
   ThreadComposerCatalog,
   ThreadTokenUsageSnapshot,
 } from "../../../lib/types";
-import { ImageIcon, MicIcon, SendIcon, StopIcon } from "../../../shared/Icons";
+import {
+  CloseIcon,
+  ImageIcon,
+  MicIcon,
+  SendIcon,
+  StopIcon,
+} from "../../../shared/Icons";
 import { ComposerPicker } from "../ComposerPicker";
 import { ContextWindowMeter } from "../ContextWindowMeter";
 import {
@@ -49,9 +55,9 @@ import {
   replaceComposerToken,
   type ComposerAutocompleteItem,
 } from "./composer-model";
+import { formatVoiceDuration } from "./voice-duration";
 import { useComposerImageInput } from "./useComposerImageInput";
 import { useComposerVoiceInput } from "./useComposerVoiceInput";
-import { VoiceRecordingCapsule } from "./VoiceRecordingCapsule";
 import "./ComposerVoice.css";
 
 type Props = {
@@ -154,9 +160,9 @@ export function InlineComposer({
     buttonDisabled: voiceButtonDisabled,
     buttonLabel: voiceButtonLabel,
     buttonTitle: voiceButtonTitle,
-    canvasRef: voiceCanvasRef,
     errorMessage: voiceErrorMessage,
     isRecording,
+    isStarting,
     isTranscribing,
     onDismissError,
     onVoiceButtonClick,
@@ -170,6 +176,22 @@ export function InlineComposer({
     onChangeDraft,
     threadId,
   });
+  const voiceDurationLabel = formatVoiceDuration(voiceDurationMs);
+  const voiceButtonClassName = [
+    "tx-composer__voice-button",
+    isRecording ? "tx-composer__voice-button--recording" : null,
+    isStarting || isTranscribing ? "tx-composer__voice-button--busy" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  let voiceLiveStatus = "";
+  if (isRecording) {
+    voiceLiveStatus = "Recording voice dictation";
+  } else if (isStarting) {
+    voiceLiveStatus = "Starting voice dictation";
+  } else if (isTranscribing) {
+    voiceLiveStatus = "Transcribing voice dictation";
+  }
   const inputDisabled = baseInputDisabled || voiceBusy;
   const controlsDisabled = baseControlsDisabled || voiceBusy;
   const missingRequiredContent = isRefiningPlan
@@ -511,14 +533,28 @@ export function InlineComposer({
             </div>
           ) : null}
         </div>
-        <VoiceRecordingCapsule
-          canvasRef={voiceCanvasRef}
-          durationMs={voiceDurationMs}
-          errorMessage={voiceErrorMessage}
-          isRecording={isRecording}
-          isTranscribing={isTranscribing}
-          onDismissError={onDismissError}
-        />
+        {voiceErrorMessage ? (
+          <div
+            className="tx-composer__notice tx-composer__notice--voice-error"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="tx-composer__notice-copy">
+              <span className="tx-composer__notice-label">
+                Voice transcription failed.
+              </span>{" "}
+              {voiceErrorMessage}
+            </span>
+            <button
+              type="button"
+              className="tx-composer__notice-dismiss"
+              aria-label="Dismiss voice error"
+              onClick={onDismissError}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="tx-composer__controls">
@@ -601,19 +637,41 @@ export function InlineComposer({
         </div>
         <div className="tx-composer__controls-right">
           <ContextWindowMeter usage={tokenUsage} />
-          <span className="tx-composer__voice-button-anchor" title={voiceButtonTitle}>
-            <button
-              type="button"
-              className={`tx-composer__voice-button ${
-                isRecording ? "tx-composer__voice-button--recording" : ""
-              }`}
-              aria-label={voiceButtonLabel}
-              disabled={voiceButtonDisabled}
-              onClick={onVoiceButtonClick}
+          <div className="tx-composer__voice-control">
+            <span
+              className="tx-composer__voice-button-anchor"
+              title={voiceButtonTitle}
             >
-              {isRecording ? <StopIcon size={14} /> : <MicIcon size={18} />}
-            </button>
-          </span>
+              <button
+                type="button"
+                className={voiceButtonClassName}
+                aria-label={voiceButtonLabel}
+                disabled={voiceButtonDisabled}
+                onClick={onVoiceButtonClick}
+              >
+                {isStarting || isTranscribing ? (
+                  <span
+                    className="tx-composer__voice-spinner"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <MicIcon size={18} />
+                )}
+              </button>
+            </span>
+            {isRecording ? (
+              <span className="tx-composer__voice-duration" aria-hidden="true">
+                {voiceDurationLabel}
+              </span>
+            ) : null}
+            <span
+              className="tx-composer__voice-live-status"
+              role="status"
+              aria-live="polite"
+            >
+              {voiceLiveStatus}
+            </span>
+          </div>
           {isBusy ? (
             <button
               type="button"
