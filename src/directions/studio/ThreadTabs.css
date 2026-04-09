@@ -66,11 +66,8 @@
 }
 
 .thread-tab__status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--tx-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tx-accent) 18%, transparent);
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
