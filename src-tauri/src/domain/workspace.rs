@@ -253,8 +253,8 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        EnvironmentKind, EnvironmentRecord, ProjectSettings, ProjectSettingsPatch,
-        PullRequestState, RuntimeState, RuntimeStatusSnapshot,
+        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectSettings,
+        ProjectSettingsPatch, PullRequestState, RuntimeState, RuntimeStatusSnapshot,
     };
 
     #[test]
@@ -317,6 +317,42 @@ mod tests {
         let payload = serde_json::to_value(PullRequestState::Merged)
             .expect("pull request state should serialize");
         assert_eq!(payload, Value::String("merged".to_string()));
+    }
+
+    #[test]
+    fn first_prompt_rename_failure_event_serializes_with_camel_case_keys() {
+        let payload = serde_json::to_value(FirstPromptRenameFailureEvent {
+            project_id: "project-1".to_string(),
+            environment_id: "env-1".to_string(),
+            thread_id: "thread-1".to_string(),
+            environment_name: "snowy-toad".to_string(),
+            branch_name: "snowy-toad".to_string(),
+            message: "Codex timed out after 45s while generating a first prompt name.".to_string(),
+        })
+        .expect("rename failure event should serialize");
+        let object = payload
+            .as_object()
+            .expect("rename failure event should serialize to a JSON object");
+
+        for key in [
+            "projectId",
+            "environmentId",
+            "threadId",
+            "environmentName",
+            "branchName",
+            "message",
+        ] {
+            assert!(object.contains_key(key), "missing camelCase key {key}");
+        }
+        for key in [
+            "project_id",
+            "environment_id",
+            "thread_id",
+            "environment_name",
+            "branch_name",
+        ] {
+            assert!(!object.contains_key(key), "unexpected snake_case key {key}");
+        }
     }
 
     fn parse_datetime(value: &str) -> DateTime<Utc> {

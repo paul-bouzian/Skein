@@ -29,22 +29,6 @@
   min-width: 0;
 }
 
-.studio-statusbar__runtimes {
-  display: flex;
-  align-items: center;
-  gap: var(--tx-space-md);
-}
-
-.studio-statusbar__runtime-item {
-  display: flex;
-  align-items: center;
-  gap: var(--tx-space-xs);
-}
-
-.studio-statusbar__idle {
-  color: var(--tx-text-muted);
-}
-
 .studio-statusbar__version {
   color: var(--tx-text-muted);
 }

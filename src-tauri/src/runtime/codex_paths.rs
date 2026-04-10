@@ -23,7 +23,22 @@ pub fn resolve_codex_binary_path(codex_binary_path: Option<&str>) -> AppResult<S
                     "Codex binary path cannot be empty.".to_string(),
                 ));
             }
-            Ok(trimmed.to_string())
+            let path = Path::new(trimmed);
+            if path.is_absolute() {
+                return Ok(trimmed.to_string());
+            }
+            if is_bare_executable_name(path) {
+                return which::which(trimmed)
+                    .map(|path| path.to_string_lossy().to_string())
+                    .map_err(|_| {
+                        AppError::Validation(format!(
+                            "Unable to resolve Codex binary `{trimmed}` from PATH. Set Settings -> Codex binary to its absolute path."
+                        ))
+                    });
+            }
+            Err(AppError::Validation(
+                "Codex binary path must be an absolute path or executable name.".to_string(),
+            ))
         }
         None => resolve_auto_binary_path()
             .ok_or_else(|| AppError::Runtime(missing_codex_binary_message()))
@@ -34,7 +49,10 @@ pub fn resolve_codex_binary_path(codex_binary_path: Option<&str>) -> AppResult<S
 pub fn build_codex_process_path(binary_path: &str) -> OsString {
     let mut paths = Vec::new();
 
-    if let Some(binary_dir) = Path::new(binary_path).parent() {
+    if let Some(binary_dir) = Path::new(binary_path)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    {
         push_unique(&mut paths, binary_dir.to_path_buf());
     }
 
@@ -157,6 +175,12 @@ fn push_unique(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     }
 }
 
+fn is_bare_executable_name(path: &Path) -> bool {
+    let mut components = path.components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn resolve_login_shell() -> Option<PathBuf> {
     let shell = std::env::var_os("SHELL").map(PathBuf::from);
@@ -192,10 +216,12 @@ fn read_path_from_login_shell(shell: &Path) -> Option<OsString> {
 mod tests {
     use super::{
         build_codex_process_path, codex_binary_candidates, missing_codex_binary_message,
-        versioned_node_bin_paths,
+        resolve_codex_binary_path, versioned_node_bin_paths,
     };
+    use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
     use uuid::Uuid;
 
     #[test]
@@ -206,6 +232,56 @@ mod tests {
         assert_eq!(segments.first(), Some(&PathBuf::from("/opt/homebrew/bin")));
         assert!(segments.contains(&PathBuf::from("/usr/bin")));
         assert!(segments.contains(&PathBuf::from("/bin")));
+    }
+
+    #[test]
+    fn codex_process_path_skips_empty_parent_for_bare_names() {
+        let path = build_codex_process_path("codex");
+        let segments = std::env::split_paths(&path).collect::<Vec<_>>();
+
+        assert_ne!(segments.first(), Some(&PathBuf::from("")));
+    }
+
+    #[test]
+    fn resolve_explicit_binary_path_accepts_absolute_paths() {
+        let path = resolve_codex_binary_path(Some("/opt/homebrew/bin/codex"))
+            .expect("absolute binary path should resolve");
+
+        assert_eq!(path, "/opt/homebrew/bin/codex");
+    }
+
+    #[test]
+    fn resolve_explicit_binary_path_resolves_bare_names_from_path() {
+        let _guard = environment_lock()
+            .lock()
+            .expect("environment lock should not be poisoned");
+        let root = std::env::temp_dir().join(format!("loom-codex-binary-{}", Uuid::now_v7()));
+        let binary_path = root.join("codex");
+        fs::create_dir_all(&root).expect("binary dir should exist");
+        fs::write(&binary_path, "#!/bin/sh\n").expect("binary should be written");
+        make_executable(&binary_path);
+        let previous_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", &root);
+
+        let resolved = resolve_codex_binary_path(Some("codex"))
+            .expect("bare binary name should resolve from PATH");
+
+        restore_path(previous_path);
+        let _ = fs::remove_dir_all(root);
+        assert_eq!(resolved, binary_path.to_string_lossy());
+    }
+
+    #[test]
+    fn resolve_explicit_binary_path_rejects_relative_paths_with_components() {
+        let error = resolve_codex_binary_path(Some("./bin/codex"))
+            .expect_err("relative binary paths should be rejected");
+
+        assert!(
+            error
+                .to_string()
+                .contains("absolute path or executable name"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -242,5 +318,29 @@ mod tests {
         assert!(message.contains("Homebrew"));
         assert!(message.contains("npm"));
         assert!(message.contains("Settings -> Codex binary"));
+    }
+
+    fn environment_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn restore_path(previous_path: Option<OsString>) {
+        if let Some(previous_path) = previous_path {
+            std::env::set_var("PATH", previous_path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+    }
+
+    fn make_executable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut permissions = fs::metadata(path).expect("binary metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(path, permissions).expect("binary permissions should update");
+        }
     }
 }

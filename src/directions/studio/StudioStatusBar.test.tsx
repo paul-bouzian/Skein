@@ -41,6 +41,33 @@ beforeEach(async () => {
 });
 
 describe("StudioStatusBar", () => {
+  it("does not render runtime chips in the footer", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      bootstrapStatus: {
+        appName: "Loom",
+        appVersion: "1.2.3",
+        backend: "tauri",
+        platform: "darwin",
+        appDataDir: "/tmp/loom-data",
+        databasePath: "/tmp/loom-data/loom.sqlite3",
+        projectCount: 1,
+        environmentCount: 2,
+        threadCount: 2,
+      },
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+
+    const { container } = render(<StudioStatusBar />);
+
+    expect(screen.getByText("Loom 1.2.3")).toBeInTheDocument();
+    expect(screen.queryByText("No runtimes active")).toBeNull();
+    expect(container.querySelector(".studio-statusbar__runtimes")).toBeNull();
+    expect(container.querySelector(".studio-statusbar__runtime-item")).toBeNull();
+  });
+
   it("shows a passive voice indicator away from the owner thread and navigates back on click", async () => {
     useVoiceSessionStore.setState((state) => ({
       ...state,

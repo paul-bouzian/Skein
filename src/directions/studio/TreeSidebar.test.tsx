@@ -472,6 +472,60 @@ describe("TreeSidebar", () => {
     ).not.toBeNull();
   });
 
+  it("shows neutral indicators when local and worktree environments have no active threads", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-local-archived",
+                    environmentId: "env-local",
+                    codexThreadId: "thr_local_archived",
+                    status: "archived",
+                  }),
+                ],
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "slate-hawk",
+                gitBranch: "slate-hawk",
+                threads: [
+                  makeThread({
+                    id: "thread-worktree-archived",
+                    environmentId: "env-worktree",
+                    codexThreadId: "thr_worktree_archived",
+                    status: "archived",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const { container } = renderSidebar();
+
+    expect(
+      container.querySelector(".project-group__header .runtime-indicator__dot--neutral"),
+    ).not.toBeNull();
+    const row = screen.getByRole("button", { name: /slate-hawk/i });
+    expect(row.querySelector(".runtime-indicator__dot--neutral")).not.toBeNull();
+    expect(
+      row.querySelector(
+        ".runtime-indicator__dot--progress, .runtime-indicator__dot--completed, .runtime-indicator__dot--warning",
+      ),
+    ).toBeNull();
+  });
+
   it("opens the worktree pull request without changing the selected environment", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,

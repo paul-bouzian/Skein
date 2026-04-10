@@ -136,11 +136,20 @@ pub fn rename_thread(
 }
 
 #[tauri::command]
-pub fn archive_thread(
+pub async fn archive_thread(
     input: ArchiveThreadRequest,
     state: State<'_, AppState>,
 ) -> Result<ThreadRecord, CommandError> {
-    Ok(state.workspace.archive_thread(input)?)
+    let result = state.workspace.archive_thread(input)?;
+    if let Some(environment_id) = result.runtime_environment_to_stop.as_deref() {
+        if let Err(error) = state.runtime.stop(environment_id).await {
+            warn!(
+                environment_id,
+                "failed to stop runtime after archiving the last active thread: {error}"
+            );
+        }
+    }
+    Ok(result.thread)
 }
 
 #[tauri::command]
