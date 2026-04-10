@@ -116,6 +116,35 @@ describe("conversation status helpers", () => {
     expect(deriveEnvironmentConversationStatus(environment, {})).toBe("running");
   });
 
+  it("keeps running environments neutral when they have no active threads", () => {
+    const environment = makeEnvironment({
+      runtime: {
+        environmentId: "env-1",
+        state: "running",
+      },
+      threads: [],
+    });
+
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
+  });
+
+  it("ignores archived persisted conversation history for environment activity", () => {
+    const environment = makeEnvironment({
+      runtime: {
+        environmentId: "env-1",
+        state: "stopped",
+      },
+      threads: [
+        makeThread({
+          codexThreadId: "thr-existing",
+          status: "archived",
+        }),
+      ],
+    });
+
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
+  });
+
   it("keeps stopped environments neutral when active threads have no snapshots yet", () => {
     const environment = makeEnvironment({
       runtime: {

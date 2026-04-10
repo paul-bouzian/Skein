@@ -65,6 +65,12 @@ pub struct ArchiveThreadRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct ArchiveThreadResult {
+    pub thread: ThreadRecord,
+    pub runtime_environment_to_stop: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct WorkspaceService {
     database: AppDatabase,
     managed_worktrees_root: PathBuf,
@@ -835,10 +841,23 @@ impl WorkspaceService {
         }))
     }
 
-    pub fn archive_thread(&self, input: ArchiveThreadRequest) -> AppResult<ThreadRecord> {
+    pub fn archive_thread(&self, input: ArchiveThreadRequest) -> AppResult<ArchiveThreadResult> {
         let now = Utc::now();
-        let connection = self.database.open()?;
-        let affected = connection.execute(
+        let mut connection = self.database.open()?;
+        let transaction = connection.transaction()?;
+        let (environment_id, previous_status) = transaction
+            .query_row(
+                "SELECT environment_id, status FROM threads WHERE id = ?1",
+                params![&input.thread_id],
+                |row| {
+                    let status = thread_status_from_str(&row.get::<_, String>(1)?)?;
+                    Ok((row.get::<_, String>(0)?, status))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))?;
+
+        transaction.execute(
             "
             UPDATE threads
             SET status = ?1, archived_at = ?2, updated_at = ?3
@@ -848,15 +867,26 @@ impl WorkspaceService {
                 thread_status_value(ThreadStatus::Archived),
                 now,
                 now,
-                input.thread_id
+                &input.thread_id
             ],
         )?;
+        let active_threads_remaining = transaction.query_row(
+            "SELECT COUNT(*) FROM threads WHERE environment_id = ?1 AND status = ?2",
+            params![&environment_id, thread_status_value(ThreadStatus::Active)],
+            |row| row.get::<_, i64>(0),
+        )?;
+        transaction.commit()?;
+        let should_stop_runtime =
+            matches!(previous_status, ThreadStatus::Active) && active_threads_remaining == 0;
 
-        if affected == 0 {
-            return Err(AppError::NotFound("Thread not found.".to_string()));
-        }
-
-        self.thread_by_id(&input.thread_id)
+        Ok(ArchiveThreadResult {
+            thread: self.thread_by_id(&input.thread_id)?,
+            runtime_environment_to_stop: if should_stop_runtime {
+                Some(environment_id)
+            } else {
+                None
+            },
+        })
     }
 
     pub fn environment_path(&self, environment_id: &str) -> AppResult<String> {
@@ -1840,10 +1870,15 @@ mod tests {
     use rusqlite::{params, Connection};
     use uuid::Uuid;
 
-    use super::{AddProjectRequest, AutoRenameFirstPromptRequest, WorkspaceService};
+    use super::{
+        AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest, CreateThreadRequest,
+        WorkspaceService,
+    };
     use crate::domain::settings::GlobalSettings;
     use crate::domain::shortcuts::ShortcutSettings;
-    use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
+    use crate::domain::workspace::{
+        EnvironmentPullRequestSnapshot, PullRequestState, ThreadStatus,
+    };
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
 
@@ -2071,6 +2106,105 @@ mod tests {
 
         assert!(!managed_path.exists());
         assert!(repo.path.exists());
+    }
+
+    #[test]
+    fn archive_thread_requests_runtime_stop_for_the_last_active_thread() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("archive-last-thread-repo"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id: environment_id.clone(),
+                title: Some("Investigate status".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        let result = harness
+            .service
+            .archive_thread(ArchiveThreadRequest {
+                thread_id: thread.id,
+            })
+            .expect("thread should archive");
+
+        assert!(matches!(result.thread.status, ThreadStatus::Archived));
+        assert_eq!(
+            result.runtime_environment_to_stop.as_deref(),
+            Some(environment_id.as_str())
+        );
+    }
+
+    #[test]
+    fn archive_thread_preserves_runtime_when_active_threads_remain() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("archive-one-thread-repo"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let first_thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id: environment_id.clone(),
+                title: Some("First".to_string()),
+                overrides: None,
+            })
+            .expect("first thread should be created");
+        harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Second".to_string()),
+                overrides: None,
+            })
+            .expect("second thread should be created");
+
+        let result = harness
+            .service
+            .archive_thread(ArchiveThreadRequest {
+                thread_id: first_thread.id,
+            })
+            .expect("thread should archive");
+
+        assert!(matches!(result.thread.status, ThreadStatus::Archived));
+        assert_eq!(result.runtime_environment_to_stop, None);
     }
 
     #[test]

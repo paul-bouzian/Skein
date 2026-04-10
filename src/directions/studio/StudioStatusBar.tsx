@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import {
   findThreadInWorkspace,
   useWorkspaceStore,
-  selectProjects,
   selectSelectedProject,
   selectSelectedEnvironment,
   selectSelectedThread,
@@ -13,12 +12,10 @@ import {
   useVoiceSessionStore,
 } from "../../stores/voice-session-store";
 import { MicIcon } from "../../shared/Icons";
-import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { formatVoiceDuration } from "./composer/voice-duration";
 import "./StudioStatusBar.css";
 
 export function StudioStatusBar() {
-  const projects = useWorkspaceStore(selectProjects);
   const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
   const bootstrapStatus = useWorkspaceStore((s) => s.bootstrapStatus);
   const selectedProject = useWorkspaceStore(selectSelectedProject);
@@ -32,9 +29,6 @@ export function StudioStatusBar() {
     selectOwnerPendingVoiceOutcome,
   );
 
-  const runningEnvironments = projects.flatMap((p) =>
-    p.environments.filter((e) => e.runtime.state === "running"),
-  );
   const voiceOwner = useMemo(
     () => findThreadInWorkspace(workspaceSnapshot, voiceOwnerThreadId),
     [voiceOwnerThreadId, workspaceSnapshot],
@@ -72,20 +66,7 @@ export function StudioStatusBar() {
 
   return (
     <div className="studio-statusbar">
-      <div className="studio-statusbar__left">
-        {runningEnvironments.length > 0 ? (
-          <span className="studio-statusbar__runtimes">
-            {runningEnvironments.map((env) => (
-              <span key={env.id} className="studio-statusbar__runtime-item">
-                <RuntimeIndicator state={env.runtime.state} />
-                <span>{env.name}</span>
-              </span>
-            ))}
-          </span>
-        ) : (
-          <span className="studio-statusbar__idle">No runtimes active</span>
-        )}
-      </div>
+      <div className="studio-statusbar__left" />
       <div className="studio-statusbar__center">
         {bootstrapStatus && (
           <span className="studio-statusbar__version">

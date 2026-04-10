@@ -78,12 +78,16 @@ export function deriveEnvironmentConversationStatus(
   environment: EnvironmentRecord,
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
 ): ConversationStatus {
-  const activeThreadIds = environment.threads
-    .filter((thread) => thread.status === "active")
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .map((thread) => thread.id);
-  const statuses = activeThreadIds
-    .map((threadId) => snapshotsByThreadId[threadId]?.status)
+  const activeThreads = environment.threads.filter(
+    (thread) => thread.status === "active",
+  );
+
+  if (activeThreads.length === 0) {
+    return "idle";
+  }
+
+  const statuses = activeThreads
+    .map((thread) => snapshotsByThreadId[thread.id]?.status)
     .filter((status): status is ConversationStatus => Boolean(status));
 
   if (statuses.includes("waitingForExternalAction")) {
@@ -94,7 +98,7 @@ export function deriveEnvironmentConversationStatus(
   }
   if (
     statuses.length > 0 &&
-    statuses.length === activeThreadIds.length &&
+    statuses.length === activeThreads.length &&
     statuses.every((status) => status === "completed")
   ) {
     return "completed";
@@ -109,7 +113,7 @@ export function deriveEnvironmentConversationStatus(
     return "idle";
   }
 
-  if (hasPersistedConversationHistory(environment)) {
+  if (activeThreads.some((thread) => Boolean(thread.codexThreadId))) {
     return historicalFallbackConversationStatus(environment.runtime.state);
   }
 
@@ -138,8 +142,4 @@ function historicalFallbackConversationStatus(
     case "stopped":
       return "completed";
   }
-}
-
-function hasPersistedConversationHistory(environment: EnvironmentRecord) {
-  return environment.threads.some((thread) => Boolean(thread.codexThreadId));
 }
