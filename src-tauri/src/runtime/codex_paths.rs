@@ -260,13 +260,12 @@ mod tests {
         fs::create_dir_all(&root).expect("binary dir should exist");
         fs::write(&binary_path, "#!/bin/sh\n").expect("binary should be written");
         make_executable(&binary_path);
-        let previous_path = std::env::var_os("PATH");
+        let _path_restore = PathRestore::capture();
         std::env::set_var("PATH", &root);
 
         let resolved = resolve_codex_binary_path(Some("codex"))
             .expect("bare binary name should resolve from PATH");
 
-        restore_path(previous_path);
         let _ = fs::remove_dir_all(root);
         assert_eq!(resolved, binary_path.to_string_lossy());
     }
@@ -325,11 +324,21 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn restore_path(previous_path: Option<OsString>) {
-        if let Some(previous_path) = previous_path {
-            std::env::set_var("PATH", previous_path);
-        } else {
-            std::env::remove_var("PATH");
+    struct PathRestore(Option<OsString>);
+
+    impl PathRestore {
+        fn capture() -> Self {
+            Self(std::env::var_os("PATH"))
+        }
+    }
+
+    impl Drop for PathRestore {
+        fn drop(&mut self) {
+            if let Some(previous_path) = self.0.take() {
+                std::env::set_var("PATH", previous_path);
+            } else {
+                std::env::remove_var("PATH");
+            }
         }
     }
 

@@ -851,12 +851,16 @@ impl WorkspaceService {
                 ",
                 params![thread_id],
                 |row| {
+                    let environment_name = row.get::<_, String>(3)?;
+                    let branch_name = row
+                        .get::<_, Option<String>>(4)?
+                        .unwrap_or_else(|| environment_name.clone());
                     Ok(FirstPromptRenameFailureEvent {
                         project_id: row.get(0)?,
                         environment_id: row.get(1)?,
                         thread_id: row.get(2)?,
-                        environment_name: row.get(3)?,
-                        branch_name: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                        environment_name,
+                        branch_name,
                         message: message.clone(),
                     })
                 },
@@ -2411,6 +2415,45 @@ mod tests {
             result.environment.git_branch.expect("branch should exist")
         );
         assert_eq!(event.message, "naming failed");
+    }
+
+    #[test]
+    fn first_prompt_rename_failure_event_falls_back_to_environment_name_without_branch() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("failure-event-no-branch-repo"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let result = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+        harness
+            .open_connection()
+            .execute(
+                "UPDATE environments SET git_branch = NULL WHERE id = ?1",
+                params![&result.environment.id],
+            )
+            .expect("environment branch should be cleared");
+
+        let event = harness
+            .service
+            .first_prompt_rename_failure_event(&result.thread.id, "naming failed".to_string())
+            .expect("event should be built");
+
+        assert_eq!(event.environment_name, result.environment.name);
+        assert_eq!(event.branch_name, result.environment.name);
     }
 
     #[test]
