@@ -174,15 +174,11 @@
   width: 100%;
   padding: 2px;
   border-radius: var(--tx-radius-lg);
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   transition:
     background var(--tx-transition-fast),
     border-color var(--tx-transition-fast);
-}
-
-.project-group__header-shell:active {
-  cursor: grabbing;
 }
 
 .project-group--dragging,
@@ -341,7 +337,7 @@
   align-items: center;
   gap: var(--tx-space-sm);
   width: 100%;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
   padding: 7px var(--tx-space-md);
   border-radius: var(--tx-radius-md);
@@ -361,10 +357,6 @@
 .environment-item-shell--selected:hover {
   background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
   border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
-}
-
-.environment-item-shell:active {
-  cursor: grabbing;
 }
 
 .environment-item {

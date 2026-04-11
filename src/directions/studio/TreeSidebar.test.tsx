@@ -1161,6 +1161,7 @@ describe("TreeSidebar", () => {
   });
 
   it("preserves keyboard activation after suppressing a dragged project click", async () => {
+    const user = userEvent.setup();
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -1255,7 +1256,12 @@ describe("TreeSidebar", () => {
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a");
 
-    fireEvent.click(projectButtons()[0], { detail: 0 });
+    const keyboardTarget = projectButtons()[0];
+    if (!keyboardTarget) {
+      throw new Error("Expected a project header button for keyboard activation");
+    }
+    keyboardTarget.focus();
+    await user.keyboard("{Enter}");
 
     expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-b");
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-b");
