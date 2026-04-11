@@ -79,38 +79,40 @@ export function matchesPersistedTargets(
   targets: OpenTarget[],
   defaultTargetId: string,
 ) {
-  if (draftTargets.length !== targets.length) {
+  const finalizedDraftTargets = finalizeDraftTargets(draftTargets);
+  if (finalizedDraftTargets.length !== targets.length) {
     return false;
   }
 
-  const defaultTarget = draftTargets.find(
+  const defaultIndex = draftTargets.findIndex(
     (target) => target.draftKey === defaultDraftKey,
   );
-  if ((defaultTarget?.id ?? null) !== defaultTargetId) {
+  if (
+    defaultIndex === -1 ||
+    finalizedDraftTargets[defaultIndex]?.id !== defaultTargetId
+  ) {
     return false;
   }
 
-  return draftTargets.every((target, index) => {
+  return finalizedDraftTargets.every((target, index) => {
     const persisted = targets[index];
     if (!persisted) {
       return false;
     }
-    return openTargetsEqual(toPersistedTarget(target), persisted);
+    return openTargetsEqual(target, persisted);
   });
 }
 
 export function persistDraftTargets(state: OpenInDraftState) {
-  const persistedTargets = finalizeDraftTargets(state.targets);
-  const defaultTarget = state.targets.find(
+  const defaultIndex = state.targets.findIndex(
     (target) => target.draftKey === state.defaultDraftKey,
   );
-  if (!defaultTarget) {
+  if (defaultIndex === -1) {
     return null;
   }
+  const persistedTargets = finalizeDraftTargets(state.targets);
 
-  const persistedDefaultTarget = persistedTargets.find(
-    (target) => target.id === persistedIdForDraft(defaultTarget),
-  );
+  const persistedDefaultTarget = persistedTargets[defaultIndex];
   if (!persistedDefaultTarget) {
     return null;
   }

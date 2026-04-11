@@ -71,7 +71,7 @@
 }
 
 .open-environment-control__chevron-icon {
-  color: currentColor;
+  color: currentcolor;
   transition: transform var(--tx-transition-fast);
   transform: rotate(90deg);
 }

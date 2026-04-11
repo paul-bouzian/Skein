@@ -128,7 +128,10 @@ fn build_file_manager_launch_spec(path_arg: String) -> AppResult<LaunchSpec> {
 }
 
 fn spawn_launch(spec: LaunchSpec) -> AppResult<()> {
-    Command::new(&spec.program).args(&spec.args).spawn()?;
+    let mut child = Command::new(&spec.program).args(&spec.args).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }
 

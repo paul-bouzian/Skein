@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::path::Path;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -13,14 +14,15 @@ pub fn image_data_url(path: &Path) -> AppResult<String> {
             path.display()
         ))
     })?;
-    let metadata = std::fs::metadata(path)?;
-    if metadata.len() > MAX_IMAGE_BYTES {
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_IMAGE_BYTES + 1).read_to_end(&mut bytes)?;
+    if (bytes.len() as u64) > MAX_IMAGE_BYTES {
         return Err(AppError::Validation(format!(
             "Image exceeds the 25 MiB preview limit: {}",
             path.display()
         )));
     }
-    let bytes = std::fs::read(path)?;
     let encoded = STANDARD.encode(bytes);
     Ok(format!("data:{mime};base64,{encoded}"))
 }

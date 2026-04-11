@@ -238,8 +238,8 @@ impl OpenTarget {
             changed = true;
         }
 
-        let normalized_app_name = normalize_optional_string(self.app_name.take());
-        let normalized_command = normalize_optional_string(self.command.take());
+        let normalized_app_name = normalize_optional_string(self.app_name.clone());
+        let normalized_command = normalize_optional_string(self.command.clone());
         let normalized_args = normalize_args(&self.args);
         if self.app_name != normalized_app_name {
             self.app_name = normalized_app_name;
@@ -297,7 +297,7 @@ fn normalize_open_targets(
     let mut changed = false;
     let mut next_targets = Vec::with_capacity(targets.len());
 
-    for (index, mut target) in std::mem::take(targets).into_iter().enumerate() {
+    for (index, mut target) in targets.iter().cloned().enumerate() {
         match target.normalize() {
             Ok(target_changed) => {
                 changed |= target_changed;
@@ -395,12 +395,7 @@ fn default_open_targets_for_platform() -> Vec<OpenTarget> {
 
 #[cfg(not(target_os = "macos"))]
 fn default_open_targets_for_platform() -> Vec<OpenTarget> {
-    vec![
-        OpenTarget::app("cursor", "Cursor", "Cursor"),
-        OpenTarget::app("vscode", "VS Code", "Visual Studio Code"),
-        OpenTarget::app("zed", "Zed", "Zed"),
-        OpenTarget::file_manager("file-manager", "File Manager"),
-    ]
+    vec![OpenTarget::file_manager("file-manager", "File Manager")]
 }
 
 #[cfg(test)]
@@ -570,6 +565,8 @@ mod tests {
             }],
             ..GlobalSettings::default()
         };
+        let original_targets = settings.open_targets.clone();
+        let original_default_target_id = settings.default_open_target_id.clone();
 
         assert_eq!(
             settings
@@ -577,6 +574,8 @@ mod tests {
                 .expect_err("invalid command target should fail"),
             "Open target 1: Command targets require a command."
         );
+        assert_eq!(settings.open_targets, original_targets);
+        assert_eq!(settings.default_open_target_id, original_default_target_id);
     }
 
     #[test]
@@ -602,5 +601,49 @@ mod tests {
                 .iter()
                 .any(|target| target.id == settings.default_open_target_id)
         );
+    }
+
+    #[test]
+    fn normalize_for_read_leaves_valid_targets_unchanged() {
+        let mut settings = GlobalSettings {
+            open_targets: vec![
+                OpenTarget {
+                    id: "cursor".to_string(),
+                    label: "Cursor".to_string(),
+                    kind: OpenTargetKind::App,
+                    app_name: Some("Cursor".to_string()),
+                    command: None,
+                    args: vec!["--reuse-window".to_string()],
+                },
+                OpenTarget {
+                    id: "cursor-cli".to_string(),
+                    label: "Cursor CLI".to_string(),
+                    kind: OpenTargetKind::Command,
+                    app_name: None,
+                    command: Some("cursor".to_string()),
+                    args: vec!["--reuse-window".to_string()],
+                },
+            ],
+            default_open_target_id: "cursor".to_string(),
+            ..GlobalSettings::default()
+        };
+        let original_targets = settings.open_targets.clone();
+        let original_default_target_id = settings.default_open_target_id.clone();
+
+        assert!(!settings.normalize_for_read());
+        assert_eq!(settings.open_targets, original_targets);
+        assert_eq!(settings.default_open_target_id, original_default_target_id);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_defaults_only_seed_supported_open_targets() {
+        let settings = GlobalSettings::default();
+
+        assert_eq!(settings.default_open_target_id, "file-manager");
+        assert!(settings
+            .open_targets
+            .iter()
+            .all(|target| target.kind == OpenTargetKind::FileManager));
     }
 }

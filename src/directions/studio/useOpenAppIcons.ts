@@ -19,9 +19,11 @@ export function useOpenAppIcons(targets: OpenTarget[]) {
   const [icons, setIcons] = useState<Record<string, string>>({});
   const appNames = useMemo(
     () =>
-      targets
-        .filter((target) => target.kind === "app" && target.appName)
-        .map((target) => target.appName as string),
+      targets.flatMap((target) =>
+        target.kind === "app" && typeof target.appName === "string"
+          ? [target.appName]
+          : [],
+      ),
     [targets],
   );
 

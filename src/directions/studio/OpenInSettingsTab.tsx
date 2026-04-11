@@ -63,9 +63,8 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   );
 
   async function handleSave() {
-    const nextIssues = validateDraftTargets(draftTargets, defaultDraftKey);
-    if (nextIssues.global || Object.keys(nextIssues.byKey).length > 0) {
-      setSaveError(nextIssues.global ?? "Complete the invalid targets before saving.");
+    if (issues.global || Object.keys(issues.byKey).length > 0) {
+      setSaveError(issues.global ?? "Complete the invalid targets before saving.");
       return;
     }
 
