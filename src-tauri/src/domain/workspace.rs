@@ -127,6 +127,7 @@ pub struct ProjectRecord {
     pub name: String,
     pub root_path: String,
     pub settings: ProjectSettings,
+    pub sidebar_collapsed: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub environments: Vec<EnvironmentRecord>,

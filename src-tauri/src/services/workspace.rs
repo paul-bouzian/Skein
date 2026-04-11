@@ -53,6 +53,26 @@ pub struct UpdateProjectSettingsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReorderProjectsRequest {
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderWorktreeEnvironmentsRequest {
+    pub project_id: String,
+    pub environment_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetProjectSidebarCollapsedRequest {
+    pub project_id: String,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameThreadRequest {
     pub thread_id: String,
     pub title: String,
@@ -147,8 +167,7 @@ impl WorkspaceService {
             .map(|status| (status.environment_id.clone(), status))
             .collect::<HashMap<_, _>>();
 
-        let mut projects = self.read_projects(&connection, &runtime_map, pull_requests)?;
-        projects.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        let projects = self.read_projects(&connection, &runtime_map, pull_requests)?;
 
         Ok(WorkspaceSnapshot { settings, projects })
     }
@@ -263,14 +282,15 @@ impl WorkspaceService {
             let project_id = Uuid::now_v7().to_string();
             let managed_worktree_dir =
                 self.allocate_managed_worktree_directory(&transaction, None, &root_path)?;
+            let sort_order = next_project_sort_order(&transaction)?;
             let project_settings_json = serde_json::to_string(&ProjectSettings::default())
                 .map_err(|error| AppError::Validation(error.to_string()))?;
             transaction.execute(
                 "
                 INSERT INTO projects (
-                  id, name, root_path, managed_worktree_dir, settings_json, created_at, updated_at, archived_at
+                  id, name, root_path, managed_worktree_dir, settings_json, sort_order, sidebar_collapsed, created_at, updated_at, archived_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8, NULL)
                 ",
                 params![
                     project_id,
@@ -278,6 +298,7 @@ impl WorkspaceService {
                     root_path_string,
                     managed_worktree_dir,
                     project_settings_json,
+                    sort_order,
                     now,
                     now
                 ],
@@ -342,6 +363,103 @@ impl WorkspaceService {
         transaction.commit()?;
 
         self.project_by_id(&input.project_id, Vec::new())
+    }
+
+    pub fn reorder_projects(&self, input: ReorderProjectsRequest) -> AppResult<()> {
+        let mut connection = self.database.open()?;
+        let transaction = connection.transaction()?;
+        validate_unique_ids(&input.project_ids, "project")?;
+        let existing_project_ids = active_project_ids(&transaction)?;
+        if existing_project_ids.len() != input.project_ids.len() {
+            return Err(AppError::Validation(
+                "Project reorder payload must include every active project.".to_string(),
+            ));
+        }
+        let existing_set = existing_project_ids.into_iter().collect::<HashSet<_>>();
+        if input
+            .project_ids
+            .iter()
+            .any(|project_id| !existing_set.contains(project_id))
+        {
+            return Err(AppError::Validation(
+                "Project reorder payload contains an unknown project.".to_string(),
+            ));
+        }
+
+        for (index, project_id) in input.project_ids.iter().enumerate() {
+            transaction.execute(
+                "
+                UPDATE projects
+                SET sort_order = ?1
+                WHERE id = ?2 AND archived_at IS NULL AND sort_order != ?1
+                ",
+                params![index as i64, project_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn reorder_worktree_environments(
+        &self,
+        input: ReorderWorktreeEnvironmentsRequest,
+    ) -> AppResult<()> {
+        let mut connection = self.database.open()?;
+        let transaction = connection.transaction()?;
+        validate_unique_ids(&input.environment_ids, "environment")?;
+        ensure_active_project_exists(&transaction, &input.project_id)?;
+        let existing_environment_ids =
+            reorderable_environment_ids(&transaction, &input.project_id)?;
+        if existing_environment_ids.len() != input.environment_ids.len() {
+            return Err(AppError::Validation(
+                "Worktree reorder payload must include every worktree in the project.".to_string(),
+            ));
+        }
+        let existing_set = existing_environment_ids.into_iter().collect::<HashSet<_>>();
+        if input
+            .environment_ids
+            .iter()
+            .any(|environment_id| !existing_set.contains(environment_id))
+        {
+            return Err(AppError::Validation(
+                "Worktree reorder payload contains an unknown worktree.".to_string(),
+            ));
+        }
+
+        for (index, environment_id) in input.environment_ids.iter().enumerate() {
+            transaction.execute(
+                "
+                UPDATE environments
+                SET sort_order = ?1
+                WHERE id = ?2 AND project_id = ?3 AND kind != 'local' AND sort_order != ?1
+                ",
+                params![index as i64 + 1, environment_id, input.project_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn set_project_sidebar_collapsed(
+        &self,
+        input: SetProjectSidebarCollapsedRequest,
+    ) -> AppResult<()> {
+        let connection = self.database.open()?;
+        let collapsed = if input.collapsed { 1_i64 } else { 0_i64 };
+        let affected = connection.execute(
+            "
+            UPDATE projects
+            SET sidebar_collapsed = ?1
+            WHERE id = ?2 AND archived_at IS NULL
+            ",
+            params![collapsed, input.project_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Project not found.".to_string()));
+        }
+
+        Ok(())
     }
 
     pub fn project_environment_ids(&self, project_id: &str) -> AppResult<Vec<String>> {
@@ -429,11 +547,12 @@ impl WorkspaceService {
         let mut connection = self.database.open()?;
         let transaction_result = (|| -> AppResult<()> {
             let transaction = connection.transaction()?;
+            let sort_order = next_environment_sort_order(&transaction, project_id)?;
             let environment_insert = transaction.execute(
                 "
                 INSERT INTO environments (
-                  id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)
+                  id, project_id, name, kind, path, git_branch, base_branch, is_default, sort_order, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10)
                 ",
                 params![
                     environment_id,
@@ -443,6 +562,7 @@ impl WorkspaceService {
                     candidate.destination.to_string_lossy().to_string(),
                     candidate.branch_name.as_str(),
                     base_branch.as_str(),
+                    sort_order,
                     now,
                     now,
                 ],
@@ -1561,8 +1681,8 @@ impl WorkspaceService {
         connection.execute(
             "
             INSERT INTO environments (
-              id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
-            ) VALUES (?1, ?2, 'Local', 'local', ?3, ?4, ?4, 1, ?5, ?5)
+              id, project_id, name, kind, path, git_branch, base_branch, is_default, sort_order, created_at, updated_at
+            ) VALUES (?1, ?2, 'Local', 'local', ?3, ?4, ?4, 1, 0, ?5, ?5)
             ",
             params![Uuid::now_v7().to_string(), project_id, root_path, branch, now],
         )?;
@@ -1578,9 +1698,10 @@ impl WorkspaceService {
     ) -> AppResult<Vec<ProjectRecord>> {
         let mut project_statement = connection.prepare(
             "
-            SELECT id, name, root_path, settings_json, created_at, updated_at
+            SELECT id, name, root_path, settings_json, sidebar_collapsed, created_at, updated_at
             FROM projects
             WHERE archived_at IS NULL
+            ORDER BY sort_order ASC, id ASC
             ",
         )?;
         let project_rows = project_statement.query_map([], |row| {
@@ -1589,8 +1710,9 @@ impl WorkspaceService {
                 name: row.get(1)?,
                 root_path: row.get(2)?,
                 settings: project_settings_from_json(&row.get::<_, String>(3)?, 3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                sidebar_collapsed: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
                 environments: Vec::new(),
             })
         })?;
@@ -1606,7 +1728,7 @@ impl WorkspaceService {
             "
             SELECT id, project_id, name, kind, path, git_branch, base_branch, is_default, created_at, updated_at
             FROM environments
-            ORDER BY is_default DESC, created_at ASC
+            ORDER BY project_id ASC, is_default DESC, sort_order ASC, created_at ASC, id ASC
             ",
         )?;
         let environment_rows = environment_statement.query_map([], |row| {
@@ -1823,6 +1945,101 @@ fn branch_ref_exists(branch_refs: &HashSet<String>, branch_name: &str) -> bool {
     })
 }
 
+fn validate_unique_ids(ids: &[String], label: &str) -> AppResult<()> {
+    let mut seen = HashSet::new();
+    for id in ids {
+        if id.trim().is_empty() {
+            return Err(AppError::Validation(format!("{label} id cannot be empty.")));
+        }
+        if !seen.insert(id.as_str()) {
+            return Err(AppError::Validation(format!(
+                "{label} reorder payload contains duplicate ids."
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn active_project_ids(connection: &rusqlite::Connection) -> AppResult<Vec<String>> {
+    let mut statement = connection.prepare(
+        "
+        SELECT id
+        FROM projects
+        WHERE archived_at IS NULL
+        ORDER BY sort_order ASC, id ASC
+        ",
+    )?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+fn ensure_active_project_exists(
+    connection: &rusqlite::Connection,
+    project_id: &str,
+) -> AppResult<()> {
+    let exists = connection
+        .query_row(
+            "SELECT 1 FROM projects WHERE id = ?1 AND archived_at IS NULL",
+            params![project_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+
+    if !exists {
+        return Err(AppError::NotFound("Project not found.".to_string()));
+    }
+
+    Ok(())
+}
+
+fn reorderable_environment_ids(
+    connection: &rusqlite::Connection,
+    project_id: &str,
+) -> AppResult<Vec<String>> {
+    let mut statement = connection.prepare(
+        "
+        SELECT id
+        FROM environments
+        WHERE project_id = ?1 AND kind != 'local'
+        ORDER BY sort_order ASC, created_at ASC, id ASC
+        ",
+    )?;
+    let rows = statement.query_map(params![project_id], |row| row.get::<_, String>(0))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+}
+
+fn next_project_sort_order(connection: &rusqlite::Connection) -> AppResult<i64> {
+    connection
+        .query_row(
+            "
+            SELECT COALESCE(MAX(sort_order), -1) + 1
+            FROM projects
+            WHERE archived_at IS NULL
+            ",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)
+}
+
+fn next_environment_sort_order(
+    connection: &rusqlite::Connection,
+    project_id: &str,
+) -> AppResult<i64> {
+    connection
+        .query_row(
+            "
+            SELECT COALESCE(MAX(sort_order), 0) + 1
+            FROM environments
+            WHERE project_id = ?1
+            ",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .map_err(AppError::from)
+}
+
 fn rollback_branch_rename(repo_root: &Path, current_branch: &str, previous_branch: &str) {
     if let Err(error) = git::rename_branch(repo_root, current_branch, previous_branch) {
         warn!(
@@ -1900,7 +2117,8 @@ mod tests {
 
     use super::{
         AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest, CreateThreadRequest,
-        WorkspaceService,
+        ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
+        SetProjectSidebarCollapsedRequest, WorkspaceService,
     };
     use crate::domain::settings::GlobalSettings;
     use crate::domain::shortcuts::ShortcutSettings;
@@ -2503,6 +2721,273 @@ mod tests {
         assert_eq!(
             environment.pull_request.as_ref().map(|value| value.state),
             Some(PullRequestState::Open)
+        );
+    }
+
+    #[test]
+    fn project_order_is_persistent_and_new_projects_append_to_the_bottom() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo_one = harness
+            .create_repo(&harness.temp_root.join("repos").join("first-project"))
+            .expect("repo one");
+        let repo_two = harness
+            .create_repo(&harness.temp_root.join("repos").join("second-project"))
+            .expect("repo two");
+        let repo_three = harness
+            .create_repo(&harness.temp_root.join("repos").join("third-project"))
+            .expect("repo three");
+
+        let project_one = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_one.path.to_string_lossy().to_string(),
+                name: Some("First".to_string()),
+            })
+            .expect("project one should be added");
+        let project_two = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_two.path.to_string_lossy().to_string(),
+                name: Some("Second".to_string()),
+            })
+            .expect("project two should be added");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        assert_eq!(
+            snapshot
+                .projects
+                .iter()
+                .map(|project| project.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![project_one.id.as_str(), project_two.id.as_str()]
+        );
+
+        harness
+            .service
+            .reorder_projects(ReorderProjectsRequest {
+                project_ids: vec![project_two.id.clone(), project_one.id.clone()],
+            })
+            .expect("projects should reorder");
+        let project_three = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_three.path.to_string_lossy().to_string(),
+                name: Some("Third".to_string()),
+            })
+            .expect("project three should be added");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        assert_eq!(
+            snapshot
+                .projects
+                .iter()
+                .map(|project| project.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                project_two.id.as_str(),
+                project_one.id.as_str(),
+                project_three.id.as_str()
+            ]
+        );
+    }
+
+    #[test]
+    fn project_order_does_not_change_when_project_timestamps_change() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo_one = harness
+            .create_repo(&harness.temp_root.join("repos").join("timestamp-first"))
+            .expect("repo one");
+        let repo_two = harness
+            .create_repo(&harness.temp_root.join("repos").join("timestamp-second"))
+            .expect("repo two");
+
+        let project_one = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_one.path.to_string_lossy().to_string(),
+                name: Some("First".to_string()),
+            })
+            .expect("project one should be added");
+        let project_two = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo_two.path.to_string_lossy().to_string(),
+                name: Some("Second".to_string()),
+            })
+            .expect("project two should be added");
+
+        harness
+            .service
+            .reorder_projects(ReorderProjectsRequest {
+                project_ids: vec![project_two.id.clone(), project_one.id.clone()],
+            })
+            .expect("projects should reorder");
+
+        harness
+            .open_connection()
+            .execute(
+                "UPDATE projects SET updated_at = ?1 WHERE id = ?2",
+                params![Utc::now().to_rfc3339(), project_one.id],
+            )
+            .expect("project timestamp should update");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        assert_eq!(
+            snapshot
+                .projects
+                .iter()
+                .map(|project| project.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![project_two.id.as_str(), project_one.id.as_str()]
+        );
+    }
+
+    #[test]
+    fn worktree_order_is_persistent_and_new_worktrees_append_to_the_bottom() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("worktree-order-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let worktree_one = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree one should be created");
+        let worktree_two = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree two should be created");
+
+        harness
+            .service
+            .reorder_worktree_environments(ReorderWorktreeEnvironmentsRequest {
+                project_id: project.id.clone(),
+                environment_ids: vec![
+                    worktree_two.environment.id.clone(),
+                    worktree_one.environment.id.clone(),
+                ],
+            })
+            .expect("worktrees should reorder");
+        let worktree_three = harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree three should be created");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        let project = snapshot
+            .projects
+            .into_iter()
+            .find(|candidate| candidate.id == project.id)
+            .expect("project should exist");
+        assert_eq!(
+            project
+                .environments
+                .iter()
+                .filter(|environment| !matches!(
+                    environment.kind,
+                    crate::domain::workspace::EnvironmentKind::Local
+                ))
+                .map(|environment| environment.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                worktree_two.environment.id.as_str(),
+                worktree_one.environment.id.as_str(),
+                worktree_three.environment.id.as_str()
+            ]
+        );
+    }
+
+    #[test]
+    fn project_sidebar_collapse_state_is_persistent() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("collapse-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        harness
+            .service
+            .set_project_sidebar_collapsed(SetProjectSidebarCollapsedRequest {
+                project_id: project.id.clone(),
+                collapsed: true,
+            })
+            .expect("collapse state should save");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        let project = snapshot
+            .projects
+            .into_iter()
+            .find(|candidate| candidate.id == project.id)
+            .expect("project should exist");
+        assert!(project.sidebar_collapsed);
+    }
+
+    #[test]
+    fn reorder_validates_complete_project_and_worktree_payloads() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("validate-reorder-repo"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        harness
+            .service
+            .create_managed_worktree(&project.id)
+            .expect("worktree should be created");
+        let local_environment_id = project
+            .environments
+            .iter()
+            .find(|environment| {
+                matches!(
+                    environment.kind,
+                    crate::domain::workspace::EnvironmentKind::Local
+                )
+            })
+            .expect("local environment should exist")
+            .id
+            .clone();
+
+        let duplicate_project_error = harness
+            .service
+            .reorder_projects(ReorderProjectsRequest {
+                project_ids: vec![project.id.clone(), project.id.clone()],
+            })
+            .expect_err("duplicate projects should fail");
+        assert!(duplicate_project_error.to_string().contains("duplicate"));
+
+        let local_environment_error = harness
+            .service
+            .reorder_worktree_environments(ReorderWorktreeEnvironmentsRequest {
+                project_id: project.id,
+                environment_ids: vec![local_environment_id],
+            })
+            .expect_err("local environment should not reorder as a worktree");
+        assert!(
+            local_environment_error
+                .to_string()
+                .contains("unknown worktree")
         );
     }
 

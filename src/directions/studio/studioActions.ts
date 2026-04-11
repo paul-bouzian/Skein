@@ -160,27 +160,7 @@ function listOrderedEnvironments(snapshot: WorkspaceSnapshot | null): Environmen
   if (!snapshot) {
     return [];
   }
-  return snapshot.projects.flatMap((project) => {
-    const environments = [...project.environments];
-    environments.sort(compareEnvironmentOrder);
-    return environments;
-  });
-}
-
-function compareEnvironmentOrder(left: EnvironmentRecord, right: EnvironmentRecord) {
-  if (left.kind === "local" && right.kind !== "local") {
-    return -1;
-  }
-  if (left.kind !== "local" && right.kind === "local") {
-    return 1;
-  }
-  if (left.isDefault && !right.isDefault) {
-    return -1;
-  }
-  if (!left.isDefault && right.isDefault) {
-    return 1;
-  }
-  return left.createdAt.localeCompare(right.createdAt);
+  return snapshot.projects.flatMap((project) => project.environments);
 }
 
 function ownsPendingVoiceWork(threadId: string) {

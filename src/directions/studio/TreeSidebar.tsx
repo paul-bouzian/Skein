@@ -15,16 +15,22 @@ import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { GitBranchIcon, PlusIcon } from "../../shared/Icons";
+import { ChevronRightIcon, GitBranchIcon, PlusIcon } from "../../shared/Icons";
 import type {
   EnvironmentRecord,
   EnvironmentPullRequestSnapshot,
+  ProjectRecord,
   ThreadConversationSnapshot,
 } from "../../lib/types";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
 import { SidebarUtilityActions } from "./SidebarUtilityActions";
 import type { Theme } from "./StudioShell";
 import { createManagedWorktreeForSelection } from "./studioActions";
+import {
+  environmentItemClassName,
+  projectGroupClassName,
+  useTreeSidebarReorder,
+} from "./useTreeSidebarReorder";
 import { useProjectImport } from "./useProjectImport";
 import "./TreeSidebar.css";
 
@@ -62,6 +68,13 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
     (s) => s.selectedEnvironmentId,
   );
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
+  const reorderProjects = useWorkspaceStore((s) => s.reorderProjects);
+  const reorderWorktreeEnvironments = useWorkspaceStore(
+    (s) => s.reorderWorktreeEnvironments,
+  );
+  const setProjectSidebarCollapsed = useWorkspaceStore(
+    (s) => s.setProjectSidebarCollapsed,
+  );
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
   const latestScriptFailure = useWorktreeScriptStore(
@@ -77,6 +90,26 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
     string | null
   >(null);
   const notice = actionError ?? error;
+  const {
+    dragState,
+    orderedProjects,
+    orderedWorktreeEnvironments,
+    registerProjectItem,
+    registerEnvironmentItem,
+    handleProjectPointerDown,
+    handleWorktreePointerDown,
+    handleProjectKeyboardReorder,
+    handleWorktreeKeyboardReorder,
+    projectDragStyle,
+    environmentDragStyle,
+    shouldSuppressClick,
+  } = useTreeSidebarReorder({
+    projects,
+    reorderProjects,
+    reorderWorktreeEnvironments,
+    resetMessages,
+    setActionError,
+  });
 
   useEffect(() => {
     if (!contextMenu) return undefined;
@@ -166,6 +199,17 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
     }
   }
 
+  async function handleProjectCollapseToggle(project: ProjectRecord) {
+    resetMessages();
+    const saved = await setProjectSidebarCollapsed(
+      project.id,
+      !project.sidebarCollapsed,
+    );
+    if (!saved) {
+      setActionError("Failed to update project collapse state");
+    }
+  }
+
   async function handleDeleteWorktree(menu: ContextMenuState) {
     if (
       menu.kind !== "environment" ||
@@ -225,154 +269,211 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
         </button>
       </div>
       <div className="tree-sidebar__scroll">
-        {notice && <p className="tree-sidebar__notice">{notice}</p>}
-        {latestScriptFailure ? (
-          <div className="tree-sidebar__notice tree-sidebar__notice--warning">
-            <div className="tree-sidebar__notice-copy">
-              <strong>
-                {latestScriptFailure.trigger === "setup" ? "Setup" : "Teardown"}{" "}
-                script failed for {latestScriptFailure.worktreeName}
-              </strong>
-              <span>{latestScriptFailure.message}</span>
-              <code>{latestScriptFailure.logPath}</code>
-            </div>
-            <button
-              type="button"
-              className="tree-sidebar__notice-dismiss"
-              onClick={dismissLatestScriptFailure}
-            >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
-        {projects.length === 0 ? (
-          <p className="tree-sidebar__empty">
-            {isImporting ? "Importing project..." : "No projects yet"}
-          </p>
-        ) : (
-          projects.map((project) => (
-            <section
-              key={project.id}
-              className={`project-group ${
-                project.id === selectedProjectId
-                  ? "project-group--selected"
-                  : ""
-              }`}
-            >
-              <div
-                className="project-group__header-shell"
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  handleProjectSelect(project.id);
-                  setContextMenu(
-                    buildProjectContextMenuState(
-                      project.id,
-                      project.name,
-                      event.clientX,
-                      event.clientY,
-                    ),
-                  );
-                }}
+        <div className="tree-sidebar__project-list">
+          {notice && <p className="tree-sidebar__notice">{notice}</p>}
+          {latestScriptFailure ? (
+            <div className="tree-sidebar__notice tree-sidebar__notice--warning">
+              <div className="tree-sidebar__notice-copy">
+                <strong>
+                  {latestScriptFailure.trigger === "setup"
+                    ? "Setup"
+                    : "Teardown"}{" "}
+                  script failed for {latestScriptFailure.worktreeName}
+                </strong>
+                <span>{latestScriptFailure.message}</span>
+                <code>{latestScriptFailure.logPath}</code>
+              </div>
+              <button
+                type="button"
+                className="tree-sidebar__notice-dismiss"
+                onClick={dismissLatestScriptFailure}
               >
-                <button
-                  type="button"
-                  className="project-group__header"
-                  onClick={() => handleProjectSelect(project.id)}
-                >
-                  <ProjectIcon
-                    name={project.name}
-                    rootPath={project.rootPath}
-                    size="sm"
-                  />
-                  <span className="project-group__meta">
-                    <span className="project-group__name">{project.name}</span>
-                    {renderProjectLocalSummary(project, snapshotsByThreadId)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="project-group__create"
-                  aria-label={`Create worktree for ${project.name}`}
-                  title={`Create worktree for ${project.name}`}
-                  disabled={creatingWorktreeProjectId === project.id}
-                  onClick={(event) => {
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+          {projects.length === 0 ? (
+            <p className="tree-sidebar__empty">
+              {isImporting ? "Importing project..." : "No projects yet"}
+            </p>
+          ) : (
+            orderedProjects.map((project) => (
+              <section
+                key={project.id}
+                ref={registerProjectItem(project.id)}
+                className={projectGroupClassName(
+                  project,
+                  selectedProjectId,
+                  dragState,
+                )}
+                style={projectDragStyle(project.id)}
+              >
+                <div
+                  className="project-group__header-shell"
+                  onPointerDown={(event) =>
+                    handleProjectPointerDown(event, project.id)
+                  }
+                  onContextMenu={(event) => {
                     event.preventDefault();
-                    event.stopPropagation();
-                    void handleCreateManagedWorktree(project.id);
+                    handleProjectSelect(project.id);
+                    setContextMenu(
+                      buildProjectContextMenuState(
+                        project.id,
+                        project.name,
+                        event.clientX,
+                        event.clientY,
+                      ),
+                    );
                   }}
                 >
-                  <PlusIcon
-                    size={12}
-                    className={
-                      creatingWorktreeProjectId === project.id
-                        ? "project-group__create-icon project-group__create-icon--spinning"
-                        : "project-group__create-icon"
-                    }
-                  />
-                </button>
-              </div>
-              <div className="project-group__environments">
-                {project.environments
-                  .filter((environment) => environment.kind !== "local")
-                  .map((environment) => (
-                    <div
-                      key={environment.id}
-                      className={`environment-item-shell ${
-                        selectedEnvironmentId === environment.id
-                          ? "environment-item-shell--selected"
-                          : ""
+                  <button
+                    type="button"
+                    className="project-group__collapse"
+                    data-no-reorder-drag="true"
+                    aria-label={`${project.sidebarCollapsed ? "Expand" : "Collapse"} ${project.name}`}
+                    aria-expanded={!project.sidebarCollapsed}
+                    title={`${project.sidebarCollapsed ? "Expand" : "Collapse"} ${project.name}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleProjectCollapseToggle(project);
+                    }}
+                  >
+                    <ChevronRightIcon
+                      size={11}
+                      className={`project-group__collapse-icon ${
+                        project.sidebarCollapsed
+                          ? ""
+                          : "project-group__collapse-icon--expanded"
                       }`}
-                      onClick={() => handleEnvironmentSelect(environment.id)}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        handleEnvironmentSelect(environment.id);
-                        setContextMenu(
-                          buildEnvironmentContextMenuState(
-                            environment,
-                            event.clientX,
-                            event.clientY,
-                          ),
-                        );
-                      }}
-                    >
-                      <span className="environment-item__icon-slot">
-                        {renderPullRequestControl(environment)}
-                      </span>
-                      <button
-                        type="button"
-                        className="environment-item"
-                      >
-                        <span className="environment-item__primary">
-                          <span className="environment-item__name-row">
-                            <span className="environment-item__name">
-                              {environment.name}
-                            </span>
-                          </span>
-                          {environment.gitBranch &&
-                            environment.gitBranch !== environment.name && (
-                              <span
-                                className="environment-item__branch"
-                                title={environment.gitBranch}
-                              >
-                                {environment.gitBranch}
-                              </span>
-                            )}
-                        </span>
-                        <span className="environment-item__secondary">
-                          <RuntimeIndicator
-                            tone={environmentIndicatorTone(
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className="project-group__header"
+                    onClick={() => {
+                      if (shouldSuppressClick()) return;
+                      handleProjectSelect(project.id);
+                    }}
+                    onKeyDown={(event) =>
+                      void handleProjectKeyboardReorder(event, project.id)
+                    }
+                  >
+                    <ProjectIcon
+                      name={project.name}
+                      rootPath={project.rootPath}
+                      size="sm"
+                    />
+                    <span className="project-group__meta">
+                      <span className="project-group__name">{project.name}</span>
+                      {renderProjectLocalSummary(project, snapshotsByThreadId)}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="project-group__create"
+                    data-no-reorder-drag="true"
+                    aria-label={`Create worktree for ${project.name}`}
+                    title={`Create worktree for ${project.name}`}
+                    disabled={creatingWorktreeProjectId === project.id}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleCreateManagedWorktree(project.id);
+                    }}
+                  >
+                    <PlusIcon
+                      size={12}
+                      className={
+                        creatingWorktreeProjectId === project.id
+                          ? "project-group__create-icon project-group__create-icon--spinning"
+                          : "project-group__create-icon"
+                      }
+                    />
+                  </button>
+                </div>
+                {!project.sidebarCollapsed && (
+                  <div className="project-group__environments">
+                    {orderedWorktreeEnvironments(project).map((environment) => (
+                      <div
+                        key={environment.id}
+                        ref={registerEnvironmentItem(project.id, environment.id)}
+                        className={environmentItemClassName(
+                          environment,
+                          selectedEnvironmentId,
+                          dragState,
+                        )}
+                        style={environmentDragStyle(project.id, environment.id)}
+                        onPointerDown={(event) =>
+                          handleWorktreePointerDown(
+                            event,
+                            project,
+                            environment.id,
+                          )
+                        }
+                        onClick={() => {
+                          if (shouldSuppressClick()) return;
+                          handleEnvironmentSelect(environment.id);
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          handleEnvironmentSelect(environment.id);
+                          setContextMenu(
+                            buildEnvironmentContextMenuState(
                               environment,
-                              snapshotsByThreadId,
-                            )}
-                          />
+                              event.clientX,
+                              event.clientY,
+                            ),
+                          );
+                        }}
+                      >
+                        <span className="environment-item__icon-slot">
+                          {renderPullRequestControl(environment)}
                         </span>
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            </section>
-          ))
-        )}
+                        <button
+                          type="button"
+                          className="environment-item"
+                          onKeyDown={(event) =>
+                            void handleWorktreeKeyboardReorder(
+                              event,
+                              project,
+                              environment.id,
+                            )
+                          }
+                        >
+                          <span className="environment-item__primary">
+                            <span className="environment-item__name-row">
+                              <span className="environment-item__name">
+                                {environment.name}
+                              </span>
+                            </span>
+                            {environment.gitBranch &&
+                              environment.gitBranch !== environment.name && (
+                                <span
+                                  className="environment-item__branch"
+                                  title={environment.gitBranch}
+                                >
+                                  {environment.gitBranch}
+                                </span>
+                              )}
+                          </span>
+                          <span className="environment-item__secondary">
+                            <RuntimeIndicator
+                              tone={environmentIndicatorTone(
+                                environment,
+                                snapshotsByThreadId,
+                              )}
+                            />
+                          </span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))
+          )}
+        </div>
       </div>
       <div className="tree-sidebar__footer">
         <SidebarUsagePanel />
@@ -470,6 +571,7 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
     <button
       type="button"
       className="environment-item__icon-button"
+      data-no-reorder-drag="true"
       title={label}
       aria-label={label}
       onClick={(event) => {

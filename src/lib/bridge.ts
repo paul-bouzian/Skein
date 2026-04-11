@@ -34,6 +34,8 @@ import type {
   EnvironmentVoiceStatusSnapshot,
   FirstPromptRenameFailureEventPayload,
   ProjectRecord,
+  ReorderProjectsRequest,
+  ReorderWorktreeEnvironmentsRequest,
   ShortcutSettings,
   UpdateProjectSettingsRequest,
   RespondToApprovalRequestInput,
@@ -42,6 +44,7 @@ import type {
   RenameThreadRequest,
   RuntimeStatusSnapshot,
   SendThreadMessageInput,
+  SetProjectSidebarCollapsedRequest,
   SubmitPlanDecisionInput,
   TranscribeEnvironmentVoiceInput,
   ThreadComposerCatalog,
@@ -310,6 +313,24 @@ export function updateProjectSettings(
   input: UpdateProjectSettingsRequest,
 ): Promise<ProjectRecord> {
   return invoke<ProjectRecord>("update_project_settings", { input });
+}
+
+export function reorderProjects(
+  input: ReorderProjectsRequest,
+): Promise<void> {
+  return invoke<void>("reorder_projects", { input });
+}
+
+export function reorderWorktreeEnvironments(
+  input: ReorderWorktreeEnvironmentsRequest,
+): Promise<void> {
+  return invoke<void>("reorder_worktree_environments", { input });
+}
+
+export function setProjectSidebarCollapsed(
+  input: SetProjectSidebarCollapsedRequest,
+): Promise<void> {
+  return invoke<void>("set_project_sidebar_collapsed", { input });
 }
 
 export function ensureProjectCanBeRemoved(projectId: string): Promise<void> {

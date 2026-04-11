@@ -28,6 +28,15 @@ type WorkspaceState = {
   initializeListener: () => Promise<void>;
   refreshSnapshot: () => Promise<boolean>;
   removeThread: (threadId: string) => boolean;
+  reorderProjects: (projectIds: string[]) => Promise<boolean>;
+  reorderWorktreeEnvironments: (
+    projectId: string,
+    environmentIds: string[],
+  ) => Promise<boolean>;
+  setProjectSidebarCollapsed: (
+    projectId: string,
+    collapsed: boolean,
+  ) => Promise<boolean>;
   selectProject: (id: string | null) => void;
   selectEnvironment: (id: string | null) => void;
   selectThread: (id: string | null) => void;
@@ -136,6 +145,33 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     return removed;
   },
 
+  reorderProjects: async (projectIds) => {
+    return runWorkspaceMutation(
+      set,
+      get,
+      () => bridge.reorderProjects({ projectIds }),
+      "Failed to reorder projects",
+    );
+  },
+
+  reorderWorktreeEnvironments: async (projectId, environmentIds) => {
+    return runWorkspaceMutation(
+      set,
+      get,
+      () => bridge.reorderWorktreeEnvironments({ projectId, environmentIds }),
+      "Failed to reorder worktrees",
+    );
+  },
+
+  setProjectSidebarCollapsed: async (projectId, collapsed) => {
+    return runWorkspaceMutation(
+      set,
+      get,
+      () => bridge.setProjectSidebarCollapsed({ projectId, collapsed }),
+      "Failed to update project collapse state",
+    );
+  },
+
   selectProject: (id) =>
     set((state) => selectProjectState(state.snapshot, id)),
 
@@ -173,6 +209,23 @@ export function teardownWorkspaceListener() {
 
 export function selectProjects(s: WorkspaceState): ProjectRecord[] {
   return s.snapshot?.projects ?? [];
+}
+
+async function runWorkspaceMutation(
+  set: (partial: Partial<WorkspaceState>) => void,
+  get: () => WorkspaceState,
+  run: () => Promise<void>,
+  fallbackMessage: string,
+) {
+  try {
+    await run();
+    return await get().refreshSnapshot();
+  } catch (cause: unknown) {
+    const message =
+      cause instanceof Error ? cause.message : fallbackMessage;
+    set({ error: message });
+    return false;
+  }
 }
 
 export function selectSettings(s: WorkspaceState): GlobalSettings | null {

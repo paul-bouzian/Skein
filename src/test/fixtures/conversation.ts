@@ -133,6 +133,7 @@ export function makeProject(
       worktreeSetupScript: undefined,
       worktreeTeardownScript: undefined,
     },
+    sidebarCollapsed: false,
     createdAt: "2026-04-03T08:00:00Z",
     updatedAt: "2026-04-03T08:00:00Z",
     environments: [makeEnvironment()],

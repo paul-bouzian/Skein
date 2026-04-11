@@ -24,6 +24,9 @@ vi.mock("../../lib/bridge", () => ({
   removeProject: vi.fn(),
   createManagedWorktree: vi.fn(),
   deleteWorktreeEnvironment: vi.fn(),
+  reorderProjects: vi.fn(),
+  reorderWorktreeEnvironments: vi.fn(),
+  setProjectSidebarCollapsed: vi.fn(),
 }));
 
 vi.mock("../../shared/ProjectIcon", () => ({
@@ -61,6 +64,9 @@ beforeEach(() => {
   messageMock.mockResolvedValue("Ok");
   openUrlMock.mockResolvedValue(undefined);
   mockedBridge.ensureProjectCanBeRemoved.mockResolvedValue(undefined);
+  mockedBridge.reorderProjects.mockResolvedValue(undefined);
+  mockedBridge.reorderWorktreeEnvironments.mockResolvedValue(undefined);
+  mockedBridge.setProjectSidebarCollapsed.mockResolvedValue(undefined);
   useConversationStore.setState((state) => ({
     ...state,
     snapshotsByThreadId: {},
@@ -95,6 +101,30 @@ function renderSidebar() {
       onToggleTheme={onToggleTheme}
     />,
   );
+}
+
+function textContentList(elements: NodeListOf<Element>) {
+  return Array.from(elements, (element) => element.textContent);
+}
+
+function stubVerticalRects(
+  elements: HTMLElement[],
+  { top = 0, height = 32, gap = 8 } = {},
+) {
+  elements.forEach((element, index) => {
+    const itemTop = top + index * (height + gap);
+    vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: itemTop,
+      top: itemTop,
+      left: 0,
+      width: 280,
+      height,
+      right: 280,
+      bottom: itemTop + height,
+      toJSON: vi.fn(),
+    });
+  });
 }
 
 describe("TreeSidebar", () => {
@@ -669,6 +699,465 @@ describe("TreeSidebar", () => {
         name: "Merged pull request #29: Release cut",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("persists project collapse from the dedicated chevron", async () => {
+    const collapsedSnapshot = makeWorkspaceSnapshot({
+      projects: [
+        makeProject({
+          sidebarCollapsed: true,
+          environments: [
+            makeEnvironment({
+              id: "env-local",
+              kind: "local",
+              isDefault: true,
+            }),
+            makeEnvironment({
+              id: "env-worktree",
+              kind: "managedWorktree",
+              name: "fuzzy-tiger",
+              gitBranch: "fuzzy-tiger",
+            }),
+          ],
+        }),
+      ],
+    });
+    const refreshSnapshot = vi.fn(async () => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: collapsedSnapshot,
+      }));
+      return true;
+    });
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "fuzzy-tiger",
+                gitBranch: "fuzzy-tiger",
+              }),
+            ],
+          }),
+        ],
+      }),
+      refreshSnapshot,
+    }));
+
+    renderSidebar();
+
+    expect(
+      screen.getByRole("button", { name: "fuzzy-tiger" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Collapse Loom" }));
+
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-1",
+      collapsed: true,
+    });
+    expect(refreshSnapshot).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
+    });
+  });
+
+  it("reorders projects in preview before persisting the drop", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    const { container } = renderSidebar();
+    const projectGroups =
+      container.querySelectorAll<HTMLElement>(".project-group");
+    const projectHeaders = container.querySelectorAll<HTMLElement>(
+      ".project-group__header-shell",
+    );
+    stubVerticalRects(Array.from(projectGroups), { height: 40, gap: 10 });
+
+    fireEvent.pointerDown(projectHeaders[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    await waitFor(() => {
+      expect(
+        textContentList(container.querySelectorAll(".project-group__name")),
+      ).toEqual(["Second", "First"]);
+    });
+    expect(projectGroups[1].style.transform).toContain("translate3d(");
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 1,
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-a"],
+      });
+    });
+  });
+
+  it("persists project reorder even when dropped immediately after preview", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    const { container } = renderSidebar();
+    const projectGroups =
+      container.querySelectorAll<HTMLElement>(".project-group");
+    const projectHeaders = container.querySelectorAll<HTMLElement>(
+      ".project-group__header-shell",
+    );
+    const projectList = container.querySelector<HTMLElement>(
+      ".tree-sidebar__project-list",
+    );
+    stubVerticalRects(Array.from(projectGroups), { height: 40, gap: 10 });
+
+    expect(projectList).not.toBeNull();
+
+    fireEvent.pointerDown(projectHeaders[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 2,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 2,
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 2,
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-a"],
+      });
+    });
+  });
+
+  it("reorders projects from the project row keyboard fallback", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const { container } = renderSidebar();
+
+    const projectRows =
+      container.querySelectorAll<HTMLButtonElement>(".project-group__header");
+    fireEvent.keyDown(projectRows[1], {
+      key: "ArrowUp",
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-a"],
+      });
+    });
+  });
+
+  it("reorders worktrees in preview before persisting the drop", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-alpha",
+                kind: "managedWorktree",
+                name: "alpha",
+                gitBranch: "alpha",
+              }),
+              makeEnvironment({
+                id: "env-beta",
+                kind: "managedWorktree",
+                name: "beta",
+                gitBranch: "beta",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    const { container } = renderSidebar();
+    const worktreeRows = container.querySelectorAll<HTMLElement>(
+      ".environment-item-shell",
+    );
+    stubVerticalRects(Array.from(worktreeRows));
+
+    fireEvent.pointerDown(worktreeRows[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 3,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 3,
+    });
+
+    await waitFor(() => {
+      expect(
+        textContentList(container.querySelectorAll(".environment-item__name")),
+      ).toEqual(["beta", "alpha"]);
+    });
+    expect(worktreeRows[1].style.transform).toContain("translate3d(");
+    expect(mockedBridge.reorderWorktreeEnvironments).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 3,
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderWorktreeEnvironments).toHaveBeenCalledWith({
+        projectId: "project-1",
+        environmentIds: ["env-beta", "env-alpha"],
+      });
+    });
+  });
+
+  it("persists worktree reorder when released between rows", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-alpha",
+                kind: "managedWorktree",
+                name: "alpha",
+                gitBranch: "alpha",
+              }),
+              makeEnvironment({
+                id: "env-beta",
+                kind: "managedWorktree",
+                name: "beta",
+                gitBranch: "beta",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    const { container } = renderSidebar();
+    const worktreeRows = container.querySelectorAll<HTMLElement>(
+      ".environment-item-shell",
+    );
+    const worktreeList = container.querySelector<HTMLElement>(
+      ".project-group__environments",
+    );
+    stubVerticalRects(Array.from(worktreeRows));
+
+    expect(worktreeList).not.toBeNull();
+
+    fireEvent.pointerDown(worktreeRows[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 4,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 4,
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 38,
+      isPrimary: true,
+      pointerId: 4,
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderWorktreeEnvironments).toHaveBeenCalledWith({
+        projectId: "project-1",
+        environmentIds: ["env-beta", "env-alpha"],
+      });
+    });
+  });
+
+  it("reorders worktrees from the worktree row keyboard fallback", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-alpha",
+                kind: "managedWorktree",
+                name: "alpha",
+                gitBranch: "alpha",
+              }),
+              makeEnvironment({
+                id: "env-beta",
+                kind: "managedWorktree",
+                name: "beta",
+                gitBranch: "beta",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const { container } = renderSidebar();
+
+    const worktreeRows =
+      container.querySelectorAll<HTMLButtonElement>(".environment-item");
+    fireEvent.keyDown(worktreeRows[1], {
+      key: "ArrowUp",
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderWorktreeEnvironments).toHaveBeenCalledWith({
+        projectId: "project-1",
+        environmentIds: ["env-beta", "env-alpha"],
+      });
+    });
   });
 
   it("renders footer utility actions and forwards clicks", async () => {

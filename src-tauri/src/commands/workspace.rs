@@ -10,7 +10,8 @@ use crate::domain::workspace::{
 use crate::error::CommandError;
 use crate::services::workspace::{
     AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
-    RenameThreadRequest, UpdateProjectSettingsRequest,
+    RenameThreadRequest, ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
+    SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest,
 };
 use crate::state::AppState;
 
@@ -65,6 +66,30 @@ pub fn update_project_settings(
     state: State<'_, AppState>,
 ) -> Result<ProjectRecord, CommandError> {
     Ok(state.workspace.update_project_settings(input)?)
+}
+
+#[tauri::command]
+pub fn reorder_projects(
+    input: ReorderProjectsRequest,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state.workspace.reorder_projects(input)?)
+}
+
+#[tauri::command]
+pub fn reorder_worktree_environments(
+    input: ReorderWorktreeEnvironmentsRequest,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state.workspace.reorder_worktree_environments(input)?)
+}
+
+#[tauri::command]
+pub fn set_project_sidebar_collapsed(
+    input: SetProjectSidebarCollapsedRequest,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state.workspace.set_project_sidebar_collapsed(input)?)
 }
 
 #[tauri::command]

@@ -163,6 +163,7 @@ export type ProjectRecord = {
   name: string;
   rootPath: string;
   settings: ProjectSettings;
+  sidebarCollapsed: boolean;
   createdAt: string;
   updatedAt: string;
   environments: EnvironmentRecord[];
@@ -806,4 +807,18 @@ export type GlobalSettingsPatch = {
   collapseWorkActivity?: boolean;
   shortcuts?: ShortcutSettingsPatch;
   codexBinaryPath?: string | null;
+};
+
+export type ReorderProjectsRequest = {
+  projectIds: string[];
+};
+
+export type ReorderWorktreeEnvironmentsRequest = {
+  projectId: string;
+  environmentIds: string[];
+};
+
+export type SetProjectSidebarCollapsedRequest = {
+  projectId: string;
+  collapsed: boolean;
 };

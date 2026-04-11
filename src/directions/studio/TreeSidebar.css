@@ -170,12 +170,55 @@
 .project-group__header-shell {
   display: flex;
   align-items: center;
+  gap: 2px;
   width: 100%;
   padding: 2px;
   border-radius: var(--tx-radius-lg);
+  cursor: grab;
+  touch-action: none;
   transition:
     background var(--tx-transition-fast),
     border-color var(--tx-transition-fast);
+}
+
+.project-group__header-shell:active {
+  cursor: grabbing;
+}
+
+.project-group--dragging,
+.environment-item-shell--dragging {
+  position: relative;
+  z-index: 2;
+  will-change: transform;
+  box-shadow: var(--tx-shadow-md);
+}
+
+.project-group__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 24px;
+  border-radius: var(--tx-radius-sm);
+  color: var(--tx-text-muted);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.project-group__collapse:hover,
+.project-group__collapse:focus-visible {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+.project-group__collapse-icon {
+  transition: transform var(--tx-transition-fast);
+}
+
+.project-group__collapse-icon--expanded {
+  transform: rotate(90deg);
 }
 
 .project-group__header {
@@ -188,6 +231,7 @@
   border-radius: calc(var(--tx-radius-lg) - 2px);
   text-align: left;
   background: transparent;
+  cursor: inherit;
 }
 
 .project-group__header,
@@ -297,7 +341,8 @@
   align-items: center;
   gap: var(--tx-space-sm);
   width: 100%;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   padding: 7px var(--tx-space-md);
   border-radius: var(--tx-radius-md);
   background: color-mix(in srgb, var(--tx-bg-raised) 28%, transparent);
@@ -318,6 +363,10 @@
   border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
 }
 
+.environment-item-shell:active {
+  cursor: grabbing;
+}
+
 .environment-item {
   display: flex;
   align-items: center;
@@ -325,7 +374,7 @@
   gap: var(--tx-space-sm);
   flex: 1;
   min-width: 0;
-  cursor: pointer;
+  cursor: inherit;
   text-align: left;
   background: transparent;
 }

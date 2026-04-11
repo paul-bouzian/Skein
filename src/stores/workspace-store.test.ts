@@ -14,6 +14,9 @@ vi.mock("../lib/bridge", () => ({
   getWorkspaceSnapshot: vi.fn(),
   listenToWorkspaceEvents: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
+  reorderProjects: vi.fn(),
+  reorderWorktreeEnvironments: vi.fn(),
+  setProjectSidebarCollapsed: vi.fn(),
 }));
 
 vi.mock("../lib/terminal-output-bus", () => ({
