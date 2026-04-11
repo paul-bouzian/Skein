@@ -135,6 +135,36 @@ function createDeferred() {
   return { promise, resolve };
 }
 
+function makeProjectWithLocalAndWorktree() {
+  return makeProject({
+    environments: [
+      makeEnvironment({
+        id: "env-local",
+        kind: "local",
+        isDefault: true,
+        threads: [
+          makeThread({
+            id: "thread-local",
+            environmentId: "env-local",
+          }),
+        ],
+      }),
+      makeEnvironment({
+        id: "env-worktree",
+        kind: "managedWorktree",
+        name: "fuzzy-tiger",
+        gitBranch: "fuzzy-tiger",
+        threads: [
+          makeThread({
+            id: "thread-worktree",
+            environmentId: "env-worktree",
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
 describe("TreeSidebar", () => {
   it("creates a managed worktree from the project-row plus button", async () => {
     const updatedSnapshot = makeWorkspaceSnapshot({
@@ -200,6 +230,7 @@ describe("TreeSidebar", () => {
         "thread-worktree-new",
       );
     });
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
   it("shows the updated project removal confirmation copy", async () => {
@@ -778,6 +809,105 @@ describe("TreeSidebar", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
     });
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
+  });
+
+  it("selects the project's local environment on a simple click", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [makeProjectWithLocalAndWorktree()],
+      }),
+      selectedEnvironmentId: "env-worktree",
+      selectedThreadId: "thread-worktree",
+    }));
+
+    const { container } = renderSidebar();
+    const projectHeaders = container.querySelectorAll<HTMLElement>(
+      ".project-group__header-shell",
+    );
+
+    await userEvent.click(projectHeaders[0]);
+
+    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-1");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
+      "env-local",
+    );
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-local");
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
+  });
+
+  it("selects a worktree on a simple click without starting reorder", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [makeProjectWithLocalAndWorktree()],
+      }),
+      selectedEnvironmentId: "env-local",
+      selectedThreadId: "thread-local",
+    }));
+
+    const { container } = renderSidebar();
+    const worktreeRows = container.querySelectorAll<HTMLElement>(
+      ".environment-item-shell",
+    );
+
+    await userEvent.click(worktreeRows[0]);
+
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
+      "env-worktree",
+    );
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe(
+      "thread-worktree",
+    );
+    expect(mockedBridge.reorderWorktreeEnvironments).not.toHaveBeenCalled();
+  });
+
+  it("keeps project clicks active when the pointer moves below the drag threshold", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [makeProjectWithLocalAndWorktree()],
+      }),
+      selectedEnvironmentId: "env-worktree",
+      selectedThreadId: "thread-worktree",
+    }));
+
+    const { container } = renderSidebar();
+    const projectHeader = container.querySelector<HTMLElement>(
+      ".project-group__header-shell",
+    );
+
+    expect(projectHeader).not.toBeNull();
+
+    fireEvent.pointerDown(projectHeader as HTMLElement, {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 16,
+      isPrimary: true,
+      pointerId: 30,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 16,
+      clientY: 19,
+      isPrimary: true,
+      pointerId: 30,
+    });
+    fireEvent.pointerUp(window, {
+      clientX: 16,
+      clientY: 19,
+      isPrimary: true,
+      pointerId: 30,
+    });
+    fireEvent.click(projectHeader as HTMLElement);
+
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
+      "env-local",
+    );
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-local");
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
   it("reorders projects in preview before persisting the drop", async () => {
@@ -924,6 +1054,104 @@ describe("TreeSidebar", () => {
       isPrimary: true,
       pointerId: 2,
     });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-a"],
+      });
+    });
+  });
+
+  it("suppresses the follow-up click after a real project drag", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-a",
+                    environmentId: "env-a",
+                  }),
+                ],
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-b",
+                    environmentId: "env-b",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-a",
+      selectedEnvironmentId: "env-a",
+      selectedThreadId: "thread-a",
+    }));
+
+    const { container } = renderSidebar();
+    const projectGroups = () =>
+      Array.from(container.querySelectorAll<HTMLElement>(".project-group"));
+    const projectHeaders = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".project-group__header-shell"),
+      );
+    stubVerticalRects(projectGroups(), { height: 40, gap: 10 });
+
+    fireEvent.pointerDown(projectHeaders()[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 31,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 31,
+    });
+
+    await waitFor(() => {
+      expect(
+        textContentList(container.querySelectorAll(".project-group__name")),
+      ).toEqual(["Second", "First"]);
+    });
+
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 31,
+    });
+    fireEvent.click(projectHeaders()[0]);
+
+    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a");
 
     await waitFor(() => {
       expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({

@@ -15,7 +15,7 @@ import {
   type SidebarDragState,
 } from "./tree-sidebar-reorder";
 
-const DRAG_ACTIVATION_DISTANCE = 4;
+const DRAG_ACTIVATION_DISTANCE = 8;
 
 type ReorderMutationResult = {
   ok: boolean;
@@ -36,6 +36,8 @@ type UseTreeSidebarReorderOptions = {
 type PointerDragSessionBase = {
   sessionId: number;
   pointerId: number;
+  captureElement: HTMLElement;
+  captureActive: boolean;
   startX: number;
   startY: number;
   lastX: number;
@@ -55,6 +57,17 @@ type PointerDragSession =
       projectId: string;
       environmentId: string;
     });
+
+type PointerSessionDescriptor =
+  | {
+      kind: "project";
+      projectId: string;
+    }
+  | {
+      kind: "environment";
+      projectId: string;
+      environmentId: string;
+    };
 
 type DragVisualState =
   | ({
@@ -142,6 +155,7 @@ export function useTreeSidebarReorder({
   }, [setNextDragVisualState]);
 
   const clearDragState = useCallback(() => {
+    releasePointerCapture(pointerSessionRef.current);
     pointerSessionRef.current = null;
     clearPreviewState();
     clearDragVisualState();
@@ -244,6 +258,7 @@ export function useTreeSidebarReorder({
         }
 
         session.dragging = true;
+        session.captureActive = capturePointer(session);
         resetMessagesRef.current();
 
         if (session.kind === "project") {
@@ -346,6 +361,7 @@ export function useTreeSidebarReorder({
         return;
       }
 
+      releasePointerCapture(session);
       pointerSessionRef.current = null;
       if (!session.dragging) {
         return;
@@ -443,16 +459,14 @@ export function useTreeSidebarReorder({
       return;
     }
 
-    pointerSessionRef.current = createProjectPointerSession(
-      nextSessionIdRef.current + 1,
-      projectId,
+    startPointerSession(
+      {
+        kind: "project",
+        projectId,
+      },
       event,
       projectItemRefs.current.get(projectId) ?? event.currentTarget,
     );
-    nextSessionIdRef.current = pointerSessionRef.current.sessionId;
-    if ("setPointerCapture" in event.currentTarget) {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
   }
 
   function handleWorktreePointerDown(
@@ -464,18 +478,32 @@ export function useTreeSidebarReorder({
       return;
     }
 
-    pointerSessionRef.current = createEnvironmentPointerSession(
-      nextSessionIdRef.current + 1,
-      project.id,
-      environmentId,
+    startPointerSession(
+      {
+        kind: "environment",
+        projectId: project.id,
+        environmentId,
+      },
       event,
       environmentItemRefs.current.get(project.id)?.get(environmentId) ??
         event.currentTarget,
     );
+  }
+
+  function startPointerSession(
+    descriptor: PointerSessionDescriptor,
+    event: ReactPointerEvent<HTMLElement>,
+    item: HTMLElement,
+  ) {
+    const session = createPointerSession(
+      nextSessionIdRef.current + 1,
+      descriptor,
+      event,
+      item,
+      event.currentTarget,
+    );
+    pointerSessionRef.current = session;
     nextSessionIdRef.current = pointerSessionRef.current.sessionId;
-    if ("setPointerCapture" in event.currentTarget) {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
   }
 
   function shouldSuppressClick() {
@@ -605,18 +633,43 @@ function shouldIgnorePointerDown(event: ReactPointerEvent<HTMLElement>) {
   );
 }
 
-function createProjectPointerSession(
+function capturePointer(session: PointerDragSession) {
+  try {
+    session.captureElement.setPointerCapture(session.pointerId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releasePointerCapture(session: PointerDragSession | null) {
+  if (!session?.captureActive) {
+    return;
+  }
+
+  session.captureActive = false;
+  try {
+    if (session.captureElement.hasPointerCapture(session.pointerId)) {
+      session.captureElement.releasePointerCapture(session.pointerId);
+    }
+  } catch {
+    // Ignore capture teardown failures to keep the sidebar responsive.
+  }
+}
+
+function createPointerSession(
   sessionId: number,
-  projectId: string,
+  descriptor: PointerSessionDescriptor,
   event: ReactPointerEvent<HTMLElement>,
   item: HTMLElement,
+  captureElement: HTMLElement,
 ): PointerDragSession {
   const rect = item.getBoundingClientRect();
-  return {
+  const baseSession = {
     sessionId,
-    kind: "project",
-    projectId,
     pointerId: event.pointerId,
+    captureElement,
+    captureActive: false,
     startX: event.clientX,
     startY: event.clientY,
     lastX: event.clientX,
@@ -625,29 +678,20 @@ function createProjectPointerSession(
     offsetY: event.clientY - rect.top,
     dragging: false,
   };
-}
 
-function createEnvironmentPointerSession(
-  sessionId: number,
-  projectId: string,
-  environmentId: string,
-  event: ReactPointerEvent<HTMLElement>,
-  item: HTMLElement,
-): PointerDragSession {
-  const rect = item.getBoundingClientRect();
+  if (descriptor.kind === "project") {
+    return {
+      ...baseSession,
+      kind: "project",
+      projectId: descriptor.projectId,
+    };
+  }
+
   return {
-    sessionId,
+    ...baseSession,
     kind: "environment",
-    projectId,
-    environmentId,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    lastX: event.clientX,
-    lastY: event.clientY,
-    offsetX: event.clientX - rect.left,
-    offsetY: event.clientY - rect.top,
-    dragging: false,
+    projectId: descriptor.projectId,
+    environmentId: descriptor.environmentId,
   };
 }
 
