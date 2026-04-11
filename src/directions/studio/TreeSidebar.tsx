@@ -315,8 +315,8 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                   onPointerDown={(event) =>
                     handleProjectPointerDown(event, project.id)
                   }
-                  onClick={() => {
-                    if (shouldSuppressClick()) return;
+                  onClick={(event) => {
+                    if (event.detail > 0 && shouldSuppressClick()) return;
                     handleProjectSelect(project.id);
                   }}
                   onContextMenu={(event) => {
@@ -413,8 +413,8 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                             environment.id,
                           )
                         }
-                        onClick={() => {
-                          if (shouldSuppressClick()) return;
+                        onClick={(event) => {
+                          if (event.detail > 0 && shouldSuppressClick()) return;
                           handleEnvironmentSelect(environment.id);
                         }}
                         onContextMenu={(event) => {

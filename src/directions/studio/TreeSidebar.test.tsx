@@ -1147,11 +1147,119 @@ describe("TreeSidebar", () => {
       isPrimary: true,
       pointerId: 31,
     });
-    fireEvent.click(projectHeaders()[0]);
+    fireEvent.click(projectHeaders()[0], { detail: 1 });
 
     expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a");
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-a"],
+      });
+    });
+  });
+
+  it("preserves keyboard activation after suppressing a dragged project click", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-a",
+                    environmentId: "env-a",
+                  }),
+                ],
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-b",
+                    environmentId: "env-b",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-a",
+      selectedEnvironmentId: "env-a",
+      selectedThreadId: "thread-a",
+    }));
+
+    const { container } = renderSidebar();
+    const projectGroups = () =>
+      Array.from(container.querySelectorAll<HTMLElement>(".project-group"));
+    const projectHeaders = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".project-group__header-shell"),
+      );
+    const projectButtons = () =>
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>(".project-group__header"),
+      );
+    stubVerticalRects(projectGroups(), { height: 40, gap: 10 });
+
+    fireEvent.pointerDown(projectHeaders()[1], {
+      button: 0,
+      buttons: 1,
+      clientX: 12,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 32,
+    });
+    fireEvent.pointerMove(window, {
+      buttons: 1,
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 32,
+    });
+
+    await waitFor(() => {
+      expect(
+        textContentList(container.querySelectorAll(".project-group__name")),
+      ).toEqual(["Second", "First"]);
+    });
+
+    fireEvent.pointerUp(window, {
+      clientX: 12,
+      clientY: 8,
+      isPrimary: true,
+      pointerId: 32,
+    });
+    fireEvent.click(projectHeaders()[0], { detail: 1 });
+
+    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a");
+
+    fireEvent.click(projectButtons()[0], { detail: 0 });
+
+    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-b");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-b");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-b");
 
     await waitFor(() => {
       expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
