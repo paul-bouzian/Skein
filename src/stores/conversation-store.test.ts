@@ -11,6 +11,7 @@ import {
   makeWorkspaceSnapshot,
 } from "../test/fixtures/conversation";
 import {
+  INITIAL_CONVERSATION_STATE,
   teardownConversationListener,
   useConversationStore,
 } from "./conversation-store";
@@ -54,12 +55,7 @@ function resetConversationState() {
   const state = useConversationStore.getState();
   useConversationStore.setState({
     ...state,
-    snapshotsByThreadId: {},
-    capabilitiesByEnvironmentId: {},
-    composerByThreadId: {},
-    loadingByThreadId: {},
-    errorByThreadId: {},
-    listenerReady: false,
+    ...INITIAL_CONVERSATION_STATE,
   });
 }
 
@@ -495,6 +491,63 @@ describe("conversation store", () => {
     });
 
     expect(useConversationStore.getState().composerByThreadId["thread-missing"]).toBeUndefined();
+  });
+
+  it("stores drafts separately for each thread", () => {
+    useConversationStore.getState().updateDraft("thread-1", {
+      text: "Ship it",
+      isRefiningPlan: true,
+    });
+    useConversationStore.getState().updateDraft("thread-2", {
+      text: "Leave this alone",
+      images: [{ type: "localImage", path: "/tmp/thread-2.png" }],
+    });
+
+    const state = useConversationStore.getState();
+    expect(state.draftByThreadId["thread-1"]).toMatchObject({
+      text: "Ship it",
+      images: [],
+      mentionBindings: [],
+      isRefiningPlan: true,
+    });
+    expect(state.draftByThreadId["thread-2"]).toMatchObject({
+      text: "Leave this alone",
+      images: [{ type: "localImage", path: "/tmp/thread-2.png" }],
+      mentionBindings: [],
+      isRefiningPlan: false,
+    });
+  });
+
+  it("resets only the requested thread draft", () => {
+    useConversationStore.getState().updateDraft("thread-1", {
+      text: "Thread 1",
+    });
+    useConversationStore.getState().updateDraft("thread-2", {
+      text: "Thread 2",
+    });
+
+    useConversationStore.getState().resetDraft("thread-1");
+
+    const state = useConversationStore.getState();
+    expect(state.draftByThreadId["thread-1"]).toBeUndefined();
+    expect(state.draftByThreadId["thread-2"]).toMatchObject({
+      text: "Thread 2",
+    });
+  });
+
+  it("drops an empty draft instead of storing a blank entry", () => {
+    useConversationStore.getState().updateDraft("thread-1", {
+      text: "Keep this",
+    });
+
+    useConversationStore.getState().updateDraft("thread-1", {
+      text: "",
+      images: [],
+      mentionBindings: [],
+      isRefiningPlan: false,
+    });
+
+    expect(useConversationStore.getState().draftByThreadId["thread-1"]).toBeUndefined();
   });
 
   it("resets listener readiness on teardown", async () => {

@@ -1,10 +1,8 @@
-import type { ComposerMentionBindingInput } from "../../../lib/types";
+import type {
+  ComposerDraftMentionBinding,
+  ComposerMentionBindingInput,
+} from "../../../lib/types";
 import type { ComposerAutocompleteItem } from "./composer-model";
-
-export type ComposerDraftMentionBinding = ComposerMentionBindingInput & {
-  start: number;
-  end: number;
-};
 
 export function rebaseComposerMentionBindings(
   previousText: string,
@@ -86,6 +84,17 @@ export function prepareComposerMentionBindingsForSend(
     }));
 }
 
+export function sameComposerMentionBindings(
+  left: ComposerDraftMentionBinding[],
+  right: ComposerDraftMentionBinding[],
+) {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((binding, index) => sameComposerMentionBinding(binding, right[index])))
+  );
+}
+
 function commonPrefixLength(left: string, right: string) {
   let index = 0;
   while (index < left.length && index < right.length && left[index] === right[index]) {
@@ -125,4 +134,18 @@ function isValidMentionBinding(text: string, binding: ComposerDraftMentionBindin
   }
 
   return true;
+}
+
+function sameComposerMentionBinding(
+  left: ComposerDraftMentionBinding,
+  right: ComposerDraftMentionBinding | undefined,
+) {
+  return (
+    right !== undefined &&
+    left.mention === right.mention &&
+    left.kind === right.kind &&
+    left.path === right.path &&
+    left.start === right.start &&
+    left.end === right.end
+  );
 }

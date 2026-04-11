@@ -3,6 +3,7 @@ import { create } from "zustand";
 import * as bridge from "../lib/bridge";
 import type {
   ApprovalResponseInput,
+  ComposerDraftMentionBinding,
   ConversationImageAttachment,
   ConversationMessageItem,
   ComposerMentionBindingInput,
@@ -15,6 +16,20 @@ import type {
 import { useWorkspaceStore } from "./workspace-store";
 
 const PRELOAD_ENVIRONMENT_CONCURRENCY = 4;
+
+export type ConversationComposerDraft = {
+  text: string;
+  images: ConversationImageAttachment[];
+  mentionBindings: ComposerDraftMentionBinding[];
+  isRefiningPlan: boolean;
+};
+
+const EMPTY_COMPOSER_DRAFT: ConversationComposerDraft = {
+  text: "",
+  images: [],
+  mentionBindings: [],
+  isRefiningPlan: false,
+};
 
 function refreshWorkspaceSnapshotNonBlocking() {
   void useWorkspaceStore.getState().refreshSnapshot().catch(() => undefined);
@@ -35,6 +50,7 @@ type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
   capabilitiesByEnvironmentId: Record<string, EnvironmentCapabilitiesSnapshot>;
   composerByThreadId: Record<string, ConversationComposerSettings>;
+  draftByThreadId: Record<string, ConversationComposerDraft>;
   loadingByThreadId: Record<string, boolean>;
   errorByThreadId: Record<string, string | null>;
   listenerReady: boolean;
@@ -47,6 +63,13 @@ type ConversationState = {
     threadId: string,
     patch: Partial<ConversationComposerSettings>,
   ) => void;
+  updateDraft: (
+    threadId: string,
+    update:
+      | Partial<ConversationComposerDraft>
+      | ((draft: ConversationComposerDraft) => ConversationComposerDraft),
+  ) => void;
+  resetDraft: (threadId: string) => void;
   sendMessage: (
     threadId: string,
     text: string,
@@ -69,6 +92,27 @@ type ConversationState = {
   ) => Promise<boolean>;
 };
 
+type ConversationStateData = Pick<
+  ConversationState,
+  | "snapshotsByThreadId"
+  | "capabilitiesByEnvironmentId"
+  | "composerByThreadId"
+  | "draftByThreadId"
+  | "loadingByThreadId"
+  | "errorByThreadId"
+  | "listenerReady"
+>;
+
+export const INITIAL_CONVERSATION_STATE: ConversationStateData = {
+  snapshotsByThreadId: {},
+  capabilitiesByEnvironmentId: {},
+  composerByThreadId: {},
+  draftByThreadId: {},
+  loadingByThreadId: {},
+  errorByThreadId: {},
+  listenerReady: false,
+};
+
 let unlistenConversationEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
@@ -76,12 +120,7 @@ let preloadActiveThreadsPromise: Promise<void> | null = null;
 const inflightThreadLoads = new Map<string, Promise<boolean>>();
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
-  snapshotsByThreadId: {},
-  capabilitiesByEnvironmentId: {},
-  composerByThreadId: {},
-  loadingByThreadId: {},
-  errorByThreadId: {},
-  listenerReady: false,
+  ...INITIAL_CONVERSATION_STATE,
 
   initializeListener: async () => {
     if (get().listenerReady) return;
@@ -196,6 +235,36 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
       };
     }),
+
+  updateDraft: (threadId, update) =>
+    set((state) => {
+      const currentDraft = draftForThread(state, threadId);
+      const nextDraft =
+        typeof update === "function"
+          ? update(cloneDraft(currentDraft))
+          : {
+              ...currentDraft,
+              ...update,
+            };
+
+      if (sameDraft(currentDraft, nextDraft)) {
+        return state;
+      }
+
+      if (isEmptyDraft(nextDraft)) {
+        return removeDraftEntry(state, threadId);
+      }
+
+      return {
+        draftByThreadId: {
+          ...state.draftByThreadId,
+          [threadId]: nextDraft,
+        },
+      };
+    }),
+
+  resetDraft: (threadId) =>
+    set((state) => removeDraftEntry(state, threadId)),
 
   sendMessage: async (threadId, text, images = [], mentionBindings = []) => {
     set((state) => ({
@@ -366,6 +435,11 @@ export function selectConversationComposer(threadId: string | null) {
     (threadId ? state.composerByThreadId[threadId] : null) ??
     (threadId ? state.snapshotsByThreadId[threadId]?.composer : null) ??
     null;
+}
+
+export function selectConversationDraft(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.draftByThreadId[threadId] : null) ?? EMPTY_COMPOSER_DRAFT;
 }
 
 export function selectConversationCapabilities(
@@ -542,6 +616,104 @@ function isThreadHydrated(
   return Boolean(
     snapshot && state.capabilitiesByEnvironmentId[snapshot.environmentId],
   );
+}
+
+function draftForThread(
+  state: Pick<ConversationState, "draftByThreadId">,
+  threadId: string,
+) {
+  return state.draftByThreadId[threadId] ?? EMPTY_COMPOSER_DRAFT;
+}
+
+function cloneDraft(draft: ConversationComposerDraft): ConversationComposerDraft {
+  return {
+    ...draft,
+    images: [...draft.images],
+    mentionBindings: [...draft.mentionBindings],
+  };
+}
+
+function isEmptyDraft(draft: ConversationComposerDraft) {
+  return (
+    draft.text.length === 0 &&
+    draft.images.length === 0 &&
+    draft.mentionBindings.length === 0 &&
+    !draft.isRefiningPlan
+  );
+}
+
+function sameDraft(
+  left: ConversationComposerDraft,
+  right: ConversationComposerDraft,
+) {
+  return (
+    left.text === right.text &&
+    sameImageAttachments(left.images, right.images) &&
+    sameMentionBindings(left.mentionBindings, right.mentionBindings) &&
+    left.isRefiningPlan === right.isRefiningPlan
+  );
+}
+
+function sameImageAttachments(
+  left: ConversationImageAttachment[],
+  right: ConversationImageAttachment[],
+) {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((attachment, index) => sameImageAttachment(attachment, right[index])))
+  );
+}
+
+function sameImageAttachment(
+  left: ConversationImageAttachment,
+  right: ConversationImageAttachment | undefined,
+) {
+  return (
+    right !== undefined &&
+    left.type === right.type &&
+    (left.type === "image"
+      ? right.type === "image" && left.url === right.url
+      : right.type === "localImage" && left.path === right.path)
+  );
+}
+
+function sameMentionBindings(
+  left: ComposerDraftMentionBinding[],
+  right: ComposerDraftMentionBinding[],
+) {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((binding, index) => sameMentionBinding(binding, right[index])))
+  );
+}
+
+function sameMentionBinding(
+  left: ComposerDraftMentionBinding,
+  right: ComposerDraftMentionBinding | undefined,
+) {
+  return (
+    right !== undefined &&
+    left.mention === right.mention &&
+    left.kind === right.kind &&
+    left.path === right.path &&
+    left.start === right.start &&
+    left.end === right.end
+  );
+}
+
+function removeDraftEntry(
+  state: Pick<ConversationState, "draftByThreadId">,
+  threadId: string,
+) {
+  if (!state.draftByThreadId[threadId]) {
+    return state;
+  }
+
+  const draftByThreadId = { ...state.draftByThreadId };
+  delete draftByThreadId[threadId];
+  return { draftByThreadId };
 }
 
 function collectEnvironmentPreloadTargets(snapshot: WorkspaceSnapshot) {

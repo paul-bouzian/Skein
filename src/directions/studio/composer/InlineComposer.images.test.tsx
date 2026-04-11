@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import * as bridge from "../../../lib/bridge";
+import type { ComposerDraftMentionBinding } from "../../../lib/types";
 import {
   baseComposer,
   capabilitiesFixture,
@@ -15,7 +16,6 @@ import {
   MAX_CONVERSATION_IMAGE_BYTES,
 } from "../conversation-images";
 import { InlineComposer } from "./InlineComposer";
-import type { ComposerDraftMentionBinding } from "./composer-mention-bindings";
 
 vi.mock("../../../lib/bridge", () => ({
   getThreadComposerCatalog: vi.fn(),

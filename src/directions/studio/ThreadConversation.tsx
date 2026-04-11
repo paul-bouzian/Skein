@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import type {
+  ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
   ConversationImageAttachment,
   EnvironmentRecord,
@@ -17,6 +18,7 @@ import { EmptyState } from "../../shared/EmptyState";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
+  selectConversationDraft,
   selectConversationError,
   selectConversationSnapshot,
   useConversationStore,
@@ -29,7 +31,6 @@ import { ConversationTaskCard } from "./ConversationTaskCard";
 import { ConversationWorkActivityGroup } from "./ConversationWorkActivityGroup";
 import { SubagentStrip } from "./SubagentStrip";
 import { InlineComposer } from "./composer/InlineComposer";
-import type { ComposerDraftMentionBinding } from "./composer/composer-mention-bindings";
 import {
   buildConversationTimeline,
   hasRenderableTaskPlan,
@@ -54,6 +55,7 @@ export function ThreadConversation({
 }: Props) {
   const snapshot = useConversationStore(selectConversationSnapshot(thread.id));
   const composer = useConversationStore(selectConversationComposer(thread.id));
+  const composerDraft = useConversationStore(selectConversationDraft(thread.id));
   const capabilities = useConversationStore(
     selectConversationCapabilities(environment.id),
   );
@@ -63,6 +65,8 @@ export function ThreadConversation({
   const openThread = useConversationStore((state) => state.openThread);
   const refreshThread = useConversationStore((state) => state.refreshThread);
   const updateComposer = useConversationStore((state) => state.updateComposer);
+  const updateDraft = useConversationStore((state) => state.updateDraft);
+  const resetDraft = useConversationStore((state) => state.resetDraft);
   const sendMessage = useConversationStore((state) => state.sendMessage);
   const interruptThread = useConversationStore((state) => state.interruptThread);
   const respondToApproval = useConversationStore(
@@ -72,10 +76,6 @@ export function ThreadConversation({
     (state) => state.respondToUserInputRequest,
   );
   const submitPlanDecision = useConversationStore((state) => state.submitPlanDecision);
-  const [draft, setDraft] = useState("");
-  const [images, setImages] = useState<ConversationImageAttachment[]>([]);
-  const [mentionBindings, setMentionBindings] = useState<ComposerDraftMentionBinding[]>([]);
-  const [isRefiningPlan, setIsRefiningPlan] = useState(false);
   const [isPreparingWorktreeName, setIsPreparingWorktreeName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -85,14 +85,14 @@ export function ThreadConversation({
   const submitGenerationRef = useRef(0);
   const lastApproveOrSubmitKeyRef = useRef(approveOrSubmitKey);
   const approveShortcutThreadIdRef = useRef(thread.id);
+  const draft = composerDraft.text;
+  const images = composerDraft.images;
+  const mentionBindings = composerDraft.mentionBindings;
+  const isRefiningPlan = composerDraft.isRefiningPlan;
 
   useEffect(() => {
     void openThread(thread.id);
   }, [openThread, thread.id]);
-
-  useEffect(() => {
-    setImages([]);
-  }, [thread.id]);
 
   useEffect(() => {
     submitGenerationRef.current += 1;
@@ -119,9 +119,9 @@ export function ThreadConversation({
 
   useEffect(() => {
     if (!snapshot?.proposedPlan?.isAwaitingDecision && isRefiningPlan) {
-      setIsRefiningPlan(false);
+      updateDraft(thread.id, { isRefiningPlan: false });
     }
-  }, [isRefiningPlan, snapshot?.proposedPlan?.isAwaitingDecision]);
+  }, [isRefiningPlan, snapshot?.proposedPlan?.isAwaitingDecision, thread.id, updateDraft]);
 
   useEffect(() => {
     if (!snapshot?.activeTurnId || !snapshot.codexThreadId) {
@@ -166,9 +166,7 @@ export function ThreadConversation({
 
   function resetComposerState() {
     startTransition(() => {
-      setDraft("");
-      setImages([]);
-      setMentionBindings([]);
+      resetDraft(thread.id);
     });
   }
 
@@ -203,7 +201,6 @@ export function ThreadConversation({
         composer: { ...nextComposer, collaborationMode: "build" },
       });
       if (sent && isCurrentSubmitCycle(submitGeneration)) {
-        setIsRefiningPlan(false);
         resetComposerState();
       }
     } finally {
@@ -276,9 +273,11 @@ export function ThreadConversation({
     nextMentionBindings: ComposerDraftMentionBinding[],
   ) {
     startTransition(() => {
-      setDraft(nextDraft);
-      setImages(nextImages);
-      setMentionBindings(nextMentionBindings);
+      updateDraft(thread.id, {
+        text: nextDraft,
+        images: nextImages,
+        mentionBindings: nextMentionBindings,
+      });
     });
   }
 
@@ -298,11 +297,12 @@ export function ThreadConversation({
           feedback: message,
           composer: { ...resolvedComposer, collaborationMode: "plan" },
           ...(images.length > 0 ? { images } : {}),
-          ...(mentionBindings.length > 0 ? { mentionBindings } : {}),
+          ...(sendMentionBindings.length > 0
+            ? { mentionBindings: sendMentionBindings }
+            : {}),
         });
         if (sent && isCurrentSubmitCycle(submitGeneration)) {
           resetComposerState();
-          setIsRefiningPlan(false);
         }
         return;
       }
@@ -359,7 +359,7 @@ export function ThreadConversation({
             plan={activePlan}
             disabled={isRunning || isMutating}
             onApprove={() => void approvePlan(resolvedComposer)}
-            onRefine={() => setIsRefiningPlan(true)}
+            onRefine={() => updateDraft(thread.id, { isRefiningPlan: true })}
           />
         ) : null}
         {!compactWorkActivity && hasTaskPlanContent && activeTaskPlan ? (
@@ -403,21 +403,28 @@ export function ThreadConversation({
         isRefiningPlan={isRefiningPlan}
         mentionBindings={mentionBindings}
         modelOptions={capabilities?.models ?? []}
-        onChangeImages={setImages}
+        onChangeImages={(nextImages) =>
+          updateDraft(thread.id, (currentDraft) => ({
+            ...currentDraft,
+            images:
+              typeof nextImages === "function"
+                ? nextImages(currentDraft.images)
+                : nextImages,
+          }))
+        }
         tokenUsage={snapshot.tokenUsage}
-        onCancelRefine={() => {
-          resetComposerState();
-          setIsRefiningPlan(false);
-        }}
-        onChangeDraft={setDraft}
-        onChangeMentionBindings={setMentionBindings}
+        onCancelRefine={() => updateDraft(thread.id, { isRefiningPlan: false })}
+        onChangeDraft={(value) => updateDraft(thread.id, { text: value })}
+        onChangeMentionBindings={(bindings) =>
+          updateDraft(thread.id, { mentionBindings: bindings })
+        }
         onInterrupt={() => void interruptThread(thread.id)}
         onSend={(text, images, mentionBindings) =>
           void handleSend(text, images, mentionBindings)
         }
         onUpdateComposer={(patch) => {
           if (patch.collaborationMode === "build") {
-            setIsRefiningPlan(false);
+            updateDraft(thread.id, { isRefiningPlan: false });
           }
           updateComposer(thread.id, patch);
         }}

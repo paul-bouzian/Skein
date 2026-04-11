@@ -751,6 +751,11 @@ export type ComposerMentionBindingInput = {
   path: string;
 };
 
+export type ComposerDraftMentionBinding = ComposerMentionBindingInput & {
+  start: number;
+  end: number;
+};
+
 export type ApprovalResponseInput =
   | {
       kind: "commandExecution";

@@ -13,6 +13,7 @@ import {
   searchThreadFiles,
 } from "../../../lib/bridge";
 import type {
+  ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
   ComposerFileSearchResult,
   ConversationComposerSettings,
@@ -46,7 +47,7 @@ import {
   addComposerMentionBinding,
   prepareComposerMentionBindingsForSend,
   rebaseComposerMentionBindings,
-  type ComposerDraftMentionBinding,
+  sameComposerMentionBindings,
 } from "./composer-mention-bindings";
 import { ComposerTextMirror } from "./ComposerTextMirror";
 import {
@@ -117,6 +118,7 @@ export function InlineComposer({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const fileSearchRequestRef = useRef(0);
   const previousDraftRef = useRef(draft);
+  const previousThreadIdRef = useRef(threadId);
   const [catalog, setCatalog] = useState<ThreadComposerCatalog | null>(null);
   const [fileResults, setFileResults] = useState<ComposerFileSearchResult[]>(
     [],
@@ -266,17 +268,26 @@ export function InlineComposer({
   }, [activeTokenKey, dismissedTokenKey]);
 
   useEffect(() => {
+    if (previousThreadIdRef.current !== threadId) {
+      previousThreadIdRef.current = threadId;
+      previousDraftRef.current = draft;
+    }
+  }, [draft, threadId]);
+
+  useEffect(() => {
     if (previousDraftRef.current === draft) {
       return;
     }
-    onChangeMentionBindings(
-      rebaseComposerMentionBindings(
-        previousDraftRef.current,
-        draft,
-        mentionBindings,
-      ),
+    const nextMentionBindings = rebaseComposerMentionBindings(
+      previousDraftRef.current,
+      draft,
+      mentionBindings,
     );
     previousDraftRef.current = draft;
+    if (sameComposerMentionBindings(nextMentionBindings, mentionBindings)) {
+      return;
+    }
+    onChangeMentionBindings(nextMentionBindings);
   }, [draft, mentionBindings, onChangeMentionBindings]);
 
   useEffect(() => {

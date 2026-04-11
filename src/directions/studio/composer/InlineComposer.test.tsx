@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import * as bridge from "../../../lib/bridge";
+import type { ComposerDraftMentionBinding } from "../../../lib/types";
 import {
   baseComposer,
   capabilitiesFixture,
@@ -12,7 +13,6 @@ import {
 import { resetVoiceSessionStore } from "../../../stores/voice-session-store";
 import { useVoiceStatusStore } from "../../../stores/voice-status-store";
 import { InlineComposer } from "./InlineComposer";
-import type { ComposerDraftMentionBinding } from "./composer-mention-bindings";
 import { startVoiceCapture } from "./composer-voice-audio";
 
 vi.mock("../../../lib/bridge", () => ({
