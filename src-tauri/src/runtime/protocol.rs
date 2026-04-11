@@ -2079,8 +2079,30 @@ fn is_inter_agent_communication_message(text: &str) -> bool {
 }
 
 fn is_inter_agent_communication_message_prefix(text: &str) -> bool {
-    const AUTHOR_PREFIX: &str = r#"{"author":""#;
-    AUTHOR_PREFIX.starts_with(text) || text.starts_with(AUTHOR_PREFIX)
+    let Some(after_brace) = text.strip_prefix('{') else {
+        return false;
+    };
+
+    json_object_key_prefix_matches(after_brace, "author")
+}
+
+fn json_object_key_prefix_matches(text: &str, key: &str) -> bool {
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let expected_key = format!("\"{key}\"");
+    if expected_key.starts_with(trimmed) {
+        return true;
+    }
+
+    let Some(after_key) = trimmed.strip_prefix(&expected_key) else {
+        return false;
+    };
+    let after_key = after_key.trim_start();
+
+    after_key.is_empty() || ":".starts_with(after_key) || after_key.starts_with(':')
 }
 
 fn is_agent_path(value: &str) -> bool {
@@ -2525,6 +2547,19 @@ mod tests {
         );
 
         assert!(item.is_none());
+    }
+
+    #[test]
+    fn hidden_assistant_control_prefix_detection_tolerates_whitespace() {
+        assert!(is_hidden_assistant_control_message_prefix("{"));
+        assert!(is_hidden_assistant_control_message_prefix("{   "));
+        assert!(is_hidden_assistant_control_message_prefix("{   \"auth"));
+        assert!(is_hidden_assistant_control_message_prefix(
+            "{\n  \"author\" :"
+        ));
+        assert!(!is_hidden_assistant_control_message_prefix(
+            "{\"assistant\":"
+        ));
     }
 
     #[test]
