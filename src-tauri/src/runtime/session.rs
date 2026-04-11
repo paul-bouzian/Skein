@@ -33,10 +33,12 @@ use crate::runtime::protocol::{
     build_history_snapshot, clear_streaming_flags, collaboration_mode_from_plan_item_heading,
     collaboration_mode_options_from_response, collaboration_mode_payload, complete_proposed_plan,
     complete_task_plan, conversation_status_from_turn_status, error_snapshot, initialize_params,
-    initialized_notification, loaded_subagents_for_primary, mark_plan_approved,
-    mark_plan_superseded, model_options_from_response, normalize_item,
-    normalize_server_interaction, parse_incoming_message, plan_approval_message,
-    proposed_plan_from_item, proposed_plan_from_turn_update, sandbox_policy_value,
+    initialized_notification, is_hidden_assistant_control_item,
+    is_hidden_assistant_control_message, is_hidden_assistant_control_message_prefix,
+    loaded_subagents_for_primary, mark_plan_approved, mark_plan_superseded,
+    model_options_from_response, normalize_item, normalize_server_interaction,
+    parse_incoming_message, plan_approval_message, proposed_plan_from_item,
+    proposed_plan_from_turn_update, reconcile_snapshot_status, sandbox_policy_value,
     subagents_from_collab_item, task_plan_from_item, task_plan_from_turn_update,
     task_status_from_turn_status, token_usage_snapshot, upsert_item, user_input_payload,
     AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire, AppsListResponse,
@@ -75,9 +77,15 @@ struct SessionState {
     snapshots_by_thread: HashMap<String, ThreadConversationSnapshot>,
     local_thread_by_codex_id: HashMap<String, String>,
     capabilities: Option<EnvironmentCapabilitiesSnapshot>,
+    buffered_assistant_control_deltas: HashMap<String, BufferedAssistantControlDelta>,
     pending_server_requests: HashMap<String, PendingServerRequest>,
     turn_modes_by_id: HashMap<String, CollaborationMode>,
     pending_turn_mode_by_thread: HashMap<String, CollaborationMode>,
+}
+
+#[derive(Debug, Clone)]
+struct BufferedAssistantControlDelta {
+    text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1573,6 +1581,17 @@ async fn handle_notification(
                     app,
                 )
                 .await;
+                let mut state = state.lock().await;
+                if let Some(local_thread_id) = state
+                    .local_thread_by_codex_id
+                    .get(&event.thread_id)
+                    .cloned()
+                {
+                    clear_buffered_assistant_control_deltas_for_thread(
+                        &mut state,
+                        &local_thread_id,
+                    );
+                }
             }
         }
         "turn/completed" => {
@@ -1666,96 +1685,120 @@ async fn handle_notification(
                     } else {
                         None
                     };
-                update_snapshot_for_codex_thread(
-                    state,
-                    &event.thread_id,
-                    |snapshot| {
-                        if event.item.get("type").and_then(serde_json::Value::as_str)
-                            == Some("plan")
-                        {
-                            match plan_target.unwrap_or(PlanTarget::Task) {
-                                PlanTarget::Proposed => {
-                                    let existing = snapshot
-                                        .proposed_plan
-                                        .as_ref()
-                                        .filter(|plan| plan.turn_id == event.turn_id);
-                                    snapshot.proposed_plan = proposed_plan_from_item(
-                                        &event.turn_id,
-                                        &event.item,
-                                        if is_started {
-                                            crate::domain::conversation::ProposedPlanStatus::Streaming
-                                        } else {
-                                            crate::domain::conversation::ProposedPlanStatus::Ready
-                                        },
-                                    )
-                                    .or_else(|| existing.cloned());
-                                    if let Some(plan) = snapshot.proposed_plan.as_mut() {
-                                        if is_started {
-                                            plan.status =
-                                                crate::domain::conversation::ProposedPlanStatus::Streaming;
-                                            plan.is_awaiting_decision = false;
-                                        } else {
-                                            complete_proposed_plan(
-                                                plan,
-                                                event.item["id"].as_str().unwrap_or_default(),
-                                                Some(&event.item),
-                                            );
-                                        }
-                                    }
-                                }
-                                PlanTarget::Task => {
-                                    let status = if is_started {
-                                        ConversationTaskStatus::Running
+                let maybe_snapshot = {
+                    let mut state = state.lock().await;
+                    let Some(local_thread_id) = state
+                        .local_thread_by_codex_id
+                        .get(&event.thread_id)
+                        .cloned()
+                    else {
+                        return;
+                    };
+                    clear_buffered_assistant_control_delta(
+                        &mut state,
+                        &local_thread_id,
+                        event.item["id"].as_str().unwrap_or_default(),
+                    );
+
+                    let Some(snapshot) = state.snapshots_by_thread.get_mut(&local_thread_id) else {
+                        return;
+                    };
+
+                    if event.item.get("type").and_then(serde_json::Value::as_str) == Some("plan") {
+                        match plan_target.unwrap_or(PlanTarget::Task) {
+                            PlanTarget::Proposed => {
+                                let existing = snapshot
+                                    .proposed_plan
+                                    .as_ref()
+                                    .filter(|plan| plan.turn_id == event.turn_id);
+                                snapshot.proposed_plan = proposed_plan_from_item(
+                                    &event.turn_id,
+                                    &event.item,
+                                    if is_started {
+                                        crate::domain::conversation::ProposedPlanStatus::Streaming
                                     } else {
-                                        task_status_from_snapshot(snapshot)
-                                    };
-                                    let existing = snapshot
-                                        .task_plan
-                                        .as_ref()
-                                        .filter(|plan| plan.turn_id == event.turn_id);
-                                    snapshot.task_plan = task_plan_from_item(
-                                        &event.turn_id,
-                                        &event.item,
-                                        status,
-                                    )
-                                    .or_else(|| existing.cloned());
-                                    if let Some(plan) = snapshot.task_plan.as_mut() {
-                                        if is_started {
-                                            plan.status = ConversationTaskStatus::Running;
-                                        } else {
-                                            complete_task_plan(
-                                                plan,
-                                                event.item["id"].as_str().unwrap_or_default(),
-                                                Some(&event.item),
-                                                status,
-                                            );
-                                        }
+                                        crate::domain::conversation::ProposedPlanStatus::Ready
+                                    },
+                                )
+                                .or_else(|| existing.cloned());
+                                if let Some(plan) = snapshot.proposed_plan.as_mut() {
+                                    if is_started {
+                                        plan.status =
+                                            crate::domain::conversation::ProposedPlanStatus::Streaming;
+                                        plan.is_awaiting_decision = false;
+                                    } else {
+                                        complete_proposed_plan(
+                                            plan,
+                                            event.item["id"].as_str().unwrap_or_default(),
+                                            Some(&event.item),
+                                        );
                                     }
                                 }
                             }
-                            reconcile_snapshot_status(snapshot);
-                            return;
+                            PlanTarget::Task => {
+                                let status = if is_started {
+                                    ConversationTaskStatus::Running
+                                } else {
+                                    task_status_from_snapshot(snapshot)
+                                };
+                                let existing = snapshot
+                                    .task_plan
+                                    .as_ref()
+                                    .filter(|plan| plan.turn_id == event.turn_id);
+                                snapshot.task_plan =
+                                    task_plan_from_item(&event.turn_id, &event.item, status)
+                                        .or_else(|| existing.cloned());
+                                if let Some(plan) = snapshot.task_plan.as_mut() {
+                                    if is_started {
+                                        plan.status = ConversationTaskStatus::Running;
+                                    } else {
+                                        complete_task_plan(
+                                            plan,
+                                            event.item["id"].as_str().unwrap_or_default(),
+                                            Some(&event.item),
+                                            status,
+                                        );
+                                    }
+                                }
+                            }
                         }
+                        reconcile_snapshot_status(snapshot);
+                        Some(snapshot.clone())
+                    } else {
                         let collab_subagents = subagents_from_collab_item(&event.item);
                         if !collab_subagents.is_empty() {
                             apply_subagent_updates(snapshot, collab_subagents);
                             reconcile_snapshot_status(snapshot);
-                            return;
-                        }
-                        if let Some(item) = normalize_item(Some(&event.turn_id), &event.item).map(|item| {
-                            if is_started {
-                                mark_item_streaming(item)
-                            } else {
-                                item
+                            Some(snapshot.clone())
+                        } else if is_hidden_assistant_control_item(&event.item) {
+                            let item_id = event.item["id"].as_str().unwrap_or_default();
+                            snapshot.items.retain(|item| match item {
+                                ConversationItem::Message(message) => message.id != item_id,
+                                _ => true,
+                            });
+                            reconcile_snapshot_status(snapshot);
+                            Some(snapshot.clone())
+                        } else {
+                            if let Some(item) = normalize_item(Some(&event.turn_id), &event.item)
+                                .map(|item| {
+                                    if is_started {
+                                        mark_item_streaming(item)
+                                    } else {
+                                        item
+                                    }
+                                })
+                            {
+                                upsert_item(&mut snapshot.items, item);
                             }
-                        }) {
-                            upsert_item(&mut snapshot.items, item);
+                            reconcile_snapshot_status(snapshot);
+                            Some(snapshot.clone())
                         }
-                        reconcile_snapshot_status(snapshot);
-                    },
-                    app,
-                )
-                .await;
+                    }
+                };
+
+                if let Some(snapshot) = maybe_snapshot {
+                    emit_snapshot_from_handle(app, snapshot);
+                }
             }
         }
         "item/plan/delta" => {
@@ -1806,21 +1849,43 @@ async fn handle_notification(
         "item/agentMessage/delta" => {
             if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
             {
-                update_snapshot_for_codex_thread(
-                    state,
-                    &event.thread_id,
-                    |snapshot| {
-                        append_agent_delta(
-                            &mut snapshot.items,
+                let maybe_snapshot = {
+                    let mut state = state.lock().await;
+                    let Some(local_thread_id) = state
+                        .local_thread_by_codex_id
+                        .get(&event.thread_id)
+                        .cloned()
+                    else {
+                        return;
+                    };
+                    let buffer_key = assistant_control_delta_key(&local_thread_id, &event.item_id);
+                    let mut buffered = state.buffered_assistant_control_deltas.remove(&buffer_key);
+                    let snapshot = {
+                        let Some(snapshot) = state.snapshots_by_thread.get_mut(&local_thread_id)
+                        else {
+                            return;
+                        };
+                        apply_buffered_agent_message_delta(
+                            snapshot,
                             &event.turn_id,
                             &event.item_id,
                             &event.delta,
+                            &mut buffered,
                         );
                         reconcile_snapshot_status(snapshot);
-                    },
-                    app,
-                )
-                .await;
+                        snapshot.clone()
+                    };
+                    if let Some(buffered) = buffered {
+                        state
+                            .buffered_assistant_control_deltas
+                            .insert(buffer_key, buffered);
+                    }
+                    Some(snapshot)
+                };
+
+                if let Some(snapshot) = maybe_snapshot {
+                    emit_snapshot_from_handle(app, snapshot);
+                }
             }
         }
         "item/reasoning/summaryTextDelta" => {
@@ -2034,6 +2099,63 @@ fn task_status_from_snapshot(snapshot: &ThreadConversationSnapshot) -> Conversat
     }
 }
 
+fn assistant_control_delta_key(thread_id: &str, item_id: &str) -> String {
+    format!("{thread_id}:{item_id}")
+}
+
+fn clear_buffered_assistant_control_delta(
+    state: &mut SessionState,
+    thread_id: &str,
+    item_id: &str,
+) {
+    state
+        .buffered_assistant_control_deltas
+        .remove(&assistant_control_delta_key(thread_id, item_id));
+}
+
+fn clear_buffered_assistant_control_deltas_for_thread(state: &mut SessionState, thread_id: &str) {
+    let prefix = format!("{thread_id}:");
+    state
+        .buffered_assistant_control_deltas
+        .retain(|key, _| !key.starts_with(&prefix));
+}
+
+fn apply_buffered_agent_message_delta(
+    snapshot: &mut ThreadConversationSnapshot,
+    turn_id: &str,
+    item_id: &str,
+    delta: &str,
+    buffered: &mut Option<BufferedAssistantControlDelta>,
+) {
+    if let Some(prefix) = buffered.as_mut() {
+        prefix.text.push_str(delta);
+        if is_hidden_assistant_control_message(&prefix.text) {
+            buffered.take();
+            return;
+        }
+        if is_hidden_assistant_control_message_prefix(&prefix.text) {
+            return;
+        }
+
+        append_agent_delta(&mut snapshot.items, turn_id, item_id, &prefix.text);
+        buffered.take();
+        return;
+    }
+
+    if is_hidden_assistant_control_message(delta) {
+        return;
+    }
+
+    if is_hidden_assistant_control_message_prefix(delta) {
+        *buffered = Some(BufferedAssistantControlDelta {
+            text: delta.to_string(),
+        });
+        return;
+    }
+
+    append_agent_delta(&mut snapshot.items, turn_id, item_id, delta);
+}
+
 fn snapshot_mode_for_turn(
     snapshot: &ThreadConversationSnapshot,
     turn_id: &str,
@@ -2080,69 +2202,6 @@ async fn update_snapshot_for_codex_thread<F>(
     if let Some(snapshot) = maybe_snapshot {
         emit_snapshot_from_handle(app, snapshot);
     }
-}
-
-fn reconcile_snapshot_status(snapshot: &mut ThreadConversationSnapshot) {
-    if !snapshot.pending_interactions.is_empty()
-        || snapshot
-            .proposed_plan
-            .as_ref()
-            .is_some_and(|plan| plan.is_awaiting_decision)
-    {
-        snapshot.status = ConversationStatus::WaitingForExternalAction;
-        return;
-    }
-
-    if snapshot.active_turn_id.is_some() {
-        snapshot.status = ConversationStatus::Running;
-        return;
-    }
-
-    if snapshot.error.is_some() {
-        snapshot.status = ConversationStatus::Failed;
-        return;
-    }
-
-    if matches!(
-        snapshot.status,
-        ConversationStatus::Interrupted | ConversationStatus::Failed
-    ) {
-        return;
-    }
-
-    snapshot.status = if snapshot_has_visible_content(snapshot) {
-        ConversationStatus::Completed
-    } else {
-        ConversationStatus::Idle
-    };
-}
-
-fn snapshot_has_visible_content(snapshot: &ThreadConversationSnapshot) -> bool {
-    !snapshot.items.is_empty()
-        || snapshot
-            .proposed_plan
-            .as_ref()
-            .is_some_and(plan_snapshot_has_visible_content)
-        || snapshot
-            .task_plan
-            .as_ref()
-            .is_some_and(task_snapshot_has_visible_content)
-}
-
-fn plan_snapshot_has_visible_content(
-    plan: &crate::domain::conversation::ProposedPlanSnapshot,
-) -> bool {
-    !plan.markdown.trim().is_empty()
-        || !plan.steps.is_empty()
-        || !plan.explanation.trim().is_empty()
-}
-
-fn task_snapshot_has_visible_content(
-    plan: &crate::domain::conversation::ConversationTaskSnapshot,
-) -> bool {
-    !plan.markdown.trim().is_empty()
-        || !plan.steps.is_empty()
-        || !plan.explanation.trim().is_empty()
 }
 
 fn merge_subagent_snapshots(
@@ -2452,6 +2511,7 @@ mod tests {
                 snapshots_by_thread: HashMap::from([(snapshot.thread_id.clone(), snapshot)]),
                 local_thread_by_codex_id: HashMap::new(),
                 capabilities: None,
+                buffered_assistant_control_deltas: HashMap::new(),
                 pending_server_requests: HashMap::new(),
                 turn_modes_by_id: HashMap::new(),
                 pending_turn_mode_by_thread: HashMap::new(),
@@ -2598,6 +2658,7 @@ mod tests {
                 "thread-1".to_string(),
             )]),
             capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
@@ -2652,6 +2713,7 @@ mod tests {
                 "thread-1".to_string(),
             )]),
             capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::from([("turn-new".to_string(), CollaborationMode::Plan)]),
             pending_turn_mode_by_thread: HashMap::new(),
@@ -2712,12 +2774,10 @@ mod tests {
             .take_pending_plan_decision("thread-1")
             .await
             .expect("first consume should succeed");
-        assert!(
-            !consumed
-                .proposed_plan
-                .as_ref()
-                .is_some_and(|plan| plan.is_awaiting_decision)
-        );
+        assert!(!consumed
+            .proposed_plan
+            .as_ref()
+            .is_some_and(|plan| plan.is_awaiting_decision));
 
         let error = session
             .take_pending_plan_decision("thread-1")
@@ -2765,12 +2825,10 @@ mod tests {
             .snapshots_by_thread
             .get("thread-1")
             .expect("snapshot should exist");
-        assert!(
-            snapshot
-                .proposed_plan
-                .as_ref()
-                .is_some_and(|plan| plan.is_awaiting_decision)
-        );
+        assert!(snapshot
+            .proposed_plan
+            .as_ref()
+            .is_some_and(|plan| plan.is_awaiting_decision));
     }
 
     #[tokio::test]
@@ -2801,6 +2859,7 @@ mod tests {
             snapshots_by_thread: HashMap::from([("thread-1".to_string(), snapshot)]),
             local_thread_by_codex_id: HashMap::new(),
             capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
@@ -2881,6 +2940,7 @@ mod tests {
                 "thread-1".to_string(),
             )]),
             capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),

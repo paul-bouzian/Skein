@@ -47,6 +47,18 @@ pub struct ServerNotificationEnvelope {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct InterAgentCommunicationWire {
+    author: String,
+    recipient: String,
+    #[serde(default)]
+    other_recipients: Vec<String>,
+    #[serde(rename = "content")]
+    _content: String,
+    #[serde(rename = "trigger_turn")]
+    _trigger_turn: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadReference {
     pub id: String,
@@ -752,6 +764,7 @@ pub fn build_history_snapshot(
 
     snapshot.status = last_status;
     snapshot.error = last_error;
+    reconcile_snapshot_status(&mut snapshot);
     snapshot
 }
 
@@ -854,6 +867,65 @@ pub fn conversation_status_from_turn_status(status: &str) -> ConversationStatus 
         "failed" => ConversationStatus::Failed,
         _ => ConversationStatus::Idle,
     }
+}
+
+pub(crate) fn reconcile_snapshot_status(snapshot: &mut ThreadConversationSnapshot) {
+    if !snapshot.pending_interactions.is_empty()
+        || snapshot
+            .proposed_plan
+            .as_ref()
+            .is_some_and(|plan| plan.is_awaiting_decision)
+    {
+        snapshot.status = ConversationStatus::WaitingForExternalAction;
+        return;
+    }
+
+    if snapshot.active_turn_id.is_some() {
+        snapshot.status = ConversationStatus::Running;
+        return;
+    }
+
+    if snapshot.error.is_some() {
+        snapshot.status = ConversationStatus::Failed;
+        return;
+    }
+
+    if matches!(
+        snapshot.status,
+        ConversationStatus::Interrupted | ConversationStatus::Failed
+    ) {
+        return;
+    }
+
+    snapshot.status = if snapshot_has_visible_content(snapshot) {
+        ConversationStatus::Completed
+    } else {
+        ConversationStatus::Idle
+    };
+}
+
+fn snapshot_has_visible_content(snapshot: &ThreadConversationSnapshot) -> bool {
+    !snapshot.items.is_empty()
+        || snapshot
+            .proposed_plan
+            .as_ref()
+            .is_some_and(plan_snapshot_has_visible_content)
+        || snapshot
+            .task_plan
+            .as_ref()
+            .is_some_and(task_snapshot_has_visible_content)
+}
+
+fn plan_snapshot_has_visible_content(plan: &ProposedPlanSnapshot) -> bool {
+    !plan.markdown.trim().is_empty()
+        || !plan.steps.is_empty()
+        || !plan.explanation.trim().is_empty()
+}
+
+fn task_snapshot_has_visible_content(plan: &ConversationTaskSnapshot) -> bool {
+    !plan.markdown.trim().is_empty()
+        || !plan.steps.is_empty()
+        || !plan.explanation.trim().is_empty()
 }
 
 pub fn task_status_from_turn_status(status: &str) -> ConversationTaskStatus {
@@ -1004,7 +1076,7 @@ pub fn normalize_item(turn_id: Option<&str>, value: &Value) -> Option<Conversati
                 .iter()
                 .filter_map(user_content_to_image_attachment)
                 .collect::<Vec<_>>();
-            let text = if is_hidden_control_message(&text) {
+            let text = if is_hidden_user_control_message(&text) {
                 if images.is_empty() {
                     return None;
                 }
@@ -1021,14 +1093,20 @@ pub fn normalize_item(turn_id: Option<&str>, value: &Value) -> Option<Conversati
                 is_streaming: false,
             }))
         }
-        "agentMessage" => Some(ConversationItem::Message(ConversationMessageItem {
-            id,
-            turn_id,
-            role: ConversationRole::Assistant,
-            text: string_field(value, "text"),
-            images: None,
-            is_streaming: false,
-        })),
+        "agentMessage" => {
+            let text = string_field(value, "text");
+            if is_hidden_assistant_control_message(&text) {
+                return None;
+            }
+            Some(ConversationItem::Message(ConversationMessageItem {
+                id,
+                turn_id,
+                role: ConversationRole::Assistant,
+                text,
+                images: None,
+                is_streaming: false,
+            }))
+        }
         "plan" => None,
         "reasoning" => Some(ConversationItem::Reasoning(ConversationReasoningItem {
             id,
@@ -1457,21 +1535,38 @@ pub fn append_agent_delta(
     item_id: &str,
     delta: &str,
 ) {
-    match find_message_mut(items, item_id, ConversationRole::Assistant) {
-        Some(item) => {
+    if let Some(index) = find_message_index(items, item_id, ConversationRole::Assistant) {
+        let should_remove = {
+            let ConversationItem::Message(item) = &mut items[index] else {
+                return;
+            };
             item.turn_id.get_or_insert_with(|| turn_id.to_string());
             item.text.push_str(delta);
-            item.is_streaming = true;
+            if is_hidden_assistant_control_message(&item.text) {
+                true
+            } else {
+                item.is_streaming = true;
+                false
+            }
+        };
+        if should_remove {
+            items.remove(index);
         }
-        None => items.push(ConversationItem::Message(ConversationMessageItem {
-            id: item_id.to_string(),
-            turn_id: Some(turn_id.to_string()),
-            role: ConversationRole::Assistant,
-            text: delta.to_string(),
-            images: None,
-            is_streaming: true,
-        })),
+        return;
     }
+
+    if is_hidden_assistant_control_message(delta) {
+        return;
+    }
+
+    items.push(ConversationItem::Message(ConversationMessageItem {
+        id: item_id.to_string(),
+        turn_id: Some(turn_id.to_string()),
+        role: ConversationRole::Assistant,
+        text: delta.to_string(),
+        images: None,
+        is_streaming: true,
+    }));
 }
 
 pub fn append_reasoning_summary(
@@ -1938,8 +2033,80 @@ fn apply_text_element_placeholders<'a>(
     rendered
 }
 
-fn is_hidden_control_message(text: &str) -> bool {
-    text == plan_approval_message()
+fn is_hidden_user_control_message(text: &str) -> bool {
+    text == plan_approval_message() || is_subagent_notification_message(text)
+}
+
+pub(crate) fn is_hidden_assistant_control_message(text: &str) -> bool {
+    is_subagent_notification_message(text) || is_inter_agent_communication_message(text)
+}
+
+pub(crate) fn is_hidden_assistant_control_message_prefix(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    !trimmed.is_empty()
+        && !is_hidden_assistant_control_message(trimmed)
+        && (is_subagent_notification_message_prefix(trimmed)
+            || is_inter_agent_communication_message_prefix(trimmed))
+}
+
+pub(crate) fn is_hidden_assistant_control_item(value: &Value) -> bool {
+    value.get("type").and_then(Value::as_str) == Some("agentMessage")
+        && is_hidden_assistant_control_message(&string_field(value, "text"))
+}
+
+fn is_subagent_notification_message(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with("<subagent_notification>") && trimmed.ends_with("</subagent_notification>")
+}
+
+fn is_subagent_notification_message_prefix(text: &str) -> bool {
+    const OPEN_TAG: &str = "<subagent_notification>";
+    OPEN_TAG.starts_with(text)
+        || (text.starts_with(OPEN_TAG) && !text.contains("</subagent_notification>"))
+}
+
+fn is_inter_agent_communication_message(text: &str) -> bool {
+    let Ok(communication) = serde_json::from_str::<InterAgentCommunicationWire>(text.trim()) else {
+        return false;
+    };
+
+    is_agent_path(&communication.author)
+        && is_agent_path(&communication.recipient)
+        && communication
+            .other_recipients
+            .iter()
+            .all(|recipient| is_agent_path(recipient))
+}
+
+fn is_inter_agent_communication_message_prefix(text: &str) -> bool {
+    let Some(after_brace) = text.strip_prefix('{') else {
+        return false;
+    };
+
+    json_object_key_prefix_matches(after_brace, "author")
+}
+
+fn json_object_key_prefix_matches(text: &str, key: &str) -> bool {
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let expected_key = format!("\"{key}\"");
+    if expected_key.starts_with(trimmed) {
+        return true;
+    }
+
+    let Some(after_key) = trimmed.strip_prefix(&expected_key) else {
+        return false;
+    };
+    let after_key = after_key.trim_start();
+
+    after_key.is_empty() || ":".starts_with(after_key) || after_key.starts_with(':')
+}
+
+fn is_agent_path(value: &str) -> bool {
+    value.starts_with('/') && value.len() > 1
 }
 
 fn thread_spawn_source(source: &Value) -> Option<ThreadSpawnSourceWire> {
@@ -2031,16 +2198,17 @@ fn same_message_images(
     }
 }
 
-fn find_message_mut<'a>(
-    items: &'a mut [ConversationItem],
+fn find_message_index(
+    items: &[ConversationItem],
     item_id: &str,
     role: ConversationRole,
-) -> Option<&'a mut ConversationMessageItem> {
-    items.iter_mut().find_map(|item| match item {
-        ConversationItem::Message(message) if message.id == item_id && message.role == role => {
-            Some(message)
-        }
-        _ => None,
+) -> Option<usize> {
+    items.iter().position(|item| {
+        matches!(
+            item,
+            ConversationItem::Message(message)
+                if message.id == item_id && message.role == role
+        )
     })
 }
 
@@ -2094,16 +2262,25 @@ mod tests {
     use super::*;
     use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
 
+    fn inter_agent_control_message(agent_path: &str) -> String {
+        format!(
+            "{{\"author\":\"{agent_path}\",\"recipient\":\"/root\",\"other_recipients\":[],\"content\":\"<subagent_notification>\\n{{\\\"agent_path\\\":\\\"{agent_path}\\\",\\\"status\\\":{{\\\"completed\\\":\\\"Done\\\"}}}}\\n</subagent_notification>\",\"trigger_turn\":false}}"
+        )
+    }
+
     #[test]
     fn normalize_user_message_joins_visible_content() {
-        let item = normalize_item(Some("turn-1"), &json!({
-            "id": "user-1",
-            "type": "userMessage",
-            "content": [
-                { "type": "text", "text": "Hello" },
-                { "type": "image", "url": "https://example.com" }
-            ]
-        }))
+        let item = normalize_item(
+            Some("turn-1"),
+            &json!({
+                "id": "user-1",
+                "type": "userMessage",
+                "content": [
+                    { "type": "text", "text": "Hello" },
+                    { "type": "image", "url": "https://example.com" }
+                ]
+            }),
+        )
         .expect("item should normalize");
 
         match item {
@@ -2124,22 +2301,25 @@ mod tests {
 
     #[test]
     fn normalize_user_message_replaces_text_elements_and_hides_structured_mentions() {
-        let item = normalize_item(Some("turn-2"), &json!({
-            "id": "user-2",
-            "type": "userMessage",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "Expanded prompt",
-                    "text_elements": [{
-                        "byteRange": { "start": 0, "end": 15 },
-                        "placeholder": "/prompts:debug(\"boom\")"
-                    }]
-                },
-                { "type": "skill", "name": "loom-standards", "path": "/tmp/skill" },
-                { "type": "mention", "name": "github", "path": "app://github" }
-            ]
-        }))
+        let item = normalize_item(
+            Some("turn-2"),
+            &json!({
+                "id": "user-2",
+                "type": "userMessage",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Expanded prompt",
+                        "text_elements": [{
+                            "byteRange": { "start": 0, "end": 15 },
+                            "placeholder": "/prompts:debug(\"boom\")"
+                        }]
+                    },
+                    { "type": "skill", "name": "loom-standards", "path": "/tmp/skill" },
+                    { "type": "mention", "name": "github", "path": "app://github" }
+                ]
+            }),
+        )
         .expect("item should normalize");
 
         match item {
@@ -2152,14 +2332,17 @@ mod tests {
 
     #[test]
     fn normalize_user_message_hides_control_text_but_keeps_images() {
-        let item = normalize_item(Some("turn-3"), &json!({
-            "id": "user-approval-image",
-            "type": "userMessage",
-            "content": [
-                { "type": "text", "text": plan_approval_message() },
-                { "type": "localImage", "path": "/tmp/approval.png" }
-            ]
-        }))
+        let item = normalize_item(
+            Some("turn-3"),
+            &json!({
+                "id": "user-approval-image",
+                "type": "userMessage",
+                "content": [
+                    { "type": "text", "text": plan_approval_message() },
+                    { "type": "localImage", "path": "/tmp/approval.png" }
+                ]
+            }),
+        )
         .expect("item should normalize");
 
         match item {
@@ -2174,6 +2357,23 @@ mod tests {
             }
             _ => panic!("expected a message item"),
         }
+    }
+
+    #[test]
+    fn normalize_user_message_hides_subagent_notification_fragments() {
+        let item = normalize_item(
+            Some("turn-3"),
+            &json!({
+                "id": "user-subagent-notification",
+                "type": "userMessage",
+                "content": [{
+                    "type": "text",
+                    "text": "<subagent_notification>\n{\"agent_path\":\"/root/helper\",\"status\":{\"completed\":\"Done\"}}\n</subagent_notification>"
+                }]
+            }),
+        );
+
+        assert!(item.is_none());
     }
 
     #[test]
@@ -2300,12 +2500,15 @@ mod tests {
 
     #[test]
     fn rich_text_fields_join_string_arrays_and_drop_empty_arrays() {
-        let item = normalize_item(Some("turn-4"), &json!({
-            "id": "reasoning-1",
-            "type": "reasoning",
-            "summary": ["First thought", "Second thought"],
-            "content": []
-        }))
+        let item = normalize_item(
+            Some("turn-4"),
+            &json!({
+                "id": "reasoning-1",
+                "type": "reasoning",
+                "summary": ["First thought", "Second thought"],
+                "content": []
+            }),
+        )
         .expect("reasoning should normalize");
 
         match item {
@@ -2319,17 +2522,61 @@ mod tests {
     }
 
     #[test]
+    fn normalize_agent_message_hides_inter_agent_envelopes() {
+        let item = normalize_item(
+            Some("turn-5"),
+            &json!({
+                "id": "assistant-inter-agent",
+                "type": "agentMessage",
+                "text": inter_agent_control_message("/root/proofplan_investigator")
+            }),
+        );
+
+        assert!(item.is_none());
+    }
+
+    #[test]
+    fn normalize_agent_message_hides_subagent_notification_fragments() {
+        let item = normalize_item(
+            Some("turn-5"),
+            &json!({
+                "id": "assistant-subagent-notification",
+                "type": "agentMessage",
+                "text": "<subagent_notification>\n{\"agent_path\":\"/root/helper\",\"status\":{\"completed\":\"Done\"}}\n</subagent_notification>"
+            }),
+        );
+
+        assert!(item.is_none());
+    }
+
+    #[test]
+    fn hidden_assistant_control_prefix_detection_tolerates_whitespace() {
+        assert!(is_hidden_assistant_control_message_prefix("{"));
+        assert!(is_hidden_assistant_control_message_prefix("{   "));
+        assert!(is_hidden_assistant_control_message_prefix("{   \"auth"));
+        assert!(is_hidden_assistant_control_message_prefix(
+            "{\n  \"author\" :"
+        ));
+        assert!(!is_hidden_assistant_control_message_prefix(
+            "{\"assistant\":"
+        ));
+    }
+
+    #[test]
     fn web_search_uses_query_as_summary_and_action_details_as_output() {
-        let item = normalize_item(Some("turn-5"), &json!({
-            "id": "search-1",
-            "type": "webSearch",
-            "query": "",
-            "action": {
-                "type": "search",
-                "query": "Le Monde official homepage",
-                "queries": ["Le Monde official homepage", "lemonde.fr"]
-            }
-        }))
+        let item = normalize_item(
+            Some("turn-5"),
+            &json!({
+                "id": "search-1",
+                "type": "webSearch",
+                "query": "",
+                "action": {
+                    "type": "search",
+                    "query": "Le Monde official homepage",
+                    "queries": ["Le Monde official homepage", "lemonde.fr"]
+                }
+            }),
+        )
         .expect("web search should normalize");
 
         match item {
