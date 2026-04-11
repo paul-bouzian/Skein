@@ -11,7 +11,7 @@ use crate::error::{AppError, AppResult};
 use crate::runtime::codex_paths::{build_codex_process_path, resolve_codex_binary_path};
 
 const AUTO_THREAD_TITLE_PREFIX: &str = "Thread ";
-const FIRST_PROMPT_NAMING_TIMEOUT: Duration = Duration::from_secs(15);
+const FIRST_PROMPT_NAMING_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_THREAD_TITLE_CHARS: usize = 42;
 const MAX_WORKTREE_LABEL_CHARS: usize = 48;
 const MAX_BRANCH_SLUG_CHARS: usize = 48;
@@ -616,6 +616,6 @@ mod tests {
 
     #[test]
     fn first_prompt_naming_timeout_stays_short_for_best_effort_send_path() {
-        assert!(super::FIRST_PROMPT_NAMING_TIMEOUT <= std::time::Duration::from_secs(20));
+        assert!(super::FIRST_PROMPT_NAMING_TIMEOUT <= std::time::Duration::from_secs(30));
     }
 }

@@ -2644,6 +2644,204 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("does not keep a previous thread submission in flight after switching threads", async () => {
+    const pendingSend =
+      createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    mockedBridge.openThreadConversation.mockImplementation(async (threadId) => ({
+      snapshot:
+        threadId === "thread-2"
+          ? makeConversationSnapshot({
+              status: "waitingForExternalAction",
+              composer: { ...baseComposer, collaborationMode: "plan" },
+              proposedPlan: makeProposedPlan(),
+            })
+          : makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    }));
+    mockedBridge.sendThreadMessage.mockReturnValue(pendingSend.promise);
+    mockedBridge.submitPlanDecision.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        composer: { ...baseComposer, collaborationMode: "build" },
+        proposedPlan: makeProposedPlan({
+          status: "approved",
+          isAwaitingDecision: false,
+        }),
+      }),
+    );
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText("Message Loom...");
+    await userEvent.type(input, "Ship the fix");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment({
+          id: "env-2",
+          threads: [makeThread({ id: "thread-2" })],
+        })}
+        thread={makeThread({ id: "thread-2" })}
+      />,
+    );
+
+    const approveButton = await screen.findByRole("button", {
+      name: "Approve plan",
+    });
+    expect(approveButton).toBeEnabled();
+
+    await userEvent.click(approveButton);
+
+    await waitFor(() => {
+      expect(mockedBridge.submitPlanDecision).toHaveBeenCalledWith({
+        threadId: "thread-2",
+        action: "approve",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+      });
+    });
+  });
+
+  it("ignores a stale send failure after switching threads", async () => {
+    const pendingSend =
+      createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({ status: "idle" }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.sendThreadMessage.mockImplementationOnce(
+      () => pendingSend.promise,
+    );
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText("Message Loom...");
+    await userEvent.type(input, "Ship the fix");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment({
+          id: "env-2",
+          threads: [makeThread({ id: "thread-2" })],
+        })}
+        thread={makeThread({ id: "thread-2" })}
+      />,
+    );
+
+    const switchedInput = await screen.findByPlaceholderText("Message Loom...");
+    await userEvent.type(switchedInput, "New thread draft");
+
+    pendingSend.reject(new Error("send failed"));
+
+    await waitFor(() => {
+      expect(switchedInput).toHaveValue("New thread draft");
+    });
+  });
+
+  it("ignores a stale plan approval completion after switching threads", async () => {
+    const pendingApproval =
+      createDeferred<ReturnType<typeof makeConversationSnapshot>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.submitPlanDecision.mockImplementation((input) => {
+      if (input.threadId === "thread-1") {
+        return pendingApproval.promise;
+      }
+
+      return Promise.resolve(
+        makeConversationSnapshot({
+          status: "running",
+          composer: { ...baseComposer, collaborationMode: "build" },
+          proposedPlan: makeProposedPlan({
+            status: "approved",
+            isAwaitingDecision: false,
+          }),
+        }),
+      );
+    });
+
+    const { rerender } = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Approve plan" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.submitPlanDecision).toHaveBeenCalledWith({
+        threadId: "thread-1",
+        action: "approve",
+        composer: expect.objectContaining({
+          collaborationMode: "build",
+        }),
+      });
+    });
+
+    rerender(
+      <ThreadConversation
+        environment={makeEnvironment({
+          id: "env-2",
+          threads: [makeThread({ id: "thread-2" })],
+        })}
+        thread={makeThread({ id: "thread-2" })}
+      />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Refine" }),
+    );
+    const input = screen.getByPlaceholderText("Refine the proposed plan...");
+    await userEvent.type(input, "Keep the rollback section");
+
+    pendingApproval.resolve(
+      makeConversationSnapshot({
+        status: "running",
+        composer: { ...baseComposer, collaborationMode: "build" },
+        proposedPlan: makeProposedPlan({
+          status: "approved",
+          isAwaitingDecision: false,
+        }),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByPlaceholderText("Refine the proposed plan..."),
+      ).toHaveValue("Keep the rollback section");
+    });
+  });
+
   it("keeps refine mode and draft content when approving a plan fails", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
