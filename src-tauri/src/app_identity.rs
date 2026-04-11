@@ -10,6 +10,7 @@ pub const LEGACY_APP_BUNDLE_ID: &str = "com.paulbouzian.threadex";
 
 pub const APP_HOME_DIR_NAME: &str = ".loom";
 pub const LEGACY_APP_HOME_DIR_NAME: &str = ".threadex";
+pub const DEVELOPMENT_STORAGE_DIR_NAME: &str = "development";
 
 pub const APP_DATABASE_FILE_NAME: &str = "loom.sqlite3";
 pub const LEGACY_APP_DATABASE_FILE_NAME: &str = "threadex.sqlite3";
@@ -32,37 +33,143 @@ pub struct AppStoragePaths {
 }
 
 pub fn prepare_storage_paths(app: &AppHandle) -> AppResult<AppStoragePaths> {
-    let app_data_dir = app
+    let canonical_app_data_dir = app
         .path()
         .app_data_dir()
         .map_err(|error| AppError::Runtime(error.to_string()))?;
-    let legacy_app_data_dir = app_data_dir
+    let legacy_app_data_dir = canonical_app_data_dir
         .parent()
         .ok_or_else(|| {
-            AppError::Runtime("Unable to resolve the parent directory for Loom app data.".to_string())
+            AppError::Runtime(
+                "Unable to resolve the parent directory for Loom app data.".to_string(),
+            )
         })?
         .join(LEGACY_APP_BUNDLE_ID);
-    migrate_directory_namespace(&legacy_app_data_dir, &app_data_dir)?;
+    migrate_directory_namespace(&legacy_app_data_dir, &canonical_app_data_dir)?;
 
-    let app_home_dir = app
+    let canonical_app_home_dir = app
         .path()
         .home_dir()
         .map_err(|error| AppError::Runtime(error.to_string()))?
         .join(APP_HOME_DIR_NAME);
-    let legacy_app_home_dir = app_home_dir
+    let legacy_app_home_dir = canonical_app_home_dir
         .parent()
         .ok_or_else(|| {
-            AppError::Runtime("Unable to resolve the parent directory for Loom home data.".to_string())
+            AppError::Runtime(
+                "Unable to resolve the parent directory for Loom home data.".to_string(),
+            )
         })?
         .join(LEGACY_APP_HOME_DIR_NAME);
-    migrate_directory_namespace(&legacy_app_home_dir, &app_home_dir)?;
-    fs::create_dir_all(app_home_dir.join("worktrees"))?;
+    migrate_directory_namespace(&legacy_app_home_dir, &canonical_app_home_dir)?;
 
-    Ok(AppStoragePaths {
-        app_data_dir,
-        app_home_dir,
+    let executable_path = std::env::current_exe().map_err(|error| {
+        AppError::Runtime(format!("Unable to resolve Loom executable path: {error}"))
+    })?;
+    let storage_paths = storage_paths_for_executable(
+        canonical_app_data_dir,
+        canonical_app_home_dir,
         legacy_app_home_dir,
+        executable_path,
+    )?;
+
+    fs::create_dir_all(&storage_paths.app_data_dir)?;
+    fs::create_dir_all(storage_paths.app_home_dir.join("worktrees"))?;
+
+    Ok(storage_paths)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AppExecutionProfile {
+    Installed,
+    Development { scope_name: String },
+}
+
+fn storage_paths_for_executable(
+    canonical_app_data_dir: PathBuf,
+    canonical_app_home_dir: PathBuf,
+    legacy_app_home_dir: PathBuf,
+    executable_path: PathBuf,
+) -> AppResult<AppStoragePaths> {
+    match resolve_execution_profile(&executable_path)? {
+        AppExecutionProfile::Installed => Ok(AppStoragePaths {
+            app_data_dir: canonical_app_data_dir,
+            app_home_dir: canonical_app_home_dir,
+            legacy_app_home_dir,
+        }),
+        AppExecutionProfile::Development { scope_name } => {
+            let scoped_root = canonical_app_home_dir
+                .join(DEVELOPMENT_STORAGE_DIR_NAME)
+                .join(scope_name);
+            let scoped_app_home_dir = scoped_root.join("home");
+            let scoped_app_data_dir = scoped_root.join("app-data");
+
+            Ok(AppStoragePaths {
+                app_data_dir: scoped_app_data_dir,
+                app_home_dir: scoped_app_home_dir.clone(),
+                legacy_app_home_dir: scoped_app_home_dir,
+            })
+        }
+    }
+}
+
+fn resolve_execution_profile(executable_path: &Path) -> AppResult<AppExecutionProfile> {
+    let Some(checkout_root) = find_checkout_root(executable_path) else {
+        return Ok(AppExecutionProfile::Installed);
+    };
+
+    let canonical_checkout_root = checkout_root.canonicalize()?;
+    Ok(AppExecutionProfile::Development {
+        scope_name: development_scope_name(&canonical_checkout_root),
     })
+}
+
+fn find_checkout_root(executable_path: &Path) -> Option<PathBuf> {
+    for ancestor in executable_path.ancestors() {
+        let git_entry = ancestor.join(".git");
+        if git_entry.is_dir() || git_entry.is_file() {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+
+    None
+}
+
+fn development_scope_name(checkout_root: &Path) -> String {
+    let checkout_name = checkout_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("workspace");
+    let slug = checkout_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let slug = if slug.is_empty() {
+        "workspace".to_string()
+    } else {
+        slug
+    };
+
+    let hash = fnv1a64_hex(&checkout_root.to_string_lossy());
+    format!("{slug}-{hash}")
+}
+
+fn fnv1a64_hex(value: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+
+    format!("{hash:016x}")
 }
 
 fn migrate_directory_namespace(legacy: &Path, current: &Path) -> AppResult<()> {
@@ -138,10 +245,11 @@ fn remove_empty_tree(path: &Path) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_directory_contents, remove_empty_tree, APP_DATABASE_FILE_NAME,
-        LEGACY_APP_DATABASE_FILE_NAME,
+        development_scope_name, find_checkout_root, merge_directory_contents, remove_empty_tree,
+        resolve_execution_profile, storage_paths_for_executable, AppExecutionProfile,
+        APP_DATABASE_FILE_NAME, DEVELOPMENT_STORAGE_DIR_NAME, LEGACY_APP_DATABASE_FILE_NAME,
     };
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use uuid::Uuid;
 
     #[test]
@@ -151,12 +259,18 @@ mod tests {
         let current = root.join("current");
         std::fs::create_dir_all(legacy.join("nested")).expect("legacy dir should exist");
         std::fs::create_dir_all(&current).expect("current dir should exist");
-        std::fs::write(legacy.join("nested").join(LEGACY_APP_DATABASE_FILE_NAME), b"db")
-            .expect("legacy db should write");
+        std::fs::write(
+            legacy.join("nested").join(LEGACY_APP_DATABASE_FILE_NAME),
+            b"db",
+        )
+        .expect("legacy db should write");
 
         merge_directory_contents(&legacy, &current).expect("merge should succeed");
 
-        assert!(current.join("nested").join(LEGACY_APP_DATABASE_FILE_NAME).exists());
+        assert!(current
+            .join("nested")
+            .join(LEGACY_APP_DATABASE_FILE_NAME)
+            .exists());
         assert!(!Path::new(&legacy.join("nested").join(LEGACY_APP_DATABASE_FILE_NAME)).exists());
 
         let _ = std::fs::remove_dir_all(root);
@@ -172,6 +286,115 @@ mod tests {
         remove_empty_tree(&empty).expect("cleanup should succeed");
 
         assert!(!empty.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn checkout_launched_executables_use_development_profile() {
+        let root = std::env::temp_dir().join(format!("loom-profile-{}", Uuid::now_v7()));
+        let repo_root = root.join("feature-ordering");
+        std::fs::create_dir_all(repo_root.join("src-tauri").join("target").join("debug"))
+            .expect("repo target directory should exist");
+        std::fs::write(repo_root.join(".git"), b"gitdir: /tmp/mock")
+            .expect("git marker should exist");
+        let executable = repo_root
+            .join("src-tauri")
+            .join("target")
+            .join("debug")
+            .join("loom");
+
+        let profile = resolve_execution_profile(&executable).expect("profile should resolve");
+
+        match profile {
+            AppExecutionProfile::Development { scope_name } => {
+                assert!(scope_name.starts_with("feature-ordering-"));
+            }
+            AppExecutionProfile::Installed => {
+                panic!("checkout executable should not resolve as installed")
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn installed_executables_keep_the_canonical_storage_paths() {
+        let root = std::env::temp_dir().join(format!("loom-installed-{}", Uuid::now_v7()));
+        let app_data_dir = root.join("app-data");
+        let app_home_dir = root.join("home");
+        let legacy_app_home_dir = root.join("legacy-home");
+        let executable = PathBuf::from("/Applications/Loom.app/Contents/MacOS/loom");
+
+        let paths = storage_paths_for_executable(
+            app_data_dir.clone(),
+            app_home_dir.clone(),
+            legacy_app_home_dir.clone(),
+            executable,
+        )
+        .expect("storage paths should resolve");
+
+        assert_eq!(paths.app_data_dir, app_data_dir);
+        assert_eq!(paths.app_home_dir, app_home_dir);
+        assert_eq!(paths.legacy_app_home_dir, legacy_app_home_dir);
+    }
+
+    #[test]
+    fn checkout_storage_paths_are_scoped_under_the_development_namespace() {
+        let root = std::env::temp_dir().join(format!("loom-dev-storage-{}", Uuid::now_v7()));
+        let repo_root = root.join("worktree-ordering");
+        std::fs::create_dir_all(repo_root.join("src-tauri").join("target").join("debug"))
+            .expect("repo target directory should exist");
+        std::fs::create_dir_all(root.join("app-data")).expect("app-data directory should exist");
+        std::fs::create_dir_all(root.join("home")).expect("home directory should exist");
+        std::fs::write(repo_root.join(".git"), b"gitdir: /tmp/mock")
+            .expect("git marker should exist");
+
+        let executable = repo_root
+            .join("src-tauri")
+            .join("target")
+            .join("debug")
+            .join("loom");
+        let paths = storage_paths_for_executable(
+            root.join("app-data"),
+            root.join("home"),
+            root.join("legacy-home"),
+            executable,
+        )
+        .expect("storage paths should resolve");
+
+        assert!(paths
+            .app_home_dir
+            .starts_with(root.join("home").join(DEVELOPMENT_STORAGE_DIR_NAME)));
+        assert!(paths.app_data_dir.ends_with(Path::new("app-data")));
+        assert_eq!(paths.legacy_app_home_dir, paths.app_home_dir);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn development_scope_name_is_stable_for_a_checkout_path() {
+        let checkout_root = Path::new("/Users/paul/dev/Loom-feature");
+
+        let first = development_scope_name(checkout_root);
+        let second = development_scope_name(checkout_root);
+
+        assert_eq!(first, second);
+        assert!(first.starts_with("loom-feature-"));
+    }
+
+    #[test]
+    fn find_checkout_root_detects_git_file_worktrees() {
+        let root = std::env::temp_dir().join(format!("loom-checkout-root-{}", Uuid::now_v7()));
+        let repo_root = root.join("repo");
+        let executable_dir = repo_root.join("src-tauri").join("target").join("debug");
+        std::fs::create_dir_all(&executable_dir).expect("executable dir should exist");
+        std::fs::write(repo_root.join(".git"), b"gitdir: /tmp/mock")
+            .expect("git marker should exist");
+
+        let detected =
+            find_checkout_root(&executable_dir.join("loom")).expect("checkout root should resolve");
+        assert_eq!(detected, repo_root);
+
         let _ = std::fs::remove_dir_all(root);
     }
 }
