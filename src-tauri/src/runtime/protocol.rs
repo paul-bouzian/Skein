@@ -764,6 +764,7 @@ pub fn build_history_snapshot(
 
     snapshot.status = last_status;
     snapshot.error = last_error;
+    reconcile_snapshot_status(&mut snapshot);
     snapshot
 }
 
@@ -866,6 +867,65 @@ pub fn conversation_status_from_turn_status(status: &str) -> ConversationStatus 
         "failed" => ConversationStatus::Failed,
         _ => ConversationStatus::Idle,
     }
+}
+
+pub(crate) fn reconcile_snapshot_status(snapshot: &mut ThreadConversationSnapshot) {
+    if !snapshot.pending_interactions.is_empty()
+        || snapshot
+            .proposed_plan
+            .as_ref()
+            .is_some_and(|plan| plan.is_awaiting_decision)
+    {
+        snapshot.status = ConversationStatus::WaitingForExternalAction;
+        return;
+    }
+
+    if snapshot.active_turn_id.is_some() {
+        snapshot.status = ConversationStatus::Running;
+        return;
+    }
+
+    if snapshot.error.is_some() {
+        snapshot.status = ConversationStatus::Failed;
+        return;
+    }
+
+    if matches!(
+        snapshot.status,
+        ConversationStatus::Interrupted | ConversationStatus::Failed
+    ) {
+        return;
+    }
+
+    snapshot.status = if snapshot_has_visible_content(snapshot) {
+        ConversationStatus::Completed
+    } else {
+        ConversationStatus::Idle
+    };
+}
+
+fn snapshot_has_visible_content(snapshot: &ThreadConversationSnapshot) -> bool {
+    !snapshot.items.is_empty()
+        || snapshot
+            .proposed_plan
+            .as_ref()
+            .is_some_and(plan_snapshot_has_visible_content)
+        || snapshot
+            .task_plan
+            .as_ref()
+            .is_some_and(task_snapshot_has_visible_content)
+}
+
+fn plan_snapshot_has_visible_content(plan: &ProposedPlanSnapshot) -> bool {
+    !plan.markdown.trim().is_empty()
+        || !plan.steps.is_empty()
+        || !plan.explanation.trim().is_empty()
+}
+
+fn task_snapshot_has_visible_content(plan: &ConversationTaskSnapshot) -> bool {
+    !plan.markdown.trim().is_empty()
+        || !plan.steps.is_empty()
+        || !plan.explanation.trim().is_empty()
 }
 
 pub fn task_status_from_turn_status(status: &str) -> ConversationTaskStatus {
@@ -1981,6 +2041,14 @@ pub(crate) fn is_hidden_assistant_control_message(text: &str) -> bool {
     is_subagent_notification_message(text) || is_inter_agent_communication_message(text)
 }
 
+pub(crate) fn is_hidden_assistant_control_message_prefix(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    !trimmed.is_empty()
+        && !is_hidden_assistant_control_message(trimmed)
+        && (is_subagent_notification_message_prefix(trimmed)
+            || is_inter_agent_communication_message_prefix(trimmed))
+}
+
 pub(crate) fn is_hidden_assistant_control_item(value: &Value) -> bool {
     value.get("type").and_then(Value::as_str) == Some("agentMessage")
         && is_hidden_assistant_control_message(&string_field(value, "text"))
@@ -1989,6 +2057,12 @@ pub(crate) fn is_hidden_assistant_control_item(value: &Value) -> bool {
 fn is_subagent_notification_message(text: &str) -> bool {
     let trimmed = text.trim();
     trimmed.starts_with("<subagent_notification>") && trimmed.ends_with("</subagent_notification>")
+}
+
+fn is_subagent_notification_message_prefix(text: &str) -> bool {
+    const OPEN_TAG: &str = "<subagent_notification>";
+    OPEN_TAG.starts_with(text)
+        || (text.starts_with(OPEN_TAG) && !text.contains("</subagent_notification>"))
 }
 
 fn is_inter_agent_communication_message(text: &str) -> bool {
@@ -2002,6 +2076,11 @@ fn is_inter_agent_communication_message(text: &str) -> bool {
             .other_recipients
             .iter()
             .all(|recipient| is_agent_path(recipient))
+}
+
+fn is_inter_agent_communication_message_prefix(text: &str) -> bool {
+    const AUTHOR_PREFIX: &str = r#"{"author":""#;
+    AUTHOR_PREFIX.starts_with(text) || text.starts_with(AUTHOR_PREFIX)
 }
 
 fn is_agent_path(value: &str) -> bool {

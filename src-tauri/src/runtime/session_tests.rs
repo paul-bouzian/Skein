@@ -1774,6 +1774,25 @@ async fn agent_message_deltas_drop_inter_agent_control_envelopes() {
             }),
         )
         .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let first_delta_snapshot = session
+        .open_thread(context(
+            "thread-local-control-envelope",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen after first delta")
+        .snapshot;
+
+    assert!(first_delta_snapshot.items.iter().all(|item| !matches!(
+        item,
+        crate::domain::conversation::ConversationItem::Message(message)
+            if message.id == "assistant-control-1"
+    )));
+
     harness
         .emit_notification(
             "item/agentMessage/delta",

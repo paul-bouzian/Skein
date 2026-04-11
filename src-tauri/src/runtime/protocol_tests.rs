@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, ConversationInteraction, ConversationItem,
+    ConversationComposerSettings, ConversationInteraction, ConversationItem, ConversationStatus,
     ConversationTaskStatus, InputModality, ProposedPlanSnapshot, ProposedPlanStatus,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
@@ -211,6 +211,32 @@ fn history_snapshot_skips_hidden_inter_agent_messages() {
         snapshot.items.first(),
         Some(ConversationItem::Message(message)) if message.text == "Visible answer"
     ));
+}
+
+#[test]
+fn history_snapshot_reconciles_control_only_threads_to_idle() {
+    let snapshot = build_history_snapshot(
+        "thread-1".to_string(),
+        "env-1".to_string(),
+        Some("thr-existing".to_string()),
+        composer(),
+        ThreadWire {
+            id: "thr-existing".to_string(),
+            turns: vec![super::protocol::TurnWire {
+                id: "turn-1".to_string(),
+                status: "completed".to_string(),
+                error: None,
+                items: vec![json!({
+                    "id": "assistant-control-1",
+                    "type": "agentMessage",
+                    "text": inter_agent_control_message("/root/review_swarm_security")
+                })],
+            }],
+        },
+    );
+
+    assert!(snapshot.items.is_empty());
+    assert_eq!(snapshot.status, ConversationStatus::Idle);
 }
 
 #[test]
