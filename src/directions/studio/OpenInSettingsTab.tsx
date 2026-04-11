@@ -122,7 +122,10 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
         </p>
       </div>
       {saveError ? <p className="settings-dialog__notice">{saveError}</p> : null}
-      <div className="settings-open-targets__list">
+      <fieldset className="settings-open-targets__list">
+        <legend className="settings-open-targets__legend">
+          Default Open In target
+        </legend>
         {draftTargets.map((target, index) => (
           <OpenInTargetRow
             key={target.draftKey}
@@ -177,7 +180,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
             }
           />
         ))}
-      </div>
+      </fieldset>
       <div className="settings-open-targets__actions">
         <button
           type="button"
@@ -302,6 +305,7 @@ function OpenInTargetRow({
           <label className="settings-open-target__default">
             <input
               type="radio"
+              name="open-in-default-target"
               checked={isDefault}
               disabled={disabled}
               onChange={onSetDefault}

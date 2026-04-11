@@ -87,9 +87,14 @@ fn build_launch_spec(path: &Path, target: &OpenTarget) -> AppResult<LaunchSpec> 
 
 #[cfg(target_os = "macos")]
 fn build_app_launch_spec(path_arg: OsString, target: &OpenTarget) -> AppResult<LaunchSpec> {
-    let app_name = target.app_name.as_deref().ok_or_else(|| {
-        AppError::Validation("App targets require an application name.".to_string())
-    })?;
+    let app_name = target
+        .app_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::Validation("App targets require an application name.".to_string())
+        })?;
     let mut args = vec![
         OsString::from("-a"),
         OsString::from(app_name),
@@ -273,7 +278,7 @@ mod tests {
             id: "cursor".to_string(),
             label: "Cursor".to_string(),
             kind: OpenTargetKind::App,
-            app_name: Some("Cursor".to_string()),
+            app_name: Some(" Cursor ".to_string()),
             command: None,
             args: vec!["--reuse-window".to_string()],
         };
