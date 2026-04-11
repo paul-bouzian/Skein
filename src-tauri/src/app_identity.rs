@@ -45,7 +45,6 @@ pub fn prepare_storage_paths(app: &AppHandle) -> AppResult<AppStoragePaths> {
             )
         })?
         .join(LEGACY_APP_BUNDLE_ID);
-    migrate_directory_namespace(&legacy_app_data_dir, &canonical_app_data_dir)?;
 
     let canonical_app_home_dir = app
         .path()
@@ -60,17 +59,24 @@ pub fn prepare_storage_paths(app: &AppHandle) -> AppResult<AppStoragePaths> {
             )
         })?
         .join(LEGACY_APP_HOME_DIR_NAME);
-    migrate_directory_namespace(&legacy_app_home_dir, &canonical_app_home_dir)?;
 
     let executable_path = std::env::current_exe().map_err(|error| {
         AppError::Runtime(format!("Unable to resolve Loom executable path: {error}"))
     })?;
-    let storage_paths = storage_paths_for_executable(
+    let execution_profile = resolve_execution_profile(&executable_path)?;
+    migrate_legacy_namespaces_for_profile(
+        &execution_profile,
+        &legacy_app_data_dir,
+        &canonical_app_data_dir,
+        &legacy_app_home_dir,
+        &canonical_app_home_dir,
+    )?;
+    let storage_paths = storage_paths_for_profile(
+        execution_profile,
         canonical_app_data_dir,
         canonical_app_home_dir,
         legacy_app_home_dir,
-        executable_path,
-    )?;
+    );
 
     fs::create_dir_all(&storage_paths.app_data_dir)?;
     fs::create_dir_all(storage_paths.app_home_dir.join("worktrees"))?;
@@ -84,18 +90,18 @@ enum AppExecutionProfile {
     Development { scope_name: String },
 }
 
-fn storage_paths_for_executable(
+fn storage_paths_for_profile(
+    execution_profile: AppExecutionProfile,
     canonical_app_data_dir: PathBuf,
     canonical_app_home_dir: PathBuf,
     legacy_app_home_dir: PathBuf,
-    executable_path: PathBuf,
-) -> AppResult<AppStoragePaths> {
-    match resolve_execution_profile(&executable_path)? {
-        AppExecutionProfile::Installed => Ok(AppStoragePaths {
+) -> AppStoragePaths {
+    match execution_profile {
+        AppExecutionProfile::Installed => AppStoragePaths {
             app_data_dir: canonical_app_data_dir,
             app_home_dir: canonical_app_home_dir,
             legacy_app_home_dir,
-        }),
+        },
         AppExecutionProfile::Development { scope_name } => {
             let scoped_root = canonical_app_home_dir
                 .join(DEVELOPMENT_STORAGE_DIR_NAME)
@@ -103,13 +109,28 @@ fn storage_paths_for_executable(
             let scoped_app_home_dir = scoped_root.join("home");
             let scoped_app_data_dir = scoped_root.join("app-data");
 
-            Ok(AppStoragePaths {
+            AppStoragePaths {
                 app_data_dir: scoped_app_data_dir,
                 app_home_dir: scoped_app_home_dir.clone(),
                 legacy_app_home_dir: scoped_app_home_dir,
-            })
+            }
         }
     }
+}
+
+fn migrate_legacy_namespaces_for_profile(
+    execution_profile: &AppExecutionProfile,
+    legacy_app_data_dir: &Path,
+    canonical_app_data_dir: &Path,
+    legacy_app_home_dir: &Path,
+    canonical_app_home_dir: &Path,
+) -> AppResult<()> {
+    if matches!(execution_profile, AppExecutionProfile::Installed) {
+        migrate_directory_namespace(legacy_app_data_dir, canonical_app_data_dir)?;
+        migrate_directory_namespace(legacy_app_home_dir, canonical_app_home_dir)?;
+    }
+
+    Ok(())
 }
 
 fn resolve_execution_profile(executable_path: &Path) -> AppResult<AppExecutionProfile> {
@@ -245,11 +266,13 @@ fn remove_empty_tree(path: &Path) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        development_scope_name, find_checkout_root, merge_directory_contents, remove_empty_tree,
-        resolve_execution_profile, storage_paths_for_executable, AppExecutionProfile,
-        APP_DATABASE_FILE_NAME, DEVELOPMENT_STORAGE_DIR_NAME, LEGACY_APP_DATABASE_FILE_NAME,
+        development_scope_name, find_checkout_root, merge_directory_contents,
+        migrate_legacy_namespaces_for_profile, remove_empty_tree, resolve_execution_profile,
+        storage_paths_for_profile, AppExecutionProfile, APP_DATABASE_FILE_NAME,
+        DEVELOPMENT_STORAGE_DIR_NAME, LEGACY_APP_BUNDLE_ID, LEGACY_APP_DATABASE_FILE_NAME,
+        LEGACY_APP_HOME_DIR_NAME,
     };
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use uuid::Uuid;
 
     #[test]
@@ -323,15 +346,13 @@ mod tests {
         let app_data_dir = root.join("app-data");
         let app_home_dir = root.join("home");
         let legacy_app_home_dir = root.join("legacy-home");
-        let executable = PathBuf::from("/Applications/Loom.app/Contents/MacOS/loom");
 
-        let paths = storage_paths_for_executable(
+        let paths = storage_paths_for_profile(
+            AppExecutionProfile::Installed,
             app_data_dir.clone(),
             app_home_dir.clone(),
             legacy_app_home_dir.clone(),
-            executable,
-        )
-        .expect("storage paths should resolve");
+        );
 
         assert_eq!(paths.app_data_dir, app_data_dir);
         assert_eq!(paths.app_home_dir, app_home_dir);
@@ -354,13 +375,14 @@ mod tests {
             .join("target")
             .join("debug")
             .join("loom");
-        let paths = storage_paths_for_executable(
+        let execution_profile =
+            resolve_execution_profile(&executable).expect("profile should resolve");
+        let paths = storage_paths_for_profile(
+            execution_profile,
             root.join("app-data"),
             root.join("home"),
             root.join("legacy-home"),
-            executable,
-        )
-        .expect("storage paths should resolve");
+        );
 
         assert!(paths
             .app_home_dir
@@ -394,6 +416,42 @@ mod tests {
         let detected =
             find_checkout_root(&executable_dir.join("loom")).expect("checkout root should resolve");
         assert_eq!(detected, repo_root);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn development_profile_does_not_migrate_the_canonical_namespaces() {
+        let root = std::env::temp_dir().join(format!("loom-dev-migration-{}", Uuid::now_v7()));
+        let canonical_app_data_dir = root.join("canonical-app-data");
+        let canonical_app_home_dir = root.join("canonical-home");
+        let legacy_app_data_dir = root.join(LEGACY_APP_BUNDLE_ID);
+        let legacy_app_home_dir = root.join(LEGACY_APP_HOME_DIR_NAME);
+
+        std::fs::create_dir_all(&canonical_app_data_dir).expect("canonical app data should exist");
+        std::fs::create_dir_all(&canonical_app_home_dir).expect("canonical app home should exist");
+        std::fs::create_dir_all(&legacy_app_data_dir).expect("legacy app data should exist");
+        std::fs::create_dir_all(&legacy_app_home_dir).expect("legacy app home should exist");
+        std::fs::write(legacy_app_data_dir.join("legacy.txt"), b"legacy-data")
+            .expect("legacy app data should write");
+        std::fs::write(legacy_app_home_dir.join("legacy.txt"), b"legacy-home")
+            .expect("legacy app home should write");
+
+        migrate_legacy_namespaces_for_profile(
+            &AppExecutionProfile::Development {
+                scope_name: "feature-ordering-test".to_string(),
+            },
+            &legacy_app_data_dir,
+            &canonical_app_data_dir,
+            &legacy_app_home_dir,
+            &canonical_app_home_dir,
+        )
+        .expect("development migration should be a no-op");
+
+        assert!(legacy_app_data_dir.join("legacy.txt").exists());
+        assert!(legacy_app_home_dir.join("legacy.txt").exists());
+        assert!(!canonical_app_data_dir.join("legacy.txt").exists());
+        assert!(!canonical_app_home_dir.join("legacy.txt").exists());
 
         let _ = std::fs::remove_dir_all(root);
     }
