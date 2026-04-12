@@ -167,6 +167,45 @@ describe("collectDesktopNotificationCandidates", () => {
     ]);
   });
 
+  it("emits attention for a newly observed thread after initial hydration", () => {
+    const candidates = collectDesktopNotificationCandidates(
+      {
+        "thread-1": makeConversationSnapshot({
+          threadId: "thread-1",
+          status: "running",
+          activeTurnId: "turn-1",
+          pendingInteractions: [],
+          proposedPlan: null,
+        }),
+      },
+      {
+        "thread-1": makeConversationSnapshot({
+          threadId: "thread-1",
+          status: "running",
+          activeTurnId: "turn-1",
+          pendingInteractions: [],
+          proposedPlan: null,
+        }),
+        "thread-2": makeConversationSnapshot({
+          threadId: "thread-2",
+          status: "waitingForExternalAction",
+          activeTurnId: "turn-2",
+          pendingInteractions: [makeApprovalRequest({ id: "approval-2" })],
+          proposedPlan: null,
+        }),
+      },
+    );
+
+    expect(candidates).toEqual([
+      {
+        threadId: "thread-2",
+        kind: "attention",
+        attentionKind: "approval",
+        attentionKey: "approval:approval-2",
+      },
+    ]);
+  });
+
   it("does not re-emit the same attention key on later snapshots", () => {
     const waitingSnapshot = makeConversationSnapshot({
       threadId: "thread-1",

@@ -559,6 +559,47 @@ describe("StudioShell", () => {
     expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
   });
 
+  it("disables other global settings while desktop notification permission is pending", async () => {
+    const permissionRequest = createDeferred<"granted" | "denied">();
+    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
+    mockedNotifications.requestPermission.mockImplementation(
+      () => permissionRequest.promise,
+    );
+    mockedBridge.updateGlobalSettings.mockResolvedValue(
+      makeGlobalSettings({ desktopNotificationsEnabled: true }),
+    );
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const desktopToggle = screen.getByRole("switch", {
+      name: "Desktop notifications",
+    });
+    const collapseToggle = screen.getByRole("switch", {
+      name: "Collapse work activity",
+    });
+
+    await userEvent.click(desktopToggle);
+
+    await waitFor(() => {
+      expect(desktopToggle).toBeDisabled();
+      expect(collapseToggle).toBeDisabled();
+    });
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+
+    await userEvent.click(collapseToggle);
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+
+    permissionRequest.resolve("granted");
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        desktopNotificationsEnabled: true,
+      });
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps desktop notifications off when notification permission is denied", async () => {
     mockedNotifications.isPermissionGranted.mockResolvedValue(false);
     mockedNotifications.requestPermission.mockResolvedValue("denied");

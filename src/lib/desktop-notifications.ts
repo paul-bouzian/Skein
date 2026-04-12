@@ -86,12 +86,14 @@ export function collectDesktopNotificationCandidates(
   nextSnapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
 ): DesktopNotificationCandidate[] {
   const candidates: DesktopNotificationCandidate[] = [];
+  const isInitialHydration =
+    Object.keys(previousSnapshotsByThreadId).length === 0;
 
   for (const threadId of Object.keys(nextSnapshotsByThreadId).sort()) {
     const previousSnapshot = previousSnapshotsByThreadId[threadId];
     const nextSnapshot = nextSnapshotsByThreadId[threadId];
 
-    if (!previousSnapshot) {
+    if (isInitialHydration && !previousSnapshot) {
       continue;
     }
 

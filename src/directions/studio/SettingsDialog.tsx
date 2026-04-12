@@ -138,13 +138,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
   }
 
-  async function handleGlobalChange(patch: GlobalSettingsPatch) {
-    if (savingGlobalSettingsRef.current) {
-      return;
-    }
-
-    savingGlobalSettingsRef.current = true;
-    setSavingGlobalSettings(true);
+  async function applyGlobalSettingsChange(patch: GlobalSettingsPatch) {
     try {
       setActionError(null);
       const result = await updateGlobalSettings(patch);
@@ -158,6 +152,18 @@ export function SettingsDialog({ open, onClose }: Props) {
       setActionError(
         cause instanceof Error ? cause.message : "Failed to save settings",
       );
+    }
+  }
+
+  async function handleGlobalChange(patch: GlobalSettingsPatch) {
+    if (savingGlobalSettingsRef.current) {
+      return;
+    }
+
+    savingGlobalSettingsRef.current = true;
+    setSavingGlobalSettings(true);
+    try {
+      await applyGlobalSettingsChange(patch);
     } finally {
       savingGlobalSettingsRef.current = false;
       setSavingGlobalSettings(false);
@@ -170,12 +176,15 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
 
     desktopNotificationsBusyRef.current = true;
+    savingGlobalSettingsRef.current = true;
     setDesktopNotificationsBusy(true);
+    setSavingGlobalSettings(true);
+    setActionError(null);
     setDesktopNotificationsNotice(null);
 
     try {
       if (!nextValue) {
-        await handleGlobalChange({ desktopNotificationsEnabled: false });
+        await applyGlobalSettingsChange({ desktopNotificationsEnabled: false });
         return;
       }
 
@@ -189,9 +198,11 @@ export function SettingsDialog({ open, onClose }: Props) {
         return;
       }
 
-      await handleGlobalChange({ desktopNotificationsEnabled: true });
+      await applyGlobalSettingsChange({ desktopNotificationsEnabled: true });
     } finally {
+      savingGlobalSettingsRef.current = false;
       desktopNotificationsBusyRef.current = false;
+      setSavingGlobalSettings(false);
       setDesktopNotificationsBusy(false);
     }
   }
