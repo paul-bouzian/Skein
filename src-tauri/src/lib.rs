@@ -51,6 +51,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::conversation::open_thread_conversation,
+            commands::conversation::save_thread_composer_draft,
             commands::conversation::refresh_thread_conversation,
             commands::conversation::get_thread_composer_catalog,
             commands::conversation::search_thread_files,

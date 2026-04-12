@@ -3,6 +3,7 @@ import type {
   ComposerMentionBindingInput,
 } from "../../../lib/types";
 import type { ComposerAutocompleteItem } from "./composer-model";
+export type { ComposerDraftMentionBinding } from "../../../lib/types";
 
 export function rebaseComposerMentionBindings(
   previousText: string,

@@ -79,7 +79,10 @@ type Props = {
   onChangeImages: Dispatch<SetStateAction<ConversationImageAttachment[]>>;
   tokenUsage?: ThreadTokenUsageSnapshot | null;
   onCancelRefine: () => void;
-  onChangeDraft: (value: string) => void;
+  onChangeDraft: (
+    value: string,
+    bindings?: ComposerDraftMentionBinding[],
+  ) => void;
   onChangeMentionBindings: (bindings: ComposerDraftMentionBinding[]) => void;
   onInterrupt: () => void;
   onSend: (
@@ -271,6 +274,7 @@ export function InlineComposer({
     if (previousThreadIdRef.current !== threadId) {
       previousThreadIdRef.current = threadId;
       previousDraftRef.current = draft;
+      setDismissedTokenKey(null);
     }
   }, [draft, threadId]);
 
@@ -389,9 +393,8 @@ export function InlineComposer({
       item,
       activeToken.start,
     );
-    onChangeMentionBindings(nextBindings);
     previousDraftRef.current = replacement.text;
-    onChangeDraft(replacement.text);
+    onChangeDraft(replacement.text, nextBindings);
     setPendingCursor(replacement.cursor);
     setDismissedTokenKey(null);
   }
@@ -474,15 +477,13 @@ export function InlineComposer({
             disabled={inputDisabled}
             onChange={(event) => {
               const nextDraft = event.target.value;
-              onChangeMentionBindings(
-                rebaseComposerMentionBindings(
-                  previousDraftRef.current,
-                  nextDraft,
-                  mentionBindings,
-                ),
+              const nextBindings = rebaseComposerMentionBindings(
+                previousDraftRef.current,
+                nextDraft,
+                mentionBindings,
               );
               previousDraftRef.current = nextDraft;
-              onChangeDraft(nextDraft);
+              onChangeDraft(nextDraft, nextBindings);
               setSelection({
                 start: event.target.selectionStart ?? 0,
                 end: event.target.selectionEnd ?? 0,

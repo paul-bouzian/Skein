@@ -66,7 +66,7 @@ export function ThreadConversation({
   const refreshThread = useConversationStore((state) => state.refreshThread);
   const updateComposer = useConversationStore((state) => state.updateComposer);
   const updateDraft = useConversationStore((state) => state.updateDraft);
-  const resetDraft = useConversationStore((state) => state.resetDraft);
+  const replaceDraftLocally = useConversationStore((state) => state.replaceDraftLocally);
   const sendMessage = useConversationStore((state) => state.sendMessage);
   const interruptThread = useConversationStore((state) => state.interruptThread);
   const respondToApproval = useConversationStore(
@@ -166,7 +166,7 @@ export function ThreadConversation({
 
   function resetComposerState() {
     startTransition(() => {
-      resetDraft(thread.id);
+      replaceDraftLocally(thread.id, null);
     });
   }
 
@@ -273,10 +273,11 @@ export function ThreadConversation({
     nextMentionBindings: ComposerDraftMentionBinding[],
   ) {
     startTransition(() => {
-      updateDraft(thread.id, {
+      replaceDraftLocally(thread.id, {
         text: nextDraft,
         images: nextImages,
         mentionBindings: nextMentionBindings,
+        isRefiningPlan,
       });
     });
   }
@@ -414,7 +415,12 @@ export function ThreadConversation({
         }
         tokenUsage={snapshot.tokenUsage}
         onCancelRefine={() => updateDraft(thread.id, { isRefiningPlan: false })}
-        onChangeDraft={(value) => updateDraft(thread.id, { text: value })}
+        onChangeDraft={(value, bindings) =>
+          updateDraft(thread.id, {
+            text: value,
+            ...(bindings ? { mentionBindings: bindings } : {}),
+          })
+        }
         onChangeMentionBindings={(bindings) =>
           updateDraft(thread.id, { mentionBindings: bindings })
         }

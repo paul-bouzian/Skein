@@ -33,6 +33,7 @@ const clipboardWriteTextMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
+  saveThreadComposerDraft: vi.fn(),
   refreshThreadConversation: vi.fn(),
   getThreadComposerCatalog: vi.fn(),
   searchThreadFiles: vi.fn(),
@@ -123,6 +124,7 @@ beforeEach(async () => {
   });
   await resetVoiceSessionStore();
   resetStores();
+  mockedBridge.saveThreadComposerDraft.mockResolvedValue(undefined);
   mockedBridge.getThreadComposerCatalog.mockResolvedValue({
     prompts: [],
     skills: [],
@@ -2624,7 +2626,6 @@ describe("ThreadConversation", () => {
       await screen.findByPlaceholderText("Message Loom..."),
     ).toHaveValue("Keep this around");
   });
-
   it("keeps attached images scoped to their original thread", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({ status: "idle" }),
@@ -2693,6 +2694,49 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("restores a persisted draft after remounting the same thread", async () => {
+    mockedBridge.openThreadConversation
+      .mockResolvedValueOnce({
+        snapshot: makeConversationSnapshot({ status: "idle" }),
+        capabilities: capabilitiesFixture,
+      })
+      .mockResolvedValueOnce({
+        snapshot: makeConversationSnapshot({ status: "idle" }),
+        capabilities: capabilitiesFixture,
+        composerDraft: {
+          text: "Keep this around",
+          images: [],
+          mentionBindings: [],
+          isRefiningPlan: false,
+        },
+      });
+
+    const view = render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(
+      await screen.findByPlaceholderText("Message Loom..."),
+    ).toHaveValue("");
+
+    view.unmount();
+    resetStores();
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(
+      await screen.findByPlaceholderText("Message Loom..."),
+    ).toHaveValue("Keep this around");
+  });
+
   it("restores refine mode and draft content when returning to the same thread", async () => {
     mockedBridge.openThreadConversation.mockImplementation(async (threadId) => ({
       snapshot:
@@ -2730,12 +2774,39 @@ describe("ThreadConversation", () => {
         thread={makeThread({ id: "thread-2" })}
       />,
     );
-
     expect(
       await screen.findByPlaceholderText("Message Loom..."),
     ).toHaveValue("");
 
     rerender(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(
+      await screen.findByPlaceholderText("Refine the proposed plan..."),
+    ).toHaveValue("Keep the rollback section");
+  });
+
+  it("restores refine mode from the persisted thread draft", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        proposedPlan: makeProposedPlan(),
+      }),
+      capabilities: capabilitiesFixture,
+      composerDraft: {
+        text: "Keep the rollback section",
+        images: [],
+        mentionBindings: [],
+        isRefiningPlan: true,
+      },
+    });
+
+    render(
       <ThreadConversation
         environment={makeEnvironment()}
         thread={makeThread()}

@@ -443,6 +443,16 @@ pub struct ComposerMentionBindingInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerDraftMentionBinding {
+    pub mention: String,
+    pub kind: ComposerMentionBindingKind,
+    pub path: String,
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ConversationImageAttachment {
     Image { url: String },
@@ -454,6 +464,24 @@ pub enum ConversationImageAttachment {
 pub enum ComposerMentionBindingKind {
     Skill,
     App,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationComposerDraft {
+    pub text: String,
+    pub images: Vec<ConversationImageAttachment>,
+    pub mention_bindings: Vec<ComposerDraftMentionBinding>,
+    pub is_refining_plan: bool,
+}
+
+impl ConversationComposerDraft {
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+            && self.images.is_empty()
+            && self.mention_bindings.is_empty()
+            && !self.is_refining_plan
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -564,6 +592,8 @@ impl ThreadConversationSnapshot {
 pub struct ThreadConversationOpenResponse {
     pub snapshot: ThreadConversationSnapshot,
     pub capabilities: EnvironmentCapabilitiesSnapshot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composer_draft: Option<ConversationComposerDraft>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

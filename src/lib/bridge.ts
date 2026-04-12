@@ -33,6 +33,7 @@ import type {
   ManagedWorktreeCreateResult,
   EnvironmentVoiceStatusSnapshot,
   FirstPromptRenameFailureEventPayload,
+  PersistThreadComposerDraftInput,
   ProjectRecord,
   ReorderProjectsRequest,
   ReorderWorktreeEnvironmentsRequest,
@@ -153,6 +154,12 @@ export function openThreadConversation(
   return invoke<ThreadConversationOpenResponse>("open_thread_conversation", {
     threadId,
   });
+}
+
+export function saveThreadComposerDraft(
+  input: PersistThreadComposerDraftInput,
+): Promise<void> {
+  return invoke<void>("save_thread_composer_draft", { input });
 }
 
 export function refreshThreadConversation(

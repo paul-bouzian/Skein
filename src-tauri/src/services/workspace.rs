@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::domain::conversation::ConversationComposerSettings;
+use crate::domain::conversation::{ConversationComposerDraft, ConversationComposerSettings};
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
@@ -1200,6 +1200,72 @@ impl WorkspaceService {
         Ok(())
     }
 
+    pub fn thread_composer_draft(
+        &self,
+        thread_id: &str,
+    ) -> AppResult<Option<ConversationComposerDraft>> {
+        let connection = self.database.open()?;
+        let draft = connection
+            .query_row(
+                "
+                SELECT composer_draft_json
+                FROM threads
+                WHERE id = ?1
+                ",
+                params![thread_id],
+                |row| {
+                    let draft_json = row.get::<_, Option<String>>(0)?;
+                    let Some(draft_json) = draft_json else {
+                        return Ok(None);
+                    };
+                    let draft = serde_json::from_str::<ConversationComposerDraft>(&draft_json)
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                draft_json.len(),
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?;
+                    Ok((!draft.is_empty()).then_some(draft))
+                },
+            )
+            .optional()?
+            .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))?;
+        Ok(draft)
+    }
+
+    pub fn persist_thread_composer_draft(
+        &self,
+        thread_id: &str,
+        draft: Option<&ConversationComposerDraft>,
+    ) -> AppResult<()> {
+        let draft_json = match draft {
+            Some(draft) if !draft.is_empty() => Some(
+                serde_json::to_string(draft)
+                    .map_err(|error| AppError::Validation(error.to_string()))?,
+            ),
+            _ => None,
+        };
+        let affected = self.database.open()?.execute(
+            "
+            UPDATE threads
+            SET composer_draft_json = ?1, updated_at = ?2
+            WHERE id = ?3
+            ",
+            params![draft_json, Utc::now(), thread_id],
+        )?;
+
+        if affected == 0 {
+            return Err(AppError::NotFound("Thread not found.".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub fn clear_thread_composer_draft(&self, thread_id: &str) -> AppResult<()> {
+        self.persist_thread_composer_draft(thread_id, None)
+    }
+
     fn project_by_id(
         &self,
         project_id: &str,
@@ -2127,6 +2193,10 @@ mod tests {
         AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest, CreateThreadRequest,
         ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
         SetProjectSidebarCollapsedRequest, WorkspaceService,
+    };
+    use crate::domain::conversation::{
+        ComposerDraftMentionBinding, ComposerMentionBindingKind, ConversationComposerDraft,
+        ConversationImageAttachment,
     };
     use crate::domain::settings::GlobalSettings;
     use crate::domain::shortcuts::ShortcutSettings;
@@ -3056,6 +3126,74 @@ mod tests {
 
         assert_eq!(snapshot.settings.default_model, "gpt-5.4-mini");
         assert_eq!(snapshot.settings.shortcuts, ShortcutSettings::default());
+    }
+
+    #[test]
+    fn thread_composer_drafts_round_trip_and_clear() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("draft-roundtrip-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Draft thread".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+        let thread_id = thread.id.clone();
+        let draft = ConversationComposerDraft {
+            text: "Keep this thread-scoped draft".to_string(),
+            images: vec![ConversationImageAttachment::LocalImage {
+                path: "/tmp/thread-draft.png".to_string(),
+            }],
+            mention_bindings: vec![ComposerDraftMentionBinding {
+                mention: "github".to_string(),
+                kind: ComposerMentionBindingKind::App,
+                path: "app://github".to_string(),
+                start: 5,
+                end: 12,
+            }],
+            is_refining_plan: true,
+        };
+
+        harness
+            .service
+            .persist_thread_composer_draft(&thread_id, Some(&draft))
+            .expect("draft should persist");
+        assert_eq!(
+            harness
+                .service
+                .thread_composer_draft(&thread_id)
+                .expect("draft should load"),
+            Some(draft.clone())
+        );
+
+        harness
+            .service
+            .clear_thread_composer_draft(&thread_id)
+            .expect("draft should clear");
+        assert_eq!(
+            harness
+                .service
+                .thread_composer_draft(&thread_id)
+                .expect("cleared draft should load"),
+            None
+        );
     }
 
     struct WorkspaceHarness {
