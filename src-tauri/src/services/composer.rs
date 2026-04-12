@@ -1002,7 +1002,9 @@ mod tests {
         )
         .expect_err("missing positional argument should fail");
 
-        assert!(error.to_string().contains("Missing required positional args"));
+        assert!(error
+            .to_string()
+            .contains("Missing required positional args"));
     }
 
     #[test]

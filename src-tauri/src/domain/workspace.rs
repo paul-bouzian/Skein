@@ -1,7 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::settings::GlobalSettings;
+use super::settings::{GlobalSettings, ServiceTier};
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +53,12 @@ pub struct ThreadOverrides {
     pub reasoning_effort: Option<super::settings::ReasoningEffort>,
     pub collaboration_mode: Option<super::settings::CollaborationMode>,
     pub approval_policy: Option<super::settings::ApprovalPolicy>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<ServiceTier>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub service_tier_overridden: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -254,8 +264,8 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectSettings,
-        ProjectRecord, ProjectSettingsPatch, PullRequestState, RuntimeState,
+        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectRecord,
+        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState,
         RuntimeStatusSnapshot,
     };
 

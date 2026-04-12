@@ -25,6 +25,7 @@ export type SubagentStatus = "running" | "completed" | "failed";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
+export type ServiceTier = "fast" | "flex";
 export type InputModality = "text" | "image";
 export type ConversationStatus =
   | "idle"
@@ -65,6 +66,8 @@ export type ThreadOverrides = {
   reasoningEffort?: ReasoningEffort;
   collaborationMode?: CollaborationMode;
   approvalPolicy?: ApprovalPolicy;
+  serviceTier?: ServiceTier | null;
+  serviceTierOverridden?: boolean;
 };
 
 export type RuntimeStatusSnapshot = {
@@ -174,6 +177,7 @@ export type GlobalSettings = {
   defaultReasoningEffort: ReasoningEffort;
   defaultCollaborationMode: CollaborationMode;
   defaultApprovalPolicy: ApprovalPolicy;
+  defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity: boolean;
   shortcuts: ShortcutSettings;
   codexBinaryPath?: string;
@@ -390,6 +394,7 @@ export type ConversationComposerSettings = {
   reasoningEffort: ReasoningEffort;
   collaborationMode: CollaborationMode;
   approvalPolicy: ApprovalPolicy;
+  serviceTier?: ServiceTier | null;
 };
 
 export type ComposerPromptArgumentMode = "none" | "named" | "positional";
@@ -434,6 +439,7 @@ export type ModelOption = {
   defaultReasoningEffort: ReasoningEffort;
   supportedReasoningEfforts: ReasoningEffort[];
   inputModalities: InputModality[];
+  supportedServiceTiers?: ServiceTier[];
   isDefault: boolean;
 };
 
@@ -822,6 +828,7 @@ export type GlobalSettingsPatch = {
   defaultReasoningEffort?: ReasoningEffort;
   defaultCollaborationMode?: CollaborationMode;
   defaultApprovalPolicy?: ApprovalPolicy;
+  defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity?: boolean;
   shortcuts?: ShortcutSettingsPatch;
   codexBinaryPath?: string | null;

@@ -6,10 +6,10 @@ use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 use super::{
-    PullRequestHeadContext, ResolvedPullRequest, ResolvedPullRequestState,
     normalize_pull_request_state, parse_repository_name_from_pull_request_url,
     parse_repository_name_with_owner_from_remote_url, resolve_head_context,
-    resolve_pull_request_for_target, select_display_pull_request,
+    resolve_pull_request_for_target, select_display_pull_request, PullRequestHeadContext,
+    ResolvedPullRequest, ResolvedPullRequestState,
 };
 use crate::domain::workspace::PullRequestState;
 use crate::services::git;
@@ -182,9 +182,8 @@ impl PullRequestHarness {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let temp_root = std::env::temp_dir().join(format!("loom-pr-test-{}", Uuid::now_v7()));
         fs::create_dir_all(&temp_root)?;
-        let database = crate::infrastructure::database::AppDatabase::for_test(
-            temp_root.join("loom.sqlite3"),
-        )?;
+        let database =
+            crate::infrastructure::database::AppDatabase::for_test(temp_root.join("loom.sqlite3"))?;
         let managed_root = temp_root.join("managed-worktrees");
         fs::create_dir_all(&managed_root)?;
         let gh_path = temp_root.join("bin");
@@ -216,12 +215,7 @@ impl PullRequestHarness {
         git::run_git(&path, ["commit", "-m", "Initial commit"])?;
         git::run_git(
             &path,
-            [
-                "remote",
-                "add",
-                "origin",
-                "git@github.com:acme/loom.git",
-            ],
+            ["remote", "add", "origin", "git@github.com:acme/loom.git"],
         )?;
         git::run_git(&path, ["checkout", "-b", branch_name])?;
 

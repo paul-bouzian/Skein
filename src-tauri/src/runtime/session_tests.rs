@@ -7,7 +7,7 @@ use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream}
 use tokio::sync::Mutex;
 
 use crate::domain::conversation::ConversationComposerSettings;
-use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
+use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
 use crate::services::workspace::ThreadRuntimeContext;
 
@@ -169,7 +169,21 @@ fn spawn_fake_codex(
                             {"reasoningEffort": "xhigh"}
                         ],
                         "defaultReasoningEffort": "high",
+                        "additionalSpeedTiers": ["fast"],
                         "isDefault": true,
+                        "hidden": false
+                    }, {
+                        "id": "gpt-5.3-codex",
+                        "displayName": "GPT-5.3-Codex",
+                        "description": "Fallback Codex model",
+                        "supportedReasoningEfforts": [
+                            {"reasoningEffort": "low"},
+                            {"reasoningEffort": "medium"},
+                            {"reasoningEffort": "high"}
+                        ],
+                        "defaultReasoningEffort": "medium",
+                        "additionalSpeedTiers": [],
+                        "isDefault": false,
                         "hidden": false
                     }]
                 }),
@@ -421,6 +435,7 @@ fn context_with_environment(
             reasoning_effort: ReasoningEffort::High,
             collaboration_mode,
             approval_policy,
+            service_tier: None,
         },
         codex_binary_path: Some("/opt/homebrew/bin/codex".to_string()),
     }
@@ -486,7 +501,11 @@ async fn open_thread_hydrates_history_and_capabilities() {
         Some("thr-existing")
     );
     assert_eq!(response.snapshot.items.len(), 2);
-    assert_eq!(response.capabilities.models.len(), 1);
+    assert_eq!(response.capabilities.models.len(), 2);
+    assert_eq!(
+        response.capabilities.models[0].supported_service_tiers,
+        vec![ServiceTier::Fast]
+    );
     assert_eq!(response.capabilities.collaboration_modes.len(), 2);
 
     let requests = harness.requests().await;
@@ -546,6 +565,71 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         .iter()
         .any(|request| request.method == "skills/list"));
     assert!(!requests.iter().any(|request| request.method == "app/list"));
+}
+
+#[tokio::test]
+async fn send_message_forwards_fast_service_tier_for_supported_models() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let mut runtime_context = context(
+        "thread-fast-mode",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.composer.service_tier = Some(ServiceTier::Fast);
+
+    session
+        .send_message(runtime_context, "Ship faster".to_string(), Vec::new())
+        .await
+        .expect("message should send");
+
+    let requests = harness.requests().await;
+    let thread_start = requests
+        .iter()
+        .find(|request| request.method == "thread/start")
+        .expect("thread/start should be issued");
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+
+    assert_eq!(thread_start.params["serviceTier"], "fast");
+    assert_eq!(turn_start.params["serviceTier"], "fast");
+}
+
+#[tokio::test]
+async fn send_message_clears_fast_service_tier_for_unsupported_models() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let mut runtime_context = context(
+        "thread-normalized-fast-mode",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.composer.model = "gpt-5.3-codex".to_string();
+    runtime_context.composer.service_tier = Some(ServiceTier::Fast);
+
+    session
+        .send_message(
+            runtime_context,
+            "Use the fallback model".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    let requests = harness.requests().await;
+    let thread_start = requests
+        .iter()
+        .find(|request| request.method == "thread/start")
+        .expect("thread/start should be issued");
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+
+    assert!(thread_start.params["serviceTier"].is_null());
+    assert!(turn_start.params["serviceTier"].is_null());
 }
 
 #[tokio::test]

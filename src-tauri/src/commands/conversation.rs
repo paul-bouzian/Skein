@@ -332,12 +332,10 @@ fn validate_thread_composer_draft(
             );
         }
         if binding.start >= binding.end {
-            return Err(
-                AppError::Validation(
-                    "Draft mention binding ranges must have start before end.".to_string(),
-                )
-                .into(),
-            );
+            return Err(AppError::Validation(
+                "Draft mention binding ranges must have start before end.".to_string(),
+            )
+            .into());
         }
     }
 

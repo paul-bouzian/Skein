@@ -349,8 +349,8 @@ mod tests {
 
     impl MonitorHarness {
         fn new() -> Self {
-            let temp_root = std::env::temp_dir()
-                .join(format!("loom-pr-monitor-test-{}", uuid::Uuid::now_v7()));
+            let temp_root =
+                std::env::temp_dir().join(format!("loom-pr-monitor-test-{}", uuid::Uuid::now_v7()));
             fs::create_dir_all(&temp_root).expect("temp root should be created");
             let database = crate::infrastructure::database::AppDatabase::for_test(
                 temp_root.join("loom.sqlite3"),

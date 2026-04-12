@@ -22,7 +22,7 @@ use crate::domain::conversation::{
     RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
     ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
-use crate::domain::settings::CollaborationMode;
+use crate::domain::settings::{CollaborationMode, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
 use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
@@ -761,6 +761,23 @@ impl RuntimeSession {
         )))
     }
 
+    async fn resolve_service_tier(
+        &self,
+        model_id: &str,
+        requested_service_tier: Option<ServiceTier>,
+    ) -> AppResult<Option<ServiceTier>> {
+        let Some(service_tier) = requested_service_tier else {
+            return Ok(None);
+        };
+
+        let capabilities = self.ensure_capabilities().await?;
+        if model_supports_service_tier(&capabilities, model_id, service_tier) {
+            return Ok(Some(service_tier));
+        }
+
+        Ok(None)
+    }
+
     async fn resolve_outgoing_user_input(
         &self,
         context: &ThreadRuntimeContext,
@@ -846,6 +863,9 @@ impl RuntimeSession {
         }
         self.validate_image_input_support(&context.composer.model, &images)
             .await?;
+        let requested_service_tier = self
+            .resolve_service_tier(&context.composer.model, context.composer.service_tier)
+            .await?;
         let outgoing_input = self
             .resolve_outgoing_user_input(&context, trimmed, &images, &mention_bindings)
             .await?;
@@ -884,6 +904,7 @@ impl RuntimeSession {
                         serde_json::json!({
                             "cwd": context.environment_path,
                             "approvalPolicy": approval_policy_value(context.composer.approval_policy),
+                            "serviceTier": requested_service_tier,
                         }),
                     )
                 .await?;
@@ -923,6 +944,7 @@ impl RuntimeSession {
                         context.composer.approval_policy,
                         &context.environment_path,
                     ),
+                    "serviceTier": requested_service_tier,
                     "collaborationMode": collaboration_mode_payload(&context.composer),
                 }),
             )
@@ -2481,6 +2503,19 @@ fn model_supports_image_input(
         .unwrap_or(false)
 }
 
+fn model_supports_service_tier(
+    capabilities: &EnvironmentCapabilitiesSnapshot,
+    model_id: &str,
+    service_tier: ServiceTier,
+) -> bool {
+    capabilities
+        .models
+        .iter()
+        .find(|model| model.id == model_id)
+        .map(|model| model.supported_service_tiers.contains(&service_tier))
+        .unwrap_or(false)
+}
+
 fn mark_item_streaming(item: ConversationItem) -> ConversationItem {
     match item {
         ConversationItem::Reasoning(mut reasoning) => {
@@ -2500,7 +2535,7 @@ mod tests {
         CollaborationModeOption, ConversationComposerSettings, ConversationItemStatus,
         ConversationToolItem, EnvironmentCapabilitiesSnapshot, InputModality, ModelOption,
     };
-    use crate::domain::settings::{ApprovalPolicy, ReasoningEffort};
+    use crate::domain::settings::{ApprovalPolicy, ReasoningEffort, ServiceTier};
 
     fn test_session_with_snapshot(snapshot: ThreadConversationSnapshot) -> RuntimeSession {
         RuntimeSession {
@@ -2535,6 +2570,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Build,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.status = ConversationStatus::Failed;
@@ -2566,6 +2602,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Build,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.status = ConversationStatus::Completed;
@@ -2614,6 +2651,7 @@ mod tests {
                     default_reasoning_effort: ReasoningEffort::High,
                     supported_reasoning_efforts: vec![ReasoningEffort::High],
                     input_modalities: vec![InputModality::Text],
+                    supported_service_tiers: vec![],
                     is_default: true,
                 },
                 ModelOption {
@@ -2623,6 +2661,7 @@ mod tests {
                     default_reasoning_effort: ReasoningEffort::High,
                     supported_reasoning_efforts: vec![ReasoningEffort::High],
                     input_modalities: vec![InputModality::Text, InputModality::Image],
+                    supported_service_tiers: vec![ServiceTier::Fast],
                     is_default: false,
                 },
             ],
@@ -2640,6 +2679,52 @@ mod tests {
         assert!(!model_supports_image_input(&capabilities, "unknown-model"));
     }
 
+    #[test]
+    fn model_supports_service_tier_requires_explicit_support() {
+        let capabilities = EnvironmentCapabilitiesSnapshot {
+            environment_id: "env-1".to_string(),
+            models: vec![
+                ModelOption {
+                    id: "gpt-5.4".to_string(),
+                    display_name: "GPT-5.4".to_string(),
+                    description: "Primary".to_string(),
+                    default_reasoning_effort: ReasoningEffort::High,
+                    supported_reasoning_efforts: vec![ReasoningEffort::High],
+                    input_modalities: vec![InputModality::Text],
+                    supported_service_tiers: vec![ServiceTier::Fast],
+                    is_default: true,
+                },
+                ModelOption {
+                    id: "gpt-5.3-codex".to_string(),
+                    display_name: "GPT-5.3-Codex".to_string(),
+                    description: "Fallback".to_string(),
+                    default_reasoning_effort: ReasoningEffort::Medium,
+                    supported_reasoning_efforts: vec![ReasoningEffort::Medium],
+                    input_modalities: vec![InputModality::Text],
+                    supported_service_tiers: vec![],
+                    is_default: false,
+                },
+            ],
+            collaboration_modes: Vec::new(),
+        };
+
+        assert!(model_supports_service_tier(
+            &capabilities,
+            "gpt-5.4",
+            ServiceTier::Fast
+        ));
+        assert!(!model_supports_service_tier(
+            &capabilities,
+            "gpt-5.3-codex",
+            ServiceTier::Fast
+        ));
+        assert!(!model_supports_service_tier(
+            &capabilities,
+            "unknown-model",
+            ServiceTier::Fast
+        ));
+    }
+
     #[tokio::test]
     async fn plan_target_for_item_or_turn_persists_heading_mode_for_future_updates() {
         let snapshot = ThreadConversationSnapshot::new(
@@ -2651,6 +2736,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Build,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         let state = Arc::new(Mutex::new(SessionState {
@@ -2696,6 +2782,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Plan,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
@@ -2759,6 +2846,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Plan,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
@@ -2803,6 +2891,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Plan,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.proposed_plan = Some(crate::domain::conversation::ProposedPlanSnapshot {
@@ -2844,6 +2933,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Build,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.active_turn_id = Some("turn-1".to_string());
@@ -2923,6 +3013,7 @@ mod tests {
                 reasoning_effort: ReasoningEffort::High,
                 collaboration_mode: CollaborationMode::Build,
                 approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
             },
         );
         snapshot.items = vec![ConversationItem::Tool(ConversationToolItem {

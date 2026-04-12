@@ -26,6 +26,7 @@ import {
   APPROVAL_OPTIONS,
   COLLABORATION_OPTIONS,
   REASONING_OPTIONS,
+  SPEED_MODE_OPTIONS,
   settingsModelOptions,
 } from "./composerOptions";
 import "./SettingsDialog.css";
@@ -307,6 +308,13 @@ function SettingsContent({
         onChange={(value) =>
           onChange({ defaultApprovalPolicy: value as ApprovalPolicy })
         }
+      />
+      <SettingsSelect
+        disabled={disabled}
+        label="Default speed"
+        value={settings.defaultServiceTier ?? "flex"}
+        options={SPEED_MODE_OPTIONS}
+        onChange={(value) => onChange({ defaultServiceTier: value })}
       />
       <SettingsToggle
         disabled={disabled}

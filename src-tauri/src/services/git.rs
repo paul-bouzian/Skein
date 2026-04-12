@@ -352,10 +352,8 @@ mod tests {
 
     #[test]
     fn managed_worktree_project_path_is_nested_under_loom_home_directory() {
-        let path = managed_worktree_project_path(
-            Path::new("/Users/test/.loom/worktrees"),
-            "Acme Repo",
-        );
+        let path =
+            managed_worktree_project_path(Path::new("/Users/test/.loom/worktrees"), "Acme Repo");
         assert_eq!(path, Path::new("/Users/test/.loom/worktrees/acme-repo"));
     }
 

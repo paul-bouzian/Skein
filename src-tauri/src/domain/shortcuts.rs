@@ -162,7 +162,11 @@ impl ShortcutSettings {
     fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 18] {
         [
             ("openSettings", "Open settings", self.open_settings.as_ref()),
-            ("focusComposer", "Focus composer", self.focus_composer.as_ref()),
+            (
+                "focusComposer",
+                "Focus composer",
+                self.focus_composer.as_ref(),
+            ),
             (
                 "toggleProjectsSidebar",
                 "Toggle Projects sidebar",
@@ -173,7 +177,11 @@ impl ShortcutSettings {
                 "Toggle Review panel",
                 self.toggle_review_panel.as_ref(),
             ),
-            ("toggleTerminal", "Toggle terminal", self.toggle_terminal.as_ref()),
+            (
+                "toggleTerminal",
+                "Toggle terminal",
+                self.toggle_terminal.as_ref(),
+            ),
             ("newThread", "New thread", self.new_thread.as_ref()),
             (
                 "archiveCurrentThread",
@@ -181,7 +189,11 @@ impl ShortcutSettings {
                 self.archive_current_thread.as_ref(),
             ),
             ("nextThread", "Next thread", self.next_thread.as_ref()),
-            ("previousThread", "Previous thread", self.previous_thread.as_ref()),
+            (
+                "previousThread",
+                "Previous thread",
+                self.previous_thread.as_ref(),
+            ),
             ("newWorktree", "New worktree", self.new_worktree.as_ref()),
             (
                 "nextEnvironment",
@@ -387,7 +399,10 @@ mod tests {
 
         assert_eq!(defaults.toggle_terminal.as_deref(), Some("mod+j"));
         assert_eq!(defaults.open_settings.as_deref(), Some("mod+comma"));
-        assert_eq!(defaults.cycle_collaboration_mode.as_deref(), Some("shift+tab"));
+        assert_eq!(
+            defaults.cycle_collaboration_mode.as_deref(),
+            Some("shift+tab")
+        );
     }
 
     #[test]
@@ -426,7 +441,9 @@ mod tests {
             ..ShortcutSettings::default()
         };
 
-        let error = settings.validate().expect_err("should reject invalid shortcuts");
+        let error = settings
+            .validate()
+            .expect_err("should reject invalid shortcuts");
         assert_eq!(
             error.to_string(),
             "Toggle terminal: Shortcut needs a primary modifier unless it is Shift+Tab."

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
 pub use crate::app_identity::{CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME};
@@ -15,7 +15,7 @@ use crate::domain::conversation::{
     ProposedPlanStepStatus, SubagentStatus, SubagentThreadSnapshot, ThreadConversationSnapshot,
     ThreadTokenUsageSnapshot, TokenUsageBreakdown, UnsupportedInteractionRequest,
 };
-use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
+use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
 
@@ -467,6 +467,8 @@ pub struct ModelWire {
     pub default_reasoning_effort: ReasoningEffort,
     #[serde(default = "default_input_modalities")]
     pub input_modalities: Vec<InputModality>,
+    #[serde(default, deserialize_with = "deserialize_additional_speed_tiers")]
+    pub additional_speed_tiers: Vec<ServiceTier>,
     pub is_default: bool,
     pub hidden: bool,
 }
@@ -479,6 +481,21 @@ pub struct ReasoningEffortOptionWire {
 
 fn default_input_modalities() -> Vec<InputModality> {
     vec![InputModality::Text]
+}
+
+fn deserialize_additional_speed_tiers<'de, D>(deserializer: D) -> Result<Vec<ServiceTier>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values = Vec::<String>::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match value.as_str() {
+            "fast" => Some(ServiceTier::Fast),
+            "flex" => Some(ServiceTier::Flex),
+            _ => None,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -825,6 +842,7 @@ pub fn model_options_from_response(response: ModelListResponse) -> Vec<ModelOpti
                 .map(|option| option.reasoning_effort)
                 .collect(),
             input_modalities: model.input_modalities,
+            supported_service_tiers: model.additional_speed_tiers,
             is_default: model.is_default,
         })
         .collect()
@@ -2398,6 +2416,7 @@ mod tests {
             reasoning_effort: ReasoningEffort::High,
             collaboration_mode: CollaborationMode::Build,
             approval_policy: ApprovalPolicy::AskToEdit,
+            service_tier: None,
         });
 
         assert_eq!(payload["mode"], "default");

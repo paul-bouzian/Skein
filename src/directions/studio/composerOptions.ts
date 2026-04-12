@@ -3,6 +3,7 @@ import type {
   CollaborationMode,
   ModelOption,
   ReasoningEffort,
+  ServiceTier,
 } from "../../lib/types";
 import type { ComposerPickerOption } from "./ComposerPicker";
 
@@ -36,6 +37,11 @@ export const COLLABORATION_OPTIONS: ComposerPickerOption<CollaborationMode>[] = 
 export const APPROVAL_OPTIONS: ComposerPickerOption<ApprovalPolicy>[] = [
   { value: "askToEdit", label: "Ask to edit" },
   { value: "fullAccess", label: "Full access" },
+];
+
+export const SPEED_MODE_OPTIONS: ComposerPickerOption<ServiceTier>[] = [
+  { value: "flex", label: "Normal" },
+  { value: "fast", label: "Fast" },
 ];
 
 export function composerModelOptions(

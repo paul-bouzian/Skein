@@ -40,9 +40,8 @@ mod tests {
 
     #[test]
     fn skips_fenced_code_markers_when_deriving_titles() {
-        let title =
-            derive_thread_title_from_message("```ts\nconst status = compute(env);\n```")
-                .expect("title should exist");
+        let title = derive_thread_title_from_message("```ts\nconst status = compute(env);\n```")
+            .expect("title should exist");
 
         assert_eq!(title, "const status = compute(env)");
     }

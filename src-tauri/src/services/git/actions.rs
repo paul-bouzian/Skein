@@ -221,10 +221,8 @@ pub fn generate_commit_message(context: &GitEnvironmentContext) -> AppResult<Str
         .codex_binary_path
         .clone()
         .unwrap_or_else(|| "codex".to_string());
-    let output_path = std::env::temp_dir().join(format!(
-        "loom-commit-message-{}.txt",
-        uuid::Uuid::now_v7()
-    ));
+    let output_path =
+        std::env::temp_dir().join(format!("loom-commit-message-{}.txt", uuid::Uuid::now_v7()));
     let output_guard = TempFileGuard::new(output_path.clone());
 
     let mut command = Command::new(&binary);
@@ -554,10 +552,8 @@ mod tests {
 
     #[test]
     fn wait_for_child_output_drains_large_stdout_without_timing_out() -> AppResult<()> {
-        let fixture_dir = std::env::temp_dir().join(format!(
-            "loom-git-actions-diff-{}",
-            uuid::Uuid::now_v7()
-        ));
+        let fixture_dir =
+            std::env::temp_dir().join(format!("loom-git-actions-diff-{}", uuid::Uuid::now_v7()));
         fs::create_dir_all(&fixture_dir)?;
         let before = fixture_dir.join("before.txt");
         let after = fixture_dir.join("after.txt");

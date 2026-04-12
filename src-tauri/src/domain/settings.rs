@@ -1,9 +1,17 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::shortcuts::{ShortcutSettings, ShortcutSettingsPatch};
 
 fn default_collapse_work_activity() -> bool {
     true
+}
+
+fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,6 +32,13 @@ pub enum CollaborationMode {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceTier {
+    Fast,
+    Flex,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ApprovalPolicy {
     #[serde(rename = "askToEdit")]
     AskToEdit,
@@ -38,6 +53,7 @@ pub struct GlobalSettings {
     pub default_reasoning_effort: ReasoningEffort,
     pub default_collaboration_mode: CollaborationMode,
     pub default_approval_policy: ApprovalPolicy,
+    pub default_service_tier: Option<ServiceTier>,
     #[serde(default = "default_collapse_work_activity")]
     pub collapse_work_activity: bool,
     #[serde(default)]
@@ -52,6 +68,7 @@ impl Default for GlobalSettings {
             default_reasoning_effort: ReasoningEffort::High,
             default_collaboration_mode: CollaborationMode::Build,
             default_approval_policy: ApprovalPolicy::AskToEdit,
+            default_service_tier: None,
             collapse_work_activity: true,
             shortcuts: ShortcutSettings::default(),
             codex_binary_path: None,
@@ -66,6 +83,8 @@ pub struct GlobalSettingsPatch {
     pub default_reasoning_effort: Option<ReasoningEffort>,
     pub default_collaboration_mode: Option<CollaborationMode>,
     pub default_approval_policy: Option<ApprovalPolicy>,
+    #[serde(default, deserialize_with = "deserialize_explicit_optional")]
+    pub default_service_tier: Option<Option<ServiceTier>>,
     pub collapse_work_activity: Option<bool>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub codex_binary_path: Option<Option<String>>,
@@ -84,6 +103,9 @@ impl GlobalSettings {
         }
         if let Some(default_approval_policy) = patch.default_approval_policy {
             self.default_approval_policy = default_approval_policy;
+        }
+        if let Some(default_service_tier) = patch.default_service_tier {
+            self.default_service_tier = default_service_tier;
         }
         if let Some(collapse_work_activity) = patch.collapse_work_activity {
             self.collapse_work_activity = collapse_work_activity;
@@ -105,6 +127,7 @@ impl GlobalSettings {
 mod tests {
     use super::{
         ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch, ReasoningEffort,
+        ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettingsPatch;
 
@@ -117,6 +140,7 @@ mod tests {
             default_reasoning_effort: Some(ReasoningEffort::Medium),
             default_collaboration_mode: None,
             default_approval_policy: Some(ApprovalPolicy::FullAccess),
+            default_service_tier: Some(Some(ServiceTier::Fast)),
             collapse_work_activity: Some(true),
             shortcuts: Some(ShortcutSettingsPatch {
                 toggle_terminal: Some(Some("mod+shift+j".to_string())),
@@ -138,8 +162,12 @@ mod tests {
             settings.default_approval_policy,
             ApprovalPolicy::FullAccess
         ));
+        assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
         assert!(settings.collapse_work_activity);
-        assert_eq!(settings.shortcuts.toggle_terminal.as_deref(), Some("mod+shift+j"));
+        assert_eq!(
+            settings.shortcuts.toggle_terminal.as_deref(),
+            Some("mod+shift+j")
+        );
         assert_eq!(
             settings.codex_binary_path.as_deref(),
             Some("/opt/homebrew/bin/codex")
@@ -162,6 +190,29 @@ mod tests {
     }
 
     #[test]
+    fn apply_patch_can_clear_optional_service_tier() {
+        let mut settings = GlobalSettings {
+            default_service_tier: Some(ServiceTier::Fast),
+            ..GlobalSettings::default()
+        };
+
+        settings.apply_patch(GlobalSettingsPatch {
+            default_service_tier: Some(None),
+            ..GlobalSettingsPatch::default()
+        });
+
+        assert_eq!(settings.default_service_tier, None);
+    }
+
+    #[test]
+    fn deserializes_null_service_tier_patch_as_explicit_clear() {
+        let patch: GlobalSettingsPatch = serde_json::from_str(r#"{"defaultServiceTier":null}"#)
+            .expect("service tier patch should deserialize");
+
+        assert_eq!(patch.default_service_tier, Some(None));
+    }
+
+    #[test]
     fn default_settings_enable_collapsed_work_activity_and_shortcuts() {
         let settings = GlobalSettings::default();
 
@@ -177,13 +228,18 @@ mod tests {
                 "defaultReasoningEffort":"high",
                 "defaultCollaborationMode":"build",
                 "defaultApprovalPolicy":"askToEdit",
+                "defaultServiceTier":"fast",
                 "codexBinaryPath":"/opt/homebrew/bin/codex"
             }"#,
         )
         .expect("legacy settings should deserialize");
 
         assert!(settings.collapse_work_activity);
-        assert_eq!(settings.shortcuts.open_settings.as_deref(), Some("mod+comma"));
+        assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
+        assert_eq!(
+            settings.shortcuts.open_settings.as_deref(),
+            Some("mod+comma")
+        );
     }
 
     #[test]
@@ -192,7 +248,9 @@ mod tests {
         settings.shortcuts.toggle_terminal = Some("j".to_string());
 
         assert_eq!(
-            settings.validate().expect_err("invalid shortcuts should fail"),
+            settings
+                .validate()
+                .expect_err("invalid shortcuts should fail"),
             "Toggle terminal: Shortcut needs a primary modifier unless it is Shift+Tab."
         );
     }

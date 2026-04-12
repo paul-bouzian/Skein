@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-use crate::app_identity::{
-    AppStoragePaths, APP_DATABASE_FILE_NAME, LEGACY_APP_DATABASE_FILE_NAME,
-};
+use crate::app_identity::{AppStoragePaths, APP_DATABASE_FILE_NAME, LEGACY_APP_DATABASE_FILE_NAME};
 use crate::domain::conversation::{
     ComposerDraftMentionBinding, ConversationComposerDraft, ConversationImageAttachment,
 };
@@ -911,15 +909,26 @@ mod tests {
         drop(connection);
 
         database
-            .normalize_workspace_paths(Path::new("/Users/test/.threadex"), Path::new("/Users/test/.loom"))
+            .normalize_workspace_paths(
+                Path::new("/Users/test/.threadex"),
+                Path::new("/Users/test/.loom"),
+            )
             .expect("path migration should succeed");
 
         let connection = database.open().expect("db should reopen");
         let project_root: String = connection
-            .query_row("SELECT root_path FROM projects WHERE id = 'project-1'", [], |row| row.get(0))
+            .query_row(
+                "SELECT root_path FROM projects WHERE id = 'project-1'",
+                [],
+                |row| row.get(0),
+            )
             .expect("project path should read");
         let environment_path: String = connection
-            .query_row("SELECT path FROM environments WHERE id = 'env-1'", [], |row| row.get(0))
+            .query_row(
+                "SELECT path FROM environments WHERE id = 'env-1'",
+                [],
+                |row| row.get(0),
+            )
             .expect("environment path should read");
         let draft: ConversationComposerDraft = connection
             .query_row(
@@ -938,7 +947,10 @@ mod tests {
             )
             .expect("thread draft should read");
 
-        assert_eq!(project_root, "/Users/test/.loom/worktrees/loom/project-root");
+        assert_eq!(
+            project_root,
+            "/Users/test/.loom/worktrees/loom/project-root"
+        );
         assert_eq!(environment_path, "/Users/test/.loom/worktrees/loom/feature");
         assert_eq!(
             draft.images,

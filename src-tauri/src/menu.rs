@@ -22,7 +22,8 @@ pub(crate) fn build_menu<R: Runtime>(handle: &AppHandle<R>) -> tauri::Result<Men
     let settings_item = MenuItemBuilder::with_id("open_settings", "Settings…")
         .accelerator(settings_shortcut)
         .build(handle)?;
-    let close_window_item = MenuItemBuilder::with_id("close_window", "Close Window").build(handle)?;
+    let close_window_item =
+        MenuItemBuilder::with_id("close_window", "Close Window").build(handle)?;
 
     let app_menu = Submenu::with_items(
         handle,
