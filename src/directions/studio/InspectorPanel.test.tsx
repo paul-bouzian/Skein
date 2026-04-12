@@ -82,10 +82,10 @@ describe("InspectorPanel", () => {
 
     render(<InspectorPanel />);
 
-    expect(await screen.findByText("Repository")).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: /src\/app\.ts.*modified/i }),
+      await screen.findByRole("group", { name: "Review scope" }),
     ).toBeInTheDocument();
+    expect(await screen.findByText("src/app.ts")).toBeInTheDocument();
     expect(screen.queryByText("+const answer = 2;")).not.toBeInTheDocument();
   });
 
@@ -95,7 +95,7 @@ describe("InspectorPanel", () => {
 
     render(<InspectorPanel />);
 
-    await screen.findByText("Repository");
+    await screen.findByRole("group", { name: "Review scope" });
     await userEvent.click(screen.getByRole("button", { name: "Revert all" }));
 
     await waitFor(() => {

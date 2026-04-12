@@ -207,13 +207,11 @@
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-medium);
   color: var(--tx-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .settings-field__input {
   width: 100%;
-  padding: 6px 10px;
+  padding: var(--tx-space-menu) 10px;
   font-size: var(--tx-text-sm);
   color: var(--tx-text-primary);
   background: var(--tx-bg-sunken);
@@ -247,7 +245,7 @@
 .settings-field__textarea {
   width: 100%;
   min-height: 112px;
-  padding: 10px 12px;
+  padding: 10px var(--tx-space-md);
   font-size: var(--tx-text-sm);
   line-height: 1.5;
   color: var(--tx-text-primary);
@@ -346,48 +344,6 @@
   gap: var(--tx-space-sm);
 }
 
-.settings-project-card__secondary,
-.settings-project-card__primary {
-  padding: 8px 12px;
-  border-radius: var(--tx-radius-md);
-  font-size: var(--tx-text-sm);
-  font-weight: var(--tx-weight-medium);
-  transition:
-    background var(--tx-transition-fast),
-    border-color var(--tx-transition-fast),
-    color var(--tx-transition-fast),
-    opacity var(--tx-transition-fast);
-}
-
-.settings-project-card__secondary:disabled,
-.settings-project-card__primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.settings-project-card__secondary {
-  border: 1px solid var(--tx-border-subtle);
-  background: transparent;
-  color: var(--tx-text-secondary);
-}
-
-.settings-project-card__secondary:hover:not(:disabled) {
-  border-color: var(--tx-border-muted);
-  background: var(--tx-bg-hover);
-  color: var(--tx-text-primary);
-}
-
-.settings-project-card__primary {
-  border: 1px solid color-mix(in srgb, var(--tx-accent) 42%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 16%, transparent);
-  color: var(--tx-text-primary);
-}
-
-.settings-project-card__primary:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 60%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 22%, transparent);
-}
-
 .settings-open-targets {
   display: flex;
   flex-direction: column;
@@ -474,7 +430,7 @@
 .settings-open-target__default {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--tx-space-menu);
   margin-right: var(--tx-space-xs);
   font-size: var(--tx-text-sm);
   color: var(--tx-text-secondary);
@@ -529,48 +485,6 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--tx-space-sm);
-}
-
-.settings-update-card__secondary,
-.settings-update-card__primary {
-  padding: 8px 12px;
-  border-radius: var(--tx-radius-md);
-  font-size: var(--tx-text-sm);
-  font-weight: var(--tx-weight-medium);
-  transition:
-    background var(--tx-transition-fast),
-    border-color var(--tx-transition-fast),
-    color var(--tx-transition-fast),
-    opacity var(--tx-transition-fast);
-}
-
-.settings-update-card__secondary:disabled,
-.settings-update-card__primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.settings-update-card__secondary {
-  border: 1px solid var(--tx-border-subtle);
-  background: transparent;
-  color: var(--tx-text-secondary);
-}
-
-.settings-update-card__secondary:hover:not(:disabled) {
-  border-color: var(--tx-border-muted);
-  background: var(--tx-bg-hover);
-  color: var(--tx-text-primary);
-}
-
-.settings-update-card__primary {
-  border: 1px solid color-mix(in srgb, var(--tx-accent) 42%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 16%, transparent);
-  color: var(--tx-text-primary);
-}
-
-.settings-update-card__primary:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 60%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 22%, transparent);
 }
 
 .settings-update-card__error {

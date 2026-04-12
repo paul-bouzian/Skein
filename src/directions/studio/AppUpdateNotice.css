@@ -21,8 +21,6 @@
   color: var(--tx-accent);
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .tx-update-notice__title {
@@ -67,45 +65,6 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--tx-space-sm);
-}
-
-.tx-update-notice__secondary,
-.tx-update-notice__primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--tx-space-xs);
-  height: 34px;
-  padding: 0 var(--tx-space-md);
-  border-radius: var(--tx-radius-md);
-  border: 1px solid var(--tx-border-subtle);
-  font-size: var(--tx-text-sm);
-  font-weight: var(--tx-weight-medium);
-  transition:
-    background var(--tx-transition-fast),
-    border-color var(--tx-transition-fast),
-    color var(--tx-transition-fast);
-}
-
-.tx-update-notice__secondary {
-  background: transparent;
-  color: var(--tx-text-secondary);
-}
-
-.tx-update-notice__secondary:hover {
-  background: var(--tx-bg-hover);
-  color: var(--tx-text-primary);
-}
-
-.tx-update-notice__primary {
-  background: var(--tx-accent-subtle);
-  border-color: color-mix(in srgb, var(--tx-accent) 40%, var(--tx-border-subtle));
-  color: var(--tx-accent);
-}
-
-.tx-update-notice__primary:hover {
-  background: color-mix(in srgb, var(--tx-accent) 20%, var(--tx-bg-raised));
-  color: var(--tx-accent-hover);
 }
 
 .tx-update-notice__progress {

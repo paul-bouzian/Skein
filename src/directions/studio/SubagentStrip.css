@@ -23,14 +23,6 @@
   min-width: 0;
 }
 
-.tx-subagents__title {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--tx-text-muted);
-}
-
 .tx-subagents__chevron {
   color: var(--tx-text-muted);
   transition: transform var(--tx-transition-fast);

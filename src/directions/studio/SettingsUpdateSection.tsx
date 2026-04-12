@@ -63,7 +63,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
       <div className="settings-update-card__actions">
         <button
           type="button"
-          className="settings-update-card__secondary"
+          className="tx-action-btn tx-action-btn--secondary"
           disabled={isBusy}
           onClick={() => void checkNow()}
         >
@@ -73,7 +73,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
           <>
             <button
               type="button"
-              className="settings-update-card__secondary"
+              className="tx-action-btn tx-action-btn--secondary"
               disabled={isBusy}
               onClick={() => void viewChanges()}
             >
@@ -81,7 +81,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
             </button>
             <button
               type="button"
-              className="settings-update-card__primary"
+              className="tx-action-btn tx-action-btn--primary"
               disabled={isBusy}
               onClick={() => void install()}
             >

@@ -34,7 +34,7 @@ export function SidebarUsagePanel() {
 
   return (
     <section className="sidebar-usage" aria-label="Codex usage">
-      <span className="sidebar-usage__title">Usage</span>
+      <span className="sidebar-usage__title tx-section-label">Usage</span>
 
       <div className="sidebar-usage__rows">
         {rows.map((row) => {

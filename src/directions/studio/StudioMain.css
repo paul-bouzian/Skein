@@ -187,9 +187,7 @@
 
 .studio-section-label {
   font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: var(--tx-weight-semibold);
   color: var(--tx-text-muted);
   margin-bottom: var(--tx-space-md);
 }

@@ -33,7 +33,7 @@ export function SubagentStrip({ subagents }: Props) {
             size={12}
             className={`tx-subagents__chevron ${expanded ? "tx-subagents__chevron--expanded" : ""}`}
           />
-          <span className="tx-subagents__title">Subagents</span>
+          <span className="tx-subagents__title tx-section-label">Subagents</span>
         </span>
         <span className="tx-subagents__summary">{summary}</span>
       </button>

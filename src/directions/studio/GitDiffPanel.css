@@ -26,14 +26,6 @@
   gap: 2px;
 }
 
-.git-diff-panel__eyebrow {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--tx-text-muted);
-}
-
 .git-diff-panel__title {
   min-width: 0;
   color: var(--tx-text-primary);

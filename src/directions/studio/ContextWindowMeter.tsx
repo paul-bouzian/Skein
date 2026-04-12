@@ -156,7 +156,7 @@ export function ContextWindowMeter({ usage }: Props) {
                 zIndex: TOOLTIP_Z_INDEX,
               }}
             >
-              <div className="tx-context-meter__tooltip-label">
+              <div className="tx-context-meter__tooltip-label tx-section-label">
                 Context window
               </div>
               <div className="tx-context-meter__tooltip-line">

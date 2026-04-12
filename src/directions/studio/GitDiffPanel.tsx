@@ -12,6 +12,7 @@ import {
 } from "../../stores/git-review-store";
 import { CloseIcon } from "../../shared/Icons";
 import { GitDiffViewer } from "./GitDiffViewer";
+import { labelForGitChangeKind } from "./git-change-kind";
 import "./GitDiffPanel.css";
 
 export function GitDiffPanel() {
@@ -55,7 +56,7 @@ export function GitDiffPanel() {
     <aside className="git-diff-panel">
       <div className="git-diff-panel__header">
         <div className="git-diff-panel__title-wrap">
-          <span className="git-diff-panel__eyebrow">Diff</span>
+          <span className="git-diff-panel__eyebrow tx-section-label">Diff</span>
           <span className="git-diff-panel__title">{selectedFile.path}</span>
         </div>
         <button
@@ -79,7 +80,9 @@ export function GitDiffPanel() {
             >
               <div className="git-diff-panel__file-header">
                 <span className="git-diff-panel__file-path">{file.path}</span>
-                <span className="git-diff-panel__file-status">{labelForDiffKind(file.kind)}</span>
+                <span className="git-diff-panel__file-status">
+                  {labelForGitChangeKind(file.kind, "full")}
+                </span>
               </div>
               <GitDiffViewer diff={diffCollection[fileKey] ?? null} loading={diffLoading && !diffCollection[fileKey]} />
             </section>
@@ -101,25 +104,4 @@ function orderSelectedFileFirst<T extends { section: string; path: string }>(
     (file) => `${file.section}:${file.path}` !== selectedFileKey,
   );
   return selected ? [selected, ...rest] : files;
-}
-
-function labelForDiffKind(kind: string) {
-  switch (kind) {
-    case "added":
-      return "Added";
-    case "modified":
-      return "Modified";
-    case "deleted":
-      return "Deleted";
-    case "renamed":
-      return "Renamed";
-    case "copied":
-      return "Copied";
-    case "typeChanged":
-      return "Type";
-    case "unmerged":
-      return "Conflict";
-    default:
-      return "Changed";
-  }
 }

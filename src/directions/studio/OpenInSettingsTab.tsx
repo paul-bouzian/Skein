@@ -148,7 +148,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
       <div className="settings-open-targets__actions">
         <button
           type="button"
-          className="settings-project-card__secondary"
+          className="tx-action-btn tx-action-btn--secondary"
           disabled={saving || !dirty}
           onClick={handleReset}
         >
@@ -156,7 +156,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
         </button>
         <button
           type="button"
-          className="settings-project-card__primary"
+          className="tx-action-btn tx-action-btn--primary"
           disabled={saving || !dirty || issues.global != null}
           onClick={() => void handleSave()}
         >
@@ -215,7 +215,7 @@ function OpenInTargetRow({
           </label>
           <button
             type="button"
-            className="settings-project-card__secondary"
+            className="tx-action-btn tx-action-btn--secondary"
             disabled={disabled || !canMoveUp}
             aria-label={`Move ${target.label} up`}
             onClick={onMoveUp}
@@ -224,7 +224,7 @@ function OpenInTargetRow({
           </button>
           <button
             type="button"
-            className="settings-project-card__secondary"
+            className="tx-action-btn tx-action-btn--secondary"
             disabled={disabled || !canMoveDown}
             aria-label={`Move ${target.label} down`}
             onClick={onMoveDown}

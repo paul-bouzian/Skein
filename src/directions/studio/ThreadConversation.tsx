@@ -15,6 +15,7 @@ import type {
   ThreadRecord,
 } from "../../lib/types";
 import { EmptyState } from "../../shared/EmptyState";
+import { ThreadIcon } from "../../shared/Icons";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
@@ -453,8 +454,9 @@ function ConversationLoading() {
 function ConversationEmpty() {
   return (
     <div className="tx-conversation__empty">
-      <h3>Ready for the first turn</h3>
-      <p>Codex is connected. Use Build or Plan mode to start the next turn.</p>
+      <ThreadIcon size={20} />
+      <h3>Start a conversation</h3>
+      <p>Type a message below to begin</p>
     </div>
   );
 }

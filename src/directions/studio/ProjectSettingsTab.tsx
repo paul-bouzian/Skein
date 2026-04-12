@@ -164,7 +164,7 @@ export function ProjectSettingsTab({
                 <div className="settings-project-card__actions">
                   <button
                     type="button"
-                    className="settings-project-card__secondary"
+                    className="tx-action-btn tx-action-btn--secondary"
                     disabled={isSaving || !isDirty}
                     onClick={() =>
                       updateProjectDraft(
@@ -183,7 +183,7 @@ export function ProjectSettingsTab({
                   </button>
                   <button
                     type="button"
-                    className="settings-project-card__primary"
+                    className="tx-action-btn tx-action-btn--primary"
                     disabled={isSaving || !isDirty}
                     onClick={() => {
                       void saveProjectDraft(

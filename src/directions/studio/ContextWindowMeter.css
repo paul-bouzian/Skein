@@ -55,7 +55,7 @@
 .tx-context-meter__value {
   position: relative;
   z-index: 1;
-  font-size: 10px;
+  font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-semibold);
   color: var(--tx-text-primary);
 }
@@ -72,14 +72,6 @@
   color: var(--tx-text-primary);
   pointer-events: none;
   backdrop-filter: blur(16px);
-}
-
-.tx-context-meter__tooltip-label {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--tx-text-muted);
 }
 
 .tx-context-meter__tooltip-line {

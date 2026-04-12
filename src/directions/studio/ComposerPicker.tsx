@@ -145,7 +145,7 @@ export function ComposerPicker({
 
   return (
     <div ref={rootRef} className={pickerClassName}>
-      {!compact && <span className="tx-picker__label">{label}</span>}
+      {!compact && <span className="tx-picker__label tx-section-label">{label}</span>}
       <button
         ref={triggerRef}
         type="button"
@@ -162,7 +162,7 @@ export function ComposerPicker({
         ? createPortal(
             <div
               ref={menuRef}
-              className="tx-picker__menu"
+              className="tx-picker__menu tx-dropdown-menu"
               role="listbox"
               aria-label={`${label} options`}
               style={{ ...menuPosition, zIndex: menuZIndex }}
@@ -175,7 +175,7 @@ export function ComposerPicker({
                     type="button"
                     role="option"
                     aria-selected={isSelected}
-                    className={`tx-picker__option ${isSelected ? "tx-picker__option--selected" : ""}`}
+                    className={`tx-picker__option tx-dropdown-option ${isSelected ? "tx-picker__option--selected" : ""}`}
                     onClick={() => {
                       onChange(option.value);
                       setOpen(false);

@@ -8,14 +8,6 @@
   background: color-mix(in srgb, var(--tx-bg-raised) 72%, transparent);
 }
 
-.sidebar-usage__title {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--tx-text-muted);
-}
-
 .sidebar-usage__rows {
   display: flex;
   flex-direction: column;
@@ -25,7 +17,7 @@
 .sidebar-usage__row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--tx-space-menu);
 }
 
 .sidebar-usage__row-header {

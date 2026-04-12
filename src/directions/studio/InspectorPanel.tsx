@@ -150,7 +150,6 @@ export function InspectorPanel() {
         {snapshot ? (
           <>
             <ReviewSummarySection
-              environmentName={selectedEnvironment.name}
               loading={loading}
               onSelectScope={(nextScope) =>
                 void selectScope(selectedEnvironment.id, nextScope)

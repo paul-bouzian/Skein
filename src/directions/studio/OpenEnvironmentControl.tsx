@@ -219,7 +219,7 @@ export function OpenEnvironmentControl({ environmentId, settings }: Props) {
               ref={menuRef}
               role="menu"
               aria-label="Open target options"
-              className="open-environment-control__menu"
+              className="open-environment-control__menu tx-dropdown-menu"
               style={{ ...menuPosition, zIndex: 1200 }}
             >
               {targets.map((target) => {
@@ -230,7 +230,7 @@ export function OpenEnvironmentControl({ environmentId, settings }: Props) {
                     type="button"
                     role="menuitemradio"
                     aria-checked={isSelected}
-                    className={`open-environment-control__option ${
+                    className={`open-environment-control__option tx-dropdown-option ${
                       isSelected ? "open-environment-control__option--selected" : ""
                     }`}
                     onClick={() => void openTarget(target, true)}

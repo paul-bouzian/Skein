@@ -181,7 +181,7 @@ export function ShortcutsSettingsTab({ shortcuts, disabled, onChange }: Props) {
                         <div className="settings-shortcuts__buttons">
                           <button
                             type="button"
-                            className="settings-project-card__secondary"
+                            className="tx-action-btn tx-action-btn--secondary"
                             disabled={disabled || currentValue == null}
                             onClick={() => saveShortcut(definition.action, null)}
                           >
@@ -189,7 +189,7 @@ export function ShortcutsSettingsTab({ shortcuts, disabled, onChange }: Props) {
                           </button>
                           <button
                             type="button"
-                            className="settings-project-card__secondary"
+                            className="tx-action-btn tx-action-btn--secondary"
                             disabled={
                               disabled ||
                               defaultValue == null ||

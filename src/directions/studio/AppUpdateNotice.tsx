@@ -79,14 +79,14 @@ export function AppUpdateNotice() {
         <div className="tx-update-notice__actions">
           <button
             type="button"
-            className="tx-update-notice__secondary"
+            className="tx-action-btn tx-action-btn--secondary"
             onClick={dismiss}
           >
             Dismiss
           </button>
           <button
             type="button"
-            className="tx-update-notice__primary"
+            className="tx-action-btn tx-action-btn--primary"
             onClick={() => void checkNow()}
           >
             Try again
@@ -113,14 +113,14 @@ export function AppUpdateNotice() {
         <div className="tx-update-notice__actions">
           <button
             type="button"
-            className="tx-update-notice__secondary"
+            className="tx-action-btn tx-action-btn--secondary"
             onClick={() => void viewChanges()}
           >
             View changes
           </button>
           <button
             type="button"
-            className="tx-update-notice__primary"
+            className="tx-action-btn tx-action-btn--primary"
             onClick={() => void install()}
           >
             <DownloadIcon size={14} />
@@ -133,7 +133,7 @@ export function AppUpdateNotice() {
         <div className="tx-update-notice__actions">
           <button
             type="button"
-            className="tx-update-notice__secondary"
+            className="tx-action-btn tx-action-btn--secondary"
             onClick={dismiss}
           >
             Dismiss

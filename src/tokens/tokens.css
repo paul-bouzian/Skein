@@ -24,6 +24,7 @@
 
   /* ── Spacing ── */
   --tx-space-xs: 4px;
+  --tx-space-menu: 6px;
   --tx-space-sm: 8px;
   --tx-space-md: 12px;
   --tx-space-lg: 16px;
@@ -44,6 +45,9 @@
   --tx-toolbar-height: 44px;
   --tx-statusbar-height: 28px;
   --tx-column-width: 240px;
+  --tx-btn-height-sm: 24px;
+  --tx-btn-height-md: 32px;
+  --tx-btn-height-lg: 36px;
 
   /* ── Surfaces (dark) ── */
   --tx-bg-base: #0a0a0c;

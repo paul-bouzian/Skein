@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import type {
   GitChangeSection,
   GitFileChange,
@@ -14,6 +12,7 @@ import {
   PlusIcon,
   UndoIcon,
 } from "../../shared/Icons";
+import { labelForGitChangeKind } from "./git-change-kind";
 
 const REVIEW_SCOPE_OPTIONS = [
   { id: "uncommitted", label: "Uncommitted" },
@@ -38,13 +37,11 @@ function isPrimaryActionDisabled(
 }
 
 export function ReviewSummarySection({
-  environmentName,
   loading,
   onSelectScope,
   scope,
   summary,
 }: {
-  environmentName: string;
   loading: boolean;
   onSelectScope: (scope: GitReviewScope) => void;
   scope: GitReviewScope;
@@ -53,7 +50,6 @@ export function ReviewSummarySection({
   return (
     <section className="inspector-section">
       <div className="inspector-section__header">
-        <h4 className="inspector-section__label">Repository</h4>
         <div className="inspector-scope-switch" role="group" aria-label="Review scope">
           {REVIEW_SCOPE_OPTIONS.map((option) => {
             const disabled = loading || (option.id === "branch" && !summary.baseBranch);
@@ -74,14 +70,15 @@ export function ReviewSummarySection({
           })}
         </div>
       </div>
-      <div className="inspector-summary-grid">
-        <SummaryItem label="Environment" value={environmentName} />
-        <SummaryItem label="Branch" value={summary.branch ?? "detached"} />
-        <SummaryItem label="Base" value={summary.baseBranch ?? "auto"} />
-        <SummaryItem
-          label="Sync"
-          value={`${summary.ahead}↑ ${summary.behind}↓`}
-        />
+      <div className="inspector-summary-inline">
+        <span className="inspector-summary-inline__item">
+          <span className="inspector-summary-inline__label">Base</span>{" "}
+          {summary.baseBranch ?? "auto"}
+        </span>
+        <span className="inspector-summary-inline__sep" aria-hidden="true">·</span>
+        <span className="inspector-summary-inline__item">
+          {summary.ahead}↑ {summary.behind}↓
+        </span>
       </div>
     </section>
   );
@@ -159,8 +156,8 @@ export function CommitSection({
             className="inspector-commit__textarea"
             aria-label="Commit message"
             readOnly={draftLocked}
-            placeholder="Write a commit message"
-            rows={3}
+            placeholder="Commit message…"
+            rows={2}
             value={message}
             onChange={(event) => onMessageChange(event.target.value)}
           />
@@ -271,7 +268,7 @@ export function ChangesSection({
           <div key={section.id} className="inspector-change-group">
             <div className="inspector-change-group__header">
               <span>{section.label}</span>
-              <span>{section.files.length}</span>
+              <span className="inspector-change-group__count">{section.files.length}</span>
             </div>
             <div className="inspector-change-group__list">
               {section.files.map((file) => {
@@ -292,7 +289,7 @@ export function ChangesSection({
                       <span
                         className={`inspector-file-row__status inspector-file-row__status--${file.kind}`}
                       >
-                        {labelForChangeKind(file.kind)}
+                        {labelForGitChangeKind(file.kind, "compact")}
                       </span>
                     </button>
                     <div className="inspector-file-row__actions">
@@ -342,34 +339,4 @@ export function ChangesSection({
       </div>
     </section>
   );
-}
-
-function SummaryItem({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="inspector-summary-item">
-      <span className="inspector-summary-item__label">{label}</span>
-      <span className="inspector-summary-item__value">{value}</span>
-    </div>
-  );
-}
-
-function labelForChangeKind(kind: GitFileChange["kind"]) {
-  switch (kind) {
-    case "added":
-      return "Added";
-    case "modified":
-      return "Modified";
-    case "deleted":
-      return "Deleted";
-    case "renamed":
-      return "Renamed";
-    case "copied":
-      return "Copied";
-    case "typeChanged":
-      return "Type";
-    case "unmerged":
-      return "Conflict";
-    default:
-      return "Changed";
-  }
 }

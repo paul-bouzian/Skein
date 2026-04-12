@@ -1,0 +1,92 @@
+/* ── Shared utility classes ── */
+
+.tx-section-label {
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-semibold);
+  color: var(--tx-text-muted);
+}
+
+/* ── Action buttons ── */
+
+.tx-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tx-space-xs);
+  min-height: var(--tx-btn-height-md);
+  padding: 0 var(--tx-space-md);
+  border-radius: var(--tx-radius-md);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+  transition:
+    background var(--tx-transition-fast),
+    border-color var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    opacity var(--tx-transition-fast);
+}
+
+.tx-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tx-action-btn--primary {
+  border: 1px solid color-mix(in srgb, var(--tx-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--tx-accent) 16%, transparent);
+  color: var(--tx-text-primary);
+}
+
+.tx-action-btn--primary:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--tx-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--tx-accent) 22%, transparent);
+}
+
+.tx-action-btn--secondary {
+  border: 1px solid var(--tx-border-subtle);
+  background: transparent;
+  color: var(--tx-text-secondary);
+}
+
+.tx-action-btn--secondary:hover:not(:disabled) {
+  border-color: var(--tx-border-muted);
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+/* ── Dropdown menus ── */
+
+.tx-dropdown-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tx-space-xs);
+  padding: var(--tx-space-menu);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-lg);
+  background: color-mix(in srgb, var(--tx-bg-raised) 92%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--tx-shadow-lg);
+  overflow-y: auto;
+}
+
+.tx-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: var(--tx-space-sm);
+  width: 100%;
+  padding: var(--tx-space-sm) 10px;
+  border-radius: var(--tx-radius-md);
+  border: none;
+  background: transparent;
+  color: var(--tx-text-secondary);
+  text-align: left;
+  font-size: var(--tx-text-sm);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.tx-dropdown-option:hover {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}

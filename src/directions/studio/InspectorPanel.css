@@ -21,14 +21,11 @@
 .inspector__title,
 .inspector-section__label {
   font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: var(--tx-weight-semibold);
   color: var(--tx-text-muted);
 }
 
 .inspector__subtitle,
-.inspector-summary-item__label,
 .inspector-file-row__status {
   color: var(--tx-text-muted);
   font-size: var(--tx-text-xs);
@@ -110,22 +107,20 @@
   opacity: 0.5;
 }
 
-.inspector-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.inspector-summary-inline {
+  display: flex;
+  align-items: center;
   gap: var(--tx-space-sm);
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-secondary);
 }
 
-.inspector-summary-item {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
+.inspector-summary-inline__label {
+  color: var(--tx-text-muted);
 }
 
-.inspector-summary-item__value {
-  color: var(--tx-text-primary);
-  font-size: var(--tx-text-sm);
-  overflow-wrap: anywhere;
+.inspector-summary-inline__sep {
+  color: var(--tx-text-muted);
 }
 
 .inspector-inline-actions {
@@ -159,7 +154,7 @@
 
 .inspector-commit {
   display: grid;
-  gap: 6px;
+  gap: var(--tx-space-menu);
 }
 
 .inspector-commit__editor {
@@ -250,7 +245,7 @@
 .inspector-change-toolbar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--tx-space-menu);
 }
 
 .inspector-change-group {
@@ -265,9 +260,21 @@
   gap: var(--tx-space-sm);
   color: var(--tx-text-secondary);
   font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-weight: var(--tx-weight-semibold);
+}
+
+.inspector-change-group__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--tx-space-xs);
+  border-radius: 999px;
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-medium);
 }
 
 .inspector-change-group__list {

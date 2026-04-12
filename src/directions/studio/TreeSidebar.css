@@ -19,14 +19,6 @@
   flex-shrink: 0;
 }
 
-.tree-sidebar__title {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--tx-text-muted);
-}
-
 .tree-sidebar__add {
   width: 22px;
   height: 22px;
@@ -125,31 +117,13 @@
 }
 
 .tree-sidebar__context-menu {
-  position: fixed;
   z-index: 1200;
   min-width: 190px;
-  padding: 6px;
-  border-radius: var(--tx-radius-lg);
-  border: 1px solid var(--tx-border-subtle);
-  background: color-mix(in srgb, var(--tx-bg-raised) 92%, transparent);
-  box-shadow: var(--tx-shadow-lg);
   backdrop-filter: blur(18px);
 }
 
 .tree-sidebar__context-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 8px 10px;
-  border-radius: var(--tx-radius-md);
-  font-size: var(--tx-text-sm);
   color: var(--tx-text-primary);
-  transition: background var(--tx-transition-fast);
-}
-
-.tree-sidebar__context-item:hover {
-  background: var(--tx-bg-hover);
 }
 
 .tree-sidebar__context-item--danger {

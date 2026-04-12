@@ -81,31 +81,14 @@
 }
 
 .open-environment-control__menu {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
   gap: 2px;
-  padding: 6px;
-  border: 1px solid var(--tx-border-muted);
-  border-radius: var(--tx-radius-lg);
+  border-color: var(--tx-border-muted);
   background: var(--tx-bg-overlay);
   box-shadow: var(--tx-shadow-overlay);
-  overflow-y: auto;
 }
 
 .open-environment-control__option {
-  display: flex;
-  align-items: center;
-  gap: var(--tx-space-sm);
-  width: 100%;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: var(--tx-radius-md);
-  color: var(--tx-text-secondary);
-  text-align: left;
-  transition:
-    background var(--tx-transition-fast),
-    color var(--tx-transition-fast);
 }
 
 .open-environment-control__option:hover,
