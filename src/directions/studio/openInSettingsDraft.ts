@@ -103,6 +103,22 @@ export function matchesPersistedTargets(
   });
 }
 
+export function persistedOpenInSettingsEqual(
+  leftTargets: OpenTarget[],
+  leftDefaultTargetId: string,
+  rightTargets: OpenTarget[],
+  rightDefaultTargetId: string,
+) {
+  return (
+    leftDefaultTargetId === rightDefaultTargetId &&
+    leftTargets.length === rightTargets.length &&
+    leftTargets.every((target, index) => {
+      const otherTarget = rightTargets[index];
+      return otherTarget ? openTargetsEqual(target, otherTarget) : false;
+    })
+  );
+}
+
 export function persistDraftTargets(state: OpenInDraftState) {
   const defaultIndex = state.targets.findIndex(
     (target) => target.draftKey === state.defaultDraftKey,

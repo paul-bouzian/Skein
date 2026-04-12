@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { OpenTarget, OpenTargetKind } from "../../lib/types";
 import { useWorkspaceStore } from "../../stores/workspace-store";
@@ -16,6 +16,7 @@ import {
   matchesPersistedTargets,
   moveDraftTarget,
   parseArgs,
+  persistedOpenInSettingsEqual,
   persistDraftTargets,
   validateDraftTargets,
   type OpenInDraftState,
@@ -34,6 +35,8 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const lastPersistedTargetsRef = useRef(targets);
+  const lastDefaultTargetIdRef = useRef(defaultTargetId);
   const draftTargets = draftState.targets;
   const defaultDraftKey = draftState.defaultDraftKey;
   const iconTargets = useMemo(
@@ -51,6 +54,20 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   const appIcons = useOpenAppIcons(iconTargets);
 
   useEffect(() => {
+    if (
+      persistedOpenInSettingsEqual(
+        lastPersistedTargetsRef.current,
+        lastDefaultTargetIdRef.current,
+        targets,
+        defaultTargetId,
+      )
+    ) {
+      setSaving(false);
+      return;
+    }
+
+    lastPersistedTargetsRef.current = targets;
+    lastDefaultTargetIdRef.current = defaultTargetId;
     setDraftState(buildDraftState(targets, defaultTargetId));
     setSaving(false);
   }, [defaultTargetId, targets]);
@@ -63,6 +80,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
     () => !matchesPersistedTargets(draftTargets, defaultDraftKey, targets, defaultTargetId),
     [defaultDraftKey, defaultTargetId, draftTargets, targets],
   );
+  const noticeMessage = saveError ?? issues.global;
 
   async function handleSave() {
     if (issues.global || Object.keys(issues.byKey).length > 0) {
@@ -120,7 +138,9 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
           environment path automatically.
         </p>
       </div>
-      {saveError ? <p className="settings-dialog__notice">{saveError}</p> : null}
+      {noticeMessage ? (
+        <p className="settings-dialog__notice">{noticeMessage}</p>
+      ) : null}
       <fieldset className="settings-open-targets__list">
         <legend className="settings-open-targets__legend">
           Default Open In target

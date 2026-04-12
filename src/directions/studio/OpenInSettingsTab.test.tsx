@@ -115,4 +115,45 @@ describe("OpenInSettingsTab", () => {
       });
     });
   });
+
+  it("keeps in-progress edits when props refresh with equivalent values", async () => {
+    const user = userEvent.setup();
+    const settings = makeGlobalSettings();
+    const { rerender } = render(
+      <OpenInSettingsTab
+        targets={settings.openTargets}
+        defaultTargetId={settings.defaultOpenTargetId}
+      />,
+    );
+
+    const labelInput = screen.getAllByLabelText("Label")[0];
+    await user.clear(labelInput);
+    await user.type(labelInput, "Cursor Pro");
+
+    rerender(
+      <OpenInSettingsTab
+        targets={settings.openTargets.map((target) => ({ ...target }))}
+        defaultTargetId={settings.defaultOpenTargetId}
+      />,
+    );
+
+    expect(screen.getAllByLabelText("Label")[0]).toHaveValue("Cursor Pro");
+  });
+
+  it("shows global validation errors before save is attempted", async () => {
+    const user = userEvent.setup();
+    render(
+      <OpenInSettingsTab
+        targets={makeGlobalSettings().openTargets}
+        defaultTargetId={makeGlobalSettings().defaultOpenTargetId}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Remove Cursor/i }));
+    await user.click(screen.getByRole("button", { name: /Remove Zed/i }));
+    await user.click(screen.getByRole("button", { name: /Remove Finder/i }));
+
+    expect(screen.getByText("Add at least one Open In target.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
 });
