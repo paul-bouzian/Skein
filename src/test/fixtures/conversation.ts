@@ -22,6 +22,7 @@ export const baseComposer: ConversationComposerSettings = {
   reasoningEffort: "high",
   collaborationMode: "build",
   approvalPolicy: "askToEdit",
+  serviceTier: null,
 };
 
 export const capabilitiesFixture: EnvironmentCapabilitiesSnapshot = {
@@ -34,6 +35,7 @@ export const capabilitiesFixture: EnvironmentCapabilitiesSnapshot = {
       defaultReasoningEffort: "high",
       supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
       inputModalities: ["text", "image"],
+      supportedServiceTiers: ["fast"],
       isDefault: true,
     },
   ],
@@ -51,6 +53,7 @@ export function makeGlobalSettings(
     defaultReasoningEffort: "high",
     defaultCollaborationMode: "build",
     defaultApprovalPolicy: "askToEdit",
+    defaultServiceTier: null,
     collapseWorkActivity: true,
     shortcuts: {
       openSettings: "mod+comma",

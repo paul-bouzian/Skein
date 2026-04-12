@@ -22,6 +22,7 @@ import type {
   ThreadTokenUsageSnapshot,
 } from "../../../lib/types";
 import {
+  BoltIcon,
   CloseIcon,
   ImageIcon,
   MicIcon,
@@ -32,6 +33,7 @@ import { ComposerPicker } from "../ComposerPicker";
 import { ContextWindowMeter } from "../ContextWindowMeter";
 import {
   modelImageSupportMessage,
+  modelSupportsFastMode,
   modelSupportsImageInput,
 } from "../conversation-images";
 import {
@@ -146,6 +148,14 @@ export function InlineComposer({
       modelOptions.find((candidate) => candidate.id === composer.model) ?? null,
     [composer.model, modelOptions],
   );
+  const fastModeSupported = modelSupportsFastMode(selectedModel);
+  const fastModeEnabled = fastModeSupported && composer.serviceTier === "fast";
+  let fastModeLabel = "Fast mode is off. Enable faster responses at higher quota usage.";
+  if (!fastModeSupported) {
+    fastModeLabel = `Fast mode is unavailable for ${selectedModel?.displayName ?? composer.model}.`;
+  } else if (fastModeEnabled) {
+    fastModeLabel = "Fast mode is on. Faster responses use more quota.";
+  }
   const imagesEnabled = modelSupportsImageInput(selectedModel);
   const hasAttachedImages = images.length > 0;
   const hasDraftContent = draft.trim().length > 0;
@@ -617,6 +627,26 @@ export function InlineComposer({
             }}
           >
             {currentModeLabel}
+          </button>
+          <button
+            type="button"
+            className={[
+              "tx-composer__icon-toggle",
+              fastModeEnabled ? "tx-composer__icon-toggle--active" : null,
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            aria-label={fastModeLabel}
+            title={fastModeLabel}
+            aria-pressed={fastModeEnabled}
+            disabled={controlsDisabled || !fastModeSupported}
+            onClick={() =>
+              onUpdateComposer({
+                serviceTier: fastModeEnabled ? null : "fast",
+              })
+            }
+          >
+            <BoltIcon size={14} />
           </button>
           <ComposerPicker
             label="Access"

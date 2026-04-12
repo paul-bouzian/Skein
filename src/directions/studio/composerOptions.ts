@@ -38,6 +38,11 @@ export const APPROVAL_OPTIONS: ComposerPickerOption<ApprovalPolicy>[] = [
   { value: "fullAccess", label: "Full access" },
 ];
 
+export const SPEED_MODE_OPTIONS: ComposerPickerOption<"normal" | "fast">[] = [
+  { value: "normal", label: "Normal" },
+  { value: "fast", label: "Fast" },
+];
+
 export function composerModelOptions(
   models: ModelOption[],
   selectedValue?: string,

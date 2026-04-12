@@ -451,6 +451,22 @@ describe("StudioShell", () => {
     ).toBeInTheDocument();
   });
 
+  it("saves the default speed mode from Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Default speed picker" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: "Fast" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        defaultServiceTier: "fast",
+      });
+    });
+  });
+
   it("saves the compact work activity setting from Codex settings", async () => {
     render(<StudioShell />);
 

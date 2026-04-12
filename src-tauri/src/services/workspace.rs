@@ -1145,6 +1145,11 @@ impl WorkspaceService {
                             approval_policy: overrides
                                 .approval_policy
                                 .unwrap_or(settings.default_approval_policy),
+                            service_tier: if overrides.service_tier_overridden {
+                                overrides.service_tier
+                            } else {
+                                settings.default_service_tier
+                            },
                         },
                         codex_binary_path: settings.codex_binary_path.clone(),
                     })
@@ -1181,6 +1186,8 @@ impl WorkspaceService {
             reasoning_effort: Some(composer.reasoning_effort),
             collaboration_mode: Some(composer.collaboration_mode),
             approval_policy: Some(composer.approval_policy),
+            service_tier: composer.service_tier,
+            service_tier_overridden: true,
         };
         let overrides_json = serde_json::to_string(&overrides)
             .map_err(|error| AppError::Validation(error.to_string()))?;
@@ -2128,7 +2135,8 @@ mod tests {
         ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
         SetProjectSidebarCollapsedRequest, WorkspaceService,
     };
-    use crate::domain::settings::GlobalSettings;
+    use crate::domain::conversation::ConversationComposerSettings;
+    use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch, ServiceTier};
     use crate::domain::shortcuts::ShortcutSettings;
     use crate::domain::workspace::{
         EnvironmentPullRequestSnapshot, PullRequestState, ThreadStatus,
@@ -2459,6 +2467,111 @@ mod tests {
 
         assert!(matches!(result.thread.status, ThreadStatus::Archived));
         assert_eq!(result.runtime_environment_to_stop, None);
+    }
+
+    #[test]
+    fn thread_runtime_context_inherits_default_service_tier() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("service-tier-default"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Fast default".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                default_service_tier: Some(Some(ServiceTier::Fast)),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+
+        assert_eq!(context.composer.service_tier, Some(ServiceTier::Fast));
+    }
+
+    #[test]
+    fn persist_thread_composer_settings_can_explicitly_disable_fast_mode() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("service-tier-override"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Fast override".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                default_service_tier: Some(Some(ServiceTier::Fast)),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+        assert_eq!(context.composer.service_tier, Some(ServiceTier::Fast));
+
+        harness
+            .service
+            .persist_thread_composer_settings(
+                &thread.id,
+                &ConversationComposerSettings {
+                    service_tier: None,
+                    ..context.composer
+                },
+            )
+            .expect("composer settings should persist");
+
+        let refreshed = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should reload");
+
+        assert_eq!(refreshed.composer.service_tier, None);
     }
 
     #[test]

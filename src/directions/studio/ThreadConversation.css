@@ -1011,6 +1011,48 @@ ol.tx-markdown__list {
     box-shadow var(--tx-transition-fast);
 }
 
+.tx-composer__icon-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--tx-radius-sm);
+  background: transparent;
+  color: var(--tx-text-muted);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    box-shadow var(--tx-transition-fast);
+}
+
+.tx-composer__icon-toggle:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+.tx-composer__icon-toggle:focus-visible {
+  outline: none;
+  background: var(--tx-bg-hover);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tx-accent) 12%, transparent);
+}
+
+.tx-composer__icon-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tx-composer__icon-toggle--active {
+  color: var(--tx-accent);
+  background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
+}
+
+.tx-composer__icon-toggle--active:hover:not(:disabled) {
+  color: var(--tx-accent-hover);
+  background: color-mix(in srgb, var(--tx-accent) 18%, transparent);
+}
+
 .tx-composer__attach-button:hover:not(:disabled) {
   background: var(--tx-bg-hover);
   color: var(--tx-text-primary);

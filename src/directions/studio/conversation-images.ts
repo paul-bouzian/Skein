@@ -38,6 +38,10 @@ export function modelSupportsImageInput(model?: ModelOption | null) {
   return (model?.inputModalities ?? ["text"]).includes("image");
 }
 
+export function modelSupportsFastMode(model?: ModelOption | null) {
+  return model?.supportedServiceTiers?.includes("fast") ?? false;
+}
+
 export function modelImageSupportMessage(model?: ModelOption | null) {
   const label = model?.displayName ?? "the selected model";
   return `Image attachments are unavailable for ${label}.`;

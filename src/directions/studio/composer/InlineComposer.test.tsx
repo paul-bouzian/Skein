@@ -604,14 +604,43 @@ describe("InlineComposer image attachments", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("toggles fast mode from the lightning control", async () => {
+    const onUpdateComposer = vi.fn();
+    renderComposer("", { onUpdateComposer });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Fast mode is off/i }),
+    );
+
+    expect(onUpdateComposer).toHaveBeenCalledWith({ serviceTier: "fast" });
+  });
+
+  it("disables fast mode when the selected model does not support it", async () => {
+    renderComposer("", {
+      modelOptions: [
+        {
+          ...capabilitiesFixture.models[0],
+          supportedServiceTiers: [],
+        },
+      ],
+    });
+
+    const fastButton = await screen.findByRole("button", {
+      name: /Fast mode is unavailable/i,
+    });
+    expect(fastButton).toBeDisabled();
+  });
 });
 
 function renderComposer(
   initialDraft: string,
   options: {
+    composer?: ComponentProps<typeof InlineComposer>["composer"];
     disabled?: boolean;
     modelOptions?: typeof capabilitiesFixture.models;
     onSend?: ComponentProps<typeof InlineComposer>["onSend"];
+    onUpdateComposer?: ComponentProps<typeof InlineComposer>["onUpdateComposer"];
   } = {},
 ) {
   function Harness() {
@@ -629,7 +658,7 @@ function renderComposer(
       <InlineComposer
         environmentId="env-1"
         threadId="thread-1"
-        composer={baseComposer}
+        composer={options.composer ?? baseComposer}
         collaborationModes={capabilitiesFixture.collaborationModes}
         disabled={options.disabled ?? false}
         draft={draft}
@@ -648,7 +677,7 @@ function renderComposer(
         onChangeMentionBindings={setMentionBindings}
         onInterrupt={() => undefined}
         onSend={(...args) => options.onSend?.(...args)}
-        onUpdateComposer={() => undefined}
+        onUpdateComposer={(patch) => options.onUpdateComposer?.(patch)}
       />
     );
   }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
+use super::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +47,7 @@ pub struct ConversationComposerSettings {
     pub reasoning_effort: ReasoningEffort,
     pub collaboration_mode: CollaborationMode,
     pub approval_policy: ApprovalPolicy,
+    pub service_tier: Option<ServiceTier>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -109,6 +110,8 @@ pub struct ModelOption {
     pub default_reasoning_effort: ReasoningEffort,
     pub supported_reasoning_efforts: Vec<ReasoningEffort>,
     pub input_modalities: Vec<InputModality>,
+    #[serde(default)]
+    pub supported_service_tiers: Vec<ServiceTier>,
     pub is_default: bool,
 }
 

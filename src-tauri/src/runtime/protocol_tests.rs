@@ -4,7 +4,7 @@ use crate::domain::conversation::{
     ConversationComposerSettings, ConversationInteraction, ConversationItem,
     ConversationTaskStatus, InputModality, ProposedPlanSnapshot, ProposedPlanStatus,
 };
-use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort};
+use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 
 use super::protocol::{
     approval_policy_value, build_history_snapshot, collaboration_mode_options_from_response,
@@ -23,6 +23,7 @@ fn composer() -> ConversationComposerSettings {
         reasoning_effort: ReasoningEffort::High,
         collaboration_mode: CollaborationMode::Build,
         approval_policy: ApprovalPolicy::AskToEdit,
+        service_tier: None,
     }
 }
 
@@ -651,6 +652,7 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
                 ],
                 default_reasoning_effort: ReasoningEffort::High,
                 input_modalities: vec![InputModality::Text, InputModality::Image],
+                additional_speed_tiers: vec![ServiceTier::Fast],
                 is_default: true,
                 hidden: false,
             },
@@ -661,6 +663,7 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
                 supported_reasoning_efforts: vec![],
                 default_reasoning_effort: ReasoningEffort::Medium,
                 input_modalities: vec![InputModality::Text],
+                additional_speed_tiers: Vec::new(),
                 is_default: false,
                 hidden: true,
             },
@@ -670,6 +673,7 @@ fn filters_hidden_models_and_preserves_effort_metadata() {
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].id, "gpt-5.4");
     assert_eq!(models[0].supported_reasoning_efforts.len(), 2);
+    assert_eq!(models[0].supported_service_tiers, vec![ServiceTier::Fast]);
 }
 
 #[test]
