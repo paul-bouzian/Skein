@@ -1344,7 +1344,7 @@ ol.tx-markdown__list {
 @media (prefers-reduced-motion: reduce) {
   .tx-pill--connecting::after {
     animation: none;
-    transform: none;
+    transform: translateX(-100%);
   }
 }
 

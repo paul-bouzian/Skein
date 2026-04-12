@@ -1066,18 +1066,6 @@ impl WorkspaceService {
             .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
     }
 
-    pub fn environment_exists(&self, environment_id: &str) -> AppResult<bool> {
-        let connection = self.database.open()?;
-        Ok(connection
-            .query_row(
-                "SELECT 1 FROM environments WHERE id = ?1",
-                params![environment_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
-    }
-
     pub fn environment_runtime_target(
         &self,
         environment_id: &str,

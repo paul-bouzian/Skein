@@ -216,9 +216,6 @@ pub async fn touch_environment_runtime(
     if environment_id.is_empty() {
         return Err(AppError::Validation("Environment id is required.".to_string()).into());
     }
-    if !state.workspace.environment_exists(environment_id)? {
-        return Err(AppError::NotFound("Environment not found.".to_string()).into());
-    }
     Ok(state.runtime.touch(environment_id).await?)
 }
 
