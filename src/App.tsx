@@ -15,6 +15,7 @@ import {
   teardownWorkspaceListener,
   useWorkspaceStore,
 } from "./stores/workspace-store";
+import { DesktopNotificationRuntime } from "./shared/DesktopNotificationRuntime";
 import { LoadingState } from "./shared/LoadingState";
 import { StudioShell } from "./directions/studio/StudioShell";
 import "./App.css";
@@ -118,7 +119,12 @@ function App() {
     );
   }
 
-  return <StudioShell />;
+  return (
+    <>
+      <StudioShell />
+      <DesktopNotificationRuntime />
+    </>
+  );
 }
 
 export default App;

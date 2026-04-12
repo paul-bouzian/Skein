@@ -242,6 +242,10 @@
   line-height: var(--tx-leading-normal);
 }
 
+.settings-field__help--error {
+  color: var(--tx-danger);
+}
+
 .settings-field__textarea {
   width: 100%;
   min-height: 112px;

@@ -16,6 +16,10 @@ fn default_open_target_id() -> String {
     preferred_default_open_target_id(&default_open_targets())
 }
 
+fn default_desktop_notifications_enabled() -> bool {
+    false
+}
+
 fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
@@ -90,6 +94,8 @@ pub struct GlobalSettings {
     pub default_service_tier: Option<ServiceTier>,
     #[serde(default = "default_collapse_work_activity")]
     pub collapse_work_activity: bool,
+    #[serde(default = "default_desktop_notifications_enabled")]
+    pub desktop_notifications_enabled: bool,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
     #[serde(default = "default_open_targets")]
@@ -108,6 +114,7 @@ impl Default for GlobalSettings {
             default_approval_policy: ApprovalPolicy::AskToEdit,
             default_service_tier: None,
             collapse_work_activity: true,
+            desktop_notifications_enabled: false,
             shortcuts: ShortcutSettings::default(),
             open_targets: default_open_targets(),
             default_open_target_id: default_open_target_id(),
@@ -126,6 +133,7 @@ pub struct GlobalSettingsPatch {
     #[serde(default, deserialize_with = "deserialize_explicit_optional")]
     pub default_service_tier: Option<Option<ServiceTier>>,
     pub collapse_work_activity: Option<bool>,
+    pub desktop_notifications_enabled: Option<bool>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
     pub default_open_target_id: Option<String>,
@@ -151,6 +159,9 @@ impl GlobalSettings {
         }
         if let Some(collapse_work_activity) = patch.collapse_work_activity {
             self.collapse_work_activity = collapse_work_activity;
+        }
+        if let Some(desktop_notifications_enabled) = patch.desktop_notifications_enabled {
+            self.desktop_notifications_enabled = desktop_notifications_enabled;
         }
         if let Some(shortcuts) = patch.shortcuts {
             self.shortcuts.apply_patch(shortcuts);
@@ -458,6 +469,7 @@ mod tests {
             default_approval_policy: Some(ApprovalPolicy::FullAccess),
             default_service_tier: Some(Some(ServiceTier::Fast)),
             collapse_work_activity: Some(true),
+            desktop_notifications_enabled: Some(true),
             shortcuts: Some(ShortcutSettingsPatch {
                 toggle_terminal: Some(Some("mod+shift+j".to_string())),
                 ..ShortcutSettingsPatch::default()
@@ -488,6 +500,7 @@ mod tests {
         ));
         assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
         assert!(settings.collapse_work_activity);
+        assert!(settings.desktop_notifications_enabled);
         assert_eq!(
             settings.shortcuts.toggle_terminal.as_deref(),
             Some("mod+shift+j")
@@ -543,6 +556,7 @@ mod tests {
         let settings = GlobalSettings::default();
 
         assert!(settings.collapse_work_activity);
+        assert!(!settings.desktop_notifications_enabled);
         assert_eq!(settings.shortcuts.toggle_terminal.as_deref(), Some("mod+j"));
     }
 
@@ -561,6 +575,7 @@ mod tests {
         .expect("legacy settings should deserialize");
 
         assert!(settings.collapse_work_activity);
+        assert!(!settings.desktop_notifications_enabled);
         assert_eq!(
             settings.shortcuts.open_settings.as_deref(),
             Some("mod+comma")
