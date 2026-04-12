@@ -8,27 +8,12 @@
   background: color-mix(in srgb, var(--tx-bg-raised) 72%, transparent);
 }
 
-.sidebar-usage__header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .sidebar-usage__title {
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--tx-text-muted);
-}
-
-.sidebar-usage__subtitle {
-  font-size: var(--tx-text-sm);
-  font-weight: var(--tx-weight-medium);
-  color: var(--tx-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .sidebar-usage__rows {

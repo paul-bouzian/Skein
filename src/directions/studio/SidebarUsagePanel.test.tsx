@@ -59,7 +59,6 @@ describe("SidebarUsagePanel", () => {
     render(<SidebarUsagePanel />);
 
     expect(screen.getByText("Usage")).toBeInTheDocument();
-    expect(screen.getByText("Account-wide")).toBeInTheDocument();
     expect(screen.getByText("Session")).toBeInTheDocument();
     expect(screen.getByText("Weekly")).toBeInTheDocument();
     expect(screen.getByText("38%")).toBeInTheDocument();
