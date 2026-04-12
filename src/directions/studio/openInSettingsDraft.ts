@@ -6,7 +6,6 @@ export type DraftOpenTarget = {
   label: string;
   kind: OpenTargetKind;
   appName: string;
-  command: string;
   argsText: string;
 };
 
@@ -50,10 +49,6 @@ export function validateDraftTargets(
     }
     if (target.kind === "app" && !target.appName.trim()) {
       byKey[target.draftKey] = "Application name is required.";
-      continue;
-    }
-    if (target.kind === "command" && !target.command.trim()) {
-      byKey[target.draftKey] = "Command is required.";
     }
   }
 
@@ -140,18 +135,12 @@ export function persistDraftTargets(state: OpenInDraftState) {
 }
 
 export function toPersistedTarget(target: DraftOpenTarget): OpenTarget {
-  const appName =
-    target.kind === "app" ? target.appName.trim() || null : null;
-  const command =
-    target.kind === "command" ? target.command.trim() || null : null;
-
   return {
     id: target.id,
     label: target.label.trim(),
     kind: target.kind,
-    appName,
-    command,
-    args: parseArgs(target.argsText),
+    appName: target.kind === "app" ? target.appName.trim() || null : null,
+    args: target.kind === "app" ? parseArgs(target.argsText) : [],
   };
 }
 
@@ -183,7 +172,6 @@ export function createDraftTarget(kind: OpenTargetKind): DraftOpenTarget {
     label: "",
     kind,
     appName: "",
-    command: "",
     argsText: "",
   };
 }
@@ -224,11 +212,7 @@ function persistedIdForDraft(
   }
 
   const kindPrefix =
-    target.kind === "fileManager"
-      ? "file-manager"
-      : target.kind === "command"
-        ? "command"
-        : "app";
+    target.kind === "fileManager" ? "file-manager" : "app";
   return `${kindPrefix}-${index + 1}`;
 }
 
@@ -260,7 +244,6 @@ function openTargetsEqual(left: OpenTarget, right: OpenTarget) {
     left.label === right.label &&
     left.kind === right.kind &&
     (left.appName ?? null) === (right.appName ?? null) &&
-    (left.command ?? null) === (right.command ?? null) &&
     arraysEqual(left.args, right.args)
   );
 }
@@ -276,7 +259,6 @@ function buildDraftTargets(targets: OpenTarget[]) {
     label: target.label,
     kind: target.kind,
     appName: target.appName ?? "",
-    command: target.command ?? "",
     argsText: target.args.join("\n"),
   }));
 }

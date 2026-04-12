@@ -1,5 +1,5 @@
 import type { OpenTarget } from "../../lib/types";
-import { FolderIcon, OpenInIcon, TerminalIcon } from "../../shared/Icons";
+import { FolderIcon, OpenInIcon } from "../../shared/Icons";
 
 type Props = {
   target: OpenTarget;
@@ -29,10 +29,6 @@ export function OpenTargetIcon({
 
   if (target.kind === "fileManager") {
     return <FolderIcon size={size} className={className} />;
-  }
-
-  if (target.kind === "command") {
-    return <TerminalIcon size={size} className={className} />;
   }
 
   return <OpenInIcon size={size} className={className} />;

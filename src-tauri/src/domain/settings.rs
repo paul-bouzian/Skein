@@ -13,11 +13,7 @@ fn default_open_targets() -> Vec<OpenTarget> {
 }
 
 fn default_open_target_id() -> String {
-    default_open_targets()
-        .into_iter()
-        .next()
-        .map(|target| target.id)
-        .unwrap_or_else(|| "cursor".to_string())
+    preferred_default_open_target_id(&default_open_targets())
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -49,6 +45,7 @@ pub enum ApprovalPolicy {
 pub enum OpenTargetKind {
     #[serde(rename = "app")]
     App,
+    // Keep the legacy variant so stored settings can be repaired on read.
     #[serde(rename = "command")]
     Command,
     #[serde(rename = "fileManager")]
@@ -63,8 +60,6 @@ pub struct OpenTarget {
     pub kind: OpenTargetKind,
     #[serde(default)]
     pub app_name: Option<String>,
-    #[serde(default)]
-    pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
 }
@@ -201,7 +196,6 @@ impl OpenTarget {
             label: label.to_string(),
             kind: OpenTargetKind::App,
             app_name: Some(app_name.to_string()),
-            command: None,
             args: Vec::new(),
         }
     }
@@ -212,7 +206,6 @@ impl OpenTarget {
             label: label.to_string(),
             kind: OpenTargetKind::FileManager,
             app_name: None,
-            command: None,
             args: Vec::new(),
         }
     }
@@ -239,14 +232,9 @@ impl OpenTarget {
         }
 
         let normalized_app_name = normalize_optional_string(self.app_name.clone());
-        let normalized_command = normalize_optional_string(self.command.clone());
         let normalized_args = normalize_args(&self.args);
         if self.app_name != normalized_app_name {
             self.app_name = normalized_app_name;
-            changed = true;
-        }
-        if self.command != normalized_command {
-            self.command = normalized_command;
             changed = true;
         }
         if self.args != normalized_args {
@@ -259,27 +247,17 @@ impl OpenTarget {
                 if self.app_name.is_none() {
                     return Err("App targets require an application name.".to_string());
                 }
-                if self.command.is_some() {
-                    self.command = None;
-                    changed = true;
-                }
             }
             OpenTargetKind::Command => {
-                if self.command.is_none() {
-                    return Err("Command targets require a command.".to_string());
-                }
-                if self.app_name.is_some() {
-                    self.app_name = None;
-                    changed = true;
-                }
+                return Err("Command-based Open In targets are no longer supported.".to_string());
             }
             OpenTargetKind::FileManager => {
                 if self.app_name.is_some() {
                     self.app_name = None;
                     changed = true;
                 }
-                if self.command.is_some() {
-                    self.command = None;
+                if !self.args.is_empty() {
+                    self.args.clear();
                     changed = true;
                 }
             }
@@ -347,7 +325,7 @@ fn normalize_open_targets(
             .iter()
             .any(|target| target.id == trimmed_default_id)
     {
-        *default_target_id = deduped_targets[0].id.clone();
+        *default_target_id = preferred_default_open_target_id(&deduped_targets);
         changed = true;
     } else if *default_target_id != trimmed_default_id {
         *default_target_id = trimmed_default_id.to_string();
@@ -369,6 +347,15 @@ fn normalize_args(args: &[String]) -> Vec<String> {
         .map(|argument| argument.trim().to_string())
         .filter(|argument| !argument.is_empty())
         .collect()
+}
+
+fn preferred_default_open_target_id(targets: &[OpenTarget]) -> String {
+    targets
+        .iter()
+        .find(|target| target.kind == OpenTargetKind::FileManager)
+        .or_else(|| targets.first())
+        .map(|target| target.id.clone())
+        .unwrap_or_else(|| "file-manager".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -425,7 +412,6 @@ mod tests {
                 label: "Zed".to_string(),
                 kind: OpenTargetKind::App,
                 app_name: Some("Zed".to_string()),
-                command: None,
                 args: Vec::new(),
             }]),
             default_open_target_id: Some("zed".to_string()),
@@ -522,7 +508,6 @@ mod tests {
                     label: " Cursor ".to_string(),
                     kind: OpenTargetKind::App,
                     app_name: Some(" Cursor ".to_string()),
-                    command: None,
                     args: vec![" --reuse-window ".to_string(), "".to_string()],
                 },
                 OpenTarget {
@@ -530,8 +515,7 @@ mod tests {
                     label: " Finder ".to_string(),
                     kind: OpenTargetKind::FileManager,
                     app_name: Some("should-clear".to_string()),
-                    command: Some("should-clear".to_string()),
-                    args: Vec::new(),
+                    args: vec!["should-clear".to_string()],
                 },
             ],
             default_open_target_id: "missing".to_string(),
@@ -548,19 +532,18 @@ mod tests {
         assert_eq!(settings.open_targets[0].args, vec!["--reuse-window".to_string()]);
         assert_eq!(settings.open_targets[1].label, "Finder");
         assert_eq!(settings.open_targets[1].app_name, None);
-        assert_eq!(settings.open_targets[1].command, None);
-        assert_eq!(settings.default_open_target_id, "cursor");
+        assert!(settings.open_targets[1].args.is_empty());
+        assert_eq!(settings.default_open_target_id, "finder");
     }
 
     #[test]
-    fn normalize_for_update_rejects_invalid_targets() {
+    fn normalize_for_update_rejects_legacy_command_targets() {
         let mut settings = GlobalSettings {
             open_targets: vec![OpenTarget {
                 id: "broken".to_string(),
                 label: "Broken".to_string(),
                 kind: OpenTargetKind::Command,
                 app_name: None,
-                command: None,
                 args: Vec::new(),
             }],
             ..GlobalSettings::default()
@@ -571,8 +554,8 @@ mod tests {
         assert_eq!(
             settings
                 .normalize_for_update()
-                .expect_err("invalid command target should fail"),
-            "Open target 1: Command targets require a command."
+                .expect_err("legacy command target should fail"),
+            "Open target 1: Command-based Open In targets are no longer supported."
         );
         assert_eq!(settings.open_targets, original_targets);
         assert_eq!(settings.default_open_target_id, original_default_target_id);
@@ -586,7 +569,6 @@ mod tests {
                 label: " ".to_string(),
                 kind: OpenTargetKind::App,
                 app_name: None,
-                command: None,
                 args: Vec::new(),
             }],
             default_open_target_id: "missing".to_string(),
@@ -604,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_for_read_leaves_valid_targets_unchanged() {
+    fn normalize_for_read_drops_legacy_command_targets() {
         let mut settings = GlobalSettings {
             open_targets: vec![
                 OpenTarget {
@@ -612,7 +594,6 @@ mod tests {
                     label: "Cursor".to_string(),
                     kind: OpenTargetKind::App,
                     app_name: Some("Cursor".to_string()),
-                    command: None,
                     args: vec!["--reuse-window".to_string()],
                 },
                 OpenTarget {
@@ -620,19 +601,17 @@ mod tests {
                     label: "Cursor CLI".to_string(),
                     kind: OpenTargetKind::Command,
                     app_name: None,
-                    command: Some("cursor".to_string()),
                     args: vec!["--reuse-window".to_string()],
                 },
             ],
-            default_open_target_id: "cursor".to_string(),
+            default_open_target_id: "cursor-cli".to_string(),
             ..GlobalSettings::default()
         };
-        let original_targets = settings.open_targets.clone();
-        let original_default_target_id = settings.default_open_target_id.clone();
 
-        assert!(!settings.normalize_for_read());
-        assert_eq!(settings.open_targets, original_targets);
-        assert_eq!(settings.default_open_target_id, original_default_target_id);
+        assert!(settings.normalize_for_read());
+        assert_eq!(settings.open_targets.len(), 1);
+        assert_eq!(settings.open_targets[0].id, "cursor");
+        assert_eq!(settings.default_open_target_id, "cursor");
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -645,5 +624,17 @@ mod tests {
             .open_targets
             .iter()
             .all(|target| target.kind == OpenTargetKind::FileManager));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_defaults_prefer_finder_for_the_primary_open_action() {
+        let settings = GlobalSettings::default();
+
+        assert_eq!(settings.default_open_target_id, "file-manager");
+        assert!(settings
+            .open_targets
+            .iter()
+            .any(|target| target.kind == OpenTargetKind::FileManager));
     }
 }

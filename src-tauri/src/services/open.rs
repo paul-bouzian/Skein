@@ -23,7 +23,7 @@ pub fn open_environment(path: &Path, target: &OpenTarget) -> AppResult<()> {
     }
 
     let spec = build_launch_spec(path, target)?;
-    spawn_launch(spec)
+    run_launch(spec)
 }
 
 #[cfg(target_os = "macos")]
@@ -66,21 +66,9 @@ fn build_launch_spec(path: &Path, target: &OpenTarget) -> AppResult<LaunchSpec> 
 
     match target.kind {
         OpenTargetKind::App => build_app_launch_spec(path_arg, target),
-        OpenTargetKind::Command => {
-            let command = target.command.as_deref().ok_or_else(|| {
-                AppError::Validation("Command targets require a command.".to_string())
-            })?;
-            let mut args = target
-                .args
-                .iter()
-                .map(OsString::from)
-                .collect::<Vec<_>>();
-            args.push(path_arg);
-            Ok(LaunchSpec {
-                program: command.to_string(),
-                args,
-            })
-        }
+        OpenTargetKind::Command => Err(AppError::Validation(
+            "Command-based Open In targets are no longer supported.".to_string(),
+        )),
         OpenTargetKind::FileManager => build_file_manager_launch_spec(path_arg),
     }
 }
@@ -141,12 +129,27 @@ fn build_file_manager_launch_spec(path_arg: OsString) -> AppResult<LaunchSpec> {
     })
 }
 
-fn spawn_launch(spec: LaunchSpec) -> AppResult<()> {
-    let mut child = Command::new(&spec.program).args(&spec.args).spawn()?;
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(())
+fn run_launch(spec: LaunchSpec) -> AppResult<()> {
+    let output = Command::new(&spec.program).args(&spec.args).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(AppError::Runtime(format_launch_failure(&spec, &output)))
+}
+
+fn format_launch_failure(spec: &LaunchSpec, output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("exit status {}", output.status)
+    };
+
+    format!("Failed to launch {}: {details}", spec.program)
 }
 
 #[cfg(target_os = "macos")]
@@ -241,33 +244,32 @@ fn resolve_app_icon_path(bundle_path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_launch_spec, LaunchSpec};
+    use super::{build_launch_spec, format_launch_failure, LaunchSpec};
     use crate::domain::settings::{OpenTarget, OpenTargetKind};
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
+    use std::process::{ExitStatus, Output};
 
     #[cfg(unix)]
     use std::os::unix::ffi::OsStringExt;
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
 
     #[test]
-    fn command_targets_append_the_environment_path() {
+    fn legacy_command_targets_are_rejected() {
         let target = OpenTarget {
             id: "cursor-cli".to_string(),
             label: "Cursor CLI".to_string(),
             kind: OpenTargetKind::Command,
             app_name: None,
-            command: Some("cursor".to_string()),
             args: vec!["--reuse-window".to_string()],
         };
 
-        let spec = build_launch_spec(Path::new("/tmp/loom"), &target).expect("launch spec");
-
         assert_eq!(
-            spec,
-            LaunchSpec {
-                program: "cursor".to_string(),
-                args: vec![OsString::from("--reuse-window"), OsString::from("/tmp/loom")],
-            }
+            build_launch_spec(Path::new("/tmp/loom"), &target)
+                .expect_err("legacy command target should be rejected")
+                .to_string(),
+            "Command-based Open In targets are no longer supported."
         );
     }
 
@@ -279,7 +281,6 @@ mod tests {
             label: "Cursor".to_string(),
             kind: OpenTargetKind::App,
             app_name: Some(" Cursor ".to_string()),
-            command: None,
             args: vec!["--reuse-window".to_string()],
         };
 
@@ -307,7 +308,6 @@ mod tests {
             label: "Finder".to_string(),
             kind: OpenTargetKind::FileManager,
             app_name: None,
-            command: None,
             args: Vec::new(),
         };
 
@@ -343,43 +343,12 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn command_targets_preserve_non_utf8_environment_paths() {
-        let target = OpenTarget {
-            id: "cursor-cli".to_string(),
-            label: "Cursor CLI".to_string(),
-            kind: OpenTargetKind::Command,
-            app_name: None,
-            command: Some("cursor".to_string()),
-            args: vec!["--reuse-window".to_string()],
-        };
-        let path = PathBuf::from(OsString::from_vec(vec![
-            b'/',
-            b't',
-            b'm',
-            b'p',
-            b'/',
-            b'l',
-            b'o',
-            b'o',
-            b'm',
-            b'-',
-            0xFF,
-        ]));
-
-        let spec = build_launch_spec(&path, &target).expect("launch spec");
-
-        assert_eq!(spec.args.last().map(OsString::as_os_str), Some(path.as_os_str()));
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn file_manager_targets_preserve_non_utf8_environment_paths() {
         let target = OpenTarget {
             id: "file-manager".to_string(),
             label: "Finder".to_string(),
             kind: OpenTargetKind::FileManager,
             app_name: None,
-            command: None,
             args: Vec::new(),
         };
         let path = PathBuf::from(OsString::from_vec(vec![
@@ -399,5 +368,26 @@ mod tests {
         let spec = build_launch_spec(&path, &target).expect("launch spec");
 
         assert_eq!(spec.args.last().map(OsString::as_os_str), Some(path.as_os_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_failure_prefers_stderr_output() {
+        let failure = format_launch_failure(
+            &LaunchSpec {
+                program: "/usr/bin/open".to_string(),
+                args: vec![],
+            },
+            &Output {
+                status: ExitStatus::from_raw(1 << 8),
+                stdout: Vec::new(),
+                stderr: b"Unable to find application named 'MissingApp'".to_vec(),
+            },
+        );
+
+        assert_eq!(
+            failure,
+            "Failed to launch /usr/bin/open: Unable to find application named 'MissingApp'"
+        );
     }
 }

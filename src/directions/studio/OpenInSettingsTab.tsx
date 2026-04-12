@@ -39,19 +39,16 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   const lastDefaultTargetIdRef = useRef(defaultTargetId);
   const draftTargets = draftState.targets;
   const defaultDraftKey = draftState.defaultDraftKey;
-  const iconTargets = useMemo(
+  const iconAppNames = useMemo(
     () =>
-      draftTargets.map((target) => ({
-        id: target.id,
-        label: target.label,
-        kind: target.kind,
-        appName: target.appName || null,
-        command: target.command || null,
-        args: parseArgs(target.argsText),
-      })),
+      draftTargets.flatMap((target) =>
+        target.kind === "app" && target.appName.trim()
+          ? [target.appName]
+          : [],
+      ),
     [draftTargets],
   );
-  const appIcons = useOpenAppIcons(iconTargets);
+  const appIcons = useOpenAppIcons(iconAppNames);
 
   useEffect(() => {
     if (
@@ -130,12 +127,8 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
     <div className="settings-open-targets">
       <div className="settings-open-targets__intro">
         <p className="settings-field__help">
-          Pick the apps and commands shown in the toolbar. The main button opens
-          the current environment with the saved default target.
-        </p>
-        <p className="settings-field__help">
-          For command targets, provide one argument per line. Loom appends the
-          environment path automatically.
+          Pick the apps and file manager entries shown in the toolbar. The main
+          button opens the current environment with the saved default target.
         </p>
       </div>
       {noticeMessage ? (
@@ -277,7 +270,6 @@ function OpenInTargetRow({
     label: target.label,
     kind: target.kind,
     appName: target.appName || null,
-    command: target.command || null,
     args: parseArgs(target.argsText),
   };
 
@@ -315,7 +307,6 @@ function OpenInTargetRow({
               }
             >
               <option value="app">Application</option>
-              <option value="command">Command</option>
               <option value="fileManager">File manager</option>
             </select>
           </label>
@@ -371,19 +362,6 @@ function OpenInTargetRow({
               disabled={disabled}
               placeholder="Cursor"
               onChange={(event) => onChange({ appName: event.target.value })}
-            />
-          </label>
-        ) : null}
-        {target.kind === "command" ? (
-          <label className="settings-field">
-            <span className="settings-field__label">Command</span>
-            <input
-              className="settings-field__input"
-              type="text"
-              value={target.command}
-              disabled={disabled}
-              placeholder="cursor"
-              onChange={(event) => onChange({ command: event.target.value })}
             />
           </label>
         ) : null}

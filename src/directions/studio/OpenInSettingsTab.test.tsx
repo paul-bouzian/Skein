@@ -63,7 +63,6 @@ describe("OpenInSettingsTab", () => {
           label: "Cursor Pro",
           kind: "app",
           appName: "Cursor",
-          command: null,
           args: [],
         },
         {
@@ -71,7 +70,6 @@ describe("OpenInSettingsTab", () => {
           label: "Zed",
           kind: "app",
           appName: "Zed",
-          command: null,
           args: [],
         },
         {
@@ -79,11 +77,10 @@ describe("OpenInSettingsTab", () => {
           label: "Finder",
           kind: "fileManager",
           appName: null,
-          command: null,
           args: [],
         },
       ],
-      defaultOpenTargetId: "cursor",
+      defaultOpenTargetId: "file-manager",
     });
   });
 

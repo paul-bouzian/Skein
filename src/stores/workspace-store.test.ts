@@ -555,7 +555,7 @@ describe("workspace store", () => {
 
     const result = await useWorkspaceStore
       .getState()
-      .updateGlobalSettings({ defaultOpenTargetId: "cursor" });
+      .updateGlobalSettings({ defaultOpenTargetId: "file-manager" });
 
     expect(result).toEqual({
       ok: true,

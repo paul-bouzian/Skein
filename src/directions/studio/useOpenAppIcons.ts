@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import * as bridge from "../../lib/bridge";
-import type { OpenTarget } from "../../lib/types";
 
 const iconCache = new Map<string, Promise<string | null>>();
+
+export function resetOpenAppIconCacheForTests() {
+  iconCache.clear();
+}
 
 function loadOpenAppIcon(appName: string) {
   if (!iconCache.has(appName)) {
@@ -15,27 +18,35 @@ function loadOpenAppIcon(appName: string) {
   return iconCache.get(appName)!;
 }
 
-export function useOpenAppIcons(targets: OpenTarget[]) {
+export function useOpenAppIcons(appNames: string[]) {
   const [icons, setIcons] = useState<Record<string, string>>({});
-  const appNames = useMemo(
+  const normalizedAppNames = useMemo(
     () =>
-      targets.flatMap((target) =>
-        target.kind === "app" && typeof target.appName === "string"
-          ? [target.appName]
-          : [],
+      Array.from(
+        new Set(
+          appNames
+            .map((appName) => appName.trim())
+            .filter(Boolean),
+        ),
       ),
-    [targets],
+    [appNames],
+  );
+  const deferredAppNames = useDeferredValue(normalizedAppNames);
+  const deferredAppNamesKey = deferredAppNames.join("\0");
+  const resolvedAppNames = useMemo(
+    () => (deferredAppNamesKey ? deferredAppNamesKey.split("\0") : []),
+    [deferredAppNamesKey],
   );
 
   useEffect(() => {
     let cancelled = false;
-    if (appNames.length === 0) {
+    if (resolvedAppNames.length === 0) {
       setIcons({});
       return undefined;
     }
 
     void Promise.all(
-      appNames.map(async (appName) => [appName, await loadOpenAppIcon(appName)] as const),
+      resolvedAppNames.map(async (appName) => [appName, await loadOpenAppIcon(appName)] as const),
     ).then((entries) => {
       if (cancelled) {
         return;
@@ -50,7 +61,7 @@ export function useOpenAppIcons(targets: OpenTarget[]) {
     return () => {
       cancelled = true;
     };
-  }, [appNames]);
+  }, [resolvedAppNames]);
 
   return icons;
 }

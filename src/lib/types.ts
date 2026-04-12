@@ -25,7 +25,7 @@ export type SubagentStatus = "running" | "completed" | "failed";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
-export type OpenTargetKind = "app" | "command" | "fileManager";
+export type OpenTargetKind = "app" | "fileManager";
 export type InputModality = "text" | "image";
 export type ConversationStatus =
   | "idle"
@@ -187,7 +187,6 @@ export type OpenTarget = {
   label: string;
   kind: OpenTargetKind;
   appName?: string | null;
-  command?: string | null;
   args: string[];
 };
 

@@ -78,7 +78,6 @@ export function makeGlobalSettings(
         label: "Cursor",
         kind: "app",
         appName: "Cursor",
-        command: null,
         args: [],
       },
       {
@@ -86,7 +85,6 @@ export function makeGlobalSettings(
         label: "Zed",
         kind: "app",
         appName: "Zed",
-        command: null,
         args: [],
       },
       {
@@ -94,11 +92,10 @@ export function makeGlobalSettings(
         label: "Finder",
         kind: "fileManager",
         appName: null,
-        command: null,
         args: [],
       },
     ],
-    defaultOpenTargetId: "cursor",
+    defaultOpenTargetId: "file-manager",
     codexBinaryPath: undefined,
     ...overrides,
   };

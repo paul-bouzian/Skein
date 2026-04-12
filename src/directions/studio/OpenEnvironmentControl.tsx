@@ -39,7 +39,19 @@ export function OpenEnvironmentControl({ environmentId, settings }: Props) {
     () => resolveOpenTarget(targets, activeTargetId),
     [activeTargetId, targets],
   );
-  const appIcons = useOpenAppIcons(targets);
+  const iconAppNames = useMemo(() => {
+    if (menuOpen) {
+      return targets.flatMap((target) =>
+        target.kind === "app" && typeof target.appName === "string"
+          ? [target.appName]
+          : [],
+      );
+    }
+    return activeTarget?.kind === "app" && typeof activeTarget.appName === "string"
+      ? [activeTarget.appName]
+      : [];
+  }, [activeTarget, menuOpen, targets]);
+  const appIcons = useOpenAppIcons(iconAppNames);
 
   useEffect(() => {
     if (pendingTargetId && pendingTargetId === settings?.defaultOpenTargetId) {
@@ -282,8 +294,6 @@ function labelForTargetKind(target: OpenTarget) {
   switch (target.kind) {
     case "app":
       return target.appName ?? "Application";
-    case "command":
-      return target.command ?? "Command";
     case "fileManager":
       return "System file manager";
   }

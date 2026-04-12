@@ -18,7 +18,6 @@ describe("openInSettingsDraft", () => {
           label: "Zed",
           kind: "app",
           appName: "Zed",
-          command: "",
           argsText: "",
         },
         {
@@ -27,7 +26,6 @@ describe("openInSettingsDraft", () => {
           label: "Zed",
           kind: "app",
           appName: "Zed Beta",
-          command: "",
           argsText: "",
         },
       ],
@@ -41,7 +39,6 @@ describe("openInSettingsDraft", () => {
           label: "Zed",
           kind: "app",
           appName: "Zed",
-          command: null,
           args: [],
         },
         {
@@ -49,7 +46,6 @@ describe("openInSettingsDraft", () => {
           label: "Zed",
           kind: "app",
           appName: "Zed Beta",
-          command: null,
           args: [],
         },
       ],
@@ -64,7 +60,6 @@ describe("openInSettingsDraft", () => {
         label: "Cursor",
         kind: "app",
         appName: "Cursor",
-        command: null,
         args: ["--reuse-window"],
       },
     ];
@@ -78,7 +73,6 @@ describe("openInSettingsDraft", () => {
             label: " Cursor ",
             kind: "app",
             appName: " Cursor ",
-            command: "",
             argsText: " --reuse-window \n",
           },
         ],
@@ -89,24 +83,22 @@ describe("openInSettingsDraft", () => {
     ).toBe(true);
   });
 
-  it("drops inactive fields when serializing a toggled target", () => {
+  it("drops inactive app fields when serializing a file manager target", () => {
     expect(
       toPersistedTarget({
         draftKey: "draft-1",
-        id: "cursor-cli",
-        label: "Cursor CLI",
-        kind: "command",
+        id: "finder",
+        label: "Finder",
+        kind: "fileManager",
         appName: "Cursor",
-        command: "cursor",
         argsText: "--reuse-window",
       }),
     ).toEqual({
-      id: "cursor-cli",
-      label: "Cursor CLI",
-      kind: "command",
+      id: "finder",
+      label: "Finder",
+      kind: "fileManager",
       appName: null,
-      command: "cursor",
-      args: ["--reuse-window"],
+      args: [],
     });
 
     expect(
@@ -116,7 +108,6 @@ describe("openInSettingsDraft", () => {
         label: "Cursor",
         kind: "app",
         appName: "Cursor",
-        command: "cursor",
         argsText: "",
       }),
     ).toEqual({
@@ -124,7 +115,6 @@ describe("openInSettingsDraft", () => {
       label: "Cursor",
       kind: "app",
       appName: "Cursor",
-      command: null,
       args: [],
     });
   });
