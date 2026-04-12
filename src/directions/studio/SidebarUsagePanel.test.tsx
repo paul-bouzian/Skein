@@ -117,6 +117,34 @@ describe("SidebarUsagePanel", () => {
     expect(screen.queryByText("Start a Codex runtime to inspect usage.")).toBeNull();
   });
 
+  it("does not fall back to another environment when nothing is selected", () => {
+    const ensureAccountUsage = vi.fn(async () => {});
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({ id: "env-a", name: "alpha" }),
+              makeEnvironment({ id: "env-b", name: "beta" }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useCodexUsageStore.setState((state) => ({
+      ...state,
+      ensureAccountUsage,
+    }));
+
+    render(<SidebarUsagePanel />);
+
+    expect(ensureAccountUsage).toHaveBeenCalledWith(null);
+  });
+
   it("keeps the current usage visible during a background refresh", () => {
     useCodexUsageStore.setState((state) => ({
       ...state,

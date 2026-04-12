@@ -410,6 +410,34 @@ describe("InlineComposer voice dictation", () => {
     expect(capture.cancel).not.toHaveBeenCalled();
   });
 
+  it("keeps the stop control available if transport drops mid-recording", async () => {
+    const capture = makeCapture();
+    mockedStartVoiceCapture.mockResolvedValue(capture);
+
+    renderComposerWithDynamicTransport("");
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+
+    await userEvent.click(startButton);
+
+    const stopButton = await screen.findByRole("button", {
+      name: "Stop voice dictation",
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Disable transport" }));
+
+    expect(stopButton).toBeEnabled();
+    await userEvent.click(stopButton);
+
+    await waitFor(() => {
+      expect(mockedBridge.transcribeEnvironmentVoice).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("applies a completed transcript after returning to the owner thread", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
@@ -930,6 +958,56 @@ function renderComposerWithDynamicThread(initialDraft: string) {
           onInterrupt={() => undefined}
           onSend={() => undefined}
           onUpdateComposer={() => undefined}
+        />
+      </>
+    );
+  }
+
+  return render(<Harness />);
+}
+
+function renderComposerWithDynamicTransport(initialDraft: string) {
+  function Harness() {
+    const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
+    const [mentionBindings, setMentionBindings] = useState<
+      ComposerDraftMentionBinding[]
+    >([]);
+    const [transportEnabled, setTransportEnabled] = useState(true);
+
+    return (
+      <>
+        <button type="button" onClick={() => setTransportEnabled(false)}>
+          Disable transport
+        </button>
+        <InlineComposer
+          environmentId="env-1"
+          threadId="thread-1"
+          composer={baseComposer}
+          collaborationModes={capabilitiesFixture.collaborationModes}
+          disabled={false}
+          draft={draft}
+          effortOptions={["low", "medium", "high", "xhigh"]}
+          focusKey="thread-1"
+          images={images}
+          isBusy={false}
+          isSending={false}
+          isRefiningPlan={false}
+          mentionBindings={mentionBindings}
+          modelOptions={capabilitiesFixture.models}
+          onChangeImages={setImages}
+          tokenUsage={null}
+          onCancelRefine={() => undefined}
+          onChangeDraft={setDraft}
+          onChangeMentionBindings={setMentionBindings}
+          onInterrupt={() => undefined}
+          onSend={() => undefined}
+          onUpdateComposer={() => undefined}
+          transportEnabled={transportEnabled}
         />
       </>
     );

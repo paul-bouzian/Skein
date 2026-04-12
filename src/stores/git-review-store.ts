@@ -593,6 +593,7 @@ async function prefetchAdjacentDiff(
 ) {
   const fileKey = changedFileKey(file.section, file.path);
   if (
+    get().selectedFileByContext[contextKey] === null ||
     get().diffRequestIdByContext[contextKey] !== requestId ||
     get().diffsByContext[contextKey]?.[fileKey]
   ) {

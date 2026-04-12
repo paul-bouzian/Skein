@@ -152,12 +152,15 @@ export function useComposerVoiceInput({
   }, [clearPendingOutcome, inputRef, onChangeDraft, pendingOutcome, threadId]);
 
   const buttonDisabled =
-    !enabled ||
     isTranscribing ||
     activeSessionElsewhere ||
     pendingOutcomeElsewhere ||
     (phase === "idle" &&
-      (locked || loading || !voiceAvailable || pendingOutcomeNeedsReview));
+      (locked ||
+        loading ||
+        !enabled ||
+        !voiceAvailable ||
+        pendingOutcomeNeedsReview));
   const buttonLabel = getVoiceButtonLabel({
     isRecording,
     isStarting,

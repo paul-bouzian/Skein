@@ -1,13 +1,10 @@
 import {
   indicatorToneForConversationStatus,
 } from "../../lib/conversation-status";
-import type { ThreadConversationSnapshot } from "../../lib/types";
+import type { ConversationStatus } from "../../lib/types";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import {
-  selectConversationSnapshot,
-  useConversationStore,
-} from "../../stores/conversation-store";
+import { useConversationStore } from "../../stores/conversation-store";
 import {
   selectOwnerPendingVoiceOutcome,
   useVoiceSessionStore,
@@ -100,14 +97,14 @@ export function ThreadTabs() {
 }
 
 function ThreadTabIndicator({ threadId }: { threadId: string }) {
-  const snapshot = useConversationStore(selectConversationSnapshot(threadId));
-  return <RuntimeIndicator tone={threadIndicatorTone(snapshot ?? undefined)} size="sm" />;
+  const status = useConversationStore(
+    (state) => state.snapshotsByThreadId[threadId]?.status ?? null,
+  );
+  return <RuntimeIndicator tone={threadIndicatorTone(status)} size="sm" />;
 }
 
-function threadIndicatorTone(snapshot: ThreadConversationSnapshot | undefined) {
-  return snapshot
-    ? indicatorToneForConversationStatus(snapshot.status)
-    : "neutral";
+function threadIndicatorTone(status: ConversationStatus | null) {
+  return status ? indicatorToneForConversationStatus(status) : "neutral";
 }
 
 function reportThreadTabError(action: string, error: unknown) {

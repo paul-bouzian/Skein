@@ -103,13 +103,10 @@ function resolveUsageSourceEnvironmentId(
     return null;
   }
 
-  const environments = snapshot.projects.flatMap((project) => project.environments);
-  if (environments.length === 0) {
-    return null;
-  }
-
   const selectedEnvironment =
-    environments.find((environment) => environment.id === selectedEnvironmentId) ?? null;
+    snapshot.projects
+      .flatMap((project) => project.environments)
+      .find((environment) => environment.id === selectedEnvironmentId) ?? null;
 
-  return selectedEnvironment?.id ?? environments[0]?.id ?? null;
+  return selectedEnvironment?.id ?? null;
 }
