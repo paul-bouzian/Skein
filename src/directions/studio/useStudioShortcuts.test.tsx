@@ -80,7 +80,7 @@ describe("useStudioShortcuts", () => {
         "env-1": capabilitiesFixture,
       },
       composerByThreadId: {},
-      loadingByThreadId: {},
+      hydrationByThreadId: {},
       errorByThreadId: {},
       listenerReady: false,
     }));

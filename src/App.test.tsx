@@ -28,7 +28,6 @@ const mockedBridge = vi.mocked(bridge);
 
 describe("App", () => {
   beforeEach(() => {
-    const preloadActiveThreads = vi.fn(async () => undefined);
     mockedBridge.listenToMenuCheckForUpdates.mockReset();
     mockedBridge.listenToMenuCheckForUpdates.mockResolvedValue(() => undefined);
 
@@ -44,7 +43,6 @@ describe("App", () => {
       ...state,
       listenerReady: true,
       initializeListener: vi.fn(async () => undefined),
-      preloadActiveThreads,
     }));
     useCodexUsageStore.setState((state) => ({
       ...state,
@@ -65,13 +63,11 @@ describe("App", () => {
     }));
   });
 
-  it("preloads active threads only once after startup readiness", async () => {
+  it("does not preload conversations during startup", async () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(
-        vi.mocked(useConversationStore.getState().preloadActiveThreads),
-      ).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(useConversationStore.getState().initializeListener)).toHaveBeenCalledTimes(1);
     });
 
     await act(async () => {
@@ -81,9 +77,7 @@ describe("App", () => {
       }));
     });
 
-    expect(
-      vi.mocked(useConversationStore.getState().preloadActiveThreads),
-    ).toHaveBeenCalledTimes(1);
+    expect(mockedBridge.listenToMenuCheckForUpdates).toHaveBeenCalledTimes(1);
   });
 
   it("listens for app menu update checks", async () => {

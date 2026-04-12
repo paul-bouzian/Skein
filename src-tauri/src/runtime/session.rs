@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,18 +10,18 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, Mutex};
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::domain::conversation::{
     ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
-    ConversationEventPayload, ConversationImageAttachment, ConversationInteraction,
-    ConversationItem, ConversationMessageItem, ConversationRole, ConversationStatus,
-    ConversationTaskStatus, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
-    InputModality, PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ConversationEventPayload, ConversationImageAttachment, ConversationInteraction, ConversationItem,
+    ConversationMessageItem, ConversationRole, ConversationStatus, ConversationTaskStatus,
+    EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput, InputModality,
+    PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
+    ProposedPlanStatus, RespondToUserInputRequestInput, SubagentStatus, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::settings::{CollaborationMode, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
@@ -57,6 +58,7 @@ use crate::services::composer::{
 use crate::services::workspace::ThreadRuntimeContext;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const SNAPSHOT_EMIT_DEBOUNCE: Duration = Duration::from_millis(120);
 
 type PendingRequestMap = Arc<Mutex<HashMap<u64, oneshot::Sender<AppResult<serde_json::Value>>>>>;
 type SharedWriter = Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>;
@@ -92,6 +94,70 @@ struct BufferedAssistantControlDelta {
 struct PendingServerRequest {
     json_rpc_id: serde_json::Value,
     thread_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SnapshotEmitSignature {
+    status: ConversationStatus,
+    active_turn_id: Option<String>,
+    item_count: usize,
+    last_item_id: Option<String>,
+    last_item_is_streaming: bool,
+    pending_interaction_count: usize,
+    proposed_plan_status: Option<ProposedPlanStatus>,
+    proposed_plan_awaiting_decision: bool,
+    task_plan_status: Option<ConversationTaskStatus>,
+    task_plan_step_count: usize,
+    subagent_count: usize,
+    running_subagent_count: usize,
+    error_message: Option<String>,
+}
+
+#[derive(Default)]
+struct BufferedSnapshotEmit {
+    last_emitted_signature: Option<SnapshotEmitSignature>,
+    latest_snapshot: Option<ThreadConversationSnapshot>,
+    scheduled: bool,
+}
+
+enum BufferedSnapshotEmitAction {
+    EmitNow,
+    ScheduleFlush,
+    Buffered,
+}
+
+static SNAPSHOT_EMIT_STATE: OnceLock<Mutex<HashMap<String, BufferedSnapshotEmit>>> =
+    OnceLock::new();
+
+impl SnapshotEmitSignature {
+    fn from_snapshot(snapshot: &ThreadConversationSnapshot) -> Self {
+        let last_item = snapshot.items.last();
+        Self {
+            status: snapshot.status,
+            active_turn_id: snapshot.active_turn_id.clone(),
+            item_count: snapshot.items.len(),
+            last_item_id: last_item.map(|item| item.id().to_string()),
+            last_item_is_streaming: last_item.is_some_and(conversation_item_is_streaming),
+            pending_interaction_count: snapshot.pending_interactions.len(),
+            proposed_plan_status: snapshot.proposed_plan.as_ref().map(|plan| plan.status),
+            proposed_plan_awaiting_decision: snapshot
+                .proposed_plan
+                .as_ref()
+                .is_some_and(|plan| plan.is_awaiting_decision),
+            task_plan_status: snapshot.task_plan.as_ref().map(|task| task.status),
+            task_plan_step_count: snapshot
+                .task_plan
+                .as_ref()
+                .map_or(0, |task| task.steps.len()),
+            subagent_count: snapshot.subagents.len(),
+            running_subagent_count: snapshot
+                .subagents
+                .iter()
+                .filter(|subagent| matches!(subagent.status, SubagentStatus::Running))
+                .count(),
+            error_message: snapshot.error.as_ref().map(|error| error.message.clone()),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +285,29 @@ impl RuntimeSession {
             },
         )
         .await
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_snapshot_for_test(snapshot: ThreadConversationSnapshot) -> Self {
+        Self {
+            app: None,
+            environment_id: snapshot.environment_id.clone(),
+            writer: Arc::new(Mutex::new(Box::new(tokio::io::sink()))),
+            child: None,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(Mutex::new(SessionState {
+                snapshots_by_thread: HashMap::from([(snapshot.thread_id.clone(), snapshot)]),
+                local_thread_by_codex_id: HashMap::new(),
+                capabilities: None,
+                buffered_assistant_control_deltas: HashMap::new(),
+                pending_server_requests: HashMap::new(),
+                turn_modes_by_id: HashMap::new(),
+                pending_turn_mode_by_thread: HashMap::new(),
+            })),
+            next_request_id: AtomicU64::new(1),
+            stdout_task: Mutex::new(None),
+            stderr_task: Mutex::new(None),
+        }
     }
 
     async fn from_transport<R, E>(
@@ -625,10 +714,19 @@ impl RuntimeSession {
                 "Codex runtime stopped before the request completed.".to_string(),
             )));
         }
-        let mut state = self.state.lock().await;
-        state.pending_server_requests.clear();
-        state.turn_modes_by_id.clear();
-        state.pending_turn_mode_by_thread.clear();
+        let thread_ids = {
+            let mut state = self.state.lock().await;
+            let thread_ids = state
+                .snapshots_by_thread
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            state.pending_server_requests.clear();
+            state.turn_modes_by_id.clear();
+            state.pending_turn_mode_by_thread.clear();
+            thread_ids
+        };
+        clear_buffered_snapshot_emits(&thread_ids).await;
         Ok(())
     }
 
@@ -644,6 +742,21 @@ impl RuntimeSession {
     pub async fn pid(&self) -> Option<u32> {
         let child = self.child.as_ref()?;
         child.lock().await.id()
+    }
+
+    pub async fn has_keep_alive_work(&self) -> bool {
+        let state = self.state.lock().await;
+        state.snapshots_by_thread.values().any(|snapshot| {
+            matches!(
+                snapshot.status,
+                ConversationStatus::Running | ConversationStatus::WaitingForExternalAction
+            ) || snapshot.active_turn_id.is_some()
+                || !snapshot.pending_interactions.is_empty()
+                || snapshot
+                    .subagents
+                    .iter()
+                    .any(|subagent| matches!(subagent.status, SubagentStatus::Running))
+        })
     }
 
     pub async fn read_account_rate_limits(&self) -> AppResult<CodexRateLimitSnapshot> {
@@ -1445,14 +1558,7 @@ impl RuntimeSession {
         let Some(app) = self.app.as_ref() else {
             return;
         };
-        let payload = ConversationEventPayload {
-            thread_id: snapshot.thread_id.clone(),
-            environment_id: snapshot.environment_id.clone(),
-            snapshot: snapshot.clone(),
-        };
-        if let Err(error) = app.emit(CONVERSATION_EVENT_NAME, payload) {
-            warn!("failed to emit conversation snapshot: {error}");
-        }
+        queue_snapshot_emit(app.clone(), snapshot.clone());
     }
 }
 
@@ -2461,6 +2567,70 @@ fn emit_snapshot_from_handle(app: &Option<AppHandle>, snapshot: ThreadConversati
     let Some(app) = app.as_ref() else {
         return;
     };
+    queue_snapshot_emit(app.clone(), snapshot);
+}
+
+fn queue_snapshot_emit(app: AppHandle, snapshot: ThreadConversationSnapshot) {
+    tauri::async_runtime::spawn(async move {
+        let signature = SnapshotEmitSignature::from_snapshot(&snapshot);
+        let thread_id = snapshot.thread_id.clone();
+        let emit_state = snapshot_emit_state();
+        let action = {
+            let mut emits = emit_state.lock().await;
+            let entry = emits.entry(thread_id.clone()).or_default();
+            update_buffered_snapshot_emit(entry, signature, snapshot.clone())
+        };
+
+        match action {
+            BufferedSnapshotEmitAction::EmitNow => {
+                emit_snapshot_payload(&app, snapshot);
+            }
+            BufferedSnapshotEmitAction::Buffered => {}
+            BufferedSnapshotEmitAction::ScheduleFlush => {
+                tauri::async_runtime::spawn(async move {
+                    sleep(SNAPSHOT_EMIT_DEBOUNCE).await;
+                    let next_snapshot = {
+                        let mut emits = emit_state.lock().await;
+                        emits
+                            .get_mut(&thread_id)
+                            .and_then(take_buffered_snapshot)
+                    };
+
+                    if let Some(snapshot) = next_snapshot {
+                        emit_snapshot_payload(&app, snapshot);
+                    }
+                });
+            }
+        }
+    });
+}
+
+fn update_buffered_snapshot_emit(
+    entry: &mut BufferedSnapshotEmit,
+    signature: SnapshotEmitSignature,
+    snapshot: ThreadConversationSnapshot,
+) -> BufferedSnapshotEmitAction {
+    if entry.last_emitted_signature.as_ref() != Some(&signature) {
+        entry.last_emitted_signature = Some(signature);
+        entry.latest_snapshot = None;
+        return BufferedSnapshotEmitAction::EmitNow;
+    }
+
+    entry.latest_snapshot = Some(snapshot);
+    if entry.scheduled {
+        BufferedSnapshotEmitAction::Buffered
+    } else {
+        entry.scheduled = true;
+        BufferedSnapshotEmitAction::ScheduleFlush
+    }
+}
+
+fn take_buffered_snapshot(entry: &mut BufferedSnapshotEmit) -> Option<ThreadConversationSnapshot> {
+    entry.scheduled = false;
+    entry.latest_snapshot.take()
+}
+
+fn emit_snapshot_payload(app: &AppHandle, snapshot: ThreadConversationSnapshot) {
     let payload = ConversationEventPayload {
         thread_id: snapshot.thread_id.clone(),
         environment_id: snapshot.environment_id.clone(),
@@ -2468,6 +2638,44 @@ fn emit_snapshot_from_handle(app: &Option<AppHandle>, snapshot: ThreadConversati
     };
     if let Err(error) = app.emit(CONVERSATION_EVENT_NAME, payload) {
         warn!("failed to emit conversation snapshot: {error}");
+    }
+}
+
+fn snapshot_emit_state() -> &'static Mutex<HashMap<String, BufferedSnapshotEmit>> {
+    SNAPSHOT_EMIT_STATE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn clear_buffered_snapshot_emits(thread_ids: &[String]) {
+    if thread_ids.is_empty() {
+        return;
+    }
+
+    let mut emits = snapshot_emit_state().lock().await;
+    for thread_id in thread_ids {
+        emits.remove(thread_id);
+    }
+}
+
+fn conversation_item_is_streaming(item: &ConversationItem) -> bool {
+    match item {
+        ConversationItem::Message(message) => message.is_streaming,
+        ConversationItem::Reasoning(reasoning) => reasoning.is_streaming,
+        ConversationItem::Tool(_) | ConversationItem::System(_) => false,
+    }
+}
+
+trait ConversationItemSnapshotExt {
+    fn id(&self) -> &str;
+}
+
+impl ConversationItemSnapshotExt for ConversationItem {
+    fn id(&self) -> &str {
+        match self {
+            ConversationItem::Message(message) => message.id.as_str(),
+            ConversationItem::Reasoning(reasoning) => reasoning.id.as_str(),
+            ConversationItem::Tool(tool) => tool.id.as_str(),
+            ConversationItem::System(system) => system.id.as_str(),
+        }
     }
 }
 
@@ -2538,25 +2746,7 @@ mod tests {
     use crate::domain::settings::{ApprovalPolicy, ReasoningEffort, ServiceTier};
 
     fn test_session_with_snapshot(snapshot: ThreadConversationSnapshot) -> RuntimeSession {
-        RuntimeSession {
-            app: None,
-            environment_id: snapshot.environment_id.clone(),
-            writer: Arc::new(Mutex::new(Box::new(tokio::io::sink()))),
-            child: None,
-            pending: Arc::new(Mutex::new(HashMap::new())),
-            state: Arc::new(Mutex::new(SessionState {
-                snapshots_by_thread: HashMap::from([(snapshot.thread_id.clone(), snapshot)]),
-                local_thread_by_codex_id: HashMap::new(),
-                capabilities: None,
-                buffered_assistant_control_deltas: HashMap::new(),
-                pending_server_requests: HashMap::new(),
-                turn_modes_by_id: HashMap::new(),
-                pending_turn_mode_by_thread: HashMap::new(),
-            })),
-            next_request_id: AtomicU64::new(1),
-            stdout_task: Mutex::new(None),
-            stderr_task: Mutex::new(None),
-        }
+        RuntimeSession::from_snapshot_for_test(snapshot)
     }
 
     #[test]
@@ -2726,6 +2916,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn has_keep_alive_work_is_false_for_completed_history() {
+        let session = test_session_with_snapshot(make_completed_snapshot());
+
+        assert!(!session.has_keep_alive_work().await);
+    }
+
+    #[tokio::test]
+    async fn has_keep_alive_work_is_true_for_waiting_or_running_subagents() {
+        let mut snapshot = make_completed_snapshot();
+        snapshot.status = ConversationStatus::WaitingForExternalAction;
+        let waiting_session = test_session_with_snapshot(snapshot.clone());
+        assert!(waiting_session.has_keep_alive_work().await);
+
+        snapshot.status = ConversationStatus::Completed;
+        snapshot.subagents = vec![crate::domain::conversation::SubagentThreadSnapshot {
+            thread_id: "subagent-1".to_string(),
+            nickname: Some("Scout".to_string()),
+            role: Some("explorer".to_string()),
+            depth: 1,
+            status: SubagentStatus::Running,
+        }];
+        let subagent_session = test_session_with_snapshot(snapshot);
+        assert!(subagent_session.has_keep_alive_work().await);
+    }
+
+    #[test]
+    fn duplicate_snapshot_signatures_are_buffered_until_the_flush() {
+        let mut entry = BufferedSnapshotEmit::default();
+        let first = make_streaming_snapshot("First");
+        let second = make_streaming_snapshot("Second");
+
+        let first_action = update_buffered_snapshot_emit(
+            &mut entry,
+            SnapshotEmitSignature::from_snapshot(&first),
+            first,
+        );
+        let second_action = update_buffered_snapshot_emit(
+            &mut entry,
+            SnapshotEmitSignature::from_snapshot(&second),
+            second.clone(),
+        );
+
+        assert!(matches!(first_action, BufferedSnapshotEmitAction::EmitNow));
+        assert!(matches!(
+            second_action,
+            BufferedSnapshotEmitAction::ScheduleFlush
+        ));
+        assert_eq!(
+            take_buffered_snapshot(&mut entry)
+                .expect("buffered snapshot should be kept")
+                .items
+                .last()
+                .and_then(|item| match item {
+                    ConversationItem::Message(message) => Some(message.text.as_str()),
+                    _ => None,
+                }),
+            Some("Second")
+        );
+    }
+
+    #[test]
+    fn final_snapshot_updates_clear_stale_buffered_duplicates() {
+        let mut entry = BufferedSnapshotEmit::default();
+        let first = make_streaming_snapshot("First");
+        let buffered = make_streaming_snapshot("Buffered");
+        let final_snapshot = make_completed_snapshot();
+
+        assert!(matches!(
+            update_buffered_snapshot_emit(
+                &mut entry,
+                SnapshotEmitSignature::from_snapshot(&first),
+                first
+            ),
+            BufferedSnapshotEmitAction::EmitNow
+        ));
+        assert!(matches!(
+            update_buffered_snapshot_emit(
+                &mut entry,
+                SnapshotEmitSignature::from_snapshot(&buffered),
+                buffered
+            ),
+            BufferedSnapshotEmitAction::ScheduleFlush
+        ));
+        assert!(matches!(
+            update_buffered_snapshot_emit(
+                &mut entry,
+                SnapshotEmitSignature::from_snapshot(&final_snapshot),
+                final_snapshot
+            ),
+            BufferedSnapshotEmitAction::EmitNow
+        ));
+        assert!(take_buffered_snapshot(&mut entry).is_none());
+    }
+
+    #[tokio::test]
+    async fn stop_clears_buffered_snapshot_emit_state_for_loaded_threads() {
+        let session = test_session_with_snapshot(make_completed_snapshot());
+        snapshot_emit_state().lock().await.insert(
+            "thread-1".to_string(),
+            BufferedSnapshotEmit {
+                last_emitted_signature: Some(SnapshotEmitSignature::from_snapshot(
+                    &make_completed_snapshot(),
+                )),
+                latest_snapshot: Some(make_streaming_snapshot("Buffered")),
+                scheduled: true,
+            },
+        );
+
+        session.stop().await.expect("test session should stop cleanly");
+
+        assert!(
+            !snapshot_emit_state().lock().await.contains_key("thread-1"),
+            "stopped sessions should clear buffered emit state"
+        );
+    }
+
+    #[tokio::test]
     async fn plan_target_for_item_or_turn_persists_heading_mode_for_future_updates() {
         let snapshot = ThreadConversationSnapshot::new(
             "thread-1".to_string(),
@@ -2769,6 +3076,46 @@ mod tests {
             state.turn_modes_by_id.get("turn-1"),
             Some(&CollaborationMode::Plan)
         );
+    }
+
+    fn make_completed_snapshot() -> ThreadConversationSnapshot {
+        let mut snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Build,
+                approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
+            },
+        );
+        snapshot.status = ConversationStatus::Completed;
+        snapshot.items.push(ConversationItem::Message(ConversationMessageItem {
+            id: "assistant-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            role: ConversationRole::Assistant,
+            text: "Done".to_string(),
+            images: None,
+            is_streaming: false,
+        }));
+        snapshot
+    }
+
+    fn make_streaming_snapshot(text: &str) -> ThreadConversationSnapshot {
+        let mut snapshot = make_completed_snapshot();
+        snapshot.status = ConversationStatus::Running;
+        snapshot.active_turn_id = Some("turn-1".to_string());
+        snapshot.items = vec![ConversationItem::Message(ConversationMessageItem {
+            id: "assistant-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            role: ConversationRole::Assistant,
+            text: text.to_string(),
+            images: None,
+            is_streaming: true,
+        })];
+        snapshot
     }
 
     #[tokio::test]

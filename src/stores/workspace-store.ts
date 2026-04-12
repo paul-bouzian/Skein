@@ -30,6 +30,7 @@ type WorkspaceStateUpdate =
   | ((state: WorkspaceState) => Partial<WorkspaceState> | WorkspaceState);
 
 type WorkspaceSetter = (partial: WorkspaceStateUpdate) => void;
+const WORKSPACE_REFRESH_DEBOUNCE_MS = 200;
 
 type WorkspaceState = {
   snapshot: WorkspaceSnapshot | null;
@@ -66,6 +67,9 @@ type WorkspaceState = {
 let unlistenWorkspaceEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
+let refreshTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+let inflightRefresh: Promise<boolean> | null = null;
+let queuedRefresh = false;
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   snapshot: null,
@@ -110,7 +114,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const generation = listenerGeneration;
     const initialization = bridge
       .listenToWorkspaceEvents(() => {
-        void get().refreshSnapshot().catch(() => undefined);
+        scheduleWorkspaceRefresh(get);
       })
       .then((unlisten) => {
         if (generation !== listenerGeneration) {
@@ -289,7 +293,51 @@ export function teardownWorkspaceListener() {
   unlistenWorkspaceEvents?.();
   unlistenWorkspaceEvents = null;
   listenerInitialization = null;
+  if (refreshTimer !== null) {
+    globalThis.clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+  inflightRefresh = null;
+  queuedRefresh = false;
   useWorkspaceStore.setState({ listenerReady: false });
+}
+
+export function requestWorkspaceRefresh() {
+  scheduleWorkspaceRefresh(useWorkspaceStore.getState);
+}
+
+function scheduleWorkspaceRefresh(get: () => WorkspaceState) {
+  if (refreshTimer !== null) {
+    globalThis.clearTimeout(refreshTimer);
+  }
+
+  refreshTimer = globalThis.setTimeout(() => {
+    refreshTimer = null;
+    void runWorkspaceRefresh(get).catch(() => undefined);
+  }, WORKSPACE_REFRESH_DEBOUNCE_MS);
+}
+
+async function runWorkspaceRefresh(get: () => WorkspaceState): Promise<boolean> {
+  if (inflightRefresh) {
+    queuedRefresh = true;
+    return inflightRefresh;
+  }
+
+  const request = get().refreshSnapshot();
+  inflightRefresh = request;
+
+  try {
+    return await request;
+  } finally {
+    if (inflightRefresh === request) {
+      inflightRefresh = null;
+    }
+
+    if (queuedRefresh) {
+      queuedRefresh = false;
+      scheduleWorkspaceRefresh(get);
+    }
+  }
 }
 
 /* ── Derived selectors ── */
@@ -380,6 +428,18 @@ export function selectSelectedThread(
     }
   }
   return null;
+}
+
+export function selectEnvironmentRuntimeState(environmentId: string | null) {
+  return (state: WorkspaceState) =>
+    getEnvironmentRuntimeState(state.snapshot, environmentId);
+}
+
+export function getEnvironmentRuntimeState(
+  snapshot: WorkspaceSnapshot | null,
+  environmentId: string | null,
+) {
+  return findEnvironment(snapshot, environmentId)?.environment.runtime.state ?? null;
 }
 
 function reconcileSelection(
@@ -483,8 +543,12 @@ function findPrimaryEnvironment(project: ProjectRecord) {
   );
 }
 
-function findEnvironment(snapshot: WorkspaceSnapshot, environmentId: string | null) {
+function findEnvironment(
+  snapshot: WorkspaceSnapshot | null,
+  environmentId: string | null,
+) {
   if (!environmentId) return null;
+  if (!snapshot) return null;
   for (const project of snapshot.projects) {
     const environment = project.environments.find((candidate) => candidate.id === environmentId);
     if (environment) {

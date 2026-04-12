@@ -45,6 +45,7 @@ vi.mock("../../lib/bridge", () => ({
   submitPlanDecision: vi.fn(),
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
+  touchEnvironmentRuntime: vi.fn(),
   listenToConversationEvents: vi.fn(),
 }));
 
@@ -141,6 +142,7 @@ beforeEach(async () => {
     unavailableReason: "tokenMissing",
     message: "Sign in with ChatGPT before using voice transcription.",
   });
+  mockedBridge.touchEnvironmentRuntime.mockResolvedValue(true);
 });
 
 describe("ThreadConversation", () => {
@@ -180,6 +182,77 @@ describe("ThreadConversation", () => {
       screen.getByText("Looking through package.json and the runtime service."),
     ).toBeInTheDocument();
     expect(screen.getByText("3 tests passed")).toBeInTheDocument();
+  });
+
+  it("keeps the conversation shell visible while the thread is still connecting", async () => {
+    const deferred = createDeferred<{
+      snapshot: ReturnType<typeof makeConversationSnapshot>;
+      capabilities: typeof capabilitiesFixture;
+    }>();
+    mockedBridge.openThreadConversation.mockReturnValue(deferred.promise);
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(screen.getByText("Thread 1")).toBeInTheDocument();
+    expect(screen.getByText("Connecting…")).toBeInTheDocument();
+    expect(screen.queryByText("Connecting to Codex…")).toBeNull();
+
+    deferred.resolve({
+      snapshot: makeConversationSnapshot(),
+      capabilities: capabilitiesFixture,
+    });
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+  });
+
+  it("offers a subtle reconnect action after a failed cold open", async () => {
+    mockedBridge.openThreadConversation
+      .mockRejectedValueOnce(new Error("runtime unavailable"))
+      .mockResolvedValueOnce({
+        snapshot: makeConversationSnapshot(),
+        capabilities: capabilitiesFixture,
+      });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Reconnect" })).toBeInTheDocument();
+    expect(screen.getByText("runtime unavailable")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.openThreadConversation).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+  });
+
+  it("touches the runtime as soon as the transport becomes ready", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot(),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockedBridge.touchEnvironmentRuntime).toHaveBeenCalledWith("env-1");
+    });
   });
 
   it("collapses intermediate work activity into a single live block when the setting is enabled", async () => {

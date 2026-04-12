@@ -401,6 +401,14 @@ export function stopEnvironmentRuntime(
   });
 }
 
+export function touchEnvironmentRuntime(
+  environmentId: string,
+): Promise<boolean> {
+  return invoke<boolean>("touch_environment_runtime", {
+    environmentId,
+  });
+}
+
 export function getProjectIcon(
   rootPath: string,
 ): Promise<string | null> {

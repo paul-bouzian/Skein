@@ -140,6 +140,6 @@ function historicalFallbackConversationStatus(
     case "exited":
       return "interrupted";
     case "stopped":
-      return "completed";
+      return "idle";
   }
 }

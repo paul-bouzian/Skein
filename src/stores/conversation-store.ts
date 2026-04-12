@@ -11,7 +11,6 @@ import type {
   EnvironmentCapabilitiesSnapshot,
   SubmitPlanDecisionInput,
   ThreadConversationSnapshot,
-  WorkspaceSnapshot,
 } from "../lib/types";
 import {
   clearThreadDraftPersistence,
@@ -28,9 +27,10 @@ import {
   type DraftPersistenceMode,
   type DraftUpdate,
 } from "./conversation-drafts";
-import { useWorkspaceStore } from "./workspace-store";
+import {
+  requestWorkspaceRefresh,
+} from "./workspace-store";
 
-const PRELOAD_ENVIRONMENT_CONCURRENCY = 4;
 type ConversationSet = (
   updater: (state: ConversationState) => Partial<ConversationState>,
 ) => void;
@@ -38,22 +38,22 @@ type ConversationSet = (
 type ConversationGet = () => ConversationState;
 
 type OpenThreadOptions = {
-  refreshWorkspace?: boolean;
   skipIfLoaded?: boolean;
 };
+
+export type ThreadHydrationState = "cold" | "loading" | "ready" | "error";
 
 type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
   capabilitiesByEnvironmentId: Record<string, EnvironmentCapabilitiesSnapshot>;
   composerByThreadId: Record<string, ConversationComposerSettings>;
   draftByThreadId: Record<string, ConversationComposerDraft>;
-  loadingByThreadId: Record<string, boolean>;
+  hydrationByThreadId: Record<string, ThreadHydrationState>;
   errorByThreadId: Record<string, string | null>;
   listenerReady: boolean;
 
   initializeListener: () => Promise<void>;
   openThread: (threadId: string) => Promise<void>;
-  preloadActiveThreads: () => Promise<void>;
   refreshThread: (threadId: string) => Promise<void>;
   updateComposer: (
     threadId: string,
@@ -91,7 +91,7 @@ type ConversationStateData = Pick<
   | "capabilitiesByEnvironmentId"
   | "composerByThreadId"
   | "draftByThreadId"
-  | "loadingByThreadId"
+  | "hydrationByThreadId"
   | "errorByThreadId"
   | "listenerReady"
 >;
@@ -101,7 +101,7 @@ export const INITIAL_CONVERSATION_STATE: ConversationStateData = {
   capabilitiesByEnvironmentId: {},
   composerByThreadId: {},
   draftByThreadId: {},
-  loadingByThreadId: {},
+  hydrationByThreadId: {},
   errorByThreadId: {},
   listenerReady: false,
 };
@@ -109,11 +109,10 @@ export const INITIAL_CONVERSATION_STATE: ConversationStateData = {
 let unlistenConversationEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
-let preloadActiveThreadsPromise: Promise<void> | null = null;
 const inflightThreadLoads = new Map<string, Promise<boolean>>();
 
 function refreshWorkspaceSnapshotNonBlocking() {
-  void useWorkspaceStore.getState().refreshSnapshot().catch(() => undefined);
+  requestWorkspaceRefresh();
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -141,9 +140,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
                 ...state.composerByThreadId,
                 [payload.threadId]: payload.snapshot.composer,
               },
-          loadingByThreadId: {
-            ...state.loadingByThreadId,
-            [payload.threadId]: false,
+          hydrationByThreadId: {
+            ...state.hydrationByThreadId,
+            [payload.threadId]: "ready",
           },
           errorByThreadId: {
             ...state.errorByThreadId,
@@ -172,27 +171,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   openThread: async (threadId) => {
     await openThreadWithOptions(get, set, threadId, {
-      refreshWorkspace: true,
       skipIfLoaded: true,
     });
-  },
-
-  preloadActiveThreads: async () => {
-    if (preloadActiveThreadsPromise) {
-      await preloadActiveThreadsPromise;
-      return;
-    }
-
-    const task = preloadAllActiveThreads(get, set);
-    preloadActiveThreadsPromise = task;
-
-    try {
-      await task;
-    } finally {
-      if (preloadActiveThreadsPromise === task) {
-        preloadActiveThreadsPromise = null;
-      }
-    }
   },
 
   refreshThread: async (threadId) => {
@@ -202,6 +182,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         snapshotsByThreadId: {
           ...state.snapshotsByThreadId,
           [threadId]: snapshot,
+        },
+        hydrationByThreadId: {
+          ...state.hydrationByThreadId,
+          [threadId]: "ready",
         },
         errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
       }));
@@ -461,6 +445,11 @@ export function selectConversationDraft(threadId: string | null) {
     EMPTY_CONVERSATION_COMPOSER_DRAFT;
 }
 
+export function selectConversationHydration(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.hydrationByThreadId[threadId] : null) ?? "cold";
+}
+
 export function selectConversationCapabilities(environmentId: string | null) {
   return (state: ConversationState) =>
     (environmentId ? state.capabilitiesByEnvironmentId[environmentId] : null) ?? null;
@@ -476,44 +465,9 @@ export function teardownConversationListener() {
   unlistenConversationEvents?.();
   unlistenConversationEvents = null;
   listenerInitialization = null;
-  preloadActiveThreadsPromise = null;
   inflightThreadLoads.clear();
   clearDraftPersistenceControllers();
   useConversationStore.setState({ listenerReady: false });
-}
-
-async function preloadAllActiveThreads(
-  get: ConversationGet,
-  set: ConversationSet,
-): Promise<void> {
-  const snapshot = useWorkspaceStore.getState().snapshot;
-  if (!snapshot) {
-    return;
-  }
-
-  const targets = collectEnvironmentPreloadTargets(snapshot);
-  if (targets.length === 0) {
-    return;
-  }
-
-  let shouldRefreshWorkspace = false;
-  await runWithConcurrency(
-    targets,
-    PRELOAD_ENVIRONMENT_CONCURRENCY,
-    async (target) => {
-      for (const threadId of target.threadIds) {
-        const opened = await openThreadWithOptions(get, set, threadId, {
-          refreshWorkspace: false,
-          skipIfLoaded: true,
-        });
-        shouldRefreshWorkspace = shouldRefreshWorkspace || opened;
-      }
-    },
-  );
-
-  if (shouldRefreshWorkspace) {
-    await useWorkspaceStore.getState().refreshSnapshot();
-  }
 }
 
 async function openThreadWithOptions(
@@ -522,7 +476,7 @@ async function openThreadWithOptions(
   threadId: string,
   options: OpenThreadOptions,
 ): Promise<boolean> {
-  if (options.skipIfLoaded && isThreadHydrated(get(), threadId)) {
+  if (options.skipIfLoaded && restoreHydratedThreadIfPresent(get, set, threadId)) {
     return false;
   }
 
@@ -532,12 +486,15 @@ async function openThreadWithOptions(
   }
 
   const loadPromise = (async () => {
-    if (options.skipIfLoaded && isThreadHydrated(get(), threadId)) {
+    if (options.skipIfLoaded && restoreHydratedThreadIfPresent(get, set, threadId)) {
       return false;
     }
 
     set((state) => ({
-      loadingByThreadId: { ...state.loadingByThreadId, [threadId]: true },
+      hydrationByThreadId: {
+        ...state.hydrationByThreadId,
+        [threadId]: "loading",
+      },
       errorByThreadId: { ...state.errorByThreadId, [threadId]: null },
     }));
 
@@ -562,20 +519,22 @@ async function openThreadWithOptions(
             threadId,
             response.composerDraft,
           ),
-          loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+          hydrationByThreadId: {
+            ...state.hydrationByThreadId,
+            [threadId]: "ready",
+          },
         };
       });
-
-      if (options.refreshWorkspace !== false) {
-        await useWorkspaceStore.getState().refreshSnapshot();
-      }
 
       return true;
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to open conversation";
       set((state) => ({
-        loadingByThreadId: { ...state.loadingByThreadId, [threadId]: false },
+        hydrationByThreadId: {
+          ...state.hydrationByThreadId,
+          [threadId]: "error",
+        },
         errorByThreadId: { ...state.errorByThreadId, [threadId]: message },
       }));
       return false;
@@ -630,52 +589,32 @@ function snapshotContainsItem(
   return snapshot?.items.some((item) => item.id === itemId) ?? false;
 }
 
-function isThreadHydrated(
-  state: Pick<
-    ConversationState,
-    "capabilitiesByEnvironmentId" | "snapshotsByThreadId"
-  >,
+function restoreHydratedThreadIfPresent(
+  get: ConversationGet,
+  set: ConversationSet,
   threadId: string,
 ) {
+  const state = get();
   const snapshot = state.snapshotsByThreadId[threadId];
-  return Boolean(snapshot && state.capabilitiesByEnvironmentId[snapshot.environmentId]);
-}
+  if (!snapshot || !state.capabilitiesByEnvironmentId[snapshot.environmentId]) {
+    return false;
+  }
 
-function collectEnvironmentPreloadTargets(snapshot: WorkspaceSnapshot) {
-  return snapshot.projects
-    .flatMap((project) =>
-      project.environments.map((environment) => ({
-        environmentId: environment.id,
-        isRunning: environment.runtime.state === "running",
-        threadIds: [...environment.threads]
-          .filter((thread) => thread.status === "active")
-          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-          .map((thread) => thread.id),
-      })),
-    )
-    .filter((environment) => environment.threadIds.length > 0)
-    .sort(
-      (left, right) =>
-        Number(right.isRunning) - Number(left.isRunning) ||
-        left.environmentId.localeCompare(right.environmentId),
-    );
-}
+  if (
+    state.hydrationByThreadId[threadId] !== "ready" ||
+    state.errorByThreadId[threadId] !== null
+  ) {
+    set((currentState) => ({
+      hydrationByThreadId: {
+        ...currentState.hydrationByThreadId,
+        [threadId]: "ready",
+      },
+      errorByThreadId: {
+        ...currentState.errorByThreadId,
+        [threadId]: null,
+      },
+    }));
+  }
 
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>,
-) {
-  let index = 0;
-  const concurrency = Math.max(1, Math.min(limit, items.length));
-
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
-      while (index < items.length) {
-        const item = items[index];
-        index += 1;
-        await worker(item);
-      }
-    }),
-  );
+  return true;
 }

@@ -91,11 +91,30 @@ describe("conversation store", () => {
     expect(state.snapshotsByThreadId["thread-1"]).toEqual(snapshot);
     expect(state.capabilitiesByEnvironmentId["env-1"]).toEqual(capabilitiesFixture);
     expect(state.composerByThreadId["thread-1"]).toEqual(snapshot.composer);
-    expect(state.loadingByThreadId["thread-1"]).toBe(false);
+    expect(state.hydrationByThreadId["thread-1"]).toBe("ready");
   });
 
-  it("does not reopen a thread that is already hydrated", async () => {
+  it("does not reopen a thread that is already warm", async () => {
     const snapshot = makeConversationSnapshot();
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                runtime: {
+                  environmentId: "env-1",
+                  state: "running",
+                },
+                threads: [makeThread({ id: "thread-1", environmentId: "env-1" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
     useConversationStore.setState((state) => ({
       ...state,
       snapshotsByThreadId: { "thread-1": snapshot },
@@ -105,6 +124,57 @@ describe("conversation store", () => {
     await useConversationStore.getState().openThread("thread-1");
 
     expect(mockedBridge.openThreadConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a hydrated thread cached when its runtime is no longer running", async () => {
+    const snapshot = makeConversationSnapshot();
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                runtime: {
+                  environmentId: "env-1",
+                  state: "stopped",
+                },
+                threads: [makeThread({ id: "thread-1", environmentId: "env-1" })],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": snapshot },
+      capabilitiesByEnvironmentId: { "env-1": capabilitiesFixture },
+      hydrationByThreadId: { "thread-1": "ready" },
+    }));
+
+    await useConversationStore.getState().openThread("thread-1");
+
+    expect(mockedBridge.openThreadConversation).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().hydrationByThreadId["thread-1"]).toBe("ready");
+  });
+
+  it("restores a cached thread to ready hydration when revisiting it", async () => {
+    const snapshot = makeConversationSnapshot();
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": snapshot },
+      capabilitiesByEnvironmentId: { "env-1": capabilitiesFixture },
+      hydrationByThreadId: { "thread-1": "error" },
+      errorByThreadId: { "thread-1": "runtime unavailable" },
+    }));
+
+    await useConversationStore.getState().openThread("thread-1");
+
+    expect(mockedBridge.openThreadConversation).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().hydrationByThreadId["thread-1"]).toBe("ready");
+    expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
   });
 
   it("deduplicates concurrent thread openings", async () => {
@@ -124,89 +194,6 @@ describe("conversation store", () => {
       capabilities: capabilitiesFixture,
     });
     await Promise.all([first, second]);
-  });
-
-  it("preloads every active thread and refreshes the workspace once", async () => {
-    const refreshSnapshot = vi.fn(async () => true);
-    useWorkspaceStore.setState((state) => ({
-      ...state,
-      snapshot: makeWorkspaceSnapshot({
-        projects: [
-          makeProject({
-            environments: [
-              makeEnvironment({
-                id: "env-running",
-                runtime: {
-                  environmentId: "env-running",
-                  state: "running",
-                },
-                threads: [
-                  makeThread({
-                    id: "thread-running-1",
-                    environmentId: "env-running",
-                    updatedAt: "2026-04-03T10:00:00Z",
-                  }),
-                  makeThread({
-                    id: "thread-running-2",
-                    environmentId: "env-running",
-                    updatedAt: "2026-04-03T09:00:00Z",
-                  }),
-                ],
-              }),
-              makeEnvironment({
-                id: "env-stopped",
-                runtime: {
-                  environmentId: "env-stopped",
-                  state: "stopped",
-                },
-                threads: [
-                  makeThread({
-                    id: "thread-stopped-1",
-                    environmentId: "env-stopped",
-                  }),
-                  makeThread({
-                    id: "thread-archived",
-                    environmentId: "env-stopped",
-                    status: "archived",
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      }),
-      refreshSnapshot,
-    }));
-    mockedBridge.openThreadConversation.mockImplementation(async (threadId) => ({
-      snapshot: makeConversationSnapshot({
-        threadId,
-        environmentId: threadId.startsWith("thread-running")
-          ? "env-running"
-          : "env-stopped",
-      }),
-      capabilities: {
-        ...capabilitiesFixture,
-        environmentId: threadId.startsWith("thread-running")
-          ? "env-running"
-          : "env-stopped",
-      },
-    }));
-
-    await useConversationStore.getState().preloadActiveThreads();
-
-    const openedThreadIds = mockedBridge.openThreadConversation.mock.calls.map(
-      ([threadId]) => threadId,
-    );
-    expect(openedThreadIds).toHaveLength(3);
-    expect(openedThreadIds[0]).toBe("thread-running-1");
-    expect(openedThreadIds).toEqual(
-      expect.arrayContaining([
-        "thread-running-1",
-        "thread-running-2",
-        "thread-stopped-1",
-      ]),
-    );
-    expect(refreshSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("sends a message with the persisted composer selection", async () => {
@@ -313,6 +300,7 @@ describe("conversation store", () => {
   });
 
   it("keeps sendMessage successful when the workspace refresh fails afterwards", async () => {
+    vi.useFakeTimers();
     const initialSnapshot = makeConversationSnapshot({ status: "idle" });
     const nextSnapshot = makeConversationSnapshot({
       status: "running",
@@ -339,6 +327,8 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
       nextSnapshot,
     );
+    expect(refreshSnapshot).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
   });
@@ -430,6 +420,7 @@ describe("conversation store", () => {
   });
 
   it("keeps submitPlanDecision successful when the workspace refresh fails afterwards", async () => {
+    vi.useFakeTimers();
     const initialSnapshot = makeConversationSnapshot({
       status: "waitingForExternalAction",
     });
@@ -462,6 +453,8 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().snapshotsByThreadId["thread-1"]).toEqual(
       nextSnapshot,
     );
+    expect(refreshSnapshot).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(250);
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
   });
@@ -554,7 +547,7 @@ describe("conversation store", () => {
     const state = useConversationStore.getState();
     expect(state.listenerReady).toBe(true);
     expect(state.snapshotsByThreadId["thread-1"]).toEqual(snapshot);
-    expect(state.loadingByThreadId["thread-1"]).toBe(false);
+    expect(state.hydrationByThreadId["thread-1"]).toBe("ready");
     expect(state.errorByThreadId["thread-1"]).toBeNull();
   });
 

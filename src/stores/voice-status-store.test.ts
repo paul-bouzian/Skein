@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
+import {
+  makeEnvironment,
+  makeProject,
+  makeWorkspaceSnapshot,
+} from "../test/fixtures/conversation";
 import { useVoiceStatusStore } from "./voice-status-store";
+import { useWorkspaceStore } from "./workspace-store";
 
 vi.mock("../lib/bridge", () => ({
   getEnvironmentVoiceStatus: vi.fn(),
@@ -12,6 +18,16 @@ const mockedBridge = vi.mocked(bridge);
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    snapshot: makeWorkspaceSnapshot({
+      projects: [
+        makeProject({
+          environments: [makeEnvironment({ id: "env-1" })],
+        }),
+      ],
+    }),
+  }));
   useVoiceStatusStore.setState((state) => ({
     ...state,
     snapshotsByEnvironmentId: {},
@@ -136,6 +152,38 @@ describe("voice status store", () => {
     const state = useVoiceStatusStore.getState();
     expect(state.snapshotsByEnvironmentId["env-1"]).toBeNull();
     expect(state.errorByEnvironmentId["env-1"]).toBe("temporary failure");
+  });
+
+  it("still reads voice status for stopped runtimes through the backend", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                runtime: {
+                  environmentId: "env-1",
+                  state: "stopped",
+                },
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+    mockedBridge.getEnvironmentVoiceStatus.mockResolvedValue({
+      environmentId: "env-1",
+      available: false,
+      authMode: null,
+      unavailableReason: "runtimeUnavailable",
+      message: "Voice transcription is unavailable right now.",
+    });
+
+    await useVoiceStatusStore.getState().ensureEnvironmentVoiceStatus("env-1");
+
+    expect(mockedBridge.getEnvironmentVoiceStatus).toHaveBeenCalledWith("env-1");
   });
 });
 

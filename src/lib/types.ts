@@ -8,6 +8,7 @@ export type WorktreeScriptTrigger = "setup" | "teardown";
 export type WorkspaceEventKind =
   | "environmentRenamed"
   | "environmentPullRequestChanged"
+  | "runtimeStatusChanged"
   | "threadAutoRenamed";
 export type GitReviewScope = "uncommitted" | "branch";
 export type GitChangeSection = "staged" | "unstaged" | "untracked" | "branch";

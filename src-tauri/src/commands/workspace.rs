@@ -8,7 +8,7 @@ use crate::domain::workspace::{
     CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot,
     ThreadRecord, WorkspaceSnapshot,
 };
-use crate::error::CommandError;
+use crate::error::{AppError, CommandError};
 use crate::services::workspace::{
     AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
     RenameThreadRequest, ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
@@ -205,6 +205,18 @@ pub async fn stop_environment_runtime(
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
     Ok(state.runtime.stop(&environment_id).await?)
+}
+
+#[tauri::command]
+pub async fn touch_environment_runtime(
+    environment_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, CommandError> {
+    let environment_id = environment_id.trim();
+    if environment_id.is_empty() {
+        return Err(AppError::Validation("Environment id is required.".to_string()).into());
+    }
+    Ok(state.runtime.touch(environment_id).await?)
 }
 
 #[tauri::command]

@@ -195,6 +195,7 @@ pub struct FirstPromptRenameFailureEvent {
 pub enum WorkspaceEventKind {
     EnvironmentRenamed,
     EnvironmentPullRequestChanged,
+    RuntimeStatusChanged,
     ThreadAutoRenamed,
 }
 
@@ -265,7 +266,7 @@ mod tests {
 
     use super::{
         EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectRecord,
-        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState,
+        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState, WorkspaceEventKind,
         RuntimeStatusSnapshot,
     };
 
@@ -329,6 +330,16 @@ mod tests {
         let payload = serde_json::to_value(PullRequestState::Merged)
             .expect("pull request state should serialize");
         assert_eq!(payload, Value::String("merged".to_string()));
+    }
+
+    #[test]
+    fn workspace_event_kind_runtime_status_changed_round_trips_with_camel_case_label() {
+        let payload = serde_json::to_value(WorkspaceEventKind::RuntimeStatusChanged)
+            .expect("workspace event kind should serialize");
+        assert_eq!(payload, Value::String("runtimeStatusChanged".to_string()));
+        let decoded = serde_json::from_value::<WorkspaceEventKind>(payload)
+            .expect("workspace event kind should deserialize");
+        assert_eq!(decoded, WorkspaceEventKind::RuntimeStatusChanged);
     }
 
     #[test]
