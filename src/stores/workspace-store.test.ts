@@ -1,3 +1,4 @@
+import { act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
@@ -38,6 +39,7 @@ const initialWorkspaceState = useWorkspaceStore.getInitialState();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
   teardownWorkspaceListener();
   useTerminalStore.setState({
     visible: false,
@@ -567,7 +569,8 @@ describe("workspace store", () => {
     });
   });
 
-  it("refreshes the workspace when a workspace event arrives", async () => {
+  it("debounces workspace refreshes when workspace events arrive in a burst", async () => {
+    vi.useFakeTimers();
     let handler: ((payload: WorkspaceEventPayload) => void) | undefined;
     mockedBridge.listenToWorkspaceEvents.mockImplementation(async (callback) => {
       handler = callback;
@@ -580,7 +583,14 @@ describe("workspace store", () => {
       throw new Error("Expected workspace listener handler");
     }
     handler({ kind: "environmentRenamed" });
-    await Promise.resolve();
+    handler({ kind: "runtimeStatusChanged" });
+
+    expect(mockedBridge.getWorkspaceSnapshot).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+      await Promise.resolve();
+    });
 
     expect(mockedBridge.getWorkspaceSnapshot).toHaveBeenCalledTimes(1);
     expect(useWorkspaceStore.getState().listenerReady).toBe(true);

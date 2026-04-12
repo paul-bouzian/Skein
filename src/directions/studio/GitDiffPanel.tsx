@@ -51,6 +51,10 @@ export function GitDiffPanel() {
   }
 
   const selectedFile = orderedFiles[0];
+  if (!selectedFile) {
+    return null;
+  }
+  const selectedFileDiffKey = `${selectedFile.section}:${selectedFile.path}`;
 
   return (
     <aside className="git-diff-panel">
@@ -71,23 +75,18 @@ export function GitDiffPanel() {
       </div>
       <div className="git-diff-panel__content">
         {diffError ? <p className="git-diff-panel__error">{diffError}</p> : null}
-        {orderedFiles.map((file, index) => {
-          const fileKey = `${file.section}:${file.path}`;
-          return (
-            <section
-              key={fileKey}
-              className={`git-diff-panel__file ${index === 0 ? "git-diff-panel__file--selected" : ""}`}
-            >
-              <div className="git-diff-panel__file-header">
-                <span className="git-diff-panel__file-path">{file.path}</span>
-                <span className="git-diff-panel__file-status">
-                  {labelForGitChangeKind(file.kind, "full")}
-                </span>
-              </div>
-              <GitDiffViewer diff={diffCollection[fileKey] ?? null} loading={diffLoading && !diffCollection[fileKey]} />
-            </section>
-          );
-        })}
+        <section className="git-diff-panel__file git-diff-panel__file--selected">
+          <div className="git-diff-panel__file-header">
+            <span className="git-diff-panel__file-path">{selectedFile.path}</span>
+            <span className="git-diff-panel__file-status">
+              {labelForGitChangeKind(selectedFile.kind, "full")}
+            </span>
+          </div>
+          <GitDiffViewer
+            diff={diffCollection[selectedFileDiffKey] ?? null}
+            loading={diffLoading && !diffCollection[selectedFileDiffKey]}
+          />
+        </section>
       </div>
     </aside>
   );

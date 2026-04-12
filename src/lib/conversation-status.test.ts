@@ -157,7 +157,7 @@ describe("conversation status helpers", () => {
     expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
   });
 
-  it("treats stopped environments with persisted conversation history as completed", () => {
+  it("keeps stopped environments with persisted conversation history neutral", () => {
     const environment = makeEnvironment({
       runtime: {
         environmentId: "env-1",
@@ -170,7 +170,7 @@ describe("conversation status helpers", () => {
       ],
     });
 
-    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("completed");
+    expect(deriveEnvironmentConversationStatus(environment, {})).toBe("idle");
   });
 
   it("treats exited environments with persisted conversation history as interrupted", () => {

@@ -72,7 +72,7 @@ beforeEach(() => {
     snapshotsByThreadId: {},
     capabilitiesByEnvironmentId: {},
     composerByThreadId: {},
-    loadingByThreadId: {},
+    hydrationByThreadId: {},
     errorByThreadId: {},
     listenerReady: false,
   }));
@@ -498,7 +498,7 @@ describe("TreeSidebar", () => {
     ).not.toBeNull();
   });
 
-  it("shows a completed indicator for a stopped worktree with persisted chat history", () => {
+  it("keeps stopped worktrees with persisted chat history neutral until hydrated", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -537,7 +537,7 @@ describe("TreeSidebar", () => {
 
     const row = screen.getByRole("button", { name: /slate-hawk/i });
     expect(
-      row.querySelector(".runtime-indicator__dot--completed"),
+      row.querySelector(".runtime-indicator__dot--neutral"),
     ).not.toBeNull();
   });
 

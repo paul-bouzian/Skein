@@ -60,9 +60,6 @@ const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
 
 export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   const projects = useWorkspaceStore(selectProjects);
-  const snapshotsByThreadId = useConversationStore(
-    (state) => state.snapshotsByThreadId,
-  );
   const selectedProjectId = useWorkspaceStore((s) => s.selectedProjectId);
   const selectedEnvironmentId = useWorkspaceStore(
     (s) => s.selectedEnvironmentId,
@@ -368,7 +365,7 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                     />
                     <span className="project-group__meta">
                       <span className="project-group__name">{project.name}</span>
-                      {renderProjectLocalSummary(project, snapshotsByThreadId)}
+                      <ProjectLocalSummary project={project} />
                     </span>
                   </button>
                   <button
@@ -460,11 +457,8 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                               )}
                           </span>
                           <span className="environment-item__secondary">
-                            <RuntimeIndicator
-                              tone={environmentIndicatorTone(
-                                environment,
-                                snapshotsByThreadId,
-                              )}
+                            <EnvironmentConversationIndicator
+                              environment={environment}
                             />
                           </span>
                         </button>
@@ -522,12 +516,13 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   );
 }
 
-function renderProjectLocalSummary(
+function ProjectLocalSummary({
+  project,
+}: {
   project: {
     environments: EnvironmentRecord[];
-  },
-  snapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
-) {
+  };
+}) {
   const environment =
     project.environments.find((candidate) => candidate.kind === "local") ??
     project.environments.find((candidate) => candidate.isDefault) ??
@@ -541,20 +536,27 @@ function renderProjectLocalSummary(
           {environment.gitBranch}
         </span>
       ) : null}
-      <RuntimeIndicator
-        tone={environmentIndicatorTone(environment, snapshotsByThreadId)}
-      />
+      <EnvironmentConversationIndicator environment={environment} />
     </span>
   );
 }
 
-function environmentIndicatorTone(
-  environment: EnvironmentRecord,
-  snapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
-) {
-  return indicatorToneForConversationStatus(
-    deriveEnvironmentConversationStatus(environment, snapshotsByThreadId),
-  );
+function EnvironmentConversationIndicator({
+  environment,
+}: {
+  environment: EnvironmentRecord;
+}) {
+  const tone = useConversationStore(selectEnvironmentIndicatorTone(environment));
+  return <RuntimeIndicator tone={tone} />;
+}
+
+function selectEnvironmentIndicatorTone(environment: EnvironmentRecord) {
+  return (state: {
+    snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
+  }) =>
+    indicatorToneForConversationStatus(
+      deriveEnvironmentConversationStatus(environment, state.snapshotsByThreadId),
+    );
 }
 
 function renderPullRequestControl(environment: EnvironmentRecord) {

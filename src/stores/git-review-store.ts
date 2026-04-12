@@ -155,6 +155,10 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
         ...state.selectedFileByContext,
         [contextKey]: null,
       },
+      diffRequestIdByContext: {
+        ...state.diffRequestIdByContext,
+        [contextKey]: nextRequestId(state.diffRequestIdByContext[contextKey]),
+      },
     }));
   },
 
@@ -173,6 +177,10 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
       diffErrorByContext: {
         ...state.diffErrorByContext,
         [contextKey]: null,
+      },
+      diffRequestIdByContext: {
+        ...state.diffRequestIdByContext,
+        [contextKey]: nextRequestId(state.diffRequestIdByContext[contextKey]),
       },
     }));
   },
@@ -510,30 +518,20 @@ async function loadDiffBundle(
   }));
 
   try {
-    for (const file of orderedFiles) {
-      const fileKey = changedFileKey(file.section, file.path);
-      if (get().diffsByContext[contextKey]?.[fileKey]) {
-        continue;
-      }
-
-      const diff = await bridge.getGitFileDiff({
+    const [selectedFile, adjacentFile] = orderedFiles;
+    if (selectedFile) {
+      const loaded = await fetchAndStoreDiff(
         environmentId,
         scope,
-        section: file.section,
-        path: file.path,
-      });
-      if (get().diffRequestIdByContext[contextKey] !== requestId) {
+        contextKey,
+        requestId,
+        selectedFile,
+        set,
+        get,
+      );
+      if (!loaded) {
         return;
       }
-      set((state) => ({
-        diffsByContext: {
-          ...state.diffsByContext,
-          [contextKey]: {
-            ...(state.diffsByContext[contextKey] ?? {}),
-            [fileKey]: diff,
-          },
-        },
-      }));
     }
 
     set((state) => ({
@@ -550,6 +548,20 @@ async function loadDiffBundle(
           }
         : {}),
     }));
+
+    if (adjacentFile) {
+      window.setTimeout(() => {
+        void prefetchAdjacentDiff(
+          environmentId,
+          scope,
+          contextKey,
+          requestId,
+          adjacentFile,
+          set,
+          get,
+        );
+      }, 150);
+    }
   } catch (cause: unknown) {
     const message =
       cause instanceof Error ? cause.message : "Failed to load the file diff";
@@ -568,6 +580,78 @@ async function loadDiffBundle(
         : {}),
     }));
   }
+}
+
+async function prefetchAdjacentDiff(
+  environmentId: string,
+  scope: GitReviewScope,
+  contextKey: string,
+  requestId: number,
+  file: GitFileChange,
+  set: GitReviewSetter,
+  get: () => GitReviewState,
+) {
+  const fileKey = changedFileKey(file.section, file.path);
+  if (
+    get().selectedFileByContext[contextKey] === null ||
+    get().diffRequestIdByContext[contextKey] !== requestId ||
+    get().diffsByContext[contextKey]?.[fileKey]
+  ) {
+    return;
+  }
+
+  try {
+    await fetchAndStoreDiff(
+      environmentId,
+      scope,
+      contextKey,
+      requestId,
+      file,
+      set,
+      get,
+    );
+  } catch {
+    // Ignore background prefetch failures; the selected diff load path already surfaces errors.
+  }
+}
+
+async function fetchAndStoreDiff(
+  environmentId: string,
+  scope: GitReviewScope,
+  contextKey: string,
+  requestId: number,
+  file: GitFileChange,
+  set: GitReviewSetter,
+  get: () => GitReviewState,
+) {
+  const fileKey = changedFileKey(file.section, file.path);
+  if (get().diffRequestIdByContext[contextKey] !== requestId) {
+    return false;
+  }
+  if (get().diffsByContext[contextKey]?.[fileKey]) {
+    return true;
+  }
+
+  const diff = await bridge.getGitFileDiff({
+    environmentId,
+    scope,
+    section: file.section,
+    path: file.path,
+  });
+  if (get().diffRequestIdByContext[contextKey] !== requestId) {
+    return false;
+  }
+
+  set((state) => ({
+    diffsByContext: {
+      ...state.diffsByContext,
+      [contextKey]: {
+        ...(state.diffsByContext[contextKey] ?? {}),
+        [fileKey]: diff,
+      },
+    },
+  }));
+  return true;
 }
 
 function orderDiffFiles(

@@ -1,7 +1,7 @@
 import {
   indicatorToneForConversationStatus,
 } from "../../lib/conversation-status";
-import type { ThreadConversationSnapshot } from "../../lib/types";
+import type { ConversationStatus } from "../../lib/types";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { useConversationStore } from "../../stores/conversation-store";
@@ -23,7 +23,6 @@ export function ThreadTabs() {
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const selectedThreadId = useWorkspaceStore((s) => s.selectedThreadId);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
-  const snapshotsByThreadId = useConversationStore((state) => state.snapshotsByThreadId);
   const voicePhase = useVoiceSessionStore((state) => state.phase);
   const voiceOwnerThreadId = useVoiceSessionStore((state) => state.ownerThreadId);
   const ownerPendingVoiceOutcome = useVoiceSessionStore(
@@ -59,10 +58,7 @@ export function ThreadTabs() {
                 onClick={() => selectThread(thread.id)}
               >
                 <span className="thread-tab__status-dot" aria-hidden="true">
-                  <RuntimeIndicator
-                    tone={threadIndicatorTone(snapshotsByThreadId[thread.id])}
-                    size="sm"
-                  />
+                  <ThreadTabIndicator threadId={thread.id} />
                 </span>
                 <span className="thread-tab__title">{thread.title}</span>
               </button>
@@ -100,10 +96,15 @@ export function ThreadTabs() {
   );
 }
 
-function threadIndicatorTone(snapshot: ThreadConversationSnapshot | undefined) {
-  return snapshot
-    ? indicatorToneForConversationStatus(snapshot.status)
-    : "neutral";
+function ThreadTabIndicator({ threadId }: { threadId: string }) {
+  const status = useConversationStore(
+    (state) => state.snapshotsByThreadId[threadId]?.status ?? null,
+  );
+  return <RuntimeIndicator tone={threadIndicatorTone(status)} size="sm" />;
+}
+
+function threadIndicatorTone(status: ConversationStatus | null) {
+  return status ? indicatorToneForConversationStatus(status) : "neutral";
 }
 
 function reportThreadTabError(action: string, error: unknown) {

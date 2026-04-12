@@ -7,20 +7,23 @@ import {
   useTransition,
 } from "react";
 
+import * as bridge from "../../lib/bridge";
 import type {
   ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
+  ConversationComposerSettings,
   ConversationImageAttachment,
+  GlobalSettings,
   EnvironmentRecord,
   ThreadRecord,
 } from "../../lib/types";
-import { EmptyState } from "../../shared/EmptyState";
 import { ThreadIcon } from "../../shared/Icons";
 import {
   selectConversationCapabilities,
   selectConversationComposer,
   selectConversationDraft,
   selectConversationError,
+  selectConversationHydration,
   selectConversationSnapshot,
   useConversationStore,
 } from "../../stores/conversation-store";
@@ -60,7 +63,7 @@ export function ThreadConversation({
   const capabilities = useConversationStore(
     selectConversationCapabilities(environment.id),
   );
-  const loading = useConversationStore((state) => state.loadingByThreadId[thread.id] ?? false);
+  const hydration = useConversationStore(selectConversationHydration(thread.id));
   const storeError = useConversationStore(selectConversationError(thread.id));
   const settings = useWorkspaceStore(selectSettings);
   const openThread = useConversationStore((state) => state.openThread);
@@ -130,6 +133,11 @@ export function ThreadConversation({
       return undefined;
     }
 
+    if (!snapshot.subagents.some((subagent) => subagent.status === "running")) {
+      refreshInFlightRef.current = false;
+      return undefined;
+    }
+
     const interval = window.setInterval(() => {
       if (refreshInFlightRef.current) {
         return;
@@ -138,10 +146,16 @@ export function ThreadConversation({
       void refreshThread(thread.id).finally(() => {
         refreshInFlightRef.current = false;
       });
-    }, 1000);
+    }, 10_000);
 
     return () => window.clearInterval(interval);
-  }, [refreshThread, snapshot?.activeTurnId, snapshot?.codexThreadId, thread.id]);
+  }, [
+    refreshThread,
+    snapshot?.activeTurnId,
+    snapshot?.codexThreadId,
+    snapshot?.subagents,
+    thread.id,
+  ]);
 
   const compactWorkActivity = settings?.collapseWorkActivity ?? true;
   const activePlan = snapshot?.proposedPlan ?? null;
@@ -158,7 +172,29 @@ export function ThreadConversation({
       : snapshot.items.map((item) => ({ kind: "item" as const, item }));
   }, [compactWorkActivity, snapshot]);
   const interaction = snapshot?.pendingInteractions[0] ?? null;
-  const approveComposer = snapshot ? composer ?? snapshot.composer : null;
+  const fallbackComposer = useMemo(
+    () => resolveFallbackComposer(thread, settings),
+    [settings, thread],
+  );
+  const resolvedComposer = composer ?? snapshot?.composer ?? fallbackComposer;
+  const approveComposer = snapshot ? resolvedComposer : null;
+  const isConnecting = hydration === "cold" || hydration === "loading";
+  const isConnectionError = hydration === "error";
+  const transportReady = hydration === "ready";
+
+  useEffect(() => {
+    if (!transportReady) {
+      return undefined;
+    }
+
+    void bridge.touchEnvironmentRuntime(environment.id).catch(() => undefined);
+
+    const interval = window.setInterval(() => {
+      void bridge.touchEnvironmentRuntime(environment.id).catch(() => undefined);
+    }, 60_000);
+
+    return () => window.clearInterval(interval);
+  }, [environment.id, transportReady]);
 
   if (approveShortcutThreadIdRef.current !== thread.id) {
     approveShortcutThreadIdRef.current = thread.id;
@@ -230,22 +266,6 @@ export function ThreadConversation({
     snapshot?.proposedPlan?.isAwaitingDecision,
   ]);
 
-  if (!snapshot && loading) {
-    return <ConversationLoading />;
-  }
-
-  if (!snapshot) {
-    return (
-      <div className="tx-conversation">
-        <EmptyState
-          heading="Conversation unavailable"
-          body={storeError ?? "Loom could not open this thread yet."}
-        />
-      </div>
-    );
-  }
-
-  const resolvedComposer = composer ?? snapshot.composer;
   const selectedModel =
     capabilities?.models.find((candidate) => candidate.id === resolvedComposer.model) ?? null;
   const selectedModelSupportsImages = modelSupportsImageInput(selectedModel);
@@ -253,8 +273,10 @@ export function ThreadConversation({
     resolvedComposer.reasoningEffort,
   ];
   const composerLocked =
-    Boolean(interaction) || Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan);
-  const isRunning = snapshot.status === "running";
+    Boolean(interaction) ||
+    Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan) ||
+    !transportReady;
+  const isRunning = snapshot?.status === "running";
   const isMutating = isPending || isSubmitting;
   const hasDraftContent = draft.trim().length > 0;
   const hasAttachedImages = images.length > 0;
@@ -341,11 +363,20 @@ export function ThreadConversation({
     <div className="tx-conversation">
       <ConversationMeta
         environment={environment}
-        snapshot={snapshot}
         thread={thread}
+        snapshot={snapshot}
+        connectionState={
+          isConnecting ? "connecting" : isConnectionError ? "error" : "idle"
+        }
+        onRetryConnection={
+          isConnectionError ? () => void openThread(thread.id) : null
+        }
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
-        {timelineEntries.length === 0 && !shouldRenderPlanCard && !hasTaskPlanContent ? (
+        {timelineEntries.length === 0 &&
+        !shouldRenderPlanCard &&
+        !hasTaskPlanContent &&
+        transportReady ? (
           <ConversationEmpty />
         ) : null}
         {timelineEntries.map((entry) =>
@@ -367,7 +398,7 @@ export function ThreadConversation({
         {!compactWorkActivity && hasTaskPlanContent && activeTaskPlan ? (
           <ConversationTaskCard taskPlan={activeTaskPlan} />
         ) : null}
-        {snapshot.error ? (
+        {snapshot?.error ? (
           <ConversationBanner
             tone="error"
             title="Runtime error"
@@ -381,7 +412,7 @@ export function ThreadConversation({
       <ConversationInteractionPanel
         interaction={interaction}
         submitShortcutKey={approveOrSubmitKey}
-        queueCount={snapshot.pendingInteractions.length}
+        queueCount={snapshot?.pendingInteractions.length ?? 0}
         onRespondApproval={(response) =>
           respondToApproval(thread.id, interaction?.id ?? "", response)
         }
@@ -389,7 +420,9 @@ export function ThreadConversation({
           respondToUserInput(thread.id, interaction?.id ?? "", answers)
         }
       />
-      {!compactWorkActivity ? <SubagentStrip subagents={snapshot.subagents} /> : null}
+      {!compactWorkActivity && snapshot ? (
+        <SubagentStrip subagents={snapshot.subagents} />
+      ) : null}
       <InlineComposer
         environmentId={environment.id}
         threadId={thread.id}
@@ -405,6 +438,7 @@ export function ThreadConversation({
         isRefiningPlan={isRefiningPlan}
         mentionBindings={mentionBindings}
         modelOptions={capabilities?.models ?? []}
+        transportEnabled={transportReady}
         onChangeImages={(nextImages) =>
           updateDraft(thread.id, (currentDraft) => ({
             ...currentDraft,
@@ -414,7 +448,7 @@ export function ThreadConversation({
                 : nextImages,
           }))
         }
-        tokenUsage={snapshot.tokenUsage}
+        tokenUsage={snapshot?.tokenUsage}
         onCancelRefine={() => updateDraft(thread.id, { isRefiningPlan: false })}
         onChangeDraft={(value, bindings) =>
           updateDraft(thread.id, {
@@ -436,17 +470,6 @@ export function ThreadConversation({
           updateComposer(thread.id, patch);
         }}
       />
-    </div>
-  );
-}
-
-function ConversationLoading() {
-  return (
-    <div className="tx-conversation tx-conversation--centered">
-      <div className="tx-loading">
-        <div className="tx-loading__bar" />
-        <p>Connecting to Codex…</p>
-      </div>
     </div>
   );
 }
@@ -507,4 +530,28 @@ function shouldShowFirstPromptNamingNotice(
 
 function isAutoGeneratedWorktreeName(name: string) {
   return /^[a-z]+-[a-z]+(?:-\d+)?$/.test(name.trim());
+}
+
+function resolveFallbackComposer(
+  thread: ThreadRecord,
+  settings: GlobalSettings | null,
+): ConversationComposerSettings {
+  return {
+    model: thread.overrides.model ?? settings?.defaultModel ?? "gpt-5.4",
+    reasoningEffort:
+      thread.overrides.reasoningEffort ??
+      settings?.defaultReasoningEffort ??
+      "medium",
+    collaborationMode:
+      thread.overrides.collaborationMode ??
+      settings?.defaultCollaborationMode ??
+      "build",
+    approvalPolicy:
+      thread.overrides.approvalPolicy ??
+      settings?.defaultApprovalPolicy ??
+      "askToEdit",
+    serviceTier: thread.overrides.serviceTierOverridden
+      ? (thread.overrides.serviceTier ?? null)
+      : (settings?.defaultServiceTier ?? null),
+  };
 }

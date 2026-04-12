@@ -10,7 +10,6 @@ mod services;
 mod state;
 
 use tauri::{Manager, RunEvent};
-#[cfg(target_os = "macos")]
 use tracing::warn;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -47,6 +46,22 @@ pub fn run() {
                 warn!("failed to sync settings menu shortcut during startup: {error}");
             }
             app.manage(app_state);
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(runtime::supervisor::RUNTIME_IDLE_REAPER_INTERVAL).await;
+                    let Some(state) = app_handle.try_state::<state::AppState>() else {
+                        continue;
+                    };
+                    if let Err(error) = state
+                        .runtime
+                        .evict_idle_runtimes(runtime::supervisor::RUNTIME_IDLE_TIMEOUT)
+                        .await
+                    {
+                        warn!("failed to evict idle runtimes: {error}");
+                    }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -101,6 +116,7 @@ pub fn run() {
             commands::workspace::archive_thread,
             commands::workspace::start_environment_runtime,
             commands::workspace::stop_environment_runtime,
+            commands::workspace::touch_environment_runtime,
             commands::workspace::get_environment_codex_rate_limits,
             commands::workspace::open_environment,
         ])

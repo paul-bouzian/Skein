@@ -1290,6 +1290,8 @@ ol.tx-markdown__list {
 
 
 .tx-pill {
+  appearance: none;
+  border: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1303,10 +1305,55 @@ ol.tx-markdown__list {
   white-space: nowrap;
 }
 
+.tx-pill--action {
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.tx-pill--action:hover {
+  background: color-mix(in srgb, var(--tx-bg-hover) 72%, var(--tx-text-primary) 8%);
+  color: var(--tx-text-primary);
+}
+
 .tx-pill--idle,
 .tx-pill--neutral {
   background: var(--tx-bg-hover);
   color: var(--tx-text-secondary);
+}
+
+.tx-pill--connecting {
+  position: relative;
+  overflow: hidden;
+}
+
+.tx-pill--connecting::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--tx-text-primary) 8%, transparent) 50%,
+      transparent 100%
+    );
+  transform: translateX(-100%);
+  animation: tx-pill-connecting 1.8s ease-in-out infinite;
+}
+
+@keyframes tx-pill-connecting {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-pill--connecting::after {
+    animation: none;
+    transform: translateX(-100%);
+  }
 }
 
 .tx-pill--running,

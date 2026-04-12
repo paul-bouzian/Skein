@@ -94,6 +94,7 @@ type Props = {
     mentionBindings: ComposerMentionBindingInput[],
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
+  transportEnabled?: boolean;
 };
 
 export function InlineComposer({
@@ -119,6 +120,7 @@ export function InlineComposer({
   onInterrupt,
   onSend,
   onUpdateComposer,
+  transportEnabled = true,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -189,6 +191,7 @@ export function InlineComposer({
     voiceDurationMs,
   } = useComposerVoiceInput({
     currentDraft: draft,
+    enabled: transportEnabled,
     environmentId,
     inputRef: textareaRef,
     locked: baseControlsDisabled,
@@ -238,6 +241,11 @@ export function InlineComposer({
   });
 
   useEffect(() => {
+    if (!transportEnabled) {
+      setCatalog(null);
+      return;
+    }
+
     let cancelled = false;
     void getThreadComposerCatalog(threadId)
       .then((nextCatalog) => {
@@ -253,7 +261,7 @@ export function InlineComposer({
     return () => {
       cancelled = true;
     };
-  }, [threadId]);
+  }, [threadId, transportEnabled]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -317,6 +325,11 @@ export function InlineComposer({
   }, [draft, mentionBindings, onChangeMentionBindings]);
 
   useEffect(() => {
+    if (!transportEnabled) {
+      fileSearchRequestRef.current += 1;
+      setFileResults([]);
+      return;
+    }
     if (!activeToken || activeToken.kind !== "file") {
       fileSearchRequestRef.current += 1;
       setFileResults([]);
@@ -342,7 +355,7 @@ export function InlineComposer({
         });
     }, 120);
     return () => window.clearTimeout(timeout);
-  }, [activeToken, threadId]);
+  }, [activeToken, threadId, transportEnabled]);
 
   const autocompleteItems = useMemo(
     () =>

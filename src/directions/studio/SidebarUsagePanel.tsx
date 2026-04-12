@@ -13,6 +13,10 @@ export function SidebarUsagePanel() {
   const snapshot = useCodexUsageStore((state) => state.snapshot);
   const loading = useCodexUsageStore((state) => state.loading);
   const error = useCodexUsageStore((state) => state.error);
+  const hasWorkspaceEnvironment =
+    workspaceSnapshot?.projects.some(
+      (project) => project.environments.length > 0,
+    ) ?? false;
   const sourceEnvironmentId = resolveUsageSourceEnvironmentId(
     workspaceSnapshot,
     selectedEnvironment?.id ?? null,
@@ -25,7 +29,7 @@ export function SidebarUsagePanel() {
   const rows = buildCodexUsageRows(snapshot);
   const showLoadingState = loading && snapshot === null;
   const placeholder = resolveUsagePlaceholder(
-    sourceEnvironmentId !== null,
+    hasWorkspaceEnvironment,
     snapshot !== null,
     showLoadingState,
     error,
@@ -73,13 +77,13 @@ export function SidebarUsagePanel() {
 }
 
 function resolveUsagePlaceholder(
-  hasEnvironment: boolean,
+  hasWorkspaceEnvironment: boolean,
   hasSnapshot: boolean,
   loading: boolean,
   error: string | null,
   rows: ReturnType<typeof buildCodexUsageRows>,
 ) {
-  if (!hasEnvironment && !hasSnapshot) {
+  if (!hasWorkspaceEnvironment && !hasSnapshot) {
     return "Add a project to inspect Codex usage.";
   }
   if (!loading && error) {
@@ -99,24 +103,10 @@ function resolveUsageSourceEnvironmentId(
     return null;
   }
 
-  const environments = snapshot.projects.flatMap((project) => project.environments);
-  if (environments.length === 0) {
-    return null;
-  }
-
   const selectedEnvironment =
-    environments.find((environment) => environment.id === selectedEnvironmentId) ?? null;
-  const runningEnvironments = environments.filter(
-    (environment) => environment.runtime.state === "running",
-  );
+    snapshot.projects
+      .flatMap((project) => project.environments)
+      .find((environment) => environment.id === selectedEnvironmentId) ?? null;
 
-  return (
-    (selectedEnvironment?.runtime.state === "running"
-      ? selectedEnvironment.id
-      : runningEnvironments[0]?.id) ??
-    selectedEnvironment?.id ??
-    runningEnvironments[0]?.id ??
-    environments[0]?.id ??
-    null
-  );
+  return selectedEnvironment?.id ?? null;
 }
