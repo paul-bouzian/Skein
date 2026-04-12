@@ -230,6 +230,15 @@ Do not mark work complete with failing checks.
 - Use `gh` for GitHub operations
 - Match current project conventions before introducing new structure
 
+## Review Guidelines
+
+- Treat security regressions, auth/authz bypasses, tenant-boundary violations, secret exposure, and destructive data-loss risks as P0 issues.
+- Treat behavior changes without adequate regression coverage as P1 issues when the change affects runtime behavior, persistence, Git/worktree flows, approvals, or protocol handling.
+- Treat missing tests as P1 issues when code changes alter business logic, runtime/session behavior, persistence, or user-visible workflows.
+- Treat missing documentation as P1 issues when a change affects public project contracts such as `AGENTS.md`, developer setup, workflow semantics, or operator-facing behavior.
+- Treat risky dependency, permissions, sandbox, network, or environment-policy changes as P1 issues unless the change is fully justified and validated.
+- Do not raise purely stylistic or cosmetic nits unless they hide a correctness, accessibility, or maintainability risk.
+
 ## Change Strategy
 
 When implementing a new Codex-facing feature:
