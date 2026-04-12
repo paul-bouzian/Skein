@@ -3129,15 +3129,13 @@ describe("ThreadConversation", () => {
     const modeToggle = await screen.findByRole("button", {
       name: "Collaboration mode: Execute. Switch to Strategize",
     });
-    expect(modeToggle).toHaveTextContent("Execute");
     expect(modeToggle).toHaveAttribute("title", "Switch to Strategize");
 
     await userEvent.click(modeToggle);
 
     await waitFor(() => {
-      expect(modeToggle).toHaveTextContent("Strategize");
+      expect(modeToggle).toHaveAttribute("title", "Switch to Execute");
     });
-    expect(modeToggle).toHaveAttribute("title", "Switch to Execute");
     expect(screen.queryByRole("option", { name: "Execute" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Strategize" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Build" })).toBeNull();
@@ -3163,12 +3161,7 @@ describe("ThreadConversation", () => {
       name: "Collaboration mode: Execute",
     });
     expect(modeToggle).toBeDisabled();
-    expect(modeToggle).toHaveTextContent("Execute");
     expect(modeToggle).toHaveAttribute("title", "Execute");
-
-    await userEvent.click(modeToggle);
-
-    expect(modeToggle).toHaveTextContent("Execute");
   });
 
   it("renders plan markdown even when markdown contains empty list markers", () => {

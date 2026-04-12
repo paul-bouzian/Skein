@@ -26,6 +26,7 @@ import {
   BoltIcon,
   CloseIcon,
   ImageIcon,
+  MapIcon,
   MicIcon,
   SendIcon,
   StopIcon,
@@ -627,9 +628,30 @@ export function InlineComposer({
               })
             }
           />
+          <ComposerPicker
+            label="Access"
+            value={composer.approvalPolicy}
+            tone={
+              composer.approvalPolicy === "fullAccess" ? "warning" : "default"
+            }
+            options={APPROVAL_OPTIONS}
+            compact
+            disabled={controlsDisabled}
+            onChange={(value) =>
+              onUpdateComposer({
+                approvalPolicy:
+                  value as ConversationComposerSettings["approvalPolicy"],
+              })
+            }
+          />
           <button
             type="button"
-            className={`tx-composer__toggle ${isPlanMode ? "tx-composer__toggle--accent" : ""}`}
+            className={[
+              "tx-composer__icon-toggle",
+              isPlanMode ? "tx-composer__icon-toggle--active" : null,
+            ]
+              .filter(Boolean)
+              .join(" ")}
             aria-label={
               canToggleMode
                 ? `Collaboration mode: ${currentModeLabel}. Switch to ${nextModeLabel}`
@@ -640,16 +662,11 @@ export function InlineComposer({
             }
             aria-pressed={isPlanMode}
             disabled={controlsDisabled || !canToggleMode}
-            onClick={() => {
-              if (!canToggleMode) {
-                return;
-              }
-              onUpdateComposer({
-                collaborationMode: nextMode,
-              });
-            }}
+            onClick={() =>
+              onUpdateComposer({ collaborationMode: nextMode })
+            }
           >
-            {currentModeLabel}
+            <MapIcon size={14} />
           </button>
           <button
             type="button"
@@ -673,22 +690,6 @@ export function InlineComposer({
           >
             <BoltIcon size={14} />
           </button>
-          <ComposerPicker
-            label="Access"
-            value={composer.approvalPolicy}
-            tone={
-              composer.approvalPolicy === "fullAccess" ? "warning" : "default"
-            }
-            options={APPROVAL_OPTIONS}
-            compact
-            disabled={controlsDisabled}
-            onChange={(value) =>
-              onUpdateComposer({
-                approvalPolicy:
-                  value as ConversationComposerSettings["approvalPolicy"],
-              })
-            }
-          />
         </div>
         <div className="tx-composer__controls-right">
           <ContextWindowMeter usage={tokenUsage} />

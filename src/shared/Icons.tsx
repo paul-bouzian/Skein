@@ -378,6 +378,20 @@ export function ThreadIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function MapIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M2 4v9l4-2 4 2 4-2V2l-4 2-4-2-4 2Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path d="M6 2.5v8M10 4.5v8" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 export function GitBranchIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
