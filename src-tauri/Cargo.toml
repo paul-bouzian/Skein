@@ -1,6 +1,6 @@
 [package]
 name = "loom"
-version = "0.1.7"
+version = "0.1.8"
 description = "Loom is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows"
 authors = ["Paul Bouzian"]
 edition = "2021"
