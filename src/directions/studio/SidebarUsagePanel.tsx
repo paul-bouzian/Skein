@@ -34,10 +34,7 @@ export function SidebarUsagePanel() {
 
   return (
     <section className="sidebar-usage" aria-label="Codex usage">
-      <div className="sidebar-usage__header">
-        <span className="sidebar-usage__title">Usage</span>
-        <span className="sidebar-usage__subtitle">Account-wide</span>
-      </div>
+      <span className="sidebar-usage__title">Usage</span>
 
       <div className="sidebar-usage__rows">
         {rows.map((row) => {
