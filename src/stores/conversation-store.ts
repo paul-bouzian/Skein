@@ -14,6 +14,7 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import {
+  clearThreadDraftPersistence,
   clearDraftPersistenceControllers,
   draftForThread,
   hydrateDraftEntry,
@@ -318,6 +319,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
         draftByThreadId: removeDraftEntry(state.draftByThreadId, threadId),
       }));
+      clearThreadDraftPersistence(threadId);
       refreshWorkspaceSnapshotNonBlocking();
       return true;
     } catch (cause: unknown) {
@@ -427,6 +429,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         },
         draftByThreadId: removeDraftEntry(state.draftByThreadId, input.threadId),
       }));
+      clearThreadDraftPersistence(input.threadId);
       refreshWorkspaceSnapshotNonBlocking();
       return true;
     } catch (cause: unknown) {

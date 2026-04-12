@@ -22,6 +22,7 @@ export type DraftUpdate =
   | ((draft: ConversationComposerDraft) => ConversationComposerDraft);
 
 type DraftPersistenceController = {
+  epoch: number;
   inflight: Promise<void> | null;
   lastPersistedKey: string | null | undefined;
   queued: ConversationComposerDraft | null | undefined;
@@ -131,6 +132,25 @@ export function clearDraftPersistenceControllers() {
   draftPersistenceByThreadId.clear();
 }
 
+export function clearThreadDraftPersistence(threadId: string) {
+  const controller = draftPersistenceByThreadId.get(threadId);
+  if (!controller) {
+    return;
+  }
+
+  controller.epoch += 1;
+  controller.queued = null;
+
+  if (controller.timeoutId) {
+    clearTimeout(controller.timeoutId);
+    controller.timeoutId = null;
+  }
+
+  if (!controller.inflight) {
+    void flushDraftPersistence(threadId);
+  }
+}
+
 export function scheduleDraftPersistence(
   threadId: string,
   draft: ConversationComposerDraft,
@@ -162,6 +182,7 @@ function ensureDraftPersistenceController(threadId: string) {
   }
 
   const controller: DraftPersistenceController = {
+    epoch: 0,
     inflight: null,
     lastPersistedKey: undefined,
     queued: undefined,
@@ -179,6 +200,7 @@ async function flushDraftPersistence(threadId: string) {
 
   const draft = controller.queued;
   const nextKey = draftPersistenceKey(draft);
+  const epoch = controller.epoch;
   if (controller.lastPersistedKey === nextKey) {
     controller.queued = undefined;
     maybeDisposeDraftPersistenceController(threadId);
@@ -192,7 +214,9 @@ async function flushDraftPersistence(threadId: string) {
         threadId,
         draft,
       });
-      controller.lastPersistedKey = nextKey;
+      if (epoch === controller.epoch) {
+        controller.lastPersistedKey = nextKey;
+      }
     } catch {
       if (controller.queued === undefined) {
         controller.queued = draft;

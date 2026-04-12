@@ -343,6 +343,53 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
   });
 
+  it("clears queued draft persistence after sendMessage succeeds", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-send-clear-1",
+    });
+    const staleSave = deferredPromise<void>();
+
+    mockedBridge.saveThreadComposerDraft
+      .mockReturnValueOnce(staleSave.promise)
+      .mockResolvedValue(undefined);
+    mockedBridge.sendThreadMessage.mockResolvedValue(nextSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    useConversationStore.getState().updateDraft("thread-1", {
+      images: [{ type: "localImage", path: "/tmp/thread-1.png" }],
+    });
+    await Promise.resolve();
+
+    expect(mockedBridge.saveThreadComposerDraft).toHaveBeenNthCalledWith(1, {
+      threadId: "thread-1",
+      draft: {
+        text: "",
+        images: [{ type: "localImage", path: "/tmp/thread-1.png" }],
+        mentionBindings: [],
+        isRefiningPlan: false,
+      },
+    });
+
+    await useConversationStore.getState().sendMessage("thread-1", "Ship it");
+    expect(useConversationStore.getState().draftByThreadId["thread-1"]).toBeUndefined();
+
+    staleSave.resolve(undefined);
+    await staleSave.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockedBridge.saveThreadComposerDraft).toHaveBeenNthCalledWith(2, {
+      threadId: "thread-1",
+      draft: null,
+    });
+  });
+
   it("adds an optimistic user message immediately and rolls it back if send fails", async () => {
     const initialSnapshot = makeConversationSnapshot({ status: "idle" });
     const deferred = new Promise<ThreadConversationSnapshot>((_, reject) => {
@@ -417,6 +464,49 @@ describe("conversation store", () => {
     );
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useConversationStore.getState().errorByThreadId["thread-1"]).toBeNull();
+  });
+
+  it("clears queued draft persistence after submitPlanDecision succeeds", async () => {
+    const initialSnapshot = makeConversationSnapshot({
+      status: "waitingForExternalAction",
+    });
+    const nextSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-plan-clear-1",
+    });
+    const staleSave = deferredPromise<void>();
+
+    mockedBridge.saveThreadComposerDraft
+      .mockReturnValueOnce(staleSave.promise)
+      .mockResolvedValue(undefined);
+    mockedBridge.submitPlanDecision.mockResolvedValue(nextSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    useConversationStore.getState().updateDraft("thread-1", {
+      images: [{ type: "localImage", path: "/tmp/thread-1.png" }],
+    });
+    await Promise.resolve();
+
+    await useConversationStore.getState().submitPlanDecision({
+      threadId: "thread-1",
+      action: "approve",
+      composer: initialSnapshot.composer,
+    });
+    expect(useConversationStore.getState().draftByThreadId["thread-1"]).toBeUndefined();
+
+    staleSave.resolve(undefined);
+    await staleSave.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockedBridge.saveThreadComposerDraft).toHaveBeenNthCalledWith(2, {
+      threadId: "thread-1",
+      draft: null,
+    });
   });
 
   it("refreshes a thread snapshot without reopening the conversation", async () => {
