@@ -89,13 +89,12 @@ impl VoiceService {
         runtime: &RuntimeSupervisor,
         environment_id: &str,
     ) -> AppResult<EnvironmentVoiceStatusSnapshot> {
-        let (environment_path, codex_binary_path) =
-            workspace.environment_runtime_target(environment_id)?;
+        let runtime_target = workspace.environment_runtime_target(environment_id)?;
         match runtime
             .read_auth_status(
                 environment_id,
-                &environment_path,
-                codex_binary_path.clone(),
+                &runtime_target.environment_path,
+                runtime_target.codex_binary_path.clone(),
                 false,
                 false,
             )
@@ -106,8 +105,8 @@ impl VoiceService {
                     runtime
                         .read_auth_status(
                             environment_id,
-                            &environment_path,
-                            codex_binary_path,
+                            &runtime_target.environment_path,
+                            runtime_target.codex_binary_path.clone(),
                             true,
                             false,
                         )
@@ -123,7 +122,12 @@ impl VoiceService {
             }
             Err(error) if is_get_auth_status_unavailable(&error) => {
                 let account = runtime
-                    .read_account(environment_id, &environment_path, codex_binary_path, false)
+                    .read_account(
+                        environment_id,
+                        &runtime_target.environment_path,
+                        runtime_target.codex_binary_path,
+                        false,
+                    )
                     .await?;
                 Ok(voice_status_snapshot_from_account(environment_id, &account))
             }
@@ -138,15 +142,14 @@ impl VoiceService {
         input: TranscribeEnvironmentVoiceInput,
     ) -> AppResult<VoiceTranscriptionResult> {
         let upload = validate_transcription_input(input)?;
-        let (environment_path, codex_binary_path) =
-            workspace.environment_runtime_target(&upload.environment_id)?;
+        let runtime_target = workspace.environment_runtime_target(&upload.environment_id)?;
 
         let auth_context = self
             .load_auth_context(
                 runtime,
                 &upload.environment_id,
-                &environment_path,
-                codex_binary_path.clone(),
+                &runtime_target.environment_path,
+                runtime_target.codex_binary_path.clone(),
             )
             .await?;
 
@@ -157,8 +160,8 @@ impl VoiceService {
                     .load_auth_context(
                         runtime,
                         &upload.environment_id,
-                        &environment_path,
-                        codex_binary_path,
+                        &runtime_target.environment_path,
+                        runtime_target.codex_binary_path,
                     )
                     .await?;
                 self.request_transcription(&refreshed_auth_context, &upload)

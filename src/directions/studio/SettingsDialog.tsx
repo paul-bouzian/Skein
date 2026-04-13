@@ -6,17 +6,12 @@ import {
 } from "@tauri-apps/plugin-notification";
 
 import * as bridge from "../../lib/bridge";
-import type {
-  ApprovalPolicy,
-  CollaborationMode,
-  GlobalSettings,
-  GlobalSettingsPatch,
-  ReasoningEffort,
-} from "../../lib/types";
+import type { GlobalSettingsPatch } from "../../lib/types";
+import { CodexSettingsTab } from "./CodexSettingsTab";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { OpenInSettingsTab } from "./OpenInSettingsTab";
 import { ShortcutsSettingsTab } from "./ShortcutsSettingsTab";
-import { SettingsUpdateSection } from "./SettingsUpdateSection";
+import { NotificationsSettingsTab } from "./NotificationsSettingsTab";
 import {
   selectConversationCapabilities,
   useConversationStore,
@@ -27,14 +22,7 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { CloseIcon } from "../../shared/Icons";
-import { ComposerPicker, type ComposerPickerOption } from "./ComposerPicker";
-import {
-  APPROVAL_OPTIONS,
-  COLLABORATION_OPTIONS,
-  REASONING_OPTIONS,
-  SPEED_MODE_OPTIONS,
-  settingsModelOptions,
-} from "./composerOptions";
+import { settingsModelOptions } from "./composerOptions";
 import "./SettingsDialog.css";
 
 type Props = {
@@ -49,7 +37,7 @@ const DESKTOP_NOTIFICATIONS_ENABLE_ERROR =
   "Desktop notifications could not be enabled. Check your operating system notification permissions and try again.";
 const DESKTOP_NOTIFICATIONS_PERMISSION_DENIED =
   "Desktop notifications were not enabled because permission was denied by the operating system.";
-type SettingsTab = "codex" | "openIn" | "shortcuts" | "project";
+type SettingsTab = "codex" | "notifications" | "openIn" | "shortcuts" | "project";
 
 async function requestDesktopNotificationsAccess(): Promise<
   "granted" | "denied" | "error"
@@ -281,6 +269,16 @@ export function SettingsDialog({ open, onClose }: Props) {
             <button
               type="button"
               className={`settings-dialog__tab ${
+                activeTab === "notifications" ? "settings-dialog__tab--active" : ""
+              }`}
+              aria-current={activeTab === "notifications" ? "page" : undefined}
+              onClick={() => setActiveTab("notifications")}
+            >
+              Notifications
+            </button>
+            <button
+              type="button"
+              className={`settings-dialog__tab ${
                 activeTab === "openIn" ? "settings-dialog__tab--active" : ""
               }`}
               aria-current={activeTab === "openIn" ? "page" : undefined}
@@ -314,17 +312,29 @@ export function SettingsDialog({ open, onClose }: Props) {
               <p className="settings-dialog__notice">{actionError}</p>
             ) : null}
             {activeTab === "codex" && settings ? (
-              <SettingsContent
+              <CodexSettingsTab
+                disabled={savingGlobalSettings}
+                menuZIndex={SETTINGS_PICKER_Z_INDEX}
+                modelOptions={modelOptions}
+                settings={settings}
+                onChange={handleGlobalChange}
+              />
+            ) : null}
+            {activeTab === "codex" && !settings ? (
+              <p className="settings-dialog__empty">Loading...</p>
+            ) : null}
+            {activeTab === "notifications" && settings ? (
+              <NotificationsSettingsTab
                 settings={settings}
                 disabled={savingGlobalSettings}
                 desktopNotificationsBusy={desktopNotificationsBusy}
                 desktopNotificationsNotice={desktopNotificationsNotice}
-                modelOptions={modelOptions}
+                menuZIndex={SETTINGS_PICKER_Z_INDEX}
                 onChange={handleGlobalChange}
                 onDesktopNotificationsChange={handleDesktopNotificationsChange}
               />
             ) : null}
-            {activeTab === "codex" && !settings ? (
+            {activeTab === "notifications" && !settings ? (
               <p className="settings-dialog__empty">Loading...</p>
             ) : null}
             {activeTab === "shortcuts" && settings ? (
@@ -360,211 +370,5 @@ export function SettingsDialog({ open, onClose }: Props) {
       </section>
     </div>,
     document.body,
-  );
-}
-
-function SettingsContent({
-  settings,
-  disabled,
-  desktopNotificationsBusy,
-  desktopNotificationsNotice,
-  modelOptions,
-  onChange,
-  onDesktopNotificationsChange,
-}: {
-  settings: GlobalSettings;
-  disabled: boolean;
-  desktopNotificationsBusy: boolean;
-  desktopNotificationsNotice: string | null;
-  modelOptions: ComposerPickerOption[];
-  onChange: (patch: GlobalSettingsPatch) => Promise<void> | void;
-  onDesktopNotificationsChange: (enabled: boolean) => Promise<void>;
-}) {
-  return (
-    <div className="settings-list">
-      <SettingsSelect
-        disabled={disabled}
-        label="Default model"
-        value={settings.defaultModel}
-        options={modelOptions}
-        onChange={(value) => onChange({ defaultModel: value })}
-      />
-      <SettingsSelect
-        disabled={disabled}
-        label="Default reasoning"
-        value={settings.defaultReasoningEffort}
-        options={REASONING_OPTIONS}
-        onChange={(value) =>
-          onChange({ defaultReasoningEffort: value as ReasoningEffort })
-        }
-      />
-      <SettingsSelect
-        disabled={disabled}
-        label="Default mode"
-        value={settings.defaultCollaborationMode}
-        options={COLLABORATION_OPTIONS}
-        onChange={(value) =>
-          onChange({ defaultCollaborationMode: value as CollaborationMode })
-        }
-      />
-      <SettingsSelect
-        disabled={disabled}
-        label="Default approval"
-        value={settings.defaultApprovalPolicy}
-        options={APPROVAL_OPTIONS}
-        onChange={(value) =>
-          onChange({ defaultApprovalPolicy: value as ApprovalPolicy })
-        }
-      />
-      <SettingsSelect
-        disabled={disabled}
-        label="Default speed"
-        value={settings.defaultServiceTier ?? "flex"}
-        options={SPEED_MODE_OPTIONS}
-        onChange={(value) => onChange({ defaultServiceTier: value })}
-      />
-      <SettingsToggle
-        disabled={disabled}
-        label="Collapse work activity"
-        description="Hide intermediate thinking, tool calls, task progress, and subagent noise behind one collapsible work block. Plans and user interactions stay visible."
-        checked={settings.collapseWorkActivity}
-        onChange={(value) => onChange({ collapseWorkActivity: value })}
-      />
-      <SettingsToggle
-        disabled={disabled || desktopNotificationsBusy}
-        label="Desktop notifications"
-        description="Show an OS notification when a chat finishes or needs input while the app is in the background."
-        supportText="Desktop app notifications use your operating system notification center."
-        notice={desktopNotificationsNotice}
-        noticeTone="error"
-        checked={settings.desktopNotificationsEnabled}
-        onChange={(value) => void onDesktopNotificationsChange(value)}
-      />
-      <SettingsInput
-        disabled={disabled}
-        label="Codex binary"
-        value={settings.codexBinaryPath ?? ""}
-        placeholder="auto-detect"
-        onChange={(value) => onChange({ codexBinaryPath: value || null })}
-      />
-      <SettingsUpdateSection disabled={disabled} />
-    </div>
-  );
-}
-
-function SettingsSelect<T extends string>({
-  label,
-  disabled = false,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  disabled?: boolean;
-  value: T;
-  options: ComposerPickerOption<T>[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <ComposerPicker
-      label={label}
-      value={value}
-      options={options}
-      disabled={disabled}
-      menuZIndex={SETTINGS_PICKER_Z_INDEX}
-      onChange={(nextValue) => onChange(nextValue as T)}
-    />
-  );
-}
-
-function SettingsInput({
-  label,
-  disabled = false,
-  value,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  disabled?: boolean;
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-}) {
-  const [draftValue, setDraftValue] = useState(value);
-
-  useEffect(() => {
-    setDraftValue(value);
-  }, [value]);
-
-  return (
-    <div className="settings-field">
-      <label className="settings-field__label">{label}</label>
-      <input
-        className="settings-field__input"
-        type="text"
-        value={draftValue}
-        disabled={disabled}
-        placeholder={placeholder}
-        onChange={(event) => setDraftValue(event.target.value)}
-        onBlur={(event) => {
-          const nextValue = event.target.value;
-          if (nextValue !== value) {
-            onChange(nextValue);
-          }
-        }}
-      />
-    </div>
-  );
-}
-
-function SettingsToggle({
-  label,
-  description,
-  supportText,
-  notice,
-  noticeTone = "default",
-  disabled = false,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  supportText?: string;
-  notice?: string | null;
-  noticeTone?: "default" | "error";
-  disabled?: boolean;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="settings-toggle">
-      <div className="settings-toggle__copy">
-        <label className="settings-field__label">{label}</label>
-        <p className="settings-field__help">{description}</p>
-        {supportText ? <p className="settings-field__help">{supportText}</p> : null}
-        {notice ? (
-          <p
-            className={`settings-field__help ${
-              noticeTone === "error" ? "settings-field__help--error" : ""
-            }`}
-          >
-            {notice}
-          </p>
-        ) : null}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        disabled={disabled}
-        aria-checked={checked}
-        aria-label={label}
-        className={`settings-toggle__control ${
-          checked ? "settings-toggle__control--checked" : ""
-        }`}
-        onClick={() => onChange(!checked)}
-      >
-        <span className="settings-toggle__thumb" />
-      </button>
-    </div>
   );
 }

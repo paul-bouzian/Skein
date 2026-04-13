@@ -1,5 +1,8 @@
-import { useRef, useState, useLayoutEffect, useEffect, type ReactNode } from "react";
+import { useRef, useState, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+
+import { useTooltipPosition } from "./useTooltipPosition";
+
 import "./Tooltip.css";
 
 type Props = {
@@ -7,21 +10,28 @@ type Props = {
   children: ReactNode;
   side?: "top" | "bottom";
   delay?: number;
+  repositionKey?: unknown;
 };
 
-export function Tooltip({ content, children, side = "top", delay = 200 }: Props) {
+export function Tooltip({
+  content,
+  children,
+  side = "top",
+  delay = 200,
+  repositionKey,
+}: Props) {
   const [visible, setVisible] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<HTMLSpanElement | null>(null);
-
-  useLayoutEffect(() => {
-    if (!visible || !anchorRef.current) return;
-    const rect = anchorRef.current.getBoundingClientRect();
-    const top = side === "top" ? rect.top - 6 : rect.bottom + 6;
-    const left = rect.left + rect.width / 2;
-    setPosition({ top, left });
-  }, [visible, side]);
+  const tooltipRef = useRef<HTMLSpanElement | null>(null);
+  const position = useTooltipPosition({
+    anchorRef,
+    tooltipRef,
+    open: visible,
+    preferredSide: side,
+    gapPx: 6,
+    repositionKey: repositionKey ?? content,
+  });
 
   useEffect(() => {
     return () => {
@@ -32,16 +42,24 @@ export function Tooltip({ content, children, side = "top", delay = 200 }: Props)
   }, []);
 
   function show() {
-    timerRef.current = setTimeout(() => setVisible(true), delay);
+    clearShowTimer();
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setVisible(true);
+    }, delay);
   }
 
   function hide() {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
+    clearShowTimer();
     setVisible(false);
-    setPosition(null);
+  }
+
+  function clearShowTimer() {
+    if (!timerRef.current) {
+      return;
+    }
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
   }
 
   return (
@@ -52,12 +70,17 @@ export function Tooltip({ content, children, side = "top", delay = 200 }: Props)
       onPointerLeave={hide}
     >
       {children}
-      {visible && position
+      {visible
         ? createPortal(
             <span
-              className={`tx-tooltip tx-tooltip--${side}`}
+              ref={tooltipRef}
+              className="tx-tooltip"
               role="tooltip"
-              style={{ top: position.top, left: position.left }}
+              style={{
+                top: position?.top ?? 0,
+                left: position?.left ?? 0,
+                visibility: position ? "visible" : "hidden",
+              }}
             >
               {content}
             </span>,

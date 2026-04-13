@@ -24,7 +24,7 @@ use crate::runtime::codex_paths::resolve_codex_binary_path;
 use crate::runtime::protocol::AccountReadResponse;
 use crate::runtime::session::{AppServerAuthStatus, RuntimeSession, SendMessageResult};
 use crate::serde_helpers::deserialize_explicit_optional;
-use crate::services::workspace::ThreadRuntimeContext;
+use crate::services::workspace::{EnvironmentRuntimeTarget, ThreadRuntimeContext};
 
 struct RunningRuntime {
     session: Arc<RuntimeSession>,
@@ -165,11 +165,11 @@ impl CodexRateLimitSnapshotPatch {
 }
 
 fn patch_window_is_empty(window: Option<&Option<CodexRateLimitWindowPatch>>) -> bool {
-    window.is_none_or(|window| {
-        window
-            .as_ref()
-            .is_none_or(CodexRateLimitWindowPatch::is_empty)
-    })
+    match window {
+        None => true,
+        Some(None) => false,
+        Some(Some(window)) => window.is_empty(),
+    }
 }
 
 impl RuntimeSupervisor {
@@ -266,11 +266,10 @@ impl RuntimeSupervisor {
     pub async fn start(
         &self,
         environment_id: &str,
-        environment_path: &str,
-        codex_binary_path: Option<String>,
+        runtime_target: &EnvironmentRuntimeTarget,
     ) -> AppResult<RuntimeStatusSnapshot> {
         Ok(self
-            .ensure_running_runtime(environment_id, environment_path, codex_binary_path)
+            .ensure_running_runtime(environment_id, runtime_target)
             .await?
             .status)
     }
@@ -341,8 +340,7 @@ impl RuntimeSupervisor {
     async fn ensure_running_runtime(
         &self,
         environment_id: &str,
-        environment_path: &str,
-        codex_binary_path: Option<String>,
+        runtime_target: &EnvironmentRuntimeTarget,
     ) -> AppResult<RunningRuntime> {
         let environment_lock = self.environment_lock(environment_id).await;
         let _environment_guard = environment_lock.lock().await;
@@ -353,16 +351,17 @@ impl RuntimeSupervisor {
             return Ok(runtime);
         }
 
-        let binary_path = resolve_binary_path(codex_binary_path)?;
+        let binary_path = resolve_binary_path(runtime_target.codex_binary_path.clone())?;
 
         let now = Utc::now();
         let session = Arc::new(
             RuntimeSession::spawn(
                 self.app.clone(),
                 environment_id.to_string(),
-                environment_path.to_string(),
+                runtime_target.environment_path.clone(),
                 binary_path.clone(),
                 self.app_version.clone(),
+                runtime_target.stream_assistant_responses,
                 self.usage_updates.clone(),
             )
             .await?,
@@ -428,6 +427,7 @@ impl RuntimeSupervisor {
             environment_path.to_string(),
             binary_path,
             self.app_version.clone(),
+            true,
         )
         .await?;
         Ok(RuntimeReadTarget::Headless(Box::new(session)))
@@ -657,8 +657,7 @@ impl RuntimeSupervisor {
         Ok(self
             .ensure_running_runtime(
                 &context.environment_id,
-                &context.environment_path,
-                context.codex_binary_path.clone(),
+                &context.environment_runtime_target(),
             )
             .await?
             .session)
@@ -843,6 +842,7 @@ async fn read_usage_confirmation_snapshot(
         fallback.environment_path,
         binary_path,
         app_version.to_string(),
+        true,
     )
     .await?;
     let snapshot =
@@ -1590,6 +1590,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn apply_account_usage_patch_allows_explicit_window_clear() {
+        let account_usage = Arc::new(Mutex::new(AccountUsageState::default()));
+        apply_account_usage_snapshot(
+            &account_usage,
+            make_rate_limit_snapshot(
+                Some(CodexPlanType::Pro),
+                Some(make_rate_limit_window(64, Some(1_775_306_400), Some(300))),
+                Some(make_rate_limit_window(
+                    22,
+                    Some(1_775_910_400),
+                    Some(10_080),
+                )),
+            ),
+            UsageUpdateOrigin::ManualRead,
+        )
+        .await
+        .expect("initial snapshot should apply");
+
+        let result = apply_account_usage_patch(
+            &account_usage,
+            json!({
+                "primary": null
+            }),
+            UsageUpdateOrigin::LiveNotification,
+        )
+        .await
+        .expect("explicit null window patch should apply");
+
+        assert!(result.changed);
+        assert!(result.snapshot.primary.is_none());
+        assert_eq!(
+            result
+                .snapshot
+                .secondary
+                .as_ref()
+                .map(|window| window.used_percent),
+            Some(22)
+        );
+    }
+
+    #[tokio::test]
     async fn repeated_ambiguous_regressions_only_request_one_confirmation() {
         let account_usage = Arc::new(Mutex::new(AccountUsageState::default()));
         apply_account_usage_snapshot(
@@ -1724,6 +1765,7 @@ mod tests {
             "env-1".to_string(),
             "/tmp/skein".to_string(),
             "0.1.0".to_string(),
+            true,
             client_writer,
             client_reader,
         )

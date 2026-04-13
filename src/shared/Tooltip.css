@@ -6,8 +6,10 @@
 .tx-tooltip {
   position: fixed;
   z-index: 99998;
-  transform: translateX(-50%);
-  max-width: 240px;
+  --tx-tooltip-viewport-margin: 12px;
+  box-sizing: border-box;
+
+  max-width: min(240px, calc(100vw - (var(--tx-tooltip-viewport-margin) * 2)));
   padding: 5px 10px;
   border-radius: var(--tx-radius-sm);
   background: var(--tx-bg-raised);
@@ -21,14 +23,6 @@
   width: max-content;
   pointer-events: none;
   animation: tx-tooltip-in 120ms ease-out;
-}
-
-.tx-tooltip--top {
-  transform: translateX(-50%) translateY(-100%);
-}
-
-.tx-tooltip--bottom {
-  transform: translateX(-50%);
 }
 
 @keyframes tx-tooltip-in {

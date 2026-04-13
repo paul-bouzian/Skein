@@ -266,8 +266,8 @@ mod tests {
 
     use super::{
         EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectRecord,
-        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState, WorkspaceEventKind,
-        RuntimeStatusSnapshot,
+        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState,
+        RuntimeStatusSnapshot, WorkspaceEventKind,
     };
 
     #[test]

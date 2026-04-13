@@ -57,6 +57,13 @@ pub struct EnvironmentOpenContext {
     pub target: OpenTarget,
 }
 
+#[derive(Debug, Clone)]
+pub struct EnvironmentRuntimeTarget {
+    pub environment_path: String,
+    pub codex_binary_path: Option<String>,
+    pub stream_assistant_responses: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReorderProjectsRequest {
@@ -111,6 +118,17 @@ pub struct ThreadRuntimeContext {
     pub codex_thread_id: Option<String>,
     pub composer: ConversationComposerSettings,
     pub codex_binary_path: Option<String>,
+    pub stream_assistant_responses: bool,
+}
+
+impl ThreadRuntimeContext {
+    pub fn environment_runtime_target(&self) -> EnvironmentRuntimeTarget {
+        EnvironmentRuntimeTarget {
+            environment_path: self.environment_path.clone(),
+            codex_binary_path: self.codex_binary_path.clone(),
+            stream_assistant_responses: self.stream_assistant_responses,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1069,7 +1087,7 @@ impl WorkspaceService {
     pub fn environment_runtime_target(
         &self,
         environment_id: &str,
-    ) -> AppResult<(String, Option<String>)> {
+    ) -> AppResult<EnvironmentRuntimeTarget> {
         let connection = self.database.open()?;
         let environment_path = connection
             .query_row(
@@ -1081,7 +1099,11 @@ impl WorkspaceService {
             .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))?;
         let settings = self.read_or_seed_settings(&connection)?;
 
-        Ok((environment_path, settings.codex_binary_path))
+        Ok(EnvironmentRuntimeTarget {
+            environment_path,
+            codex_binary_path: settings.codex_binary_path,
+            stream_assistant_responses: settings.stream_assistant_responses,
+        })
     }
 
     pub fn environment_open_context(
@@ -1192,6 +1214,7 @@ impl WorkspaceService {
                             },
                         },
                         codex_binary_path: settings.codex_binary_path.clone(),
+                        stream_assistant_responses: settings.stream_assistant_responses,
                     })
                 },
             )
@@ -2272,7 +2295,9 @@ mod tests {
         ConversationComposerSettings, ConversationImageAttachment,
     };
     use crate::domain::settings::{
-        GlobalSettings, GlobalSettingsPatch, OpenTarget, OpenTargetKind, ServiceTier,
+        GlobalSettings, GlobalSettingsPatch, NotificationSoundChannelSettingsPatch,
+        NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget, OpenTargetKind,
+        ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettings;
     use crate::domain::workspace::{
@@ -2651,6 +2676,96 @@ mod tests {
     }
 
     #[test]
+    fn thread_runtime_context_inherits_assistant_streaming_setting() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("assistant-streaming-default"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Buffered assistant".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                stream_assistant_responses: Some(false),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+
+        assert!(!context.stream_assistant_responses);
+    }
+
+    #[test]
+    fn thread_runtime_context_defaults_assistant_streaming_to_true() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("assistant-streaming-enabled"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Streaming assistant".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+
+        assert!(context.stream_assistant_responses);
+    }
+
+    #[test]
     fn persist_thread_composer_settings_can_explicitly_disable_fast_mode() {
         let harness = WorkspaceHarness::new().expect("harness");
         let repo = harness
@@ -2782,6 +2897,106 @@ mod tests {
             .expect("thread context should reload");
 
         assert_eq!(refreshed.composer.service_tier, Some(ServiceTier::Flex));
+    }
+
+    #[test]
+    fn update_settings_persists_notification_sound_preferences() {
+        let harness = WorkspaceHarness::new().expect("harness");
+
+        let updated = harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                notification_sounds: Some(NotificationSoundSettingsPatch {
+                    attention: Some(NotificationSoundChannelSettingsPatch {
+                        enabled: Some(true),
+                        sound: Some(NotificationSoundId::Chord),
+                    }),
+                    completion: Some(NotificationSoundChannelSettingsPatch {
+                        enabled: Some(true),
+                        sound: Some(NotificationSoundId::Glass),
+                    }),
+                }),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+        let reloaded = harness
+            .service
+            .current_settings()
+            .expect("settings should reload");
+
+        assert!(updated.notification_sounds.attention.enabled);
+        assert_eq!(
+            updated.notification_sounds.attention.sound,
+            NotificationSoundId::Chord
+        );
+        assert!(updated.notification_sounds.completion.enabled);
+        assert_eq!(
+            updated.notification_sounds.completion.sound,
+            NotificationSoundId::Glass
+        );
+        assert_eq!(updated.notification_sounds, reloaded.notification_sounds);
+    }
+
+    #[test]
+    fn update_settings_repairs_invalid_stored_notification_sounds_without_resetting_other_fields() {
+        let harness = WorkspaceHarness::new().expect("harness");
+
+        harness
+            .open_connection()
+            .execute(
+                "
+                INSERT INTO global_settings (singleton_key, payload_json, updated_at)
+                VALUES ('global', ?1, ?2)
+                ON CONFLICT(singleton_key) DO UPDATE SET
+                  payload_json = excluded.payload_json,
+                  updated_at = excluded.updated_at
+                ",
+                params![
+                    r#"{
+                        "defaultModel":"gpt-5.4-mini",
+                        "defaultReasoningEffort":"high",
+                        "defaultCollaborationMode":"build",
+                        "defaultApprovalPolicy":"askToEdit",
+                        "desktopNotificationsEnabled":true,
+                        "notificationSounds":{
+                            "attention":{"enabled":true},
+                            "completion":{"enabled":true,"sound":"future-bell"}
+                        }
+                    }"#,
+                    Utc::now(),
+                ],
+            )
+            .expect("settings should be persisted");
+
+        let updated = harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                default_model: Some("gpt-5.3-codex".to_string()),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings update should repair notification sounds");
+        let reloaded = harness
+            .service
+            .current_settings()
+            .expect("settings should reload");
+
+        assert_eq!(updated.default_model, "gpt-5.3-codex");
+        assert!(updated.desktop_notifications_enabled);
+        assert!(updated.notification_sounds.attention.enabled);
+        assert_eq!(
+            updated.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert!(updated.notification_sounds.completion.enabled);
+        assert_eq!(
+            updated.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
+        assert_eq!(updated.notification_sounds, reloaded.notification_sounds);
+        assert_eq!(
+            updated.desktop_notifications_enabled,
+            reloaded.desktop_notifications_enabled
+        );
     }
 
     #[test]

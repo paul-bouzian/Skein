@@ -5,7 +5,12 @@ import {
   collectDesktopNotificationCandidates,
   type DesktopNotificationCandidate,
 } from "../lib/desktop-notifications";
-import type { ThreadConversationSnapshot, WorkspaceSnapshot } from "../lib/types";
+import { playNotificationAlertSound } from "../lib/notification-sounds";
+import type {
+  NotificationSoundSettings,
+  ThreadConversationSnapshot,
+  WorkspaceSnapshot,
+} from "../lib/types";
 import { useConversationStore } from "../stores/conversation-store";
 import {
   findThreadInWorkspace,
@@ -76,8 +81,12 @@ function buildNotificationCopy(
 
 export function DesktopNotificationRuntime() {
   const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
+  const selectedThreadId = useWorkspaceStore((state) => state.selectedThreadId);
   const desktopNotificationsEnabled = useWorkspaceStore(
     (state) => state.snapshot?.settings.desktopNotificationsEnabled ?? false,
+  );
+  const notificationSounds = useWorkspaceStore(
+    (state) => state.snapshot?.settings.notificationSounds ?? null,
   );
   const snapshotsByThreadId = useConversationStore(
     (state) => state.snapshotsByThreadId,
@@ -117,30 +126,125 @@ export function DesktopNotificationRuntime() {
     previousSnapshotsRef.current = snapshotsByThreadId;
     suppressUnknownThreadsRef.current = false;
 
-    if (!desktopNotificationsEnabled || !appInBackground) {
+    const canSendDesktopNotifications =
+      desktopNotificationsEnabled && appInBackground;
+    const canPlaySounds = hasEnabledNotificationSounds(notificationSounds);
+    if (!canSendDesktopNotifications && !canPlaySounds) {
+      return;
+    }
+
+    const changedThreadIds = collectChangedThreadIds(
+      previousSnapshots,
+      snapshotsByThreadId,
+    );
+    if (changedThreadIds.length === 0) {
       return;
     }
 
     const candidates = collectDesktopNotificationCandidates(
       previousSnapshots,
       snapshotsByThreadId,
-      { suppressUnknownThreads },
+      {
+        suppressUnknownThreads,
+        threadIds: changedThreadIds,
+      },
     );
 
-    for (const candidate of candidates) {
-      const snapshot = snapshotsByThreadId[candidate.threadId];
-      if (!snapshot) {
-        continue;
-      }
+    if (canSendDesktopNotifications) {
+      for (const candidate of candidates) {
+        if (!snapshotsByThreadId[candidate.threadId]) {
+          continue;
+        }
 
-      const copy = buildNotificationCopy(workspaceSnapshot, candidate);
-      try {
-        sendNotification(copy);
-      } catch {
-        // Ignore OS notification delivery failures; the feature is best-effort.
+        const copy = buildNotificationCopy(workspaceSnapshot, candidate);
+        try {
+          sendNotification(copy);
+        } catch {
+          // Ignore OS notification delivery failures; the feature is best-effort.
+        }
       }
     }
-  }, [appInBackground, desktopNotificationsEnabled, snapshotsByThreadId, workspaceSnapshot]);
+
+    const soundId = resolveNotificationSound(
+      candidates,
+      notificationSounds,
+      selectedThreadId,
+      appInBackground,
+    );
+    if (!soundId) {
+      return;
+    }
+
+    void playNotificationAlertSound(soundId).catch(() => {
+      // Ignore sound playback failures; notification sounds are best-effort.
+    });
+  }, [
+    appInBackground,
+    desktopNotificationsEnabled,
+    notificationSounds,
+    selectedThreadId,
+    snapshotsByThreadId,
+    workspaceSnapshot,
+  ]);
 
   return null;
+}
+
+function hasEnabledNotificationSounds(
+  settings: NotificationSoundSettings | null,
+): boolean {
+  if (!settings) {
+    return false;
+  }
+
+  return settings.attention.enabled || settings.completion.enabled;
+}
+
+function collectChangedThreadIds(
+  previousSnapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
+  nextSnapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
+): string[] {
+  const threadIds = Object.keys(nextSnapshotsByThreadId).filter(
+    (threadId) =>
+      previousSnapshotsByThreadId[threadId] !== nextSnapshotsByThreadId[threadId],
+  );
+  threadIds.sort();
+  return threadIds;
+}
+
+function resolveNotificationSound(
+  candidates: DesktopNotificationCandidate[],
+  settings: NotificationSoundSettings | null,
+  selectedThreadId: string | null,
+  appInBackground: boolean,
+) {
+  if (!settings) {
+    return null;
+  }
+
+  const eligibleAttention = candidates.find(
+    (candidate) =>
+      candidate.kind === "attention" &&
+      settings.attention.enabled &&
+      isSoundCandidateEligible(candidate.threadId, selectedThreadId, appInBackground),
+  );
+  if (eligibleAttention) {
+    return settings.attention.sound;
+  }
+
+  const eligibleCompletion = candidates.find(
+    (candidate) =>
+      candidate.kind === "completed" &&
+      settings.completion.enabled &&
+      isSoundCandidateEligible(candidate.threadId, selectedThreadId, appInBackground),
+  );
+  return eligibleCompletion ? settings.completion.sound : null;
+}
+
+function isSoundCandidateEligible(
+  candidateThreadId: string,
+  selectedThreadId: string | null,
+  appInBackground: boolean,
+): boolean {
+  return appInBackground || candidateThreadId !== selectedThreadId;
 }
