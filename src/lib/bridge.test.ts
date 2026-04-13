@@ -4,6 +4,10 @@ import { CONVERSATION_EVENT_NAMES } from "./app-identity";
 import { listenToConversationEvents } from "./bridge";
 
 const invokeMock = vi.fn();
+let listenImpl: (
+  eventName: string,
+  callback: (event: { payload: unknown }) => void,
+) => Promise<() => void>;
 const listenersByEventName = new Map<
   string,
   Set<(event: { payload: unknown }) => void>
@@ -15,17 +19,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(
-    async (eventName: string, callback: (event: { payload: unknown }) => void) => {
-      const listeners = listenersByEventName.get(eventName) ?? new Set();
-      listeners.add(callback);
-      listenersByEventName.set(eventName, listeners);
-
-      return () => {
-        listeners.delete(callback);
-        if (listeners.size === 0) {
-          listenersByEventName.delete(eventName);
-        }
-      };
+    async (
+      eventName: string,
+      callback: (event: { payload: unknown }) => void,
+    ) => {
+      return listenImpl(eventName, callback);
     },
   ),
 }));
@@ -39,6 +37,18 @@ function emit(eventName: string, payload: unknown) {
 beforeEach(() => {
   invokeMock.mockReset();
   listenersByEventName.clear();
+  listenImpl = async (eventName, callback) => {
+    const listeners = listenersByEventName.get(eventName) ?? new Set();
+    listeners.add(callback);
+    listenersByEventName.set(eventName, listeners);
+
+    return () => {
+      listeners.delete(callback);
+      if (listeners.size === 0) {
+        listenersByEventName.delete(eventName);
+      }
+    };
+  };
 });
 
 describe("bridge event namespace migration", () => {
@@ -78,5 +88,33 @@ describe("bridge event namespace migration", () => {
     expect(callback).toHaveBeenCalledTimes(1);
     expect(callback).toHaveBeenCalledWith({ kind: "legacy" });
     expect([...listenersByEventName.keys()]).toEqual([legacyEventName]);
+  });
+
+  it("cleans up successful listeners if a later registration fails", async () => {
+    const [skeinEventName, legacyEventName] = CONVERSATION_EVENT_NAMES;
+
+    listenImpl = async (eventName, callback) => {
+      if (eventName === legacyEventName) {
+        throw new Error("legacy listener registration failed");
+      }
+
+      const listeners = listenersByEventName.get(eventName) ?? new Set();
+      listeners.add(callback);
+      listenersByEventName.set(eventName, listeners);
+
+      return () => {
+        listeners.delete(callback);
+        if (listeners.size === 0) {
+          listenersByEventName.delete(eventName);
+        }
+      };
+    };
+
+    await expect(listenToConversationEvents(() => undefined)).rejects.toThrow(
+      "legacy listener registration failed",
+    );
+    expect([...listenersByEventName.keys()]).toEqual([]);
+    expect(listenersByEventName.size).toBe(0);
+    expect(skeinEventName).not.toBe(legacyEventName);
   });
 });

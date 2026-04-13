@@ -1,9 +1,9 @@
-use std::fs;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
-use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
@@ -25,8 +25,7 @@ pub const CONVERSATION_EVENT_NAME: &str = "skein://conversation-event";
 pub const CODEX_USAGE_EVENT_NAME: &str = "skein://codex-usage-event";
 pub const WORKSPACE_EVENT_NAME: &str = "skein://workspace-event";
 pub const WORKTREE_SCRIPT_FAILURE_EVENT_NAME: &str = "skein://worktree-script-failure";
-pub const FIRST_PROMPT_RENAME_FAILURE_EVENT_NAME: &str =
-    "skein://first-prompt-rename-failure";
+pub const FIRST_PROMPT_RENAME_FAILURE_EVENT_NAME: &str = "skein://first-prompt-rename-failure";
 pub const TERMINAL_OUTPUT_EVENT_NAME: &str = "skein://terminal-output";
 pub const TERMINAL_EXIT_EVENT_NAME: &str = "skein://terminal-exit";
 pub const MENU_OPEN_SETTINGS_EVENT_NAME: &str = "skein://menu-open-settings";
@@ -51,13 +50,9 @@ pub fn prepare_storage_paths(app: &AppHandle) -> AppResult<AppStoragePaths> {
         .path()
         .app_data_dir()
         .map_err(|error| AppError::Runtime(error.to_string()))?;
-    let app_data_root = installed_app_data_dir
-        .parent()
-        .ok_or_else(|| {
-            AppError::Runtime(
-                "Unable to resolve the parent directory for Skein app data.".to_string(),
-            )
-        })?;
+    let app_data_root = installed_app_data_dir.parent().ok_or_else(|| {
+        AppError::Runtime("Unable to resolve the parent directory for Skein app data.".to_string())
+    })?;
     let legacy_app_data_dirs = legacy_app_data_dirs(app_data_root);
 
     let home_dir = app
@@ -223,16 +218,21 @@ fn installed_bundle_paths_from_executable(executable_path: &Path) -> Option<Inst
     })
 }
 
-#[cfg(target_os = "macos")]
-fn rename_installed_bundle_if_needed(executable_path: &Path) -> AppResult<Option<InstalledBundlePaths>> {
+fn canonical_bundle_paths_if_relaunch_needed(
+    executable_path: &Path,
+) -> AppResult<Option<InstalledBundlePaths>> {
     let Some(paths) = installed_bundle_paths_from_executable(executable_path) else {
         return Ok(None);
     };
 
-    if paths.current_bundle_path == paths.canonical_bundle_path
-        || paths.canonical_bundle_path.exists()
-    {
+    if paths.current_bundle_path == paths.canonical_bundle_path {
         return Ok(None);
+    }
+
+    if paths.canonical_bundle_path.exists() {
+        return Ok((!paths.current_bundle_path.exists()
+            && paths.canonical_executable_path.exists())
+        .then_some(paths));
     }
 
     fs::rename(&paths.current_bundle_path, &paths.canonical_bundle_path)?;
@@ -242,14 +242,14 @@ fn rename_installed_bundle_if_needed(executable_path: &Path) -> AppResult<Option
 #[cfg(target_os = "macos")]
 pub fn best_effort_rename_installed_bundle() -> AppResult<()> {
     let executable_path = std::env::current_exe()?;
-    rename_installed_bundle_if_needed(&executable_path)?;
+    canonical_bundle_paths_if_relaunch_needed(&executable_path)?;
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
 pub fn restart_from_canonical_bundle_if_needed(app: &AppHandle) -> AppResult<bool> {
     let executable_path = std::env::current_exe()?;
-    let Some(paths) = rename_installed_bundle_if_needed(&executable_path)? else {
+    let Some(paths) = canonical_bundle_paths_if_relaunch_needed(&executable_path)? else {
         return Ok(false);
     };
     Command::new(&paths.canonical_executable_path)
@@ -380,15 +380,15 @@ fn remove_empty_tree(path: &Path) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        development_scope_name, find_checkout_root, merge_directory_contents,
-        legacy_app_data_dirs, migrate_legacy_namespaces_for_profile, remove_empty_tree,
-        resolve_execution_profile,
-        storage_paths_for_profile, AppExecutionProfile, APP_DATABASE_FILE_NAME,
-        DEVELOPMENT_STORAGE_DIR_NAME, LEGACY_APP_DATABASE_FILE_NAMES, LEGACY_APP_HOME_DIR_NAMES,
-    };
     #[cfg(target_os = "macos")]
     use super::installed_bundle_paths_from_executable;
+    use super::{
+        canonical_bundle_paths_if_relaunch_needed, development_scope_name, find_checkout_root,
+        legacy_app_data_dirs, merge_directory_contents, migrate_legacy_namespaces_for_profile,
+        remove_empty_tree, resolve_execution_profile, storage_paths_for_profile,
+        AppExecutionProfile, APP_DATABASE_FILE_NAME, DEVELOPMENT_STORAGE_DIR_NAME,
+        LEGACY_APP_DATABASE_FILE_NAMES, LEGACY_APP_HOME_DIR_NAMES,
+    };
     use std::path::Path;
     use uuid::Uuid;
 
@@ -505,7 +505,10 @@ mod tests {
             execution_profile,
             root.join("app-data"),
             root.join("home").join(".skein"),
-            vec![root.join("home").join(".loom"), root.join("home").join(".threadex")],
+            vec![
+                root.join("home").join(".loom"),
+                root.join("home").join(".threadex"),
+            ],
         );
         let scope_name = paths
             .app_home_dir
@@ -515,9 +518,11 @@ mod tests {
             .expect("scope name should exist")
             .to_string();
 
-        assert!(paths
-            .app_home_dir
-            .starts_with(root.join("home").join(".skein").join(DEVELOPMENT_STORAGE_DIR_NAME)));
+        assert!(paths.app_home_dir.starts_with(
+            root.join("home")
+                .join(".skein")
+                .join(DEVELOPMENT_STORAGE_DIR_NAME)
+        ));
         assert!(paths.app_data_dir.ends_with(Path::new("app-data")));
         assert_eq!(
             paths.legacy_app_home_dirs,
@@ -558,8 +563,8 @@ mod tests {
         std::fs::write(repo_root.join(".git"), b"gitdir: /tmp/mock")
             .expect("git marker should exist");
 
-        let detected =
-            find_checkout_root(&executable_dir.join("skein")).expect("checkout root should resolve");
+        let detected = find_checkout_root(&executable_dir.join("skein"))
+            .expect("checkout root should resolve");
         assert_eq!(detected, repo_root);
 
         let _ = std::fs::remove_dir_all(root);
@@ -573,12 +578,39 @@ mod tests {
         let paths = installed_bundle_paths_from_executable(executable_path)
             .expect("installed bundle paths should resolve");
 
-        assert_eq!(paths.current_bundle_path, Path::new("/Applications/Loom.app"));
-        assert_eq!(paths.canonical_bundle_path, Path::new("/Applications/Skein.app"));
+        assert_eq!(
+            paths.current_bundle_path,
+            Path::new("/Applications/Loom.app")
+        );
+        assert_eq!(
+            paths.canonical_bundle_path,
+            Path::new("/Applications/Skein.app")
+        );
         assert_eq!(
             paths.canonical_executable_path,
             Path::new("/Applications/Skein.app/Contents/MacOS/skein")
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn relaunch_helper_uses_the_canonical_bundle_after_startup_rename() {
+        let root = std::env::temp_dir().join(format!("skein-relaunch-{}", Uuid::now_v7()));
+        let canonical_executable = root.join("Skein.app/Contents/MacOS/skein");
+        std::fs::create_dir_all(canonical_executable.parent().expect("parent should exist"))
+            .expect("canonical bundle should exist");
+        std::fs::write(&canonical_executable, b"binary").expect("executable should write");
+
+        let legacy_executable = root.join("Loom.app/Contents/MacOS/skein");
+        let paths = canonical_bundle_paths_if_relaunch_needed(&legacy_executable)
+            .expect("relaunch detection should succeed")
+            .expect("canonical relaunch should be required");
+
+        assert_eq!(paths.current_bundle_path, root.join("Loom.app"));
+        assert_eq!(paths.canonical_bundle_path, root.join("Skein.app"));
+        assert_eq!(paths.canonical_executable_path, canonical_executable);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -604,8 +636,11 @@ mod tests {
         std::fs::create_dir_all(legacy_scoped_root.join("app-data"))
             .expect("legacy scoped app data should exist");
         std::fs::create_dir_all(&legacy_app_data_dirs[0]).expect("legacy app data should exist");
-        std::fs::write(legacy_scoped_root.join("home").join("legacy.txt"), b"legacy-home")
-            .expect("legacy scoped home should write");
+        std::fs::write(
+            legacy_scoped_root.join("home").join("legacy.txt"),
+            b"legacy-home",
+        )
+        .expect("legacy scoped home should write");
         std::fs::write(
             legacy_scoped_root.join("app-data").join("state.txt"),
             b"legacy-app-data",
@@ -623,8 +658,14 @@ mod tests {
         )
         .expect("development migration should succeed");
 
-        assert!(canonical_scoped_root.join("home").join("legacy.txt").exists());
-        assert!(canonical_scoped_root.join("app-data").join("state.txt").exists());
+        assert!(canonical_scoped_root
+            .join("home")
+            .join("legacy.txt")
+            .exists());
+        assert!(canonical_scoped_root
+            .join("app-data")
+            .join("state.txt")
+            .exists());
         assert!(!legacy_scoped_root.exists());
 
         let _ = std::fs::remove_dir_all(root);
@@ -632,7 +673,8 @@ mod tests {
 
     #[test]
     fn installed_profile_migrates_legacy_home_dirs_in_order() {
-        let root = std::env::temp_dir().join(format!("skein-installed-migration-{}", Uuid::now_v7()));
+        let root =
+            std::env::temp_dir().join(format!("skein-installed-migration-{}", Uuid::now_v7()));
         let canonical_app_data_dir = root.join("canonical-app-data");
         let canonical_app_home_dir = root.join("home").join(".skein");
         let legacy_app_data_dirs = legacy_app_data_dirs(&root);
@@ -647,12 +689,21 @@ mod tests {
         std::fs::create_dir_all(&legacy_app_home_dirs[1]).expect("threadex dir should exist");
         std::fs::write(legacy_app_data_dirs[0].join("loom.txt"), b"loom-app-data")
             .expect("loom app data should write");
-        std::fs::write(legacy_app_data_dirs[1].join("threadex.txt"), b"threadex-app-data")
-            .expect("threadex app data should write");
-        std::fs::write(legacy_app_home_dirs[0].join("previous.txt"), b"previous-home")
-            .expect("previous home should write");
-        std::fs::write(legacy_app_home_dirs[1].join("threadex.txt"), b"threadex-home")
-            .expect("threadex home should write");
+        std::fs::write(
+            legacy_app_data_dirs[1].join("threadex.txt"),
+            b"threadex-app-data",
+        )
+        .expect("threadex app data should write");
+        std::fs::write(
+            legacy_app_home_dirs[0].join("previous.txt"),
+            b"previous-home",
+        )
+        .expect("previous home should write");
+        std::fs::write(
+            legacy_app_home_dirs[1].join("threadex.txt"),
+            b"threadex-home",
+        )
+        .expect("threadex home should write");
 
         migrate_legacy_namespaces_for_profile(
             &AppExecutionProfile::Installed,

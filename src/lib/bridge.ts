@@ -496,30 +496,39 @@ async function listenWithLegacyFallback<T>(
   // Keep the listener namespace compatible during the legacy -> Skein rollout,
   // but commit to the first namespace that actually emits to avoid double
   // processing if both old and new events are present briefly.
-  await Promise.all(
-    eventNames.map(async (eventName) => {
-      const unlisten = await listen<T>(eventName, (event) => {
-        if (disposed) {
+  try {
+    await Promise.all(
+      eventNames.map(async (eventName) => {
+        const unlisten = await listen<T>(eventName, (event) => {
+          if (disposed) {
+            return;
+          }
+          if (activeEventName && activeEventName !== eventName) {
+            return;
+          }
+          if (!activeEventName) {
+            activeEventName = eventName;
+            pruneInactiveListeners(eventName);
+          }
+          onEvent(eventName, event);
+        });
+
+        if (disposed || (activeEventName && activeEventName !== eventName)) {
+          unlisten();
           return;
         }
-        if (activeEventName && activeEventName !== eventName) {
-          return;
-        }
-        if (!activeEventName) {
-          activeEventName = eventName;
-          pruneInactiveListeners(eventName);
-        }
-        onEvent(eventName, event);
-      });
 
-      if (disposed || (activeEventName && activeEventName !== eventName)) {
-        unlisten();
-        return;
-      }
-
-      unlisteners.set(eventName, unlisten);
-    }),
-  );
+        unlisteners.set(eventName, unlisten);
+      }),
+    );
+  } catch (error) {
+    disposed = true;
+    for (const unlisten of unlisteners.values()) {
+      unlisten();
+    }
+    unlisteners.clear();
+    throw error;
+  }
 
   return () => {
     disposed = true;

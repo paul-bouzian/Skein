@@ -99,7 +99,7 @@ Key product surfaces already implemented:
 
 Skein is distributed through GitHub Releases and uses Tauri updater artifacts for in-app updates.
 
-For the next release, release assets, the bundled app, and the macOS bundle identifier use the Skein name. Existing installs migrate forward from the previous Loom and ThreadEx identifiers during startup.
+Starting with the Skein rebrand release, release assets, the bundled app, and the macOS bundle identifier use the Skein name. Existing installs migrate forward from the previous Loom and ThreadEx identifiers during startup.
 
 The current release target is:
 

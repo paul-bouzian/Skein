@@ -6,7 +6,7 @@ This runbook is the canonical path for cutting Skein releases while GitHub-hoste
 
 - product name: `Skein`
 - bundle id: `com.paulbouzian.skein`
-- current official target: `v0.1.0`
+- release version: `RELEASE_VERSION` from `package.json` / `src-tauri/tauri.conf.json`
 - primary distribution: macOS Apple Silicon
 - release flow: local signed + notarized build, then GitHub upload
 - compatibility note: release assets, the bundle name, and the bundle identifier should use `Skein`; installed data migrates forward from the previous Loom and ThreadEx identifiers
@@ -34,9 +34,11 @@ export SKEIN_APPLE_API_KEY_ID="YOUR_KEY_ID"
 export SKEIN_APPLE_API_ISSUER="YOUR_ISSUER_ID"
 ```
 
-## One-Time Reset Before The Official `v0.1.0`
+Before publishing, set `RELEASE_VERSION` to the exact version being shipped. Keep every tag, filename, and updater example below aligned with that value.
 
-Older unpublished attempts used `v0.1.0` and `v0.1.1` tags. Clean them before reusing `v0.1.0` as the first real Skein release.
+## One-Time Reset Before The First Official Skein Release
+
+Older unpublished attempts used `v0.1.0` and `v0.1.1` tags. Clean them before reusing those early placeholder tags.
 
 ```bash
 git tag -d v0.1.0 v0.1.1 2>/dev/null || true
@@ -49,7 +51,7 @@ Run from the repository root on `main`:
 
 ```bash
 git pull --ff-only
-node scripts/update-version.mjs 0.1.0
+node scripts/update-version.mjs RELEASE_VERSION
 bun install --frozen-lockfile
 bun run verify
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -60,8 +62,8 @@ If the repo is ready, commit the release source and tag it:
 
 ```bash
 git add .
-git commit -m "chore(release): cut v0.1.0" -m "Co-authored-by: Codex <noreply@openai.com>"
-git tag v0.1.0
+git commit -m "chore(release): cut vRELEASE_VERSION" -m "Co-authored-by: Codex <noreply@openai.com>"
+git tag vRELEASE_VERSION
 ```
 
 ## Build, Sign, Notarize
@@ -129,7 +131,7 @@ hdiutil create \
   -srcfolder release-artifacts/dmg-root \
   -ov \
   -format UDZO \
-  release-artifacts/Skein_0.1.0_aarch64.dmg
+  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg
 COPYFILE_DISABLE=1 tar -czf \
   release-artifacts/Skein.app.tar.gz \
   -C src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
@@ -150,7 +152,7 @@ Generate release notes and `latest.json`:
 ```bash
 gh api "repos/paul-bouzian/Skein/releases/generate-notes" \
   -X POST \
-  -F "tag_name=v0.1.0" \
+  -F "tag_name=vRELEASE_VERSION" \
   -F "target_commitish=$(git rev-parse HEAD)" \
   --jq .body > release-artifacts/release-notes.md
 ```
@@ -162,8 +164,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 repo = "paul-bouzian/Skein"
-version = "0.1.0"
-tag = "v0.1.0"
+version = "RELEASE_VERSION"
+tag = "vRELEASE_VERSION"
 notes = Path("release-artifacts/release-notes.md").read_text().strip()
 signature = Path("release-artifacts/Skein.app.tar.gz.sig").read_text().strip()
 payload = {
@@ -184,12 +186,12 @@ PY
 ## Publish The GitHub Release
 
 ```bash
-gh release create v0.1.0 \
-  --title "Skein v0.1.0" \
+gh release create vRELEASE_VERSION \
+  --title "Skein vRELEASE_VERSION" \
   --notes-file release-artifacts/release-notes.md \
   --target "$(git rev-parse HEAD)" \
   release-artifacts/Skein.zip \
-  release-artifacts/Skein_0.1.0_aarch64.dmg \
+  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg \
   release-artifacts/Skein.app.tar.gz \
   release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json
@@ -198,13 +200,13 @@ gh release create v0.1.0 \
 If the release already exists:
 
 ```bash
-gh release edit v0.1.0 \
-  --title "Skein v0.1.0" \
+gh release edit vRELEASE_VERSION \
+  --title "Skein vRELEASE_VERSION" \
   --notes-file release-artifacts/release-notes.md
 
-gh release upload v0.1.0 \
+gh release upload vRELEASE_VERSION \
   release-artifacts/Skein.zip \
-  release-artifacts/Skein_0.1.0_aarch64.dmg \
+  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg \
   release-artifacts/Skein.app.tar.gz \
   release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json \

@@ -140,6 +140,7 @@ async function createCollectorNode(
   chunks: Float32Array[],
 ): Promise<CollectorNode> {
   if (audioContext.audioWorklet && typeof AudioWorkletNode !== "undefined") {
+    const processorNameLiteral = JSON.stringify(VOICE_PROCESSOR_NAME);
     const moduleUrl = URL.createObjectURL(
       new Blob(
         [
@@ -161,7 +162,7 @@ async function createCollectorNode(
               return true;
             }
           }
-          registerProcessor(VOICE_PROCESSOR_NAME, SkeinVoiceProcessor);
+          registerProcessor(${processorNameLiteral}, SkeinVoiceProcessor);
         `,
         ],
         { type: "application/javascript" },

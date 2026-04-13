@@ -404,17 +404,46 @@ fn migrate_legacy_database_file(db_dir: &Path) -> AppResult<()> {
         .filter(|path: &PathBuf| path.exists())
         .collect::<Vec<_>>();
 
-    if existing_legacy_paths.len() > 1 {
-        return Err(AppError::Runtime(format!(
-            "Multiple legacy database files exist under '{}'; resolve them before continuing.",
-            db_dir.display()
-        )));
-    }
+    existing_legacy_paths.sort_by_key(|path| {
+        LEGACY_APP_DATABASE_FILE_NAMES
+            .iter()
+            .position(|candidate| path.file_name().and_then(|name| name.to_str()) == Some(*candidate))
+            .unwrap_or(LEGACY_APP_DATABASE_FILE_NAMES.len())
+    });
 
-    if let Some(legacy_db_path) = existing_legacy_paths.pop() {
+    if let Some(legacy_db_path) = existing_legacy_paths.first().cloned() {
         std::fs::rename(legacy_db_path, db_path)?;
     }
+
+    for legacy_db_path in existing_legacy_paths.into_iter().skip(1) {
+        std::fs::rename(
+            &legacy_db_path,
+            legacy_database_backup_path(&legacy_db_path),
+        )?;
+    }
+
     Ok(())
+}
+
+fn legacy_database_backup_path(legacy_db_path: &Path) -> PathBuf {
+    let file_name = legacy_db_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("legacy.sqlite3");
+    let mut index = 0usize;
+
+    loop {
+        let suffix = if index == 0 {
+            ".backup".to_string()
+        } else {
+            format!(".backup.{index}")
+        };
+        let candidate = legacy_db_path.with_file_name(format!("{file_name}{suffix}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 #[cfg(test)]
@@ -873,6 +902,31 @@ mod tests {
     }
 
     #[test]
+    fn migrate_legacy_database_file_prefers_previous_release_and_backs_up_older_names() {
+        let root = std::env::temp_dir().join(format!("skein-db-rename-multi-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&root).expect("test directory should exist");
+        let previous_release_db_path = root.join("loom.sqlite3");
+        let oldest_release_db_path = root.join("threadex.sqlite3");
+        std::fs::write(&previous_release_db_path, b"loom").expect("loom db should write");
+        std::fs::write(&oldest_release_db_path, b"threadex").expect("threadex db should write");
+
+        migrate_legacy_database_file(&root).expect("legacy db rename should succeed");
+
+        assert_eq!(
+            std::fs::read(root.join("skein.sqlite3")).expect("canonical db should read"),
+            b"loom"
+        );
+        assert_eq!(
+            std::fs::read(root.join("threadex.sqlite3.backup")).expect("backup db should read"),
+            b"threadex"
+        );
+        assert!(!previous_release_db_path.exists());
+        assert!(!oldest_release_db_path.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn normalize_workspace_paths_rewrites_legacy_home_prefixes() {
         let root = std::env::temp_dir().join(format!("skein-db-paths-{}", Uuid::now_v7()));
         std::fs::create_dir_all(&root).expect("test directory should exist");
@@ -947,7 +1001,10 @@ mod tests {
 
         database
             .normalize_workspace_paths(
-                &[Path::new("/Users/test/.threadex").to_path_buf(), Path::new("/Users/test/.loom").to_path_buf()],
+                &[
+                    Path::new("/Users/test/.threadex").to_path_buf(),
+                    Path::new("/Users/test/.loom").to_path_buf(),
+                ],
                 Path::new("/Users/test/.skein"),
             )
             .expect("path migration should succeed");
@@ -988,7 +1045,10 @@ mod tests {
             project_root,
             "/Users/test/.skein/worktrees/skein/project-root"
         );
-        assert_eq!(environment_path, "/Users/test/.skein/worktrees/skein/feature");
+        assert_eq!(
+            environment_path,
+            "/Users/test/.skein/worktrees/skein/feature"
+        );
         assert_eq!(
             draft.images,
             vec![ConversationImageAttachment::LocalImage {
