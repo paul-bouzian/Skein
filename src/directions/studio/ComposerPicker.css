@@ -125,5 +125,17 @@
 }
 
 .tx-picker--compact + .tx-picker--compact {
+  margin-left: 1px;
+  padding-left: 1px;
   border-left: 1px solid var(--tx-border-subtle);
+}
+
+.tx-picker--compact + .tx-picker--compact .tx-picker__trigger {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.tx-picker--compact:has(+ .tx-picker--compact) .tx-picker__trigger {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }

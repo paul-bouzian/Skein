@@ -938,6 +938,14 @@ ol.tx-markdown__list {
   flex-wrap: wrap;
 }
 
+.tx-composer__controls-separator {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--tx-space-xs);
+  background: var(--tx-border-subtle);
+  flex-shrink: 0;
+}
+
 .tx-composer__controls-right {
   display: flex;
   align-items: center;

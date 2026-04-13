@@ -659,6 +659,7 @@ export function InlineComposer({
               })
             }
           />
+          <span className="tx-composer__controls-separator" />
           <button
             type="button"
             className={[

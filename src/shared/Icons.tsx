@@ -141,8 +141,10 @@ export function BoltIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path
-        d="M9 1.5H5.5L4 9h3l-1 5.5L13 6.5H9L9 1.5z"
-        fill="currentColor"
+        d="M9.2 2 5 8.5h3L6.8 14l5.2-7H8.5L9.2 2z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
       />
     </svg>
   );
