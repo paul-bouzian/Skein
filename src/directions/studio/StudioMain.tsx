@@ -51,6 +51,7 @@ export function StudioMain({
   const terminalVisible = useTerminalStore((s) => s.visible);
   const terminalHeight = useTerminalStore((s) => s.height);
   const toggleTerminal = useTerminalStore((s) => s.toggleVisible);
+  const [terminalDragging, setTerminalDragging] = useState(false);
 
   // Lazy-mount the terminal panel: stay unmounted until the user opens it the
   // first time, then keep it mounted (toggled via CSS) so PTYs and xterm
@@ -81,7 +82,7 @@ export function StudioMain({
   }
 
   return (
-    <main className="studio-main">
+    <main className={`studio-main${terminalDragging ? " studio-main--resizing" : ""}`}>
       <div className="studio-main__toolbar">
         <div className="studio-main__toolbar-primary">
           <Tooltip content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
@@ -128,7 +129,7 @@ export function StudioMain({
       >
         {content}
       </div>
-      {terminalVisible && <TerminalResizeHandle />}
+      {terminalVisible && <TerminalResizeHandle onDraggingChange={setTerminalDragging} />}
       {terminalEverOpened && (
         <div
           className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
@@ -142,8 +143,11 @@ export function StudioMain({
   );
 }
 
-function TerminalResizeHandle() {
-  const [dragging, setDragging] = useState(false);
+function TerminalResizeHandle({
+  onDraggingChange,
+}: {
+  onDraggingChange: (dragging: boolean) => void;
+}) {
   const startRef = useRef<{ y: number; height: number } | null>(null);
 
   function endDrag(event: PointerEvent<HTMLDivElement>) {
@@ -151,19 +155,19 @@ function TerminalResizeHandle() {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     startRef.current = null;
-    setDragging(false);
+    onDraggingChange(false);
   }
 
   return (
     <div
-      className={`studio-main__resize-handle ${dragging ? "studio-main__resize-handle--dragging" : ""}`}
+      className="studio-main__resize-handle"
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
         startRef.current = {
           y: event.clientY,
           height: useTerminalStore.getState().height,
         };
-        setDragging(true);
+        onDraggingChange(true);
       }}
       onPointerMove={(event) => {
         if (!startRef.current) return;
