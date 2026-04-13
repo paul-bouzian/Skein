@@ -122,8 +122,8 @@
 .tx-item--user {
   max-width: 80%;
   margin-left: auto;
-  background: color-mix(in srgb, var(--tx-accent) 6%, var(--tx-bg-raised));
-  border: 1px solid color-mix(in srgb, var(--tx-accent) 12%, var(--tx-border-subtle));
+  background: var(--tx-bg-hover);
+  border: 1px solid var(--tx-border-subtle);
   border-radius: var(--tx-radius-xl);
 }
 
