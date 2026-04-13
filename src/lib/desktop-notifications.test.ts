@@ -89,6 +89,43 @@ describe("collectDesktopNotificationCandidates", () => {
     expect(candidates).toEqual([]);
   });
 
+  it("can limit evaluation to the changed thread ids", () => {
+    const unchangedSnapshot = makeConversationSnapshot({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: "turn-1",
+    });
+
+    const candidates = collectDesktopNotificationCandidates(
+      {
+        "thread-1": unchangedSnapshot,
+        "thread-2": makeConversationSnapshot({
+          threadId: "thread-2",
+          status: "running",
+          activeTurnId: "turn-2",
+        }),
+      },
+      {
+        "thread-1": unchangedSnapshot,
+        "thread-2": makeConversationSnapshot({
+          threadId: "thread-2",
+          status: "completed",
+          activeTurnId: null,
+          pendingInteractions: [],
+          proposedPlan: null,
+        }),
+      },
+      { threadIds: ["thread-2"] },
+    );
+
+    expect(candidates).toEqual([
+      {
+        threadId: "thread-2",
+        kind: "completed",
+      },
+    ]);
+  });
+
   it("emits one approval attention candidate for a new approval request", () => {
     const candidates = collectDesktopNotificationCandidates(
       {

@@ -24,6 +24,26 @@ fn default_stream_assistant_responses() -> bool {
     true
 }
 
+fn default_attention_notification_sound() -> NotificationSoundId {
+    NotificationSoundId::Glass
+}
+
+fn default_completion_notification_sound() -> NotificationSoundId {
+    NotificationSoundId::Polite
+}
+
+fn default_attention_notification_sound_settings() -> NotificationSoundChannelSettings {
+    NotificationSoundChannelSettings::new(default_attention_notification_sound())
+}
+
+fn default_completion_notification_sound_settings() -> NotificationSoundChannelSettings {
+    NotificationSoundChannelSettings::new(default_completion_notification_sound())
+}
+
+fn default_notification_sounds() -> NotificationSoundSettings {
+    NotificationSoundSettings::default()
+}
+
 fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
@@ -65,6 +85,14 @@ pub enum ApprovalPolicy {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationSoundId {
+    Glass,
+    Chord,
+    Polite,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OpenTargetKind {
     #[serde(rename = "app")]
     App,
@@ -88,6 +116,22 @@ pub struct OpenTarget {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundChannelSettings {
+    pub enabled: bool,
+    pub sound: NotificationSoundId,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundSettings {
+    #[serde(default = "default_attention_notification_sound_settings")]
+    pub attention: NotificationSoundChannelSettings,
+    #[serde(default = "default_completion_notification_sound_settings")]
+    pub completion: NotificationSoundChannelSettings,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalSettings {
@@ -102,6 +146,8 @@ pub struct GlobalSettings {
     pub desktop_notifications_enabled: bool,
     #[serde(default = "default_stream_assistant_responses")]
     pub stream_assistant_responses: bool,
+    #[serde(default = "default_notification_sounds")]
+    pub notification_sounds: NotificationSoundSettings,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
     #[serde(default = "default_open_targets")]
@@ -122,6 +168,7 @@ impl Default for GlobalSettings {
             collapse_work_activity: true,
             desktop_notifications_enabled: false,
             stream_assistant_responses: true,
+            notification_sounds: NotificationSoundSettings::default(),
             shortcuts: ShortcutSettings::default(),
             open_targets: default_open_targets(),
             default_open_target_id: default_open_target_id(),
@@ -142,10 +189,25 @@ pub struct GlobalSettingsPatch {
     pub collapse_work_activity: Option<bool>,
     pub desktop_notifications_enabled: Option<bool>,
     pub stream_assistant_responses: Option<bool>,
+    pub notification_sounds: Option<NotificationSoundSettingsPatch>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
     pub default_open_target_id: Option<String>,
     pub codex_binary_path: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundChannelSettingsPatch {
+    pub enabled: Option<bool>,
+    pub sound: Option<NotificationSoundId>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundSettingsPatch {
+    pub attention: Option<NotificationSoundChannelSettingsPatch>,
+    pub completion: Option<NotificationSoundChannelSettingsPatch>,
 }
 
 impl GlobalSettings {
@@ -173,6 +235,9 @@ impl GlobalSettings {
         }
         if let Some(stream_assistant_responses) = patch.stream_assistant_responses {
             self.stream_assistant_responses = stream_assistant_responses;
+        }
+        if let Some(notification_sounds) = patch.notification_sounds {
+            self.notification_sounds.apply_patch(notification_sounds);
         }
         if let Some(shortcuts) = patch.shortcuts {
             self.shortcuts.apply_patch(shortcuts);
@@ -231,6 +296,105 @@ impl GlobalSettings {
 
     pub fn validate(&self) -> Result<(), String> {
         self.shortcuts.validate().map_err(|error| error.to_string())
+    }
+}
+
+impl NotificationSoundChannelSettings {
+    fn new(sound: NotificationSoundId) -> Self {
+        Self {
+            enabled: false,
+            sound,
+        }
+    }
+
+    fn from_stored_value(
+        value: Option<&serde_json::Value>,
+        default_sound: NotificationSoundId,
+    ) -> Self {
+        let mut settings = Self::new(default_sound);
+        let Some(serde_json::Value::Object(channel)) = value else {
+            return settings;
+        };
+
+        if let Some(enabled) = channel.get("enabled").and_then(serde_json::Value::as_bool) {
+            settings.enabled = enabled;
+        }
+        if let Some(sound) = channel
+            .get("sound")
+            .and_then(serde_json::Value::as_str)
+            .and_then(NotificationSoundId::from_stored_value)
+        {
+            settings.sound = sound;
+        }
+
+        settings
+    }
+
+    fn apply_patch(&mut self, patch: NotificationSoundChannelSettingsPatch) {
+        if let Some(enabled) = patch.enabled {
+            self.enabled = enabled;
+        }
+        if let Some(sound) = patch.sound {
+            self.sound = sound;
+        }
+    }
+}
+
+impl Default for NotificationSoundSettings {
+    fn default() -> Self {
+        Self {
+            attention: default_attention_notification_sound_settings(),
+            completion: default_completion_notification_sound_settings(),
+        }
+    }
+}
+
+impl NotificationSoundSettings {
+    fn from_stored_value(value: serde_json::Value) -> Self {
+        let serde_json::Value::Object(notification_sounds) = value else {
+            return Self::default();
+        };
+
+        Self {
+            attention: NotificationSoundChannelSettings::from_stored_value(
+                notification_sounds.get("attention"),
+                default_attention_notification_sound(),
+            ),
+            completion: NotificationSoundChannelSettings::from_stored_value(
+                notification_sounds.get("completion"),
+                default_completion_notification_sound(),
+            ),
+        }
+    }
+
+    fn apply_patch(&mut self, patch: NotificationSoundSettingsPatch) {
+        if let Some(attention) = patch.attention {
+            self.attention.apply_patch(attention);
+        }
+        if let Some(completion) = patch.completion {
+            self.completion.apply_patch(completion);
+        }
+    }
+}
+
+impl NotificationSoundId {
+    fn from_stored_value(value: &str) -> Option<Self> {
+        match value {
+            "glass" => Some(Self::Glass),
+            "chord" => Some(Self::Chord),
+            "polite" => Some(Self::Polite),
+            _ => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for NotificationSoundSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(Self::from_stored_value(value))
     }
 }
 
@@ -464,8 +628,9 @@ fn default_open_targets_for_platform() -> Vec<OpenTarget> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch, OpenTarget,
-        OpenTargetKind, ReasoningEffort, ServiceTier,
+        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch,
+        NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget, OpenTargetKind,
+        ReasoningEffort, ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettingsPatch;
 
@@ -482,6 +647,16 @@ mod tests {
             collapse_work_activity: Some(true),
             desktop_notifications_enabled: Some(true),
             stream_assistant_responses: Some(false),
+            notification_sounds: Some(NotificationSoundSettingsPatch {
+                attention: Some(super::NotificationSoundChannelSettingsPatch {
+                    enabled: Some(true),
+                    sound: Some(NotificationSoundId::Chord),
+                }),
+                completion: Some(super::NotificationSoundChannelSettingsPatch {
+                    enabled: Some(true),
+                    sound: Some(NotificationSoundId::Glass),
+                }),
+            }),
             shortcuts: Some(ShortcutSettingsPatch {
                 toggle_terminal: Some(Some("mod+shift+j".to_string())),
                 ..ShortcutSettingsPatch::default()
@@ -514,6 +689,10 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(settings.desktop_notifications_enabled);
         assert!(!settings.stream_assistant_responses);
+        assert!(settings.notification_sounds.attention.enabled);
+        assert_eq!(settings.notification_sounds.attention.sound, NotificationSoundId::Chord);
+        assert!(settings.notification_sounds.completion.enabled);
+        assert_eq!(settings.notification_sounds.completion.sound, NotificationSoundId::Glass);
         assert_eq!(
             settings.shortcuts.toggle_terminal.as_deref(),
             Some("mod+shift+j")
@@ -571,6 +750,14 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
         assert!(settings.stream_assistant_responses);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
         assert_eq!(settings.shortcuts.toggle_terminal.as_deref(), Some("mod+j"));
     }
 
@@ -591,6 +778,16 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
         assert!(settings.stream_assistant_responses);
+        assert!(!settings.notification_sounds.attention.enabled);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert!(!settings.notification_sounds.completion.enabled);
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
         assert_eq!(
             settings.shortcuts.open_settings.as_deref(),
             Some("mod+comma")
@@ -601,6 +798,62 @@ mod tests {
             .iter()
             .any(|target| target.id == settings.default_open_target_id));
         assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
+    }
+
+    #[test]
+    fn deserialize_notification_sounds_repairs_partial_channels() {
+        let settings: GlobalSettings = serde_json::from_str(
+            r#"{
+                "defaultModel":"gpt-5.4",
+                "defaultReasoningEffort":"high",
+                "defaultCollaborationMode":"build",
+                "defaultApprovalPolicy":"askToEdit",
+                "notificationSounds":{
+                    "attention":{"enabled":true},
+                    "completion":{"sound":"chord"}
+                }
+            }"#,
+        )
+        .expect("partial notification sound payload should deserialize");
+
+        assert!(settings.notification_sounds.attention.enabled);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert!(!settings.notification_sounds.completion.enabled);
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Chord
+        );
+    }
+
+    #[test]
+    fn deserialize_notification_sounds_repairs_unknown_sound_ids() {
+        let settings: GlobalSettings = serde_json::from_str(
+            r#"{
+                "defaultModel":"gpt-5.4",
+                "defaultReasoningEffort":"high",
+                "defaultCollaborationMode":"build",
+                "defaultApprovalPolicy":"askToEdit",
+                "notificationSounds":{
+                    "attention":{"enabled":true,"sound":"future-bell"},
+                    "completion":{"enabled":true,"sound":"future-chime"}
+                }
+            }"#,
+        )
+        .expect("unknown notification sound ids should deserialize");
+
+        assert!(settings.notification_sounds.attention.enabled);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert!(settings.notification_sounds.completion.enabled);
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
     }
 
     #[test]

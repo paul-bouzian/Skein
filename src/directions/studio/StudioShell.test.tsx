@@ -546,10 +546,12 @@ describe("StudioShell", () => {
     });
   });
 
-  it("shows the desktop notifications copy in Codex settings", async () => {
+  it("shows the desktop notifications copy in Notifications settings", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.queryByText("Desktop notifications")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
 
     expect(screen.getByText("Desktop notifications")).toBeInTheDocument();
     expect(
@@ -574,6 +576,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     await userEvent.click(
       screen.getByRole("switch", { name: "Desktop notifications" }),
     );
@@ -600,21 +603,23 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     const desktopToggle = screen.getByRole("switch", {
       name: "Desktop notifications",
-    });
-    const collapseToggle = screen.getByRole("switch", {
-      name: "Collapse work activity",
     });
 
     await userEvent.click(desktopToggle);
 
     await waitFor(() => {
       expect(desktopToggle).toBeDisabled();
-      expect(collapseToggle).toBeDisabled();
     });
     expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
 
+    await userEvent.click(screen.getByRole("button", { name: "Codex" }));
+    const collapseToggle = screen.getByRole("switch", {
+      name: "Collapse work activity",
+    });
+    expect(collapseToggle).toBeDisabled();
     await userEvent.click(collapseToggle);
     expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
 
@@ -635,6 +640,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     const toggle = screen.getByRole("switch", { name: "Desktop notifications" });
     expect(toggle).toHaveAttribute("aria-checked", "false");
 
@@ -665,6 +671,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     await userEvent.click(
       screen.getByRole("switch", { name: "Desktop notifications" }),
     );
@@ -687,6 +694,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Notifications" }));
     const toggle = screen.getByRole("switch", { name: "Desktop notifications" });
 
     await userEvent.click(toggle);

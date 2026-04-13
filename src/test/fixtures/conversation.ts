@@ -57,6 +57,16 @@ export function makeGlobalSettings(
     collapseWorkActivity: true,
     desktopNotificationsEnabled: false,
     streamAssistantResponses: true,
+    notificationSounds: {
+      attention: {
+        enabled: false,
+        sound: "glass",
+      },
+      completion: {
+        enabled: false,
+        sound: "polite",
+      },
+    },
     shortcuts: {
       openSettings: "mod+comma",
       focusComposer: "mod+l",
