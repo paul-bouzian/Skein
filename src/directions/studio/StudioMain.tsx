@@ -12,6 +12,7 @@ import { useTerminalStore } from "../../stores/terminal-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
+import { Tooltip } from "../../shared/Tooltip";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
 import { ThreadTabs } from "./ThreadTabs";
 import { ThreadConversation } from "./ThreadConversation";
@@ -83,14 +84,15 @@ export function StudioMain({
     <main className="studio-main">
       <div className="studio-main__toolbar">
         <div className="studio-main__toolbar-primary">
-          <button
-            type="button"
-            className={`studio-main__toggle-sidebar ${projectsSidebarOpen ? "studio-main__toggle-sidebar--active" : ""}`}
-            title={projectsSidebarOpen ? "Hide Projects sidebar" : "Show Projects sidebar"}
-            onClick={onToggleProjectsSidebar}
-          >
-            <PanelLeftIcon size={14} />
-          </button>
+          <Tooltip content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
+            <button
+              type="button"
+              className={`studio-main__toggle-sidebar ${projectsSidebarOpen ? "studio-main__toggle-sidebar--active" : ""}`}
+              onClick={onToggleProjectsSidebar}
+            >
+              <PanelLeftIcon size={14} />
+            </button>
+          </Tooltip>
           <ThreadTabs />
         </div>
         <div className="studio-main__toolbar-actions">
@@ -98,22 +100,24 @@ export function StudioMain({
             environmentId={selectedEnvironment?.id ?? null}
             settings={settings}
           />
-          <button
-            type="button"
-            className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
-            title={terminalVisible ? "Hide terminal" : "Show terminal"}
-            onClick={toggleTerminal}
-          >
-            <TerminalIcon size={14} />
-          </button>
-          <button
-            type="button"
-            className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
-            title={inspectorOpen ? "Hide inspector" : "Show inspector"}
-            onClick={onToggleInspector}
-          >
-            <PanelRightIcon size={14} />
-          </button>
+          <Tooltip content={terminalVisible ? "Hide terminal" : "Show terminal"} side="bottom">
+            <button
+              type="button"
+              className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
+              onClick={toggleTerminal}
+            >
+              <TerminalIcon size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content={inspectorOpen ? "Hide inspector" : "Show inspector"} side="bottom">
+            <button
+              type="button"
+              className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
+              onClick={onToggleInspector}
+            >
+              <PanelRightIcon size={14} />
+            </button>
+          </Tooltip>
         </div>
       </div>
       <div

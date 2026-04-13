@@ -16,6 +16,7 @@ import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { ChevronRightIcon, GitBranchIcon, PlusIcon } from "../../shared/Icons";
+import { Tooltip } from "../../shared/Tooltip";
 import type {
   EnvironmentRecord,
   EnvironmentPullRequestSnapshot,
@@ -573,11 +574,11 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
   const label = pullRequestAriaLabel(pullRequest);
 
   return (
+    <Tooltip content={label} side="bottom">
     <button
       type="button"
       className="environment-item__icon-button"
       data-no-reorder-drag="true"
-      title={label}
       aria-label={label}
       onClick={(event) => {
         event.preventDefault();
@@ -590,6 +591,7 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
         className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
       />
     </button>
+    </Tooltip>
   );
 }
 

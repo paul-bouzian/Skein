@@ -31,6 +31,7 @@ import {
   MicIcon,
   StopIcon,
 } from "../../../shared/Icons";
+import { Tooltip } from "../../../shared/Tooltip";
 import { ComposerPicker } from "../ComposerPicker";
 import { ContextWindowMeter } from "../ContextWindowMeter";
 import {
@@ -608,20 +609,17 @@ export function InlineComposer({
 
       <div className="tx-composer__controls">
         <div className="tx-composer__controls-group">
-          <button
-            type="button"
-            className="tx-composer__attach-button"
-            aria-label="Attach images"
-            title={
-              imagesEnabled
-                ? "Attach images"
-                : modelImageSupportMessage(selectedModel)
-            }
-            disabled={controlsDisabled || !imagesEnabled}
-            onClick={() => void pickImages()}
-          >
-            <ImageIcon size={14} />
-          </button>
+          <Tooltip content={imagesEnabled ? "Attach images" : modelImageSupportMessage(selectedModel)}>
+            <button
+              type="button"
+              className="tx-composer__attach-button"
+              aria-label="Attach images"
+              disabled={controlsDisabled || !imagesEnabled}
+              onClick={() => void pickImages()}
+            >
+              <ImageIcon size={14} />
+            </button>
+          </Tooltip>
           <ComposerPicker
             label="Model"
             value={composer.model}
@@ -660,52 +658,54 @@ export function InlineComposer({
             }
           />
           <span className="tx-composer__controls-separator" />
-          <button
-            type="button"
-            className={[
-              "tx-composer__icon-toggle",
-              isPlanMode ? "tx-composer__icon-toggle--active" : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-label={
-              canToggleMode
-                ? `Collaboration mode: ${currentModeLabel}. Switch to ${nextModeLabel}`
-                : `Collaboration mode: ${currentModeLabel}`
-            }
-            title={
-              canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel
-            }
-            aria-pressed={isPlanMode}
-            disabled={controlsDisabled || !canToggleMode}
-            onClick={() =>
-              onUpdateComposer({ collaborationMode: nextMode })
-            }
-          >
-            <MapIcon size={14} />
-          </button>
-          <button
-            type="button"
-            className={[
-              "tx-composer__icon-toggle",
-              fastModeEnabled ? "tx-composer__icon-toggle--active" : null,
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-label={fastModeLabel}
-            title={fastModeLabel}
-            aria-pressed={fastModeEnabled}
-            disabled={controlsDisabled || !fastModeSupported}
-            onClick={() =>
-              onUpdateComposer({
-                serviceTier: fastModeEnabled
-                  ? lastNonFastServiceTierRef.current ?? null
-                  : "fast",
-              })
-            }
-          >
-            <BoltIcon size={14} />
-          </button>
+          <Tooltip content={canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel}>
+            <button
+              type="button"
+              className={[
+                "tx-composer__icon-toggle",
+                isPlanMode ? "tx-composer__icon-toggle--active" : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-label={
+                canToggleMode
+                  ? `Collaboration mode: ${currentModeLabel}. Switch to ${nextModeLabel}`
+                  : `Collaboration mode: ${currentModeLabel}`
+              }
+              title={canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel}
+              aria-pressed={isPlanMode}
+              disabled={controlsDisabled || !canToggleMode}
+              onClick={() =>
+                onUpdateComposer({ collaborationMode: nextMode })
+              }
+            >
+              <MapIcon size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content={fastModeLabel}>
+            <button
+              type="button"
+              className={[
+                "tx-composer__icon-toggle",
+                fastModeEnabled ? "tx-composer__icon-toggle--active" : null,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              aria-label={fastModeLabel}
+              title={fastModeLabel}
+              aria-pressed={fastModeEnabled}
+              disabled={controlsDisabled || !fastModeSupported}
+              onClick={() =>
+                onUpdateComposer({
+                  serviceTier: fastModeEnabled
+                    ? lastNonFastServiceTierRef.current ?? null
+                    : "fast",
+                })
+              }
+            >
+              <BoltIcon size={14} />
+            </button>
+          </Tooltip>
         </div>
         <div className="tx-composer__controls-right">
           <ContextWindowMeter usage={tokenUsage} />
@@ -715,10 +715,8 @@ export function InlineComposer({
                 {voiceDurationLabel}
               </span>
             ) : null}
-            <span
-              className="tx-composer__voice-button-anchor"
-              title={voiceButtonTitle}
-            >
+            <Tooltip content={voiceButtonTitle}>
+              <span className="tx-composer__voice-button-anchor" title={voiceButtonTitle}>
               <button
                 type="button"
                 className={voiceButtonClassName}
@@ -736,6 +734,7 @@ export function InlineComposer({
                 )}
               </button>
             </span>
+            </Tooltip>
             <span
               className="tx-composer__voice-live-status"
               role="status"
