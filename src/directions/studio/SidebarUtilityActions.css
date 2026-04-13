@@ -6,17 +6,17 @@
 
 .sidebar-utility-actions__button {
   min-width: 0;
-  height: 36px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--tx-space-xs);
   padding: 0 var(--tx-space-md);
   border: 1px solid var(--tx-border-subtle);
-  border-radius: var(--tx-radius-md);
-  background: color-mix(in srgb, var(--tx-bg-raised) 82%, transparent);
+  border-radius: var(--tx-radius-sm);
+  background: transparent;
   color: var(--tx-text-secondary);
-  font-size: var(--tx-text-sm);
+  font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-medium);
   transition:
     background var(--tx-transition-fast),

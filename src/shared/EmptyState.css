@@ -18,6 +18,7 @@
   font-size: var(--tx-text-lg);
   font-weight: var(--tx-weight-semibold);
   color: var(--tx-text-primary);
+  letter-spacing: var(--tx-tracking-tight);
 }
 
 .empty-state__body {

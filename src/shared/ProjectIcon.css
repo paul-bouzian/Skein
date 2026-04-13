@@ -2,7 +2,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--tx-radius-md);
+  border-radius: var(--tx-radius-sm);
   font-weight: var(--tx-weight-bold);
   color: var(--tx-accent-text);
   flex-shrink: 0;
@@ -10,10 +10,10 @@
 }
 
 .project-icon--sm {
-  width: 24px;
-  height: 24px;
-  font-size: var(--tx-text-xs);
-  border-radius: var(--tx-radius-sm);
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  border-radius: var(--tx-radius-xs);
 }
 
 .project-icon--md {
@@ -26,7 +26,7 @@
   width: 44px;
   height: 44px;
   font-size: var(--tx-text-lg);
-  border-radius: var(--tx-radius-lg);
+  border-radius: var(--tx-radius-md);
 }
 
 .project-icon--img {

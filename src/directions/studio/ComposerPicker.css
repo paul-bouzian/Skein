@@ -71,7 +71,7 @@
   display: grid;
   gap: 4px;
   overscroll-behavior: contain;
-  box-shadow: var(--tx-shadow-md);
+  box-shadow: var(--tx-shadow-lg);
 }
 
 .tx-picker__option {
@@ -92,23 +92,51 @@
   flex-shrink: 0;
 }
 
+/* ── Compact mode (used in composer) ── */
+
 .tx-picker--compact {
+  position: relative;
   gap: 0;
 }
 
 .tx-picker--compact .tx-picker__trigger {
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 26px;
+  padding: 3px 6px;
   border-color: transparent;
   background: transparent;
   font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-semibold);
+  font-weight: var(--tx-weight-medium);
   border-radius: var(--tx-radius-sm);
-  gap: 4px;
+  gap: 3px;
+  color: var(--tx-text-muted);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
 }
 
 .tx-picker--compact .tx-picker__trigger:hover:not(:disabled),
 .tx-picker--compact.tx-picker--open .tx-picker__trigger {
   background: var(--tx-bg-hover);
   border-color: transparent;
+  color: var(--tx-text-secondary);
+}
+
+.tx-picker--compact .tx-picker__chevron {
+  opacity: 0.5;
+}
+
+.tx-picker--compact + .tx-picker--compact {
+  margin-left: var(--tx-space-xs);
+  padding-left: var(--tx-space-xs);
+}
+
+.tx-picker--compact + .tx-picker--compact::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 14px;
+  background: var(--tx-border-subtle);
 }

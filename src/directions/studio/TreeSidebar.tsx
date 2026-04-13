@@ -16,6 +16,7 @@ import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { ChevronRightIcon, GitBranchIcon, PlusIcon } from "../../shared/Icons";
+import { Tooltip } from "../../shared/Tooltip";
 import type {
   EnvironmentRecord,
   EnvironmentPullRequestSnapshot,
@@ -36,6 +37,7 @@ import "./TreeSidebar.css";
 
 type Props = {
   theme: Theme;
+  collapsed?: boolean;
   onOpenSettings: () => void;
   onToggleTheme: () => void;
 };
@@ -58,7 +60,7 @@ const PROJECT_REMOVAL_BLOCKED_MESSAGE =
   "Delete this project's worktrees before removing it from Loom.";
 const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
 
-export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
+export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggleTheme }: Props) {
   const projects = useWorkspaceStore(selectProjects);
   const selectedProjectId = useWorkspaceStore((s) => s.selectedProjectId);
   const selectedEnvironmentId = useWorkspaceStore(
@@ -251,7 +253,7 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
   }
 
   return (
-    <aside className="tree-sidebar">
+    <aside className={`tree-sidebar ${collapsed ? "tree-sidebar--collapsed" : ""}`} inert={collapsed || undefined}>
       <div className="tree-sidebar__header">
         <span className="tree-sidebar__title tx-section-label">Projects</span>
         <button
@@ -446,15 +448,6 @@ export function TreeSidebar({ theme, onOpenSettings, onToggleTheme }: Props) {
                                 {environment.name}
                               </span>
                             </span>
-                            {environment.gitBranch &&
-                              environment.gitBranch !== environment.name && (
-                                <span
-                                  className="environment-item__branch"
-                                  title={environment.gitBranch}
-                                >
-                                  {environment.gitBranch}
-                                </span>
-                              )}
                           </span>
                           <span className="environment-item__secondary">
                             <EnvironmentConversationIndicator
@@ -572,23 +565,24 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
   const label = pullRequestAriaLabel(pullRequest);
 
   return (
-    <button
-      type="button"
-      className="environment-item__icon-button"
-      data-no-reorder-drag="true"
-      title={label}
-      aria-label={label}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
-      }}
-    >
-      <GitBranchIcon
-        size={13}
-        className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
-      />
-    </button>
+    <Tooltip content={label} side="bottom">
+      <button
+        type="button"
+        className="environment-item__icon-button"
+        data-no-reorder-drag="true"
+        aria-label={label}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
+        }}
+      >
+        <GitBranchIcon
+          size={13}
+          className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
+        />
+      </button>
+    </Tooltip>
   );
 }
 

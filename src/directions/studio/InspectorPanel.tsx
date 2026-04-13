@@ -20,7 +20,7 @@ import { ChangesSection, CommitSection, ReviewSummarySection } from "./GitReview
 import { confirmRevertAll, confirmRevertFile } from "./git-review-actions";
 import "./InspectorPanel.css";
 
-export function InspectorPanel() {
+export function InspectorPanel({ collapsed = false }: { collapsed?: boolean }) {
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const selectedThread = useWorkspaceStore(selectSelectedThread);
   const selectedEnvironmentId = selectedEnvironment?.id ?? null;
@@ -120,7 +120,7 @@ export function InspectorPanel() {
 
   if (!selectedEnvironment) {
     return (
-      <aside className="inspector-panel">
+      <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`} inert={collapsed || undefined}>
         <div className="inspector__header">
           <div>
             <span className="inspector__title">Review</span>
@@ -136,7 +136,7 @@ export function InspectorPanel() {
   }
 
   return (
-    <aside className="inspector-panel">
+    <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`} inert={collapsed || undefined}>
       <div className="inspector__header">
         <div>
           <span className="inspector__title">Review</span>

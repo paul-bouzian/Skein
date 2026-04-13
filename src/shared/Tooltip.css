@@ -1,0 +1,41 @@
+.tx-tooltip-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.tx-tooltip {
+  position: fixed;
+  z-index: 99998;
+  transform: translateX(-50%);
+  max-width: 240px;
+  padding: 5px 10px;
+  border-radius: var(--tx-radius-sm);
+  background: var(--tx-bg-raised);
+  border: 1px solid var(--tx-border-muted);
+  box-shadow: var(--tx-shadow-md);
+  color: var(--tx-text-primary);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-medium);
+  line-height: 1.4;
+  white-space: normal;
+  width: max-content;
+  pointer-events: none;
+  animation: tx-tooltip-in 120ms ease-out;
+}
+
+.tx-tooltip--top {
+  transform: translateX(-50%) translateY(-100%);
+}
+
+.tx-tooltip--bottom {
+  transform: translateX(-50%);
+}
+
+@keyframes tx-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

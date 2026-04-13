@@ -38,11 +38,11 @@ export function ComposerAutocompleteMenu({
             >
               <span className="tx-composer-menu__label-row">
                 <span className="tx-composer-menu__label">{item.label}</span>
-                {item.hint ? <span className="tx-composer-menu__hint">{item.hint}</span> : null}
+                {item.description ? (
+                  <span className="tx-composer-menu__description">{item.description}</span>
+                ) : null}
               </span>
-              {item.description ? (
-                <span className="tx-composer-menu__description">{item.description}</span>
-              ) : null}
+              {item.hint ? <span className="tx-composer-menu__hint">{item.hint}</span> : null}
             </button>
           </div>
         );

@@ -1,11 +1,16 @@
 .inspector-panel {
   width: var(--tx-inspector-width);
-  background: var(--tx-bg-translucent);
-  backdrop-filter: blur(18px);
+  background: var(--tx-bg-base);
   border-left: 1px solid var(--tx-border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 250ms var(--tx-ease-spring);
+}
+
+.inspector-panel--collapsed {
+  width: 0;
+  border-left-color: transparent;
 }
 
 .inspector__header {
@@ -14,7 +19,7 @@
   justify-content: space-between;
   min-height: var(--tx-toolbar-height);
   padding: 0 var(--tx-space-lg);
-  border-bottom: 1px solid var(--tx-border-subtle);
+  box-shadow: inset 0 -1px 0 var(--tx-border-subtle);
   flex-shrink: 0;
 }
 
@@ -65,7 +70,8 @@
   padding: var(--tx-space-md);
   border-radius: var(--tx-radius-lg);
   border: 1px solid var(--tx-border-subtle);
-  background: color-mix(in srgb, var(--tx-bg-raised) 86%, transparent);
+  background: color-mix(in srgb, var(--tx-bg-raised) 75%, transparent);
+  box-shadow: var(--tx-shadow-card);
   flex: 0 0 auto;
   min-height: fit-content;
 }
@@ -84,22 +90,25 @@
   padding: 2px;
   border-radius: var(--tx-radius-md);
   border: 1px solid var(--tx-border-subtle);
-  background: var(--tx-bg-base);
+  background: color-mix(in srgb, var(--tx-bg-sunken) 80%, transparent);
 }
 
 .inspector-scope-switch__button {
   min-height: 28px;
   padding: 0 10px;
-  border-radius: calc(var(--tx-radius-md) - 2px);
+  border-radius: calc(var(--tx-radius-md) - 3px);
   border: none;
   background: transparent;
   color: var(--tx-text-secondary);
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-semibold);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
 }
 
 .inspector-scope-switch__button--active {
-  background: color-mix(in srgb, var(--tx-accent) 14%, var(--tx-bg-hover));
+  background: var(--tx-bg-hover);
   color: var(--tx-text-primary);
 }
 
@@ -137,6 +146,9 @@
   color: var(--tx-text-secondary);
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-medium);
+  transition:
+    color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
 }
 
 .inspector-inline-action:hover:not(:disabled) {
@@ -171,6 +183,10 @@
   color: var(--tx-text-primary);
   font-size: var(--tx-text-sm);
   resize: vertical;
+  box-shadow: var(--tx-shadow-inset);
+  transition:
+    border-color var(--tx-transition-fast),
+    box-shadow var(--tx-transition-fast);
 }
 
 .inspector-commit__textarea:focus-visible {
@@ -190,6 +206,9 @@
   justify-content: center;
   border-radius: var(--tx-radius-sm);
   color: var(--tx-text-secondary);
+  transition:
+    color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
 }
 
 .inspector-commit__generate:hover:not(:disabled) {
@@ -206,6 +225,7 @@
   justify-content: center;
   min-height: 32px;
   padding: 0 12px;
+  border-radius: var(--tx-radius-md);
 }
 
 .inspector-commit__primary-meta {
@@ -270,7 +290,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 var(--tx-space-xs);
-  border-radius: 999px;
+  border-radius: var(--tx-radius-xs);
   background: var(--tx-bg-hover);
   color: var(--tx-text-muted);
   font-size: var(--tx-text-xs);
@@ -289,12 +309,15 @@
   gap: var(--tx-space-xs);
   min-height: 32px;
   padding: 3px var(--tx-space-xs);
-  border-radius: var(--tx-radius-md);
+  border-radius: var(--tx-radius-sm);
   border: 1px solid transparent;
+  transition:
+    border-color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
 }
 
 .inspector-file-row--selected {
-  border-color: color-mix(in srgb, var(--tx-accent) 25%, var(--tx-border-subtle));
+  border-color: color-mix(in srgb, var(--tx-accent) 18%, var(--tx-border-subtle));
   background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-base));
 }
 
@@ -352,6 +375,9 @@
   justify-content: center;
   border-radius: var(--tx-radius-sm);
   color: var(--tx-text-secondary);
+  transition:
+    color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
 }
 
 .inspector-file-action:hover:not(:disabled) {

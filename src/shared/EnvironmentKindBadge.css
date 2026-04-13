@@ -4,7 +4,7 @@
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-medium);
   line-height: var(--tx-leading-tight);
-  border-radius: var(--tx-radius-sm);
+  border-radius: var(--tx-radius-xs);
   white-space: nowrap;
 }
 

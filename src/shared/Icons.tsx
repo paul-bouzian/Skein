@@ -141,10 +141,9 @@ export function BoltIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path
-        d="M8.9 1.5 4.6 8h2.9L7 14.5 11.4 8H8.5l.4-6.5z"
+        d="M9.2 2 5 8.5h3L6.8 14l5.2-7H8.5L9.2 2z"
         stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
+        strokeWidth="1.3"
         strokeLinejoin="round"
       />
     </svg>
@@ -388,6 +387,19 @@ export function MapIcon({ size = 16, className }: IconProps) {
         strokeLinejoin="round"
       />
       <path d="M6 2.5v8M10 4.5v8" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+export function GripVerticalIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <circle cx="6" cy="4" r="1" fill="currentColor" />
+      <circle cx="10" cy="4" r="1" fill="currentColor" />
+      <circle cx="6" cy="8" r="1" fill="currentColor" />
+      <circle cx="10" cy="8" r="1" fill="currentColor" />
+      <circle cx="6" cy="12" r="1" fill="currentColor" />
+      <circle cx="10" cy="12" r="1" fill="currentColor" />
     </svg>
   );
 }

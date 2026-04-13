@@ -2498,13 +2498,13 @@ describe("ThreadConversation", () => {
     const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Use $crea");
     expect(
-      await screen.findByRole("option", { name: /create-pr/i }),
+      await screen.findByRole("option", { name: /Create Pr/i }),
     ).toBeInTheDocument();
 
     await user.keyboard("{Tab}");
     await waitFor(() => {
       expect(input).toHaveValue("Use $create-pr ");
-      expect(screen.queryByRole("option", { name: /create-pr/i })).toBeNull();
+      expect(screen.queryByRole("option", { name: /Create Pr/i })).toBeNull();
     });
 
     await user.type(input, "now");
@@ -3202,12 +3202,16 @@ describe("ThreadConversation", () => {
     const modeToggle = await screen.findByRole("button", {
       name: "Collaboration mode: Execute. Switch to Strategize",
     });
-    expect(modeToggle).toHaveAttribute("title", "Switch to Strategize");
+    expect(modeToggle).toHaveAccessibleName(
+      "Collaboration mode: Execute. Switch to Strategize",
+    );
 
     await userEvent.click(modeToggle);
 
     await waitFor(() => {
-      expect(modeToggle).toHaveAttribute("title", "Switch to Execute");
+      expect(modeToggle).toHaveAccessibleName(
+        "Collaboration mode: Strategize. Switch to Execute",
+      );
     });
     expect(screen.queryByRole("option", { name: "Execute" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Strategize" })).toBeNull();
@@ -3234,7 +3238,7 @@ describe("ThreadConversation", () => {
       name: "Collaboration mode: Execute",
     });
     expect(modeToggle).toBeDisabled();
-    expect(modeToggle).toHaveAttribute("title", "Execute");
+    expect(modeToggle).toHaveAccessibleName("Collaboration mode: Execute");
   });
 
   it("renders plan markdown even when markdown contains empty list markers", () => {

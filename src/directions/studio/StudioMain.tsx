@@ -11,7 +11,8 @@ import {
 import { useTerminalStore } from "../../stores/terminal-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { PanelLeftIcon, PanelRightIcon, TerminalIcon } from "../../shared/Icons";
+import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
+import { Tooltip } from "../../shared/Tooltip";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
 import { ThreadTabs } from "./ThreadTabs";
 import { ThreadConversation } from "./ThreadConversation";
@@ -83,14 +84,16 @@ export function StudioMain({
     <main className="studio-main">
       <div className="studio-main__toolbar">
         <div className="studio-main__toolbar-primary">
-          <button
-            type="button"
-            className={`studio-main__toggle-sidebar ${projectsSidebarOpen ? "studio-main__toggle-sidebar--active" : ""}`}
-            title={projectsSidebarOpen ? "Hide Projects sidebar" : "Show Projects sidebar"}
-            onClick={onToggleProjectsSidebar}
-          >
-            <PanelLeftIcon size={14} />
-          </button>
+          <Tooltip content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
+            <button
+              type="button"
+              aria-label={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              className={`studio-main__toggle-sidebar ${projectsSidebarOpen ? "studio-main__toggle-sidebar--active" : ""}`}
+              onClick={onToggleProjectsSidebar}
+            >
+              <PanelLeftIcon size={14} />
+            </button>
+          </Tooltip>
           <ThreadTabs />
         </div>
         <div className="studio-main__toolbar-actions">
@@ -98,22 +101,26 @@ export function StudioMain({
             environmentId={selectedEnvironment?.id ?? null}
             settings={settings}
           />
-          <button
-            type="button"
-            className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
-            title={terminalVisible ? "Hide terminal" : "Show terminal"}
-            onClick={toggleTerminal}
-          >
-            <TerminalIcon size={14} />
-          </button>
-          <button
-            type="button"
-            className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
-            title={inspectorOpen ? "Hide inspector" : "Show inspector"}
-            onClick={onToggleInspector}
-          >
-            <PanelRightIcon size={14} />
-          </button>
+          <Tooltip content={terminalVisible ? "Hide terminal" : "Show terminal"} side="bottom">
+            <button
+              type="button"
+              aria-label={terminalVisible ? "Hide terminal" : "Show terminal"}
+              className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
+              onClick={toggleTerminal}
+            >
+              <TerminalIcon size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content={inspectorOpen ? "Hide inspector" : "Show inspector"} side="bottom">
+            <button
+              type="button"
+              aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
+              className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
+              onClick={onToggleInspector}
+            >
+              <PanelRightIcon size={14} />
+            </button>
+          </Tooltip>
         </div>
       </div>
       <div
@@ -126,6 +133,7 @@ export function StudioMain({
         <div
           className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
           style={{ height: terminalVisible ? terminalHeight : undefined }}
+          inert={!terminalVisible || undefined}
         >
           <TerminalPanel theme={theme} />
         </div>
@@ -260,20 +268,24 @@ function ProjectView({ project }: { project: ProjectRecord }) {
 function EnvironmentView({ environment }: { environment: EnvironmentRecord }) {
   return (
     <div className="studio-env-view">
-      <div className="studio-env-view__header">
-        <EnvironmentKindBadge kind={environment.kind} />
-        <h2>{environment.name}</h2>
-        <RuntimeIndicator state={environment.runtime.state} size="md" label />
-      </div>
-      {environment.gitBranch && (
-        <p className="studio-env-view__branch">
-          Branch: <code>{environment.gitBranch}</code>
-          {environment.baseBranch && <> from <code>{environment.baseBranch}</code></>}
+      <div className="studio-env-view__center">
+        <div className="studio-env-view__icon-ring">
+          <ThreadIcon size={24} />
+        </div>
+        <h2 className="studio-env-view__name">{environment.name}</h2>
+        <div className="studio-env-view__meta">
+          <EnvironmentKindBadge kind={environment.kind} />
+          <RuntimeIndicator state={environment.runtime.state} label />
+          {environment.gitBranch && (
+            <span className="studio-env-view__branch-pill">
+              {environment.gitBranch}
+            </span>
+          )}
+        </div>
+        <p className="studio-env-view__hint">
+          Start a new thread to begin working
         </p>
-      )}
-      <p className="studio-env-view__hint">
-        Create a new thread using the + button in the tab bar above.
-      </p>
+      </div>
     </div>
   );
 }

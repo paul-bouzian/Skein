@@ -57,38 +57,44 @@ export function GitDiffPanel() {
   const selectedFileDiffKey = `${selectedFile.section}:${selectedFile.path}`;
 
   return (
-    <aside className="git-diff-panel">
-      <div className="git-diff-panel__header">
-        <div className="git-diff-panel__title-wrap">
-          <span className="git-diff-panel__eyebrow tx-section-label">Diff</span>
-          <span className="git-diff-panel__title">{selectedFile.path}</span>
-        </div>
-        <button
-          type="button"
-          className="git-diff-panel__close"
-          aria-label="Hide diff"
-          title="Hide diff"
-          onClick={() => closeDiff(selectedEnvironmentId, scope)}
-        >
-          <CloseIcon size={12} />
-        </button>
-      </div>
-      <div className="git-diff-panel__content">
-        {diffError ? <p className="git-diff-panel__error">{diffError}</p> : null}
-        <section className="git-diff-panel__file git-diff-panel__file--selected">
-          <div className="git-diff-panel__file-header">
-            <span className="git-diff-panel__file-path">{selectedFile.path}</span>
-            <span className="git-diff-panel__file-status">
-              {labelForGitChangeKind(selectedFile.kind, "full")}
-            </span>
+    <>
+      <div
+        className="git-diff-panel__backdrop"
+        onClick={() => closeDiff(selectedEnvironmentId, scope)}
+      />
+      <aside className="git-diff-panel">
+        <div className="git-diff-panel__header">
+          <div className="git-diff-panel__title-wrap">
+            <span className="git-diff-panel__eyebrow tx-section-label">Diff</span>
+            <span className="git-diff-panel__title">{selectedFile.path}</span>
           </div>
-          <GitDiffViewer
-            diff={diffCollection[selectedFileDiffKey] ?? null}
-            loading={diffLoading && !diffCollection[selectedFileDiffKey]}
-          />
-        </section>
-      </div>
-    </aside>
+          <button
+            type="button"
+            className="git-diff-panel__close"
+            aria-label="Hide diff"
+            title="Hide diff"
+            onClick={() => closeDiff(selectedEnvironmentId, scope)}
+          >
+            <CloseIcon size={12} />
+          </button>
+        </div>
+        <div className="git-diff-panel__content">
+          {diffError ? <p className="git-diff-panel__error">{diffError}</p> : null}
+          <section className="git-diff-panel__file git-diff-panel__file--selected">
+            <div className="git-diff-panel__file-header">
+              <span className="git-diff-panel__file-path">{selectedFile.path}</span>
+              <span className="git-diff-panel__file-status">
+                {labelForGitChangeKind(selectedFile.kind, "full")}
+              </span>
+            </div>
+            <GitDiffViewer
+              diff={diffCollection[selectedFileDiffKey] ?? null}
+              loading={diffLoading && !diffCollection[selectedFileDiffKey]}
+            />
+          </section>
+        </div>
+      </aside>
+    </>
   );
 }
 

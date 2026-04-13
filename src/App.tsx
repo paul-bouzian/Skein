@@ -1,24 +1,24 @@
 import { useEffect } from "react";
+import "./App.css";
+import { StudioShell } from "./directions/studio/StudioShell";
 import * as bridge from "./lib/bridge";
-import { useConversationStore } from "./stores/conversation-store";
+import { LoadingState } from "./shared/LoadingState";
+import { useAppUpdateStore } from "./stores/app-update-store";
 import { useCodexUsageStore } from "./stores/codex-usage-store";
+import { useConversationStore } from "./stores/conversation-store";
 import {
   teardownFirstPromptRenameListener,
   useFirstPromptRenameStore,
 } from "./stores/first-prompt-rename-store";
-import { useAppUpdateStore } from "./stores/app-update-store";
-import {
-  teardownWorktreeScriptListener,
-  useWorktreeScriptStore,
-} from "./stores/worktree-script-store";
 import {
   teardownWorkspaceListener,
   useWorkspaceStore,
 } from "./stores/workspace-store";
+import {
+  teardownWorktreeScriptListener,
+  useWorktreeScriptStore,
+} from "./stores/worktree-script-store";
 import { DesktopNotificationRuntime } from "./shared/DesktopNotificationRuntime";
-import { LoadingState } from "./shared/LoadingState";
-import { StudioShell } from "./directions/studio/StudioShell";
-import "./App.css";
 
 function App() {
   const initialize = useWorkspaceStore((s) => s.initialize);
@@ -69,15 +69,17 @@ function App() {
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
-    void bridge.listenToMenuCheckForUpdates(() => {
-      void checkForUpdates();
-    }).then((nextUnlisten) => {
-      if (disposed) {
-        nextUnlisten();
-        return;
-      }
-      unlisten = nextUnlisten;
-    });
+    void bridge
+      .listenToMenuCheckForUpdates(() => {
+        void checkForUpdates();
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      });
 
     return () => {
       disposed = true;

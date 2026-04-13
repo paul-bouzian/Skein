@@ -108,22 +108,13 @@ export function StudioShell() {
   }
 
   return (
-    <div
-      className={[
-        "studio-shell",
-        !projectsSidebarOpen ? "studio-shell--without-sidebar" : null,
-        diffPanelOpen ? "studio-shell--with-diff" : null,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {projectsSidebarOpen ? (
-        <TreeSidebar
-          theme={theme}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onToggleTheme={toggleTheme}
-        />
-      ) : null}
+    <div className="studio-shell">
+      <TreeSidebar
+        theme={theme}
+        collapsed={!projectsSidebarOpen}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onToggleTheme={toggleTheme}
+      />
       <StudioMain
         theme={theme}
         projectsSidebarOpen={projectsSidebarOpen}
@@ -136,7 +127,7 @@ export function StudioShell() {
         onToggleInspector={() => setInspectorOpen((v) => !v)}
       />
       {diffPanelOpen && <GitDiffPanel />}
-      {inspectorOpen && <InspectorPanel />}
+      <InspectorPanel collapsed={!inspectorOpen} />
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

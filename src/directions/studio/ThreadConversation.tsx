@@ -182,6 +182,15 @@ export function ThreadConversation({
   const isConnectionError = hydration === "error";
   const transportReady = hydration === "ready";
 
+  let connectionState: "connecting" | "error" | "idle";
+  if (isConnecting) {
+    connectionState = "connecting";
+  } else if (isConnectionError) {
+    connectionState = "error";
+  } else {
+    connectionState = "idle";
+  }
+
   useEffect(() => {
     if (!transportReady) {
       return undefined;
@@ -365,15 +374,17 @@ export function ThreadConversation({
         environment={environment}
         thread={thread}
         snapshot={snapshot}
-        connectionState={
-          isConnecting ? "connecting" : isConnectionError ? "error" : "idle"
-        }
+        connectionState={connectionState}
         onRetryConnection={
           isConnectionError ? () => void openThread(thread.id) : null
         }
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
-        {timelineEntries.length === 0 &&
+        {isConnecting ? (
+          <div className="tx-loading">
+            <div className="tx-loading__bar" />
+          </div>
+        ) : timelineEntries.length === 0 &&
         !shouldRenderPlanCard &&
         !hasTaskPlanContent &&
         transportReady ? (
