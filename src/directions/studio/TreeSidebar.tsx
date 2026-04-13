@@ -253,7 +253,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
   }
 
   return (
-    <aside className={`tree-sidebar ${collapsed ? "tree-sidebar--collapsed" : ""}`}>
+    <aside className={`tree-sidebar ${collapsed ? "tree-sidebar--collapsed" : ""}`} inert={collapsed || undefined}>
       <div className="tree-sidebar__header">
         <span className="tree-sidebar__title tx-section-label">Projects</span>
         <button
@@ -448,15 +448,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                                 {environment.name}
                               </span>
                             </span>
-                            {environment.gitBranch &&
-                              environment.gitBranch !== environment.name && (
-                                <span
-                                  className="environment-item__branch"
-                                  title={environment.gitBranch}
-                                >
-                                  {environment.gitBranch}
-                                </span>
-                              )}
                           </span>
                           <span className="environment-item__secondary">
                             <EnvironmentConversationIndicator

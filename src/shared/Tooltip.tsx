@@ -1,4 +1,4 @@
-import { useRef, useState, useLayoutEffect, type ReactNode } from "react";
+import { useRef, useState, useLayoutEffect, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import "./Tooltip.css";
 
@@ -22,6 +22,14 @@ export function Tooltip({ content, children, side = "top", delay = 200 }: Props)
     const left = rect.left + rect.width / 2;
     setPosition({ top, left });
   }, [visible, side]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
 
   function show() {
     timerRef.current = setTimeout(() => setVisible(true), delay);

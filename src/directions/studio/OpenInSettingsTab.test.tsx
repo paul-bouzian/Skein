@@ -132,6 +132,10 @@ describe("OpenInSettingsTab", () => {
     await waitFor(() => {
       expect(updateGlobalSettings).toHaveBeenCalledTimes(1);
     });
+
+    expect(updateGlobalSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultOpenTargetId: expect.any(String) })
+    );
   });
 
   it("keeps in-progress state when props refresh with equivalent values", async () => {

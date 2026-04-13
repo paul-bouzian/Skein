@@ -435,10 +435,6 @@
   white-space: nowrap;
 }
 
-.environment-item__branch {
-  display: none;
-}
-
 .environment-item__secondary {
   flex-shrink: 0;
 }

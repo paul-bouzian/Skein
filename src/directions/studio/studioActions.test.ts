@@ -316,7 +316,7 @@ describe("studioActions", () => {
       selectedThreadId: "thread-1",
     }));
 
-    await expect(archiveThreadWithConfirmation("thread-1")).resolves.toBe(true);
+    await expect(archiveThreadWithConfirmation("thread-1")).resolves.toBe(false);
 
     expect(refreshSnapshot).toHaveBeenCalledTimes(1);
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-2");

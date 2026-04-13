@@ -120,7 +120,7 @@ export function InspectorPanel({ collapsed = false }: { collapsed?: boolean }) {
 
   if (!selectedEnvironment) {
     return (
-      <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`}>
+      <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`} inert={collapsed || undefined}>
         <div className="inspector__header">
           <div>
             <span className="inspector__title">Review</span>
@@ -136,7 +136,7 @@ export function InspectorPanel({ collapsed = false }: { collapsed?: boolean }) {
   }
 
   return (
-    <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`}>
+    <aside className={`inspector-panel ${collapsed ? "inspector-panel--collapsed" : ""}`} inert={collapsed || undefined}>
       <div className="inspector__header">
         <div>
           <span className="inspector__title">Review</span>

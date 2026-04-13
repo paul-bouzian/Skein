@@ -150,6 +150,30 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
     setDragState(null);
   }
 
+  function handleGripKeyDown(e: React.KeyboardEvent, index: number) {
+    if (e.key === "ArrowUp" && index > 0) {
+      e.preventDefault();
+      updateDraftState((current) => {
+        const next = [...current.targets];
+        const [moved] = next.splice(index, 1);
+        if (moved) {
+          next.splice(index - 1, 0, moved);
+        }
+        return { ...current, targets: next };
+      });
+    } else if (e.key === "ArrowDown" && index < draftState.targets.length - 1) {
+      e.preventDefault();
+      updateDraftState((current) => {
+        const next = [...current.targets];
+        const [moved] = next.splice(index, 1);
+        if (moved) {
+          next.splice(index + 1, 0, moved);
+        }
+        return { ...current, targets: next };
+      });
+    }
+  }
+
   function getDragStyle(index: number): React.CSSProperties | undefined {
     if (!dragState) return undefined;
     const itemHeight = itemRefs.current[0]?.getBoundingClientRect().height ?? 64;
@@ -212,7 +236,10 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
             >
               <span
                 className="settings-open-target__grip"
+                tabIndex={0}
+                role="button"
                 onPointerDown={(e) => handleDragStart(e, index)}
+                onKeyDown={(e) => handleGripKeyDown(e, index)}
               >
                 <GripVerticalIcon size={14} />
               </span>

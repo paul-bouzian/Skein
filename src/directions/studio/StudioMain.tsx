@@ -87,6 +87,7 @@ export function StudioMain({
           <Tooltip content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
             <button
               type="button"
+              aria-label={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
               className={`studio-main__toggle-sidebar ${projectsSidebarOpen ? "studio-main__toggle-sidebar--active" : ""}`}
               onClick={onToggleProjectsSidebar}
             >
@@ -103,6 +104,7 @@ export function StudioMain({
           <Tooltip content={terminalVisible ? "Hide terminal" : "Show terminal"} side="bottom">
             <button
               type="button"
+              aria-label={terminalVisible ? "Hide terminal" : "Show terminal"}
               className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
               onClick={toggleTerminal}
             >
@@ -112,6 +114,7 @@ export function StudioMain({
           <Tooltip content={inspectorOpen ? "Hide inspector" : "Show inspector"} side="bottom">
             <button
               type="button"
+              aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
               className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
               onClick={onToggleInspector}
             >
