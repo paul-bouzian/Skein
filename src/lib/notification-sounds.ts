@@ -10,6 +10,8 @@ export type NotificationSoundOption = {
   url: string;
 };
 
+type NotificationSoundPlaybackChannel = "preview" | "alert";
+
 export const NOTIFICATION_SOUND_OPTIONS: readonly NotificationSoundOption[] = [
   {
     id: "glass",
@@ -28,7 +30,9 @@ export const NOTIFICATION_SOUND_OPTIONS: readonly NotificationSoundOption[] = [
   },
 ];
 
-let activeAudio: HTMLAudioElement | null = null;
+const activeAudioByChannel: Partial<
+  Record<NotificationSoundPlaybackChannel, HTMLAudioElement>
+> = {};
 
 export function getNotificationSoundOption(
   soundId: NotificationSoundId,
@@ -39,35 +43,38 @@ export function getNotificationSoundOption(
   );
 }
 
-export function stopNotificationSoundPlayback() {
-  if (!activeAudio) {
+function stopNotificationSoundPlayback(
+  channel: NotificationSoundPlaybackChannel,
+) {
+  const audio = activeAudioByChannel[channel];
+  if (!audio) {
     return;
   }
 
-  const audio = activeAudio;
-  activeAudio = null;
+  delete activeAudioByChannel[channel];
   audio.pause();
   audio.currentTime = 0;
   audio.onended = null;
   audio.onerror = null;
 }
 
-export async function playNotificationSound(
+async function playNotificationSoundForChannel(
   soundId: NotificationSoundId,
+  channel: NotificationSoundPlaybackChannel,
 ): Promise<void> {
   if (typeof Audio === "undefined") {
     return;
   }
 
-  stopNotificationSoundPlayback();
+  stopNotificationSoundPlayback(channel);
 
   const audio = new Audio(getNotificationSoundOption(soundId).url);
-  activeAudio = audio;
+  activeAudioByChannel[channel] = audio;
   audio.preload = "auto";
 
   const cleanup = () => {
-    if (activeAudio === audio) {
-      activeAudio = null;
+    if (activeAudioByChannel[channel] === audio) {
+      delete activeAudioByChannel[channel];
     }
     audio.onended = null;
     audio.onerror = null;
@@ -82,4 +89,20 @@ export async function playNotificationSound(
     cleanup();
     throw error;
   }
+}
+
+export function stopNotificationPreviewSound() {
+  stopNotificationSoundPlayback("preview");
+}
+
+export async function playNotificationPreviewSound(
+  soundId: NotificationSoundId,
+): Promise<void> {
+  await playNotificationSoundForChannel(soundId, "preview");
+}
+
+export async function playNotificationAlertSound(
+  soundId: NotificationSoundId,
+): Promise<void> {
+  await playNotificationSoundForChannel(soundId, "alert");
 }

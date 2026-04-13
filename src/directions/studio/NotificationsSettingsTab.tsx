@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
   getNotificationSoundOption,
   NOTIFICATION_SOUND_OPTIONS,
-  playNotificationSound,
-  stopNotificationSoundPlayback,
+  playNotificationPreviewSound,
+  stopNotificationPreviewSound,
 } from "../../lib/notification-sounds";
 import type {
   GlobalSettings,
@@ -52,12 +52,12 @@ export function NotificationsSettingsTab({
 
   useEffect(() => {
     return () => {
-      stopNotificationSoundPlayback();
+      stopNotificationPreviewSound();
     };
   }, []);
 
   function previewSound(soundId: NotificationSoundId) {
-    void playNotificationSound(soundId).catch(() => {
+    void playNotificationPreviewSound(soundId).catch(() => {
       // Ignore preview failures; the sound settings remain usable without them.
     });
   }
@@ -188,6 +188,7 @@ function NotificationSoundPicker({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const popupId = useId();
   const selected = useMemo(() => getNotificationSoundOption(value), [value]);
 
   useEffect(() => {
@@ -274,8 +275,8 @@ function NotificationSoundPicker({
           ref={triggerRef}
           type="button"
           disabled={disabled}
+          aria-controls={open ? popupId : undefined}
           aria-expanded={open}
-          aria-haspopup="listbox"
           aria-label={`${label} picker`}
           className="settings-sound-picker__trigger"
           onClick={() => setOpen((current) => !current)}
@@ -303,8 +304,9 @@ function NotificationSoundPicker({
       {open && menuPosition
         ? createPortal(
             <div
+              id={popupId}
               ref={menuRef}
-              role="listbox"
+              role="group"
               aria-label={`${label} options`}
               className="settings-sound-picker__menu tx-dropdown-menu"
               style={{ ...menuPosition, zIndex: menuZIndex }}
@@ -318,8 +320,7 @@ function NotificationSoundPicker({
                   >
                     <button
                       type="button"
-                      role="option"
-                      aria-selected={isSelected}
+                      aria-pressed={isSelected}
                       className={`settings-sound-picker__option tx-dropdown-option ${
                         isSelected ? "settings-sound-picker__option--selected" : ""
                       }`}

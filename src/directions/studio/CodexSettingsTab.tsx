@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import type {
   ApprovalPolicy,
@@ -140,6 +140,7 @@ function SettingsInput({
   value: string;
 }) {
   const [draftValue, setDraftValue] = useState(value);
+  const inputId = useId();
 
   useEffect(() => {
     setDraftValue(value);
@@ -147,8 +148,11 @@ function SettingsInput({
 
   return (
     <div className="settings-field">
-      <label className="settings-field__label">{label}</label>
+      <label className="settings-field__label" htmlFor={inputId}>
+        {label}
+      </label>
       <input
+        id={inputId}
         className="settings-field__input"
         type="text"
         value={draftValue}

@@ -5,7 +5,7 @@ import {
   collectDesktopNotificationCandidates,
   type DesktopNotificationCandidate,
 } from "../lib/desktop-notifications";
-import { playNotificationSound } from "../lib/notification-sounds";
+import { playNotificationAlertSound } from "../lib/notification-sounds";
 import type {
   NotificationSoundSettings,
   ThreadConversationSnapshot,
@@ -175,7 +175,7 @@ export function DesktopNotificationRuntime() {
       return;
     }
 
-    void playNotificationSound(soundId).catch(() => {
+    void playNotificationAlertSound(soundId).catch(() => {
       // Ignore sound playback failures; notification sounds are best-effort.
     });
   }, [

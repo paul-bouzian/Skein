@@ -17,8 +17,8 @@ vi.mock("../../lib/notification-sounds", () => {
     NOTIFICATION_SOUND_OPTIONS: options,
     getNotificationSoundOption: (soundId: (typeof options)[number]["id"]) =>
       options.find((option) => option.id === soundId) ?? options[0],
-    playNotificationSound: vi.fn(() => Promise.resolve()),
-    stopNotificationSoundPlayback: vi.fn(),
+    playNotificationPreviewSound: vi.fn(() => Promise.resolve()),
+    stopNotificationPreviewSound: vi.fn(),
   };
 });
 
@@ -26,8 +26,8 @@ const mockedNotificationSounds = vi.mocked(notificationSounds);
 
 describe("NotificationsSettingsTab", () => {
   beforeEach(() => {
-    mockedNotificationSounds.playNotificationSound.mockReset();
-    mockedNotificationSounds.stopNotificationSoundPlayback.mockReset();
+    mockedNotificationSounds.playNotificationPreviewSound.mockReset();
+    mockedNotificationSounds.stopNotificationPreviewSound.mockReset();
   });
 
   it("renders the desktop toggle and both sound sections", () => {
@@ -69,7 +69,7 @@ describe("NotificationsSettingsTab", () => {
     await user.click(
       screen.getByRole("button", { name: "Needs attention sound picker" }),
     );
-    await user.click(screen.getByRole("option", { name: "Chord" }));
+    await user.click(screen.getByRole("button", { name: "Chord" }));
 
     expect(onChange).toHaveBeenCalledWith({
       notificationSounds: {
@@ -95,27 +95,27 @@ describe("NotificationsSettingsTab", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Preview Glass sound" }));
-    expect(mockedNotificationSounds.playNotificationSound).toHaveBeenCalledWith(
+    expect(mockedNotificationSounds.playNotificationPreviewSound).toHaveBeenCalledWith(
       "glass",
     );
 
     await user.click(
       screen.getByRole("button", { name: "Needs attention sound picker" }),
     );
-    const listbox = screen.getByRole("listbox", {
+    const optionGroup = screen.getByRole("group", {
       name: "Needs attention sound options",
     });
     await user.click(
-      within(listbox).getByRole("button", { name: "Preview Chord sound" }),
+      within(optionGroup).getByRole("button", { name: "Preview Chord sound" }),
     );
 
-    expect(mockedNotificationSounds.playNotificationSound).toHaveBeenLastCalledWith(
-      "chord",
-    );
+    expect(
+      mockedNotificationSounds.playNotificationPreviewSound,
+    ).toHaveBeenLastCalledWith("chord");
 
     unmount();
 
-    expect(mockedNotificationSounds.stopNotificationSoundPlayback).toHaveBeenCalledTimes(
+    expect(mockedNotificationSounds.stopNotificationPreviewSound).toHaveBeenCalledTimes(
       1,
     );
   });

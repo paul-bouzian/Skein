@@ -25,7 +25,7 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
 }));
 
 vi.mock("../lib/notification-sounds", () => ({
-  playNotificationSound: vi.fn(),
+  playNotificationAlertSound: vi.fn(),
 }));
 
 const mockedNotifications = vi.mocked(notifications);
@@ -101,8 +101,8 @@ beforeEach(() => {
     value: vi.fn(() => hasFocus),
   });
   mockedNotifications.sendNotification.mockReset();
-  mockedNotificationSounds.playNotificationSound.mockReset();
-  mockedNotificationSounds.playNotificationSound.mockResolvedValue(undefined);
+  mockedNotificationSounds.playNotificationAlertSound.mockReset();
+  mockedNotificationSounds.playNotificationAlertSound.mockResolvedValue(undefined);
   useConversationStore.setState({
     ...useConversationStore.getState(),
     ...INITIAL_CONVERSATION_STATE,
@@ -139,7 +139,7 @@ describe("DesktopNotificationRuntime", () => {
     render(<DesktopNotificationRuntime />);
 
     expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
-    expect(mockedNotificationSounds.playNotificationSound).not.toHaveBeenCalled();
+    expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
   it("sends a completion notification when a thread completes in the background", async () => {
@@ -186,7 +186,7 @@ describe("DesktopNotificationRuntime", () => {
         body: "Finished working in Feature Branch.",
       });
     });
-    expect(mockedNotificationSounds.playNotificationSound).not.toHaveBeenCalled();
+    expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
   it("sends an attention notification with approval copy in the background", async () => {
@@ -235,7 +235,7 @@ describe("DesktopNotificationRuntime", () => {
         body: "Needs your approval in Feature Branch.",
       });
     });
-    expect(mockedNotificationSounds.playNotificationSound).not.toHaveBeenCalled();
+    expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
   it("suppresses unknown threads only for the first hydration update", async () => {
@@ -343,7 +343,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
-    expect(mockedNotificationSounds.playNotificationSound).not.toHaveBeenCalled();
+    expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
   it("plays the completion sound when a thread completes in the background", async () => {
@@ -391,7 +391,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotificationSounds.playNotificationSound).toHaveBeenCalledWith(
+      expect(mockedNotificationSounds.playNotificationAlertSound).toHaveBeenCalledWith(
         "chord",
       );
     });
@@ -463,7 +463,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotificationSounds.playNotificationSound).toHaveBeenCalledWith(
+      expect(mockedNotificationSounds.playNotificationAlertSound).toHaveBeenCalledWith(
         "glass",
       );
     });
@@ -516,7 +516,7 @@ describe("DesktopNotificationRuntime", () => {
       }));
     });
 
-    expect(mockedNotificationSounds.playNotificationSound).not.toHaveBeenCalled();
+    expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
   it("prefers an attention sound over a completion sound when both happen together", async () => {
@@ -611,7 +611,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotificationSounds.playNotificationSound).toHaveBeenCalledWith(
+      expect(mockedNotificationSounds.playNotificationAlertSound).toHaveBeenCalledWith(
         "glass",
       );
     });
