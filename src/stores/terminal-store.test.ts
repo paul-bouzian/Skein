@@ -374,6 +374,59 @@ describe("terminal-store", () => {
     expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(1);
   });
 
+  it("rechecks the tab cap when a reusable action tab disappears mid-launch", async () => {
+    const reusableId = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!reusableId) {
+      throw new Error("expected reusable action tab");
+    }
+    useTerminalStore.getState().markExited("pty-1");
+
+    for (let i = 0; i < MAX_TABS - 1; i += 1) {
+      await useTerminalStore.getState().openTab(ENV_A);
+    }
+
+    let resolveRun: (
+      value: Awaited<ReturnType<typeof bridge.runProjectAction>>,
+    ) => void = () => {};
+    const pendingRun = new Promise<Awaited<ReturnType<typeof bridge.runProjectAction>>>(
+      (resolve) => {
+        resolveRun = resolve;
+      },
+    );
+    mockedBridge.runProjectAction.mockImplementationOnce(() => pendingRun);
+
+    const pendingOpen = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    await useTerminalStore.getState().closeTab(ENV_A, reusableId);
+    await useTerminalStore.getState().openTab(ENV_A);
+
+    resolveRun({
+      ptyId: "pty-overflow",
+      cwd: `/path/to/${ENV_A}`,
+      actionId: "dev",
+      actionLabel: "Dev",
+      actionIcon: "play",
+    });
+
+    await expect(pendingOpen).resolves.toBeNull();
+    expect(slotForA().tabs).toHaveLength(MAX_TABS);
+    expect(slotForA().tabs.some((tab) => tab.ptyId === "pty-overflow")).toBe(false);
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-overflow",
+    });
+    expect(mockedTerminalOutputBus.dropPendingTerminalOutput).toHaveBeenCalledWith(
+      "pty-overflow",
+    );
+  });
+
   it("preserves manual action titles when workspace metadata updates", async () => {
     await useTerminalStore.getState().openActionTab(ENV_A, {
       id: "dev",

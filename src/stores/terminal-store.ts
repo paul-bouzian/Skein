@@ -272,8 +272,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const knownEnvironmentIds = get().knownEnvironmentIds;
       const environmentKnown =
         knownEnvironmentIds.length === 0 || knownEnvironmentIds.includes(environmentId);
-      const cappedOut = !reusableTab && slotAfter.tabs.length >= MAX_TABS;
-      if (!environmentKnown || cappedOut) {
+      const reusableTabStillPresent =
+        reusableTab != null && slotAfter.tabs.some((tab) => tab.id === reusableTab.id);
+      const nextTabCount = reusableTabStillPresent
+        ? slotAfter.tabs.length
+        : slotAfter.tabs.length + 1;
+      if (!environmentKnown || nextTabCount > MAX_TABS) {
         try {
           await bridge.killTerminal({ ptyId });
         } catch {
@@ -283,7 +287,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         return null;
       }
 
-      const nextTabId = reusableTab?.id ?? crypto.randomUUID();
+      const nextTabId =
+        reusableTabStillPresent && reusableTab ? reusableTab.id : crypto.randomUUID();
       const nextTab: TerminalTab = {
         id: nextTabId,
         ptyId,
@@ -298,8 +303,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
       set((state) => {
         const existing = state.byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-        const reusableTabStillPresent =
-          reusableTab != null && existing.tabs.some((tab) => tab.id === reusableTab.id);
         return {
           visible: true,
           byEnv: {
