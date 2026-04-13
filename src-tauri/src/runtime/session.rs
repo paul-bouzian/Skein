@@ -75,7 +75,6 @@ where
     child: Option<Arc<Mutex<Child>>>,
 }
 
-#[derive(Default)]
 struct SessionState {
     snapshots_by_thread: HashMap<String, ThreadConversationSnapshot>,
     local_thread_by_codex_id: HashMap<String, String>,
@@ -84,6 +83,7 @@ struct SessionState {
     pending_server_requests: HashMap<String, PendingServerRequest>,
     turn_modes_by_id: HashMap<String, CollaborationMode>,
     pending_turn_mode_by_thread: HashMap<String, CollaborationMode>,
+    stream_assistant_responses: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +129,21 @@ enum BufferedSnapshotEmitAction {
 
 static SNAPSHOT_EMIT_STATE: OnceLock<Mutex<HashMap<String, BufferedSnapshotEmit>>> =
     OnceLock::new();
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            snapshots_by_thread: HashMap::new(),
+            local_thread_by_codex_id: HashMap::new(),
+            capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
+            pending_server_requests: HashMap::new(),
+            turn_modes_by_id: HashMap::new(),
+            pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
+        }
+    }
+}
 
 impl SnapshotEmitSignature {
     fn from_snapshot(snapshot: &ThreadConversationSnapshot) -> Self {
@@ -312,6 +327,7 @@ impl RuntimeSession {
                 pending_server_requests: HashMap::new(),
                 turn_modes_by_id: HashMap::new(),
                 pending_turn_mode_by_thread: HashMap::new(),
+                stream_assistant_responses: true,
             })),
             next_request_id: AtomicU64::new(1),
             stdout_task: Mutex::new(None),
@@ -332,7 +348,10 @@ impl RuntimeSession {
     {
         let writer = Arc::new(Mutex::new(transport.writer));
         let pending = Arc::new(Mutex::new(HashMap::new()));
-        let state = Arc::new(Mutex::new(SessionState::default()));
+        let state = Arc::new(Mutex::new(SessionState {
+            stream_assistant_responses,
+            ..SessionState::default()
+        }));
 
         let stdout_task = spawn_stdout_task(
             app.clone(),
@@ -1830,6 +1849,7 @@ async fn handle_notification(
                     };
                 let maybe_snapshot = {
                     let mut state = state.lock().await;
+                    let stream_assistant_responses = state.stream_assistant_responses;
                     let Some(local_thread_id) = state
                         .local_thread_by_codex_id
                         .get(&event.thread_id)
@@ -1919,6 +1939,13 @@ async fn handle_notification(
                                 ConversationItem::Message(message) => message.id != item_id,
                                 _ => true,
                             });
+                            reconcile_snapshot_status(snapshot);
+                            Some(snapshot.clone())
+                        } else if is_started
+                            && !stream_assistant_responses
+                            && event.item.get("type").and_then(serde_json::Value::as_str)
+                                == Some("agentMessage")
+                        {
                             reconcile_snapshot_status(snapshot);
                             Some(snapshot.clone())
                         } else {
@@ -3071,6 +3098,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
         let item = json!({
             "id": "plan-item-1",
@@ -3169,6 +3197,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::from([("turn-new".to_string(), CollaborationMode::Plan)]),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         handle_notification(
@@ -3318,6 +3347,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         mark_runtime_disconnected(&None, &state).await;
@@ -3400,6 +3430,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         handle_notification(

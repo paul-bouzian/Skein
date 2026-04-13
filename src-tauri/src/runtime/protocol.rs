@@ -2437,7 +2437,12 @@ mod tests {
         let payload = initialize_params("1.2.3", true);
 
         assert_eq!(payload["capabilities"]["experimentalApi"], true);
-        assert!(payload["capabilities"]["optOutNotificationMethods"].is_null());
+        assert!(
+            payload["capabilities"]
+                .as_object()
+                .and_then(|capabilities| capabilities.get("optOutNotificationMethods"))
+                .is_none()
+        );
     }
 
     #[test]

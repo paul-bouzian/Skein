@@ -571,7 +571,7 @@ async fn assistant_message_hydrates_from_completed_item_without_live_deltas() {
     );
     runtime_context.stream_assistant_responses = false;
 
-    session
+    let send_result = session
         .send_message(
             runtime_context.clone(),
             "Buffer assistant output".to_string(),
@@ -579,6 +579,37 @@ async fn assistant_message_hydrates_from_completed_item_without_live_deltas() {
         )
         .await
         .expect("message should send");
+    runtime_context.codex_thread_id = send_result.new_codex_thread_id;
+
+    harness
+        .emit_notification(
+            "item/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "assistant-item-1",
+                    "type": "agentMessage",
+                    "text": "Partial assistant text"
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let started_snapshot = session
+        .open_thread(runtime_context.clone())
+        .await
+        .expect("snapshot should reopen after started item")
+        .snapshot;
+
+    assert!(started_snapshot.items.iter().all(|item| {
+        !matches!(
+            item,
+            crate::domain::conversation::ConversationItem::Message(message)
+                if message.id == "assistant-item-1"
+        )
+    }));
 
     harness
         .emit_notification(
@@ -610,12 +641,7 @@ async fn assistant_message_hydrates_from_completed_item_without_live_deltas() {
 
     let snapshot = wait_for_snapshot(
         &session,
-        context(
-            "thread-local-buffered",
-            Some("thr-new"),
-            CollaborationMode::Build,
-            ApprovalPolicy::AskToEdit,
-        ),
+        runtime_context.clone(),
         |snapshot| {
             snapshot.items.iter().any(|item| {
                 matches!(

@@ -190,8 +190,12 @@ pub async fn start_environment_runtime(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<RuntimeStatusSnapshot, CommandError> {
-    let runtime_target = state.workspace.environment_runtime_target(&environment_id)?;
-    Ok(state.runtime.start(&environment_id, &runtime_target).await?)
+    let environment_id = environment_id.trim();
+    if environment_id.is_empty() {
+        return Err(AppError::Validation("Environment id is required.".to_string()).into());
+    }
+    let runtime_target = state.workspace.environment_runtime_target(environment_id)?;
+    Ok(state.runtime.start(environment_id, &runtime_target).await?)
 }
 
 #[tauri::command]
@@ -219,11 +223,15 @@ pub async fn get_environment_codex_rate_limits(
     environment_id: String,
     state: State<'_, AppState>,
 ) -> Result<CodexRateLimitSnapshot, CommandError> {
-    let runtime_target = state.workspace.environment_runtime_target(&environment_id)?;
+    let environment_id = environment_id.trim();
+    if environment_id.is_empty() {
+        return Err(AppError::Validation("Environment id is required.".to_string()).into());
+    }
+    let runtime_target = state.workspace.environment_runtime_target(environment_id)?;
     Ok(state
         .runtime
         .read_account_rate_limits(
-            &environment_id,
+            environment_id,
             &runtime_target.environment_path,
             runtime_target.codex_binary_path,
         )

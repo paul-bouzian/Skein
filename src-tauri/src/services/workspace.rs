@@ -2725,6 +2725,47 @@ mod tests {
     }
 
     #[test]
+    fn thread_runtime_context_defaults_assistant_streaming_to_true() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(
+                &harness
+                    .temp_root
+                    .join("repos")
+                    .join("assistant-streaming-enabled"),
+            )
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Streaming assistant".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+
+        assert!(context.stream_assistant_responses);
+    }
+
+    #[test]
     fn persist_thread_composer_settings_can_explicitly_disable_fast_mode() {
         let harness = WorkspaceHarness::new().expect("harness");
         let repo = harness
