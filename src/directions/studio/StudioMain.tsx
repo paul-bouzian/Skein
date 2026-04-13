@@ -11,7 +11,7 @@ import {
 import { useTerminalStore } from "../../stores/terminal-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { PanelLeftIcon, PanelRightIcon, TerminalIcon } from "../../shared/Icons";
+import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
 import { ThreadTabs } from "./ThreadTabs";
 import { ThreadConversation } from "./ThreadConversation";
@@ -260,20 +260,24 @@ function ProjectView({ project }: { project: ProjectRecord }) {
 function EnvironmentView({ environment }: { environment: EnvironmentRecord }) {
   return (
     <div className="studio-env-view">
-      <div className="studio-env-view__header">
-        <EnvironmentKindBadge kind={environment.kind} />
-        <h2>{environment.name}</h2>
-        <RuntimeIndicator state={environment.runtime.state} size="md" label />
-      </div>
-      {environment.gitBranch && (
-        <p className="studio-env-view__branch">
-          Branch: <code>{environment.gitBranch}</code>
-          {environment.baseBranch && <> from <code>{environment.baseBranch}</code></>}
+      <div className="studio-env-view__center">
+        <div className="studio-env-view__icon-ring">
+          <ThreadIcon size={24} />
+        </div>
+        <h2 className="studio-env-view__name">{environment.name}</h2>
+        <div className="studio-env-view__meta">
+          <EnvironmentKindBadge kind={environment.kind} />
+          <RuntimeIndicator state={environment.runtime.state} label />
+          {environment.gitBranch && (
+            <span className="studio-env-view__branch-pill">
+              {environment.gitBranch}
+            </span>
+          )}
+        </div>
+        <p className="studio-env-view__hint">
+          Start a new thread to begin working
         </p>
-      )}
-      <p className="studio-env-view__hint">
-        Create a new thread using the + button in the tab bar above.
-      </p>
+      </div>
     </div>
   );
 }

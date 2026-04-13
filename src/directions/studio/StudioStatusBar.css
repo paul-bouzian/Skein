@@ -4,7 +4,7 @@
   justify-content: space-between;
   height: var(--tx-statusbar-height);
   padding: 0 var(--tx-space-md);
-  background: var(--tx-bg-sunken);
+  background: var(--tx-bg-base);
   border-top: 1px solid var(--tx-border-subtle);
   font-size: var(--tx-text-xs);
   color: var(--tx-text-muted);

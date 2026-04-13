@@ -8,16 +8,8 @@
   overflow: hidden;
 }
 
-.studio-shell--with-diff {
-  grid-template-columns: auto 1fr var(--tx-diff-width) auto;
-}
-
 .studio-shell--without-sidebar {
   grid-template-columns: 1fr auto;
-}
-
-.studio-shell--without-sidebar.studio-shell--with-diff {
-  grid-template-columns: 1fr var(--tx-diff-width) auto;
 }
 
 .studio-shell > .studio-statusbar {

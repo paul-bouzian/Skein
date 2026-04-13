@@ -4,7 +4,7 @@
   width: 100%;
   padding: var(--tx-space-lg);
   border: 1px solid var(--tx-border-muted);
-  border-radius: var(--tx-radius-xl);
+  border-radius: var(--tx-radius-2xl);
   background: var(--tx-bg-overlay);
   box-shadow: var(--tx-shadow-overlay);
   backdrop-filter: blur(20px);

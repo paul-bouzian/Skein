@@ -10,6 +10,13 @@ const TOKEN_BOUNDARY = /[\s([{'"`,.;:!?)}\]]/;
 const TOKEN_STOP = /[\s)\]},"'`;]/;
 const SPACE_APPEND_STOP = /[\s,.;:!?)}\]>"'`]/;
 
+function formatSlugLabel(slug: string): string {
+  return slug
+    .split(/[-_:]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export type ActiveComposerToken =
   | { kind: "prompt"; start: number; end: number; raw: string; query: string }
   | { kind: "mention"; start: number; end: number; raw: string; query: string }
@@ -196,7 +203,7 @@ export function buildAutocompleteItems(
       .map<ComposerAutocompleteItem>((skill) => ({
         id: `skill:${skill.name}`,
         group: "Skills",
-        label: skill.name,
+        label: formatSlugLabel(skill.name),
         description: skill.description,
         insertText: `$${skill.name}`,
         appendSpace: true,
@@ -220,7 +227,7 @@ export function buildAutocompleteItems(
       .map<ComposerAutocompleteItem>((app) => ({
         id: `app:${app.id}`,
         group: "Apps",
-        label: app.slug,
+        label: app.name || formatSlugLabel(app.slug),
         description: app.description ?? app.name,
         insertText: `$${app.slug}`,
         appendSpace: true,

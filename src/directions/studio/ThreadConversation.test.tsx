@@ -2498,13 +2498,13 @@ describe("ThreadConversation", () => {
     const input = await screen.findByPlaceholderText("Message Loom...");
     await user.type(input, "Use $crea");
     expect(
-      await screen.findByRole("option", { name: /create-pr/i }),
+      await screen.findByRole("option", { name: /Create Pr/i }),
     ).toBeInTheDocument();
 
     await user.keyboard("{Tab}");
     await waitFor(() => {
       expect(input).toHaveValue("Use $create-pr ");
-      expect(screen.queryByRole("option", { name: /create-pr/i })).toBeNull();
+      expect(screen.queryByRole("option", { name: /Create Pr/i })).toBeNull();
     });
 
     await user.type(input, "now");

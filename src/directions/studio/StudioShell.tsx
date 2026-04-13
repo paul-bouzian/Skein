@@ -112,7 +112,6 @@ export function StudioShell() {
       className={[
         "studio-shell",
         !projectsSidebarOpen ? "studio-shell--without-sidebar" : null,
-        diffPanelOpen ? "studio-shell--with-diff" : null,
       ]
         .filter(Boolean)
         .join(" ")}

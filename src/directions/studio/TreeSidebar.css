@@ -1,8 +1,7 @@
 .tree-sidebar {
   position: relative;
   width: var(--tx-sidebar-width);
-  background: var(--tx-bg-translucent);
-  backdrop-filter: blur(18px);
+  background: var(--tx-bg-base);
   border-right: 1px solid var(--tx-border-subtle);
   display: flex;
   flex-direction: column;
@@ -14,8 +13,8 @@
   align-items: center;
   justify-content: space-between;
   height: var(--tx-toolbar-height);
-  padding: 0 var(--tx-space-lg);
-  border-bottom: 1px solid var(--tx-border-subtle);
+  padding: 0 var(--tx-space-lg) 0 var(--tx-space-md);
+  box-shadow: inset 0 -1px 0 var(--tx-border-subtle);
   flex-shrink: 0;
 }
 
@@ -52,10 +51,9 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--tx-space-md);
+  gap: var(--tx-space-sm);
   padding: var(--tx-space-md);
   border-top: 1px solid var(--tx-border-subtle);
-  background: color-mix(in srgb, var(--tx-bg-base) 82%, transparent);
 }
 
 .tree-sidebar__notice {
@@ -119,7 +117,6 @@
 .tree-sidebar__context-menu {
   z-index: 1200;
   min-width: 190px;
-  backdrop-filter: blur(18px);
 }
 
 .tree-sidebar__context-item {
@@ -130,10 +127,12 @@
   color: var(--tx-accent);
 }
 
+/* ── Project group ── */
+
 .project-group {
   display: flex;
   flex-direction: column;
-  gap: var(--tx-space-xs);
+  gap: 2px;
   padding: var(--tx-space-sm) var(--tx-space-md);
 }
 
@@ -147,12 +146,10 @@
   gap: 2px;
   width: 100%;
   padding: 2px;
-  border-radius: var(--tx-radius-lg);
+  border-radius: var(--tx-radius-sm);
   cursor: default;
   touch-action: none;
-  transition:
-    background var(--tx-transition-fast),
-    border-color var(--tx-transition-fast);
+  transition: background var(--tx-transition-fast);
 }
 
 .project-group--dragging,
@@ -198,7 +195,7 @@
   flex: 1;
   min-width: 0;
   padding: calc(var(--tx-space-sm) - 2px) var(--tx-space-sm);
-  border-radius: calc(var(--tx-radius-lg) - 2px);
+  border-radius: calc(var(--tx-radius-sm) - 2px);
   text-align: left;
   background: transparent;
   cursor: inherit;
@@ -221,15 +218,15 @@
   background: var(--tx-bg-hover);
 }
 
-.project-group--selected .project-group__header-shell {
-  background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
+.project-group--selected .project-group__name {
+  color: var(--tx-text-primary);
 }
 
 .project-group__create {
   width: 24px;
   height: 24px;
   flex-shrink: 0;
-  border-radius: var(--tx-radius-md);
+  border-radius: var(--tx-radius-sm);
   color: var(--tx-text-muted);
   margin-right: 4px;
   transition:
@@ -275,35 +272,34 @@
 }
 
 .project-group__branch {
-  font-size: var(--tx-text-xs);
-  color: var(--tx-text-secondary);
-}
-
-.project-group__branch {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--tx-text-xs);
   font-family: var(--tx-font-mono);
+  color: var(--tx-text-secondary);
 }
+
+/* ── Environment items ── */
 
 .project-group__environments {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-left: 18px;
+  gap: 1px;
+  margin-left: 12px;
   padding-left: 10px;
 }
 
 .project-group__environments::before {
   content: "";
   position: absolute;
-  top: 2px;
-  bottom: 2px;
+  top: 4px;
+  bottom: 4px;
   left: 0;
   width: 1px;
-  background: color-mix(in srgb, var(--tx-border-subtle) 84%, transparent);
+  background: var(--tx-border-subtle);
 }
 
 .environment-item-shell {
@@ -313,24 +309,23 @@
   width: 100%;
   cursor: default;
   touch-action: none;
-  padding: 7px var(--tx-space-md);
-  border-radius: var(--tx-radius-md);
-  background: color-mix(in srgb, var(--tx-bg-raised) 28%, transparent);
-  border: 1px solid transparent;
-  transition:
-    background var(--tx-transition-fast),
-    border-color var(--tx-transition-fast);
+  padding: 5px var(--tx-space-sm);
+  border-radius: var(--tx-radius-sm);
+  background: transparent;
+  transition: background var(--tx-transition-fast);
 }
 
 .environment-item-shell:hover {
-  background: color-mix(in srgb, var(--tx-bg-hover) 88%, var(--tx-bg-raised));
-  border-color: var(--tx-border-subtle);
+  background: var(--tx-bg-hover);
 }
 
 .environment-item-shell--selected,
 .environment-item-shell--selected:hover {
-  background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
-  border-color: color-mix(in srgb, var(--tx-accent) 25%, transparent);
+  background: var(--tx-bg-active);
+}
+
+.environment-item-shell--selected .environment-item__name {
+  font-weight: var(--tx-weight-semibold);
 }
 
 .environment-item {
@@ -359,7 +354,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--tx-radius-sm);
+  border-radius: var(--tx-radius-xs);
 }
 
 .environment-item__icon-button {

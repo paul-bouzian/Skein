@@ -71,7 +71,7 @@
   display: grid;
   gap: 4px;
   overscroll-behavior: contain;
-  box-shadow: var(--tx-shadow-md);
+  box-shadow: var(--tx-shadow-lg);
 }
 
 .tx-picker__option {
@@ -92,6 +92,8 @@
   flex-shrink: 0;
 }
 
+/* ── Compact mode (used in composer) ── */
+
 .tx-picker--compact {
   gap: 0;
 }
@@ -104,11 +106,18 @@
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-semibold);
   border-radius: var(--tx-radius-sm);
-  gap: 4px;
+  gap: 3px;
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
 }
 
 .tx-picker--compact .tx-picker__trigger:hover:not(:disabled),
 .tx-picker--compact.tx-picker--open .tx-picker__trigger {
   background: var(--tx-bg-hover);
   border-color: transparent;
+}
+
+.tx-picker--compact .tx-picker__trigger:hover:not(:disabled) .tx-picker__value {
+  color: var(--tx-text-primary);
 }

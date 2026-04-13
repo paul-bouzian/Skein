@@ -459,15 +459,17 @@ export function InlineComposer({
 
   return (
     <div className={`tx-composer ${isPlanMode ? "tx-composer--plan" : ""}`}>
-      {hasAutocompleteItems ? (
-        <div ref={menuRef}>
-          <ComposerAutocompleteMenu
-            items={autocompleteItems}
-            activeIndex={activeIndex}
-            onSelect={applyItem}
-          />
-        </div>
-      ) : null}
+      <div className="tx-composer__menu-anchor">
+        {hasAutocompleteItems ? (
+          <div ref={menuRef} className="tx-composer__menu-portal">
+            <ComposerAutocompleteMenu
+              items={autocompleteItems}
+              activeIndex={activeIndex}
+              onSelect={applyItem}
+            />
+          </div>
+        ) : null}
+      </div>
 
       <div
         ref={dropTargetRef}
@@ -707,6 +709,11 @@ export function InlineComposer({
         <div className="tx-composer__controls-right">
           <ContextWindowMeter usage={tokenUsage} />
           <div className="tx-composer__voice-control">
+            {isRecording ? (
+              <span className="tx-composer__voice-duration" aria-hidden="true">
+                {voiceDurationLabel}
+              </span>
+            ) : null}
             <span
               className="tx-composer__voice-button-anchor"
               title={voiceButtonTitle}
@@ -728,11 +735,6 @@ export function InlineComposer({
                 )}
               </button>
             </span>
-            {isRecording ? (
-              <span className="tx-composer__voice-duration" aria-hidden="true">
-                {voiceDurationLabel}
-              </span>
-            ) : null}
             <span
               className="tx-composer__voice-live-status"
               role="status"
@@ -748,7 +750,7 @@ export function InlineComposer({
               aria-label="Stop generation"
               onClick={onInterrupt}
             >
-              <StopIcon size={10} />
+              <StopIcon size={12} />
             </button>
           ) : (
             <button
@@ -758,7 +760,7 @@ export function InlineComposer({
               disabled={sendDisabled}
               onClick={sendDraft}
             >
-              <ArrowUpIcon size={14} />
+              <ArrowUpIcon size={18} />
             </button>
           )}
         </div>

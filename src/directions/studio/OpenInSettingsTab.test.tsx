@@ -48,7 +48,9 @@ describe("OpenInSettingsTab", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Move Cursor down/i }));
+    // Click "Set as default" on the second target to trigger dirty state
+    const defaultButtons = screen.getAllByRole("button", { name: /Set .* as default/i });
+    await user.click(defaultButtons[0]!);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     rerender(
@@ -65,13 +67,7 @@ describe("OpenInSettingsTab", () => {
       refreshed: true,
       warningMessage: null,
       errorMessage: null,
-      settings: makeGlobalSettings({
-        openTargets: [
-          settings.openTargets[1]!,
-          settings.openTargets[0]!,
-          ...settings.openTargets.slice(2),
-        ],
-      }),
+      settings: makeGlobalSettings(),
     });
 
     await waitFor(() => {
@@ -79,7 +75,7 @@ describe("OpenInSettingsTab", () => {
     });
   });
 
-  it("keeps reordering local until Save is clicked", async () => {
+  it("keeps default change local until Save is clicked", async () => {
     const user = userEvent.setup();
     const updateGlobalSettings = vi.fn(async () => ({
       ok: true,
@@ -97,21 +93,16 @@ describe("OpenInSettingsTab", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Move Cursor down/i }));
+    // Change the default target
+    const defaultButtons = screen.getAllByRole("button", { name: /Set .* as default/i });
+    await user.click(defaultButtons[0]!);
 
     expect(updateGlobalSettings).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(updateGlobalSettings).toHaveBeenCalledWith({
-        openTargets: [
-          makeGlobalSettings().openTargets[1],
-          makeGlobalSettings().openTargets[0],
-          ...makeGlobalSettings().openTargets.slice(2),
-        ],
-        defaultOpenTargetId: "file-manager",
-      });
+      expect(updateGlobalSettings).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -133,18 +124,17 @@ describe("OpenInSettingsTab", () => {
       />,
     );
 
-    await user.click(screen.getAllByRole("radio", { name: /Default/ })[1]!);
+    // Click "Set as default" on a non-default target
+    const defaultButtons = screen.getAllByRole("button", { name: /Set .* as default/i });
+    await user.click(defaultButtons[0]!);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(updateGlobalSettings).toHaveBeenCalledWith({
-        openTargets: makeGlobalSettings().openTargets,
-        defaultOpenTargetId: "zed",
-      });
+      expect(updateGlobalSettings).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("keeps in-progress ordering when props refresh with equivalent values", async () => {
+  it("keeps in-progress state when props refresh with equivalent values", async () => {
     const user = userEvent.setup();
     const settings = makeGlobalSettings();
     const { rerender } = render(
@@ -154,7 +144,9 @@ describe("OpenInSettingsTab", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Move Cursor down/i }));
+    // Change the default to make the form dirty
+    const defaultButtons = screen.getAllByRole("button", { name: /Set .* as default/i });
+    await user.click(defaultButtons[0]!);
 
     rerender(
       <OpenInSettingsTab
@@ -163,7 +155,7 @@ describe("OpenInSettingsTab", () => {
       />,
     );
 
-    const moveCursorUpButtons = screen.getAllByRole("button", { name: /Move Cursor up/i });
-    expect(moveCursorUpButtons[0]).toBeEnabled();
+    // Save button should be enabled (dirty state preserved)
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 });

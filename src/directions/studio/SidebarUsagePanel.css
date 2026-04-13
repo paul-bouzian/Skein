@@ -5,7 +5,7 @@
   padding: var(--tx-space-md);
   border: 1px solid var(--tx-border-subtle);
   border-radius: var(--tx-radius-lg);
-  background: color-mix(in srgb, var(--tx-bg-raised) 72%, transparent);
+  background: color-mix(in srgb, var(--tx-bg-raised) 60%, transparent);
 }
 
 .sidebar-usage__rows {
@@ -45,7 +45,7 @@
 
 .sidebar-usage__bar {
   width: 100%;
-  height: 7px;
+  height: 5px;
   overflow: hidden;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tx-bg-hover) 88%, transparent);
