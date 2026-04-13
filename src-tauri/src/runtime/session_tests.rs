@@ -48,7 +48,7 @@ impl FakeCodexHarness {
 
         let session = RuntimeSession::from_test_transport(
             "env-1".to_string(),
-            "/tmp/loom".to_string(),
+            "/tmp/skein".to_string(),
             "0.1.0".to_string(),
             client_writer,
             client_reader,
@@ -199,15 +199,15 @@ fn spawn_fake_codex(
                         .and_then(Value::as_array)
                         .and_then(|cwds| cwds.first())
                         .and_then(Value::as_str)
-                        .unwrap_or("/tmp/loom");
+                        .unwrap_or("/tmp/skein");
                     json!({
                         "data": [{
                             "cwd": cwd,
                             "skills": [{
-                                "name": "loom-standards",
-                                "description": "Loom standards",
+                                "name": "skein-standards",
+                                "description": "Skein standards",
                                 "enabled": true,
-                                "path": format!("{cwd}/.codex/skills/loom-standards/SKILL.md"),
+                                "path": format!("{cwd}/.codex/skills/skein-standards/SKILL.md"),
                                 "interface": {
                                     "shortDescription": "Standards"
                                 }
@@ -231,7 +231,7 @@ fn spawn_fake_codex(
                         .and_then(Value::as_array)
                         .and_then(|roots| roots.first())
                         .and_then(Value::as_str)
-                        .unwrap_or("/tmp/loom");
+                        .unwrap_or("/tmp/skein");
                     json!({
                         "files": [
                             {
@@ -414,7 +414,7 @@ fn context(
         codex_thread_id,
         collaboration_mode,
         approval_policy,
-        "/tmp/loom",
+        "/tmp/skein",
     )
 }
 
@@ -443,7 +443,7 @@ fn context_with_environment(
 
 fn unique_test_environment_path(suffix: &str) -> String {
     std::env::temp_dir()
-        .join(format!("loom-{suffix}-{}", uuid::Uuid::now_v7()))
+        .join(format!("skein-{suffix}-{}", uuid::Uuid::now_v7()))
         .to_string_lossy()
         .into_owned()
 }
@@ -693,7 +693,7 @@ async fn send_message_expands_inline_prompts_and_emits_native_skills_and_mention
         &environment_path,
     );
     let visible_text =
-        "Please run /prompts:inline-payload(TARGET=\"composer\") with $loom-standards and $github";
+        "Please run /prompts:inline-payload(TARGET=\"composer\") with $skein-standards and $github";
 
     session
         .send_message(runtime_context, visible_text.to_string(), Vec::new())
@@ -706,7 +706,7 @@ async fn send_message_expands_inline_prompts_and_emits_native_skills_and_mention
         .find(|request| request.method == "turn/start")
         .expect("turn/start should be issued");
     let expanded = "Review the composer flow thoroughly.";
-    let expected_text = format!("Please run {expanded} with $loom-standards and $github");
+    let expected_text = format!("Please run {expanded} with $skein-standards and $github");
 
     assert_eq!(turn_start.params["input"][0]["text"], json!(expected_text));
     assert_eq!(
@@ -723,9 +723,9 @@ async fn send_message_expands_inline_prompts_and_emits_native_skills_and_mention
         turn_start.params["input"][1],
         json!({
             "type": "skill",
-            "name": "loom-standards",
+            "name": "skein-standards",
             "path": format!(
-                "{environment_path}/.codex/skills/loom-standards/SKILL.md"
+                "{environment_path}/.codex/skills/skein-standards/SKILL.md"
             )
         })
     );

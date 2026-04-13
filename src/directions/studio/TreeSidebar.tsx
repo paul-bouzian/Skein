@@ -6,6 +6,7 @@ import {
   deriveEnvironmentConversationStatus,
   indicatorToneForConversationStatus,
 } from "../../lib/conversation-status";
+import { APP_NAME } from "../../lib/app-identity";
 import {
   useWorkspaceStore,
   selectProjects,
@@ -57,7 +58,7 @@ type ContextMenuState = {
 };
 
 const PROJECT_REMOVAL_BLOCKED_MESSAGE =
-  "Delete this project's worktrees before removing it from Loom.";
+  `Delete this project's worktrees before removing it from ${APP_NAME}.`;
 const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
 
 export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggleTheme }: Props) {
@@ -163,7 +164,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     }
 
     const approved = await confirm(
-      `Remove "${projectName}" from Loom? The repository stays on disk. Loom may also remove its empty managed worktree folder.`,
+      `Remove "${projectName}" from ${APP_NAME}? The repository stays on disk. ${APP_NAME} may also remove its empty managed worktree folder.`,
       {
         title: PROJECT_REMOVAL_DIALOG_TITLE,
         kind: "warning",
@@ -491,7 +492,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   )
                 }
               >
-                Remove from Loom
+                {`Remove from ${APP_NAME}`}
               </button>
             ) : (
               <button

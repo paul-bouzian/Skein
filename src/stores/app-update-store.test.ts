@@ -68,7 +68,7 @@ describe("app-update-store", () => {
     expect(useAppUpdateStore.getState().state).toBe("available");
     expect(useAppUpdateStore.getState().noticeVisible).toBe(true);
     expect(useAppUpdateStore.getState().snapshot?.releaseUrl).toBe(
-      "https://github.com/paul-bouzian/Loom/releases/tag/v0.2.0",
+      "https://github.com/paul-bouzian/Skein/releases/tag/v0.2.0",
     );
   });
 
@@ -151,7 +151,7 @@ describe("app-update-store", () => {
     await useAppUpdateStore.getState().viewChanges();
 
     expect(openUrlMock).toHaveBeenCalledWith(
-      "https://github.com/paul-bouzian/Loom/releases/tag/v0.2.0",
+      "https://github.com/paul-bouzian/Skein/releases/tag/v0.2.0",
     );
   });
 

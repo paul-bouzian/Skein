@@ -951,10 +951,10 @@ mod tests {
     #[test]
     fn unknown_prompts_do_not_hide_skill_or_app_mentions() {
         let resolved = resolve_composer_text(
-            "Run /prompts:unknown($loom-standards, $github)",
+            "Run /prompts:unknown($skein-standards, $github)",
             &[],
             &[SkillBinding {
-                name: "loom-standards".to_string(),
+                name: "skein-standards".to_string(),
                 description: "Standards".to_string(),
                 path: "/tmp/skill".to_string(),
             }],
@@ -971,7 +971,7 @@ mod tests {
 
         assert_eq!(
             resolved.text,
-            "Run /prompts:unknown($loom-standards, $github)"
+            "Run /prompts:unknown($skein-standards, $github)"
         );
         assert_eq!(resolved.skills.len(), 1);
         assert_eq!(resolved.mentions.len(), 1);
@@ -1010,10 +1010,10 @@ mod tests {
     #[test]
     fn resolves_unique_skills_and_apps_without_duplicates() {
         let resolved = resolve_composer_text(
-            "Run $loom-standards and $github then $loom-standards again.",
+            "Run $skein-standards and $github then $skein-standards again.",
             &[],
             &[SkillBinding {
-                name: "loom-standards".to_string(),
+                name: "skein-standards".to_string(),
                 description: "Standards".to_string(),
                 path: "/tmp/skill".to_string(),
             }],

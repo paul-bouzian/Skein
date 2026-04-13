@@ -45,12 +45,12 @@ describe("StudioStatusBar", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       bootstrapStatus: {
-        appName: "Loom",
+        appName: "Skein",
         appVersion: "1.2.3",
         backend: "tauri",
         platform: "darwin",
-        appDataDir: "/tmp/loom-data",
-        databasePath: "/tmp/loom-data/loom.sqlite3",
+        appDataDir: "/tmp/skein-data",
+        databasePath: "/tmp/skein-data/skein.sqlite3",
         projectCount: 1,
         environmentCount: 2,
         threadCount: 2,
@@ -62,7 +62,7 @@ describe("StudioStatusBar", () => {
 
     const { container } = render(<StudioStatusBar />);
 
-    expect(screen.getByText("Loom 1.2.3")).toBeInTheDocument();
+    expect(screen.getByText("Skein 1.2.3")).toBeInTheDocument();
     expect(screen.queryByText("No runtimes active")).toBeNull();
     expect(container.querySelector(".studio-statusbar__runtimes")).toBeNull();
     expect(container.querySelector(".studio-statusbar__runtime-item")).toBeNull();

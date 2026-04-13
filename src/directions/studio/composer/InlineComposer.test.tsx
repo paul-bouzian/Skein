@@ -463,7 +463,7 @@ describe("InlineComposer voice dictation", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
     transcription.resolve({ text: "voice note" });
-    expect(screen.getByPlaceholderText("Message Loom...")).toHaveValue("");
+    expect(screen.getByPlaceholderText("Message Skein...")).toHaveValue("");
 
     await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
 
@@ -539,7 +539,7 @@ describe("InlineComposer image attachments", () => {
     try {
       renderComposer("");
 
-      const input = await screen.findByPlaceholderText("Message Loom...");
+      const input = await screen.findByPlaceholderText("Message Skein...");
       fireEvent.paste(input, {
         clipboardData: {
           items: [
@@ -594,7 +594,7 @@ describe("InlineComposer image attachments", () => {
     try {
       renderComposerWithDynamicDisabledState("");
 
-      const input = await screen.findByPlaceholderText("Message Loom...");
+      const input = await screen.findByPlaceholderText("Message Skein...");
       fireEvent.paste(input, {
         clipboardData: {
           items: [

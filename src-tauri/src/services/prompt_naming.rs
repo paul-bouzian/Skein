@@ -85,7 +85,7 @@ pub fn generate_first_prompt_naming(
     let binary = resolve_codex_binary_path(input.binary_path)?;
     let reasoning_config = format!("model_reasoning_effort=\"{NAMING_REASONING_EFFORT}\"");
     let output_path = std::env::temp_dir().join(format!(
-        "loom-first-prompt-naming-{}.json",
+        "skein-first-prompt-naming-{}.json",
         uuid::Uuid::now_v7()
     ));
     let output_guard = TempFileGuard::new(output_path.clone());

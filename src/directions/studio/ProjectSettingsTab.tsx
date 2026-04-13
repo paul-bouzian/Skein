@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
+import { APP_NAME } from "../../lib/app-identity";
 import type { ProjectRecord, ProjectSettingsPatch } from "../../lib/types";
 import { ChevronRightIcon } from "../../shared/Icons";
 
@@ -101,8 +102,8 @@ export function ProjectSettingsTab({
                     Setup Script
                   </label>
                   <p className="settings-field__help">
-                    Runs once after Loom creates the worktree, with the new
-                    worktree as the current directory. It runs in the
+                    Runs once after {APP_NAME} creates the worktree, with the
+                    new worktree as the current directory. It runs in the
                     background and does not block opening the thread.
                   </p>
                   <textarea
@@ -135,9 +136,9 @@ export function ProjectSettingsTab({
                     Teardown Script
                   </label>
                   <p className="settings-field__help">
-                    Runs after Loom deletes the worktree, from the project
-                    root. Context is exposed through `LOOM_*` environment
-                    variables.
+                    Runs after {APP_NAME} deletes the worktree, from the project
+                    root. Context is exposed through `SKEIN_*`
+                    environment variables.
                   </p>
                   <textarea
                     id={`${project.id}-teardown-script`}

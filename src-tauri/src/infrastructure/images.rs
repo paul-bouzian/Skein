@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn icon_data_url_embeds_the_file_as_base64() {
         let temp_dir = std::env::temp_dir().join(format!(
-            "loom-icon-{}",
+            "skein-icon-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp directory should exist");
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn image_data_url_rejects_files_that_exceed_the_preview_limit() {
         let temp_dir = std::env::temp_dir().join(format!(
-            "loom-image-limit-{}",
+            "skein-image-limit-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         std::fs::create_dir_all(&temp_dir).expect("temp directory should exist");

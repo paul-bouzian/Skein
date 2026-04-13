@@ -37,6 +37,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = app_identity::best_effort_rename_installed_bundle() {
+                warn!("failed to rename installed Skein bundle during startup: {error}");
+            }
+
             let app_state = state::AppState::new(app.handle())?;
             #[cfg(target_os = "macos")]
             if let Err(error) = menu::sync_settings_menu_shortcut(

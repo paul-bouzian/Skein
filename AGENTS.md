@@ -1,10 +1,10 @@
-# Loom Agent Guide
+# Skein Agent Guide
 
 This file is the working contract for agents in this repository. Read it before making changes.
 
 ## Project Snapshot
 
-Loom is a Codex-first macOS desktop app built with:
+Skein is a Codex-first macOS desktop app built with:
 
 - `Tauri v2`
 - `React 19`
@@ -75,7 +75,7 @@ Do not clone another app visually. Reuse behavior and product framing, not brand
 
 ### Local docs
 
-- `.codex/skills/loom-standards/SKILL.md`
+- `.codex/skills/skein-standards/SKILL.md`
 
 Local-only engineering or project notes may exist in `docs/`, but they are not part of the public repository contract and should not be assumed to be tracked.
 
@@ -245,7 +245,7 @@ When implementing a new Codex-facing feature:
 
 1. Inspect the current local implementation
 2. Inspect the official behavior / reference repos
-3. Extend the canonical Loom path
+3. Extend the canonical Skein path
 4. Add regression coverage
 5. Run the completion gates
 

@@ -1,3 +1,4 @@
+import { APP_NAME } from "../../lib/app-identity";
 import type { AppUpdateSnapshot } from "../../lib/types";
 import { useAppUpdateStore } from "../../stores/app-update-store";
 import { CloseIcon, DownloadIcon } from "../../shared/Icons";
@@ -31,10 +32,10 @@ export function AppUpdateNotice() {
     state === "checking"
       ? "Checking for updates"
       : state === "latest"
-        ? "Loom is up to date"
+        ? `${APP_NAME} is up to date`
         : state === "error"
           ? "Update check failed"
-          : `Loom ${snapshot?.availableVersion ?? ""}`.trim();
+          : `${APP_NAME} ${snapshot?.availableVersion ?? ""}`.trim();
   const meta = snapshot
     ? `Installed ${snapshot.currentVersion}${snapshot.releaseDate ? ` • ${formatReleaseDate(snapshot)}` : ""}`
     : null;
@@ -72,7 +73,9 @@ export function AppUpdateNotice() {
       ) : null}
 
       {state === "latest" ? (
-        <p className="tx-update-notice__meta">Loom is already up to date.</p>
+        <p className="tx-update-notice__meta">
+          {APP_NAME} is already up to date.
+        </p>
       ) : null}
 
       {state === "error" ? (

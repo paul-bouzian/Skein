@@ -12,6 +12,7 @@ import {
   getThreadComposerCatalog,
   searchThreadFiles,
 } from "../../../lib/bridge";
+import { APP_NAME } from "../../../lib/app-identity";
 import type {
   ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
@@ -22,15 +23,7 @@ import type {
   ThreadComposerCatalog,
   ThreadTokenUsageSnapshot,
 } from "../../../lib/types";
-import {
-  ArrowUpIcon,
-  BoltIcon,
-  CloseIcon,
-  ImageIcon,
-  MapIcon,
-  MicIcon,
-  StopIcon,
-} from "../../../shared/Icons";
+import { ArrowUpIcon, BoltIcon, CloseIcon, ImageIcon, MapIcon, MicIcon, StopIcon } from "../../../shared/Icons";
 import { Tooltip } from "../../../shared/Tooltip";
 import { ComposerPicker } from "../ComposerPicker";
 import { ContextWindowMeter } from "../ContextWindowMeter";
@@ -154,7 +147,7 @@ export function InlineComposer({
   const baseControlsDisabled = isBusy || isSending || disabled;
   const placeholder = isRefiningPlan
     ? "Refine the proposed plan..."
-    : "Message Loom...";
+    : `Message ${APP_NAME}...`;
   const selectedModel = useMemo(
     () =>
       modelOptions.find((candidate) => candidate.id === composer.model) ?? null,
@@ -511,7 +504,7 @@ export function InlineComposer({
             rows={1}
             value={draft}
             aria-label={
-              isRefiningPlan ? "Refine the proposed plan" : "Message Loom"
+              isRefiningPlan ? "Refine the proposed plan" : `Message ${APP_NAME}`
             }
             placeholder={placeholder}
             disabled={inputDisabled}

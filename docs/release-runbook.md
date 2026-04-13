@@ -1,41 +1,42 @@
-# Loom Release Runbook
+# Skein Release Runbook
 
-This runbook is the canonical path for cutting Loom releases while GitHub-hosted macOS runners remain unreliable or blocked by billing. It assumes the repository name is `paul-bouzian/Loom` and the first official release is `v0.1.0`.
+This runbook is the canonical path for cutting Skein releases while GitHub-hosted macOS runners remain unreliable or blocked by billing. The current release plumbing publishes from `paul-bouzian/Skein`.
 
 ## Release Target
 
-- product name: `Loom`
-- bundle id: `com.paulbouzian.loom`
+- product name: `Skein`
+- bundle id: `com.paulbouzian.skein`
 - current official target: `v0.1.0`
 - primary distribution: macOS Apple Silicon
 - release flow: local signed + notarized build, then GitHub upload
+- compatibility note: release assets, the bundle name, and the bundle identifier should use `Skein`; installed data migrates forward from the previous Loom and ThreadEx identifiers
 
 ## Local Inputs
 
 - Developer ID certificate export:
-  - `${LOOM_APPLE_CERTIFICATE_P12}`
+  - `${SKEIN_APPLE_CERTIFICATE_P12}`
 - App Store Connect API key:
-  - `${LOOM_APPLE_API_KEY_PATH}`
+  - `${SKEIN_APPLE_API_KEY_PATH}`
 - App Store Connect API key metadata:
-  - `${LOOM_APPLE_API_KEY_ID}`
-  - `${LOOM_APPLE_API_ISSUER}`
+  - `${SKEIN_APPLE_API_KEY_ID}`
+  - `${SKEIN_APPLE_API_ISSUER}`
 - updater private key:
-  - `~/.loom/release/loom-updater.key`
+  - `~/.skein/release/skein-updater.key`
 - updater private key password:
-  - `~/.loom/release/tauri-updater-password.txt`
+  - `~/.skein/release/tauri-updater-password.txt`
 
 Suggested local exports:
 
 ```bash
-export LOOM_APPLE_CERTIFICATE_P12="$HOME/Documents/loom-developer-id.p12"
-export LOOM_APPLE_API_KEY_PATH="$HOME/Downloads/AuthKey_XXXXXXXXXX.p8"
-export LOOM_APPLE_API_KEY_ID="YOUR_KEY_ID"
-export LOOM_APPLE_API_ISSUER="YOUR_ISSUER_ID"
+export SKEIN_APPLE_CERTIFICATE_P12="$HOME/Documents/skein-developer-id.p12"
+export SKEIN_APPLE_API_KEY_PATH="$HOME/Downloads/AuthKey_XXXXXXXXXX.p8"
+export SKEIN_APPLE_API_KEY_ID="YOUR_KEY_ID"
+export SKEIN_APPLE_API_ISSUER="YOUR_ISSUER_ID"
 ```
 
 ## One-Time Reset Before The Official `v0.1.0`
 
-Older unpublished attempts used `v0.1.0` and `v0.1.1` tags. Clean them before reusing `v0.1.0` as the first real Loom release.
+Older unpublished attempts used `v0.1.0` and `v0.1.1` tags. Clean them before reusing `v0.1.0` as the first real Skein release.
 
 ```bash
 git tag -d v0.1.0 v0.1.1 2>/dev/null || true
@@ -79,19 +80,21 @@ bun run tauri build --target aarch64-apple-darwin --bundles app
 
 The signed app bundle should exist at:
 
-- `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app`
+- `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app`
+
+Installed Loom copies still update in place because the Tauri updater resolves the target from the currently running executable path. That does not require Skein releases to keep Loom-named artifacts.
 
 Create the notarization archive and submit it:
 
 ```bash
 ditto -c -k --keepParent \
-  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
-  release-artifacts/Loom-notary.zip
+  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app \
+  release-artifacts/Skein-notary.zip
 
-xcrun notarytool submit release-artifacts/Loom-notary.zip \
-  --key "$LOOM_APPLE_API_KEY_PATH" \
-  --key-id "$LOOM_APPLE_API_KEY_ID" \
-  --issuer "$LOOM_APPLE_API_ISSUER" \
+xcrun notarytool submit release-artifacts/Skein-notary.zip \
+  --key "$SKEIN_APPLE_API_KEY_PATH" \
+  --key-id "$SKEIN_APPLE_API_KEY_ID" \
+  --issuer "$SKEIN_APPLE_API_ISSUER" \
   --wait \
   --output-format json
 ```
@@ -100,52 +103,52 @@ If Apple is slow, check status manually:
 
 ```bash
 xcrun notarytool history \
-  --key "$LOOM_APPLE_API_KEY_PATH" \
-  --key-id "$LOOM_APPLE_API_KEY_ID" \
-  --issuer "$LOOM_APPLE_API_ISSUER" \
+  --key "$SKEIN_APPLE_API_KEY_PATH" \
+  --key-id "$SKEIN_APPLE_API_KEY_ID" \
+  --issuer "$SKEIN_APPLE_API_ISSUER" \
   --output-format json
 ```
 
 Once accepted:
 
 ```bash
-xcrun stapler staple src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app
+xcrun stapler staple src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app
 ```
 
 ## Package Release Artifacts
 
 ```bash
 mkdir -p release-artifacts release-artifacts/dmg-root
-ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
-  release-artifacts/dmg-root/Loom.app
+ditto src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app \
+  release-artifacts/dmg-root/Skein.app
 ditto -c -k --keepParent \
-  src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app \
-  release-artifacts/Loom.zip
+  release-artifacts/dmg-root/Skein.app \
+  release-artifacts/Skein.zip
 hdiutil create \
-  -volname "Loom" \
+  -volname "Skein" \
   -srcfolder release-artifacts/dmg-root \
   -ov \
   -format UDZO \
-  release-artifacts/Loom_0.1.0_aarch64.dmg
+  release-artifacts/Skein_0.1.0_aarch64.dmg
 COPYFILE_DISABLE=1 tar -czf \
-  release-artifacts/Loom.app.tar.gz \
+  release-artifacts/Skein.app.tar.gz \
   -C src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
-  Loom.app
+  Skein.app
 ```
 
 Sign the updater archive:
 
 ```bash
 bun run tauri signer sign -- \
-  -f "$HOME/.loom/release/loom-updater.key" \
-  -p "$(cat "$HOME/.loom/release/tauri-updater-password.txt")" \
-  release-artifacts/Loom.app.tar.gz
+  -f "$HOME/.skein/release/skein-updater.key" \
+  -p "$(cat "$HOME/.skein/release/tauri-updater-password.txt")" \
+  release-artifacts/Skein.app.tar.gz
 ```
 
 Generate release notes and `latest.json`:
 
 ```bash
-gh api "repos/paul-bouzian/Loom/releases/generate-notes" \
+gh api "repos/paul-bouzian/Skein/releases/generate-notes" \
   -X POST \
   -F "tag_name=v0.1.0" \
   -F "target_commitish=$(git rev-parse HEAD)" \
@@ -158,11 +161,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-repo = "paul-bouzian/Loom"
+repo = "paul-bouzian/Skein"
 version = "0.1.0"
 tag = "v0.1.0"
 notes = Path("release-artifacts/release-notes.md").read_text().strip()
-signature = Path("release-artifacts/Loom.app.tar.gz.sig").read_text().strip()
+signature = Path("release-artifacts/Skein.app.tar.gz.sig").read_text().strip()
 payload = {
   "version": version,
   "notes": notes,
@@ -170,7 +173,7 @@ payload = {
   "platforms": {
     "darwin-aarch64": {
       "signature": signature,
-      "url": f"https://github.com/{repo}/releases/download/{tag}/Loom.app.tar.gz",
+      "url": f"https://github.com/{repo}/releases/download/{tag}/Skein.app.tar.gz",
     }
   },
 }
@@ -182,13 +185,13 @@ PY
 
 ```bash
 gh release create v0.1.0 \
-  --title "Loom v0.1.0" \
+  --title "Skein v0.1.0" \
   --notes-file release-artifacts/release-notes.md \
   --target "$(git rev-parse HEAD)" \
-  release-artifacts/Loom.zip \
-  release-artifacts/Loom_0.1.0_aarch64.dmg \
-  release-artifacts/Loom.app.tar.gz \
-  release-artifacts/Loom.app.tar.gz.sig \
+  release-artifacts/Skein.zip \
+  release-artifacts/Skein_0.1.0_aarch64.dmg \
+  release-artifacts/Skein.app.tar.gz \
+  release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json
 ```
 
@@ -196,14 +199,14 @@ If the release already exists:
 
 ```bash
 gh release edit v0.1.0 \
-  --title "Loom v0.1.0" \
+  --title "Skein v0.1.0" \
   --notes-file release-artifacts/release-notes.md
 
 gh release upload v0.1.0 \
-  release-artifacts/Loom.zip \
-  release-artifacts/Loom_0.1.0_aarch64.dmg \
-  release-artifacts/Loom.app.tar.gz \
-  release-artifacts/Loom.app.tar.gz.sig \
+  release-artifacts/Skein.zip \
+  release-artifacts/Skein_0.1.0_aarch64.dmg \
+  release-artifacts/Skein.app.tar.gz \
+  release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json \
   --clobber
 ```
@@ -214,8 +217,9 @@ gh release upload v0.1.0 \
 - `cargo test --manifest-path src-tauri/Cargo.toml`
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`
 - bundled app launches from `/Applications`
+- manual downloads are published as `Skein.zip`, `Skein_<version>_aarch64.dmg`, and `Skein.app.tar.gz`
 - Codex runtime works from Finder launch
-- updater notice links target `paul-bouzian/Loom`
+- updater notice links target `paul-bouzian/Skein`
 
 ## Known External Risk
 

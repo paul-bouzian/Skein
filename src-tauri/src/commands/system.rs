@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
+use tracing::warn;
 
 use crate::app_identity::APP_NAME;
 use crate::error::{AppError, CommandError};
@@ -59,6 +60,13 @@ pub async fn get_bootstrap_status(
 
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
+    #[cfg(target_os = "macos")]
+    match crate::app_identity::restart_from_canonical_bundle_if_needed(&app) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => warn!("failed to relaunch Skein from the canonical bundle path: {error}"),
+    }
+
     app.restart();
 }
 

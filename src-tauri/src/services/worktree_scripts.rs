@@ -323,7 +323,7 @@ fn write_log_header(
     shell: &ScriptShell,
     cwd: &Path,
 ) -> std::io::Result<()> {
-    writeln!(file, "Loom worktree script")?;
+    writeln!(file, "Skein worktree script")?;
     writeln!(
         file,
         "started_at={}",
@@ -345,18 +345,18 @@ fn write_log_header(
 }
 
 fn apply_script_environment(command: &mut Command, request: &WorktreeScriptRequest) {
-    command.env("LOOM_SCRIPT_TRIGGER", trigger_value(request.trigger));
-    command.env("LOOM_PROJECT_ID", &request.project_id);
-    command.env("LOOM_PROJECT_NAME", &request.project_name);
+    command.env("SKEIN_SCRIPT_TRIGGER", trigger_value(request.trigger));
+    command.env("SKEIN_PROJECT_ID", &request.project_id);
+    command.env("SKEIN_PROJECT_NAME", &request.project_name);
     command.env(
-        "LOOM_PROJECT_ROOT",
+        "SKEIN_PROJECT_ROOT",
         request.project_root.to_string_lossy().to_string(),
     );
-    command.env("LOOM_WORKTREE_ID", &request.worktree_id);
-    command.env("LOOM_WORKTREE_NAME", &request.worktree_name);
-    command.env("LOOM_WORKTREE_BRANCH", &request.worktree_branch);
+    command.env("SKEIN_WORKTREE_ID", &request.worktree_id);
+    command.env("SKEIN_WORKTREE_NAME", &request.worktree_name);
+    command.env("SKEIN_WORKTREE_BRANCH", &request.worktree_branch);
     command.env(
-        "LOOM_WORKTREE_PATH",
+        "SKEIN_WORKTREE_PATH",
         request.worktree_path.to_string_lossy().to_string(),
     );
 }
@@ -463,7 +463,7 @@ mod tests {
             trigger,
             script: "echo hi".to_string(),
             project_id: "project-1".to_string(),
-            project_name: "Loom".to_string(),
+            project_name: "Skein".to_string(),
             project_root: PathBuf::from("/tmp/project"),
             worktree_id: "env-1".to_string(),
             worktree_name: "fuzzy-tiger".to_string(),

@@ -1,13 +1,13 @@
 ---
-name: loom-standards
-description: Production engineering standards for the Loom desktop app. Use when working in this repository on Tauri v2, React, TypeScript, Rust, Codex runtime integration, Git/worktree services, desktop command boundaries, capabilities/permissions, persistence, release/update plumbing, or any architectural change that should stay aligned with the project's professional desktop standards.
+name: skein-standards
+description: Production engineering standards for the Skein desktop app. Use when working in this repository on Tauri v2, React, TypeScript, Rust, Codex runtime integration, Git/worktree services, desktop command boundaries, capabilities/permissions, persistence, release/update plumbing, or any architectural change that should stay aligned with the project's professional desktop standards.
 ---
 
-# Loom Standards
+# Skein Standards
 
 ## Overview
 
-Apply the repository's desktop engineering standards before changing Loom. Keep the implementation aligned with the app's Tauri v2, React, TypeScript, and Rust architecture instead of making local optimizations that weaken long-term maintainability.
+Apply the repository's desktop engineering standards before changing Skein. Keep the implementation aligned with the app's Tauri v2, React, TypeScript, and Rust architecture instead of making local optimizations that weaken long-term maintainability.
 
 ## Workflow
 

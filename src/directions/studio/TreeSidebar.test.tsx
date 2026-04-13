@@ -185,7 +185,7 @@ describe("TreeSidebar", () => {
               isDefault: false,
               name: "fuzzy-tiger",
               gitBranch: "fuzzy-tiger",
-              path: "/Users/test/.loom/worktrees/loom/fuzzy-tiger",
+              path: "/Users/test/.skein/worktrees/skein/fuzzy-tiger",
               threads: [
                 makeThread({
                   id: "thread-worktree-new",
@@ -216,7 +216,7 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Create worktree for Loom" }),
+      screen.getByRole("button", { name: "Create worktree for Skein" }),
     );
 
     await waitFor(() => {
@@ -249,10 +249,10 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     fireEvent.contextMenu(
-      screen.getAllByRole("button", { name: /Loom/i })[0],
+      screen.getAllByRole("button", { name: /Skein/i })[0],
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove from Loom" }),
+      screen.getByRole("button", { name: "Remove from Skein" }),
     );
 
     expect(mockedBridge.ensureProjectCanBeRemoved).toHaveBeenCalledWith(
@@ -266,7 +266,7 @@ describe("TreeSidebar", () => {
     );
     expect(confirmMock).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Loom may also remove its empty managed worktree folder.",
+        "Skein may also remove its empty managed worktree folder.",
       ),
       expect.any(Object),
     );
@@ -277,16 +277,16 @@ describe("TreeSidebar", () => {
     mockedBridge.ensureProjectCanBeRemoved.mockRejectedValue({
       code: "validation_error",
       message:
-        "Delete this project's worktrees before removing it from Loom.",
+        "Delete this project's worktrees before removing it from Skein.",
     });
 
     renderSidebar();
 
     fireEvent.contextMenu(
-      screen.getAllByRole("button", { name: /Loom/i })[0],
+      screen.getAllByRole("button", { name: /Skein/i })[0],
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove from Loom" }),
+      screen.getByRole("button", { name: "Remove from Skein" }),
     );
 
     expect(confirmMock).not.toHaveBeenCalled();
@@ -294,7 +294,7 @@ describe("TreeSidebar", () => {
       "project-1",
     );
     expect(messageMock).toHaveBeenCalledWith(
-      "Delete this project's worktrees before removing it from Loom.",
+      "Delete this project's worktrees before removing it from Skein.",
       expect.objectContaining({
         title: "Remove project",
         kind: "info",
@@ -308,7 +308,7 @@ describe("TreeSidebar", () => {
     mockedBridge.removeProject.mockRejectedValue({
       code: "validation_error",
       message:
-        "Delete this project's worktrees before removing it from Loom.",
+        "Delete this project's worktrees before removing it from Skein.",
     });
     useWorkspaceStore.setState((state) => ({
       ...state,
@@ -324,15 +324,15 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     fireEvent.contextMenu(
-      screen.getAllByRole("button", { name: /Loom/i })[0],
+      screen.getAllByRole("button", { name: /Skein/i })[0],
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove from Loom" }),
+      screen.getByRole("button", { name: "Remove from Skein" }),
     );
 
     await waitFor(() => {
       expect(messageMock).toHaveBeenCalledWith(
-        "Delete this project's worktrees before removing it from Loom.",
+        "Delete this project's worktrees before removing it from Skein.",
         expect.objectContaining({
           title: "Remove project",
           kind: "info",
@@ -350,10 +350,10 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     fireEvent.contextMenu(
-      screen.getAllByRole("button", { name: /Loom/i })[0],
+      screen.getAllByRole("button", { name: /Skein/i })[0],
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Remove from Loom" }),
+      screen.getByRole("button", { name: "Remove from Skein" }),
     );
 
     await waitFor(() => {
@@ -379,7 +379,7 @@ describe("TreeSidebar", () => {
                 kind: "managedWorktree",
                 name: "fuzzy-tiger",
                 gitBranch: "fuzzy-tiger",
-                path: "/Users/test/.loom/worktrees/loom/fuzzy-tiger",
+                path: "/Users/test/.skein/worktrees/skein/fuzzy-tiger",
                 threads: [
                   makeThread({
                     id: "thread-active",
@@ -622,7 +622,7 @@ describe("TreeSidebar", () => {
                 pullRequest: {
                   number: 17,
                   title: "Add themes",
-                  url: "https://github.com/acme/loom/pull/17",
+                  url: "https://github.com/acme/skein/pull/17",
                   state: "open",
                 },
                 threads: [
@@ -649,7 +649,7 @@ describe("TreeSidebar", () => {
     );
 
     expect(openUrlMock).toHaveBeenCalledWith(
-      "https://github.com/acme/loom/pull/17",
+      "https://github.com/acme/skein/pull/17",
     );
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
       "env-local",
@@ -677,7 +677,7 @@ describe("TreeSidebar", () => {
                 pullRequest: {
                   number: 17,
                   title: "Add themes",
-                  url: "https://github.com/acme/loom/pull/17",
+                  url: "https://github.com/acme/skein/pull/17",
                   state: "open",
                 },
               }),
@@ -721,7 +721,7 @@ describe("TreeSidebar", () => {
                 pullRequest: {
                   number: 29,
                   title: "Release cut",
-                  url: "https://github.com/acme/loom/pull/29",
+                  url: "https://github.com/acme/skein/pull/29",
                   state: "merged",
                 },
               }),
@@ -797,7 +797,7 @@ describe("TreeSidebar", () => {
     expect(
       screen.getByRole("button", { name: "fuzzy-tiger" }),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Collapse Loom" }));
+    await userEvent.click(screen.getByRole("button", { name: "Collapse Skein" }));
 
     expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
       projectId: "project-1",
@@ -1749,13 +1749,13 @@ describe("TreeSidebar", () => {
       latestFailure: {
         trigger: "teardown",
         projectId: "project-1",
-        projectName: "Loom",
+        projectName: "Skein",
         worktreeId: "env-worktree",
         worktreeName: "fuzzy-tiger",
         worktreeBranch: "fuzzy-tiger",
         worktreePath: "/tmp/fuzzy-tiger",
         message: 'Teardown script failed for "fuzzy-tiger" (exit code 1).',
-        logPath: "/tmp/loom-script.log",
+        logPath: "/tmp/skein-script.log",
         exitCode: 1,
       },
       listenerReady: true,
@@ -1771,6 +1771,6 @@ describe("TreeSidebar", () => {
         'Teardown script failed for "fuzzy-tiger" (exit code 1).',
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("/tmp/loom-script.log")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/skein-script.log")).toBeInTheDocument();
   });
 });

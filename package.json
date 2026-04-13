@@ -1,8 +1,8 @@
 {
-  "name": "loom",
+  "name": "skein",
   "private": true,
   "version": "0.1.8",
-  "description": "Loom is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
+  "description": "Skein is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
   "packageManager": "bun@1.2.19",
   "type": "module",
   "scripts": {

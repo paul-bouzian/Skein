@@ -1,6 +1,7 @@
 import { EmptyState } from "../../shared/EmptyState";
 import { useProjectImport } from "./useProjectImport";
-import loomAppIcon from "../../../src-tauri/icons/icon.png";
+import { APP_NAME } from "../../lib/app-identity";
+import skeinAppIcon from "../../../src-tauri/icons/icon.png";
 import "./StudioWelcome.css";
 
 export function StudioWelcome() {
@@ -9,8 +10,8 @@ export function StudioWelcome() {
   return (
     <div className="studio-welcome">
       <EmptyState
-        icon={<img src={loomAppIcon} alt="" className="studio-welcome__logo" />}
-        heading="Welcome to Loom"
+        icon={<img src={skeinAppIcon} alt="" className="studio-welcome__logo" />}
+        heading={`Welcome to ${APP_NAME}`}
         body={
           error ??
           "Add your first project to start managing Codex environments and threads."

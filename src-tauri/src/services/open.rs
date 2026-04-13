@@ -136,7 +136,7 @@ mod tests {
         };
 
         assert_eq!(
-            build_launch_spec(Path::new("/tmp/loom"), &target)
+            build_launch_spec(Path::new("/tmp/skein"), &target)
                 .expect_err("legacy command target should be rejected")
                 .to_string(),
             "Command-based Open In targets are no longer supported."
@@ -154,7 +154,7 @@ mod tests {
             args: vec!["--reuse-window".to_string()],
         };
 
-        let spec = build_launch_spec(Path::new("/tmp/loom"), &target).expect("launch spec");
+        let spec = build_launch_spec(Path::new("/tmp/skein"), &target).expect("launch spec");
 
         assert_eq!(
             spec,
@@ -163,7 +163,7 @@ mod tests {
                 args: vec![
                     OsString::from("-a"),
                     OsString::from("Cursor"),
-                    OsString::from("/tmp/loom"),
+                    OsString::from("/tmp/skein"),
                 ],
             }
         );
@@ -179,14 +179,14 @@ mod tests {
             args: Vec::new(),
         };
 
-        let spec = build_launch_spec(Path::new("/tmp/loom"), &target).expect("launch spec");
+        let spec = build_launch_spec(Path::new("/tmp/skein"), &target).expect("launch spec");
 
         #[cfg(target_os = "macos")]
         assert_eq!(
             spec,
             LaunchSpec {
                 program: "/usr/bin/open".to_string(),
-                args: vec![OsString::from("/tmp/loom")],
+                args: vec![OsString::from("/tmp/skein")],
             }
         );
 
@@ -195,7 +195,7 @@ mod tests {
             spec,
             LaunchSpec {
                 program: "explorer".to_string(),
-                args: vec![OsString::from("/tmp/loom")],
+                args: vec![OsString::from("/tmp/skein")],
             }
         );
 
@@ -204,7 +204,7 @@ mod tests {
             spec,
             LaunchSpec {
                 program: "xdg-open".to_string(),
-                args: vec![OsString::from("/tmp/loom")],
+                args: vec![OsString::from("/tmp/skein")],
             }
         );
     }

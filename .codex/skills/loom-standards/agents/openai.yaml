@@ -1,4 +1,0 @@
-interface:
-  display_name: "Loom Standards"
-  short_description: "Prod standards for Loom desktop work"
-  default_prompt: "Use $loom-standards before changing Loom so the Tauri, React, TypeScript, and Rust implementation stays production-grade."

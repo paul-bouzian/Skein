@@ -1,8 +1,8 @@
 import { create } from "zustand";
 
 import {
-  LEGACY_TERMINAL_HEIGHT_STORAGE_KEY,
-  LEGACY_TERMINAL_VISIBLE_STORAGE_KEY,
+  LEGACY_TERMINAL_HEIGHT_STORAGE_KEYS,
+  LEGACY_TERMINAL_VISIBLE_STORAGE_KEYS,
   TERMINAL_HEIGHT_STORAGE_KEY,
   TERMINAL_VISIBLE_STORAGE_KEY,
   readLocalStorageWithMigration,
@@ -27,7 +27,7 @@ function readHeight(): number {
   try {
     const rawValue = readLocalStorageWithMigration(
       TERMINAL_HEIGHT_STORAGE_KEY,
-      LEGACY_TERMINAL_HEIGHT_STORAGE_KEY,
+      LEGACY_TERMINAL_HEIGHT_STORAGE_KEYS,
     );
     if (rawValue == null) return DEFAULT_HEIGHT;
     const value = Number(rawValue);
@@ -43,7 +43,7 @@ function readVisible(): boolean {
     return (
       readLocalStorageWithMigration(
         TERMINAL_VISIBLE_STORAGE_KEY,
-        LEGACY_TERMINAL_VISIBLE_STORAGE_KEY,
+        LEGACY_TERMINAL_VISIBLE_STORAGE_KEYS,
       ) === "1"
     );
   } catch {

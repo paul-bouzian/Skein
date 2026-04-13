@@ -120,7 +120,7 @@ describe("InlineComposer image regressions", () => {
     try {
       renderComposerWithDynamicThreadState();
 
-      const input = await screen.findByPlaceholderText("Message Loom...");
+      const input = await screen.findByPlaceholderText("Message Skein...");
       fireEvent.paste(input, {
         clipboardData: {
           items: [
@@ -181,7 +181,7 @@ describe("InlineComposer image regressions", () => {
         value: MAX_CONVERSATION_IMAGE_BYTES + 1,
       });
 
-      fireEvent.paste(await screen.findByPlaceholderText("Message Loom..."), {
+      fireEvent.paste(await screen.findByPlaceholderText("Message Skein..."), {
         clipboardData: {
           items: [
             {

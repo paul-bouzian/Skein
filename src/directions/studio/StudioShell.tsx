@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
-  LEGACY_THEME_STORAGE_KEY,
   THEME_STORAGE_KEY,
+  LEGACY_THEME_STORAGE_KEYS,
+  readLocalStorageWithMigration,
 } from "../../lib/app-identity";
 import {
   selectGitReviewScope,
@@ -29,13 +30,10 @@ export type Theme = "dark" | "light";
 
 function readTheme(): Theme {
   try {
-    const v =
-      localStorage.getItem(THEME_STORAGE_KEY) ??
-      localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
-    if (v != null) {
-      localStorage.setItem(THEME_STORAGE_KEY, v);
-      localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
-    }
+    const v = readLocalStorageWithMigration(
+      THEME_STORAGE_KEY,
+      LEGACY_THEME_STORAGE_KEYS,
+    );
     if (v === "light") return "light";
   } catch {
     /* ignore */

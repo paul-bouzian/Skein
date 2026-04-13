@@ -318,28 +318,30 @@ describe("StudioShell", () => {
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     });
-    expect(localStorage.getItem("loom-theme")).toBe("dark");
+    expect(localStorage.getItem("skein-theme")).toBe("dark");
 
     await userEvent.click(screen.getByRole("button", { name: "Light mode" }));
 
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     });
-    expect(localStorage.getItem("loom-theme")).toBe("light");
+    expect(localStorage.getItem("skein-theme")).toBe("light");
     expect(
       screen.getByRole("button", { name: "Dark mode" }),
     ).toBeInTheDocument();
   });
 
-  it("migrates the legacy theme key into the Loom namespace", async () => {
-    storageState.set("threadex-theme", "light");
+  it("migrates legacy theme keys into the Skein namespace", async () => {
+    storageState.set("loom-theme", "light");
+    storageState.set("threadex-theme", "dark");
 
     render(<StudioShell />);
 
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     });
-    expect(localStorage.getItem("loom-theme")).toBe("light");
+    expect(localStorage.getItem("skein-theme")).toBe("light");
+    expect(localStorage.getItem("loom-theme")).toBeNull();
     expect(localStorage.getItem("threadex-theme")).toBeNull();
   });
 
@@ -840,7 +842,7 @@ describe("StudioShell", () => {
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [
-          makeProject({ id: "project-1", name: "Loom" }),
+          makeProject({ id: "project-1", name: "Skein" }),
           makeProject({
             id: "project-2",
             name: "Sandbox",
@@ -865,7 +867,7 @@ describe("StudioShell", () => {
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [
-          makeProject({ id: "project-1", name: "Loom" }),
+          makeProject({ id: "project-1", name: "Skein" }),
           makeProject({
             id: "project-2",
             name: "Sandbox",

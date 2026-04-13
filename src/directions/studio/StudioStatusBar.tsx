@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { APP_NAME } from "../../lib/app-identity";
 import {
   findThreadInWorkspace,
   useWorkspaceStore,
@@ -70,7 +71,7 @@ export function StudioStatusBar() {
       <div className="studio-statusbar__center">
         {bootstrapStatus && (
           <span className="studio-statusbar__version">
-            Loom {bootstrapStatus.appVersion}
+            {APP_NAME} {bootstrapStatus.appVersion}
           </span>
         )}
       </div>

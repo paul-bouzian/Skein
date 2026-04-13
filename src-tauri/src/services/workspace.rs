@@ -1566,7 +1566,7 @@ impl WorkspaceService {
 
         if self.project_has_managed_worktrees(connection, project_id)? {
             return Err(AppError::Validation(
-                "Delete this project's worktrees before removing it from Loom.".to_string(),
+                "Delete this project's worktrees before removing it from Skein.".to_string(),
             ));
         }
 
@@ -3032,7 +3032,7 @@ mod tests {
                     EnvironmentPullRequestSnapshot {
                         number: 42,
                         title: "Add PR sync".to_string(),
-                        url: "https://github.com/acme/loom/pull/42".to_string(),
+                        url: "https://github.com/acme/skein/pull/42".to_string(),
                         state: PullRequestState::Open,
                     },
                 )]),
@@ -3769,10 +3769,10 @@ mod tests {
     impl WorkspaceHarness {
         fn new() -> Result<Self, Box<dyn std::error::Error>> {
             let temp_root =
-                std::env::temp_dir().join(format!("loom-workspace-test-{}", Uuid::now_v7()));
+                std::env::temp_dir().join(format!("skein-workspace-test-{}", Uuid::now_v7()));
             fs::create_dir_all(&temp_root)?;
             let database = crate::infrastructure::database::AppDatabase::for_test(
-                temp_root.join("loom.sqlite3"),
+                temp_root.join("skein.sqlite3"),
             )?;
             let managed_root = temp_root.join("managed-worktrees");
             fs::create_dir_all(&managed_root)?;
@@ -3874,9 +3874,9 @@ mod tests {
         fn new(path: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
             fs::create_dir_all(&path)?;
             git::run_git(&path, ["init", "--initial-branch=main"])?;
-            git::run_git(&path, ["config", "user.email", "loom@example.com"])?;
-            git::run_git(&path, ["config", "user.name", "Loom Tests"])?;
-            fs::write(path.join("README.md"), "# Loom\n")?;
+            git::run_git(&path, ["config", "user.email", "skein@example.com"])?;
+            git::run_git(&path, ["config", "user.name", "Skein Tests"])?;
+            fs::write(path.join("README.md"), "# Skein\n")?;
             git::run_git(&path, ["add", "README.md"])?;
             git::run_git(&path, ["commit", "-m", "Initial commit"])?;
             Ok(Self { path })

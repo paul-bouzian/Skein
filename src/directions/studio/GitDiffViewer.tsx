@@ -1,3 +1,4 @@
+import { APP_NAME } from "../../lib/app-identity";
 import type { GitFileDiff } from "../../lib/types";
 
 type Props = {
@@ -18,7 +19,7 @@ export function GitDiffViewer({ diff, loading }: Props) {
     return (
       <div className="git-diff-viewer__empty">
         <h4>Binary file</h4>
-        <p>{diff.emptyMessage ?? "Loom cannot render this diff inline."}</p>
+        <p>{diff.emptyMessage ?? `${APP_NAME} cannot render this diff inline.`}</p>
       </div>
     );
   }

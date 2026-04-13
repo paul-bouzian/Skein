@@ -346,8 +346,8 @@ mod tests {
     fn project_record_serializes_sidebar_collapsed_with_camel_case_key() {
         let payload = serde_json::to_value(ProjectRecord {
             id: "project-1".to_string(),
-            name: "Loom".to_string(),
-            root_path: "/tmp/loom".to_string(),
+            name: "Skein".to_string(),
+            root_path: "/tmp/skein".to_string(),
             settings: ProjectSettings::default(),
             sidebar_collapsed: true,
             created_at: parse_datetime("2026-04-08T12:00:00Z"),

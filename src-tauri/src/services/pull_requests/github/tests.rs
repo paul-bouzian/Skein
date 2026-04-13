@@ -52,23 +52,23 @@ fn select_display_pull_request_prefers_open_then_latest_merged() {
         ResolvedPullRequest {
             number: 9,
             title: "Merged".to_string(),
-            url: "https://github.com/acme/loom/pull/9".to_string(),
+            url: "https://github.com/acme/skein/pull/9".to_string(),
             head_ref_name: "feature".to_string(),
             state: ResolvedPullRequestState::Merged,
             updated_at: Some("2026-04-08T10:00:00Z".to_string()),
             is_cross_repository: Some(false),
-            head_repository_name_with_owner: Some("acme/loom".to_string()),
+            head_repository_name_with_owner: Some("acme/skein".to_string()),
             head_repository_owner_login: Some("acme".to_string()),
         },
         ResolvedPullRequest {
             number: 10,
             title: "Open".to_string(),
-            url: "https://github.com/acme/loom/pull/10".to_string(),
+            url: "https://github.com/acme/skein/pull/10".to_string(),
             head_ref_name: "feature".to_string(),
             state: ResolvedPullRequestState::Open,
             updated_at: Some("2026-04-08T09:00:00Z".to_string()),
             is_cross_repository: Some(false),
-            head_repository_name_with_owner: Some("acme/loom".to_string()),
+            head_repository_name_with_owner: Some("acme/skein".to_string()),
             head_repository_owner_login: Some("acme".to_string()),
         },
     ])
@@ -84,7 +84,7 @@ fn resolve_head_context_prioritizes_fork_selector_when_tracking_fork_remote() {
     let repo = harness
         .create_repo(
             "fuzzy-tiger",
-            Some(("feature", "git@github.com:alice/loom.git")),
+            Some(("feature", "git@github.com:alice/skein.git")),
         )
         .expect("repo should be created");
 
@@ -99,7 +99,7 @@ fn resolve_head_context_prioritizes_fork_selector_when_tracking_fork_remote() {
                 "feature:fuzzy-tiger".to_string(),
                 "fuzzy-tiger".to_string(),
             ],
-            head_repository_name_with_owner: Some("alice/loom".to_string()),
+            head_repository_name_with_owner: Some("alice/skein".to_string()),
             head_repository_owner_login: Some("alice".to_string()),
             is_cross_repository: true,
         }
@@ -132,7 +132,7 @@ fn resolver_prefers_open_pull_requests_and_ignores_closed_only_matches() {
     let repo = harness
         .create_repo(
             "fuzzy-tiger",
-            Some(("origin", "git@github.com:acme/loom.git")),
+            Some(("origin", "git@github.com:acme/skein.git")),
         )
         .expect("repo should be created");
     let project = harness
@@ -180,10 +180,10 @@ struct PullRequestHarness {
 
 impl PullRequestHarness {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let temp_root = std::env::temp_dir().join(format!("loom-pr-test-{}", Uuid::now_v7()));
+        let temp_root = std::env::temp_dir().join(format!("skein-pr-test-{}", Uuid::now_v7()));
         fs::create_dir_all(&temp_root)?;
         let database =
-            crate::infrastructure::database::AppDatabase::for_test(temp_root.join("loom.sqlite3"))?;
+            crate::infrastructure::database::AppDatabase::for_test(temp_root.join("skein.sqlite3"))?;
         let managed_root = temp_root.join("managed-worktrees");
         fs::create_dir_all(&managed_root)?;
         let gh_path = temp_root.join("bin");
@@ -208,14 +208,14 @@ impl PullRequestHarness {
         let path = self.temp_root.join(branch_name.replace('/', "-"));
         fs::create_dir_all(&path)?;
         git::run_git(&path, ["init", "--initial-branch=main"])?;
-        git::run_git(&path, ["config", "user.email", "loom@example.com"])?;
-        git::run_git(&path, ["config", "user.name", "Loom Tests"])?;
-        fs::write(path.join("README.md"), "# Loom\n")?;
+        git::run_git(&path, ["config", "user.email", "skein@example.com"])?;
+        git::run_git(&path, ["config", "user.name", "Skein Tests"])?;
+        fs::write(path.join("README.md"), "# Skein\n")?;
         git::run_git(&path, ["add", "README.md"])?;
         git::run_git(&path, ["commit", "-m", "Initial commit"])?;
         git::run_git(
             &path,
-            ["remote", "add", "origin", "git@github.com:acme/loom.git"],
+            ["remote", "add", "origin", "git@github.com:acme/skein.git"],
         )?;
         git::run_git(&path, ["checkout", "-b", branch_name])?;
 
@@ -278,9 +278,9 @@ fn mock_gh_command_path(directory: &Path) -> PathBuf {
 fn mock_gh_command_script() -> String {
     format!(
         "#!/bin/sh\nif [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then\ncat <<'EOF'\n[{open},{merged},{closed}]\nEOF\nexit 0\nfi\necho unexpected >&2\nexit 1\n",
-        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/loom/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
-        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/loom/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
-        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/loom/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
+        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/skein/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
+        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/skein/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
+        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/skein/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
     )
 }
 
@@ -288,9 +288,9 @@ fn mock_gh_command_script() -> String {
 fn mock_gh_command_script() -> String {
     format!(
         "@echo off\r\nif \"%1\"==\"pr\" if \"%2\"==\"list\" (\r\necho [{open},{merged},{closed}]\r\nexit /b 0\r\n)\r\necho unexpected 1>&2\r\nexit /b 1\r\n",
-        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/loom/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
-        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/loom/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
-        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/loom/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
+        open = "{\"number\":17,\"title\":\"Open PR\",\"url\":\"https://github.com/acme/skein/pull/17\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"OPEN\",\"updatedAt\":\"2026-04-08T09:00:00Z\"}",
+        merged = "{\"number\":16,\"title\":\"Merged PR\",\"url\":\"https://github.com/acme/skein/pull/16\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"MERGED\",\"mergedAt\":\"2026-04-08T08:00:00Z\",\"updatedAt\":\"2026-04-08T08:00:00Z\"}",
+        closed = "{\"number\":15,\"title\":\"Closed PR\",\"url\":\"https://github.com/acme/skein/pull/15\",\"baseRefName\":\"main\",\"headRefName\":\"fuzzy-tiger\",\"state\":\"CLOSED\",\"updatedAt\":\"2026-04-08T07:00:00Z\"}",
     )
 }
 

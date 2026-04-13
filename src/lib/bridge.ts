@@ -2,15 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import {
-  CODEX_USAGE_EVENT_NAME,
-  CONVERSATION_EVENT_NAME,
-  FIRST_PROMPT_RENAME_FAILURE_EVENT_NAME,
-  MENU_CHECK_FOR_UPDATES_EVENT_NAME,
-  MENU_OPEN_SETTINGS_EVENT_NAME,
-  TERMINAL_EXIT_EVENT_NAME,
-  TERMINAL_OUTPUT_EVENT_NAME,
-  WORKSPACE_EVENT_NAME,
-  WORKTREE_SCRIPT_FAILURE_EVENT_NAME,
+  CODEX_USAGE_EVENT_NAMES,
+  CONVERSATION_EVENT_NAMES,
+  FIRST_PROMPT_RENAME_FAILURE_EVENT_NAMES,
+  MENU_CHECK_FOR_UPDATES_EVENT_NAMES,
+  MENU_OPEN_SETTINGS_EVENT_NAMES,
+  TERMINAL_EXIT_EVENT_NAMES,
+  TERMINAL_OUTPUT_EVENT_NAMES,
+  WORKSPACE_EVENT_NAMES,
+  WORKTREE_SCRIPT_FAILURE_EVENT_NAMES,
 } from "./app-identity";
 import type {
   AddProjectRequest,
@@ -226,9 +226,7 @@ export function submitPlanDecision(
 export function listenToConversationEvents(
   callback: (payload: ConversationEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<ConversationEventPayload>(CONVERSATION_EVENT_NAME, (event) =>
-    callback(event.payload),
-  );
+  return listenToPayloadEvents(CONVERSATION_EVENT_NAMES, callback);
 }
 
 export function getEnvironmentCodexRateLimits(
@@ -256,47 +254,40 @@ export function transcribeEnvironmentVoice(
 export function listenToCodexUsageEvents(
   callback: (payload: CodexUsageEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<CodexUsageEventPayload>(CODEX_USAGE_EVENT_NAME, (event) =>
-    callback(event.payload),
-  );
+  return listenToPayloadEvents(CODEX_USAGE_EVENT_NAMES, callback);
 }
 
 export function listenToWorktreeScriptFailures(
   callback: (payload: WorktreeScriptFailureEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<WorktreeScriptFailureEventPayload>(
-    WORKTREE_SCRIPT_FAILURE_EVENT_NAME,
-    (event) => callback(event.payload),
-  );
+  return listenToPayloadEvents(WORKTREE_SCRIPT_FAILURE_EVENT_NAMES, callback);
 }
 
 export function listenToFirstPromptRenameFailures(
   callback: (payload: FirstPromptRenameFailureEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<FirstPromptRenameFailureEventPayload>(
-    FIRST_PROMPT_RENAME_FAILURE_EVENT_NAME,
-    (event) => callback(event.payload),
+  return listenToPayloadEvents(
+    FIRST_PROMPT_RENAME_FAILURE_EVENT_NAMES,
+    callback,
   );
 }
 
 export function listenToWorkspaceEvents(
   callback: (payload: WorkspaceEventPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<WorkspaceEventPayload>(WORKSPACE_EVENT_NAME, (event) =>
-    callback(event.payload),
-  );
+  return listenToPayloadEvents(WORKSPACE_EVENT_NAMES, callback);
 }
 
 export function listenToMenuOpenSettings(
   callback: () => void,
 ): Promise<UnlistenFn> {
-  return listen(MENU_OPEN_SETTINGS_EVENT_NAME, () => callback());
+  return listenToSignalEvents(MENU_OPEN_SETTINGS_EVENT_NAMES, callback);
 }
 
 export function listenToMenuCheckForUpdates(
   callback: () => void,
 ): Promise<UnlistenFn> {
-  return listen(MENU_CHECK_FOR_UPDATES_EVENT_NAME, () => callback());
+  return listenToSignalEvents(MENU_CHECK_FOR_UPDATES_EVENT_NAMES, callback);
 }
 
 export function updateGlobalSettings(
@@ -454,15 +445,87 @@ export function killTerminal(input: TerminalKillInput): Promise<void> {
 export function listenToTerminalOutput(
   callback: (payload: TerminalOutputPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<TerminalOutputPayload>(TERMINAL_OUTPUT_EVENT_NAME, (event) =>
-    callback(event.payload),
-  );
+  return listenToPayloadEvents(TERMINAL_OUTPUT_EVENT_NAMES, callback);
 }
 
 export function listenToTerminalExit(
   callback: (payload: TerminalExitPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<TerminalExitPayload>(TERMINAL_EXIT_EVENT_NAME, (event) =>
-    callback(event.payload),
+  return listenToPayloadEvents(TERMINAL_EXIT_EVENT_NAMES, callback);
+}
+
+async function listenToPayloadEvents<T>(
+  eventNames: readonly string[],
+  callback: (payload: T) => void,
+): Promise<UnlistenFn> {
+  return listenWithLegacyFallback<T>(eventNames, (_eventName, event) => {
+    callback(event.payload as T);
+  });
+}
+
+async function listenToSignalEvents(
+  eventNames: readonly string[],
+  callback: () => void,
+): Promise<UnlistenFn> {
+  return listenWithLegacyFallback(eventNames, () => callback());
+}
+
+async function listenWithLegacyFallback<T>(
+  eventNames: readonly string[],
+  onEvent: (
+    eventName: string,
+    event: {
+      payload: T;
+    },
+  ) => void,
+): Promise<UnlistenFn> {
+  let disposed = false;
+  let activeEventName: string | null = null;
+  const unlisteners = new Map<string, UnlistenFn>();
+
+  function pruneInactiveListeners(selectedEventName: string) {
+    for (const [registeredEventName, unlisten] of unlisteners) {
+      if (registeredEventName === selectedEventName) {
+        continue;
+      }
+      unlisten();
+      unlisteners.delete(registeredEventName);
+    }
+  }
+
+  // Keep the listener namespace compatible during the legacy -> Skein rollout,
+  // but commit to the first namespace that actually emits to avoid double
+  // processing if both old and new events are present briefly.
+  await Promise.all(
+    eventNames.map(async (eventName) => {
+      const unlisten = await listen<T>(eventName, (event) => {
+        if (disposed) {
+          return;
+        }
+        if (activeEventName && activeEventName !== eventName) {
+          return;
+        }
+        if (!activeEventName) {
+          activeEventName = eventName;
+          pruneInactiveListeners(eventName);
+        }
+        onEvent(eventName, event);
+      });
+
+      if (disposed || (activeEventName && activeEventName !== eventName)) {
+        unlisten();
+        return;
+      }
+
+      unlisteners.set(eventName, unlisten);
+    }),
   );
+
+  return () => {
+    disposed = true;
+    for (const unlisten of unlisteners.values()) {
+      unlisten();
+    }
+    unlisteners.clear();
+  };
 }

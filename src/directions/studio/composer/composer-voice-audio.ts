@@ -144,7 +144,7 @@ async function createCollectorNode(
       new Blob(
         [
           `
-          class LoomVoiceProcessor extends AudioWorkletProcessor {
+          class SkeinVoiceProcessor extends AudioWorkletProcessor {
             process(inputs) {
               const channels = inputs[0];
               if (channels && channels.length > 0) {
@@ -161,7 +161,7 @@ async function createCollectorNode(
               return true;
             }
           }
-          registerProcessor(VOICE_PROCESSOR_NAME, LoomVoiceProcessor);
+          registerProcessor(VOICE_PROCESSOR_NAME, SkeinVoiceProcessor);
         `,
         ],
         { type: "application/javascript" },

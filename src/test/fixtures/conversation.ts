@@ -127,7 +127,7 @@ export function makeEnvironment(
     projectId: "project-1",
     name: "Local",
     kind: "local",
-    path: "/tmp/loom",
+    path: "/tmp/skein",
     gitBranch: "main",
     baseBranch: undefined,
     isDefault: true,
@@ -152,8 +152,8 @@ export function makeProject(
 ): ProjectRecord {
   return {
     id: "project-1",
-    name: "Loom",
-    rootPath: "/tmp/loom",
+    name: "Skein",
+    rootPath: "/tmp/skein",
     settings: {
       worktreeSetupScript: undefined,
       worktreeTeardownScript: undefined,
@@ -306,7 +306,7 @@ export function makeApprovalRequest(
     summary: "bun run test",
     reason: "Codex wants to run the test suite.",
     command: "bun run test",
-    cwd: "/tmp/loom",
+    cwd: "/tmp/skein",
     grantRoot: null,
     permissions: null,
     networkContext: null,
@@ -363,7 +363,7 @@ export function makeGitReviewSnapshot(
     scope: "uncommitted",
     summary: {
       environmentId: "env-1",
-      repoPath: "/tmp/loom",
+      repoPath: "/tmp/skein",
       branch: "main",
       baseBranch: "origin/main",
       upstreamBranch: "origin/main",

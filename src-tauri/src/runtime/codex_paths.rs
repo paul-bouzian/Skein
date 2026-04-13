@@ -68,7 +68,7 @@ pub fn build_codex_process_path(binary_path: &str) -> OsString {
 }
 
 pub fn missing_codex_binary_message() -> String {
-    "Unable to resolve the Codex CLI binary. Loom can auto-detect Codex from official Homebrew and npm/global install locations, but apps launched from Finder do not inherit your shell PATH. Install `codex` in a standard binary directory or set Settings -> Codex binary to its absolute path.".to_string()
+    "Unable to resolve the Codex CLI binary. Skein can auto-detect Codex from official Homebrew and npm/global install locations, but apps launched from Finder do not inherit your shell PATH. Install `codex` in a standard binary directory or set Settings -> Codex binary to its absolute path.".to_string()
 }
 
 pub fn sync_process_path_from_login_shell() {
@@ -264,7 +264,7 @@ mod tests {
             .lock()
             .expect("environment lock should not be poisoned");
         let executable_name = format!("codex-test-{}", Uuid::now_v7().simple());
-        let root = std::env::temp_dir().join(format!("loom-codex-binary-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir().join(format!("skein-codex-binary-{}", Uuid::now_v7()));
         let binary_path = root.join(&executable_name);
         fs::create_dir_all(&root).expect("binary dir should exist");
         fs::write(&binary_path, "#!/bin/sh\n").expect("binary should be written");
@@ -285,7 +285,7 @@ mod tests {
             .lock()
             .expect("environment lock should not be poisoned");
         let executable_name = format!("codex-test-{}", Uuid::now_v7().simple());
-        let root = std::env::temp_dir().join(format!("loom-codex-home-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir().join(format!("skein-codex-home-{}", Uuid::now_v7()));
         let empty_path = root.join("empty-path");
         let binary_dir = root.join(".local/bin");
         let binary_path = binary_dir.join(&executable_name);
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn versioned_node_bin_paths_include_nvm_and_fnm_installs() {
-        let root = std::env::temp_dir().join(format!("loom-codex-paths-{}", Uuid::now_v7()));
+        let root = std::env::temp_dir().join(format!("skein-codex-paths-{}", Uuid::now_v7()));
         let nvm_bin = root.join(".nvm/versions/node/v25.6.1/bin");
         let fnm_bin = root.join(".local/share/fnm/node-versions/v25.6.1/installation/bin");
         fs::create_dir_all(&nvm_bin).expect("nvm bin dir should exist");

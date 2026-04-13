@@ -23,7 +23,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION_INPUT: ${{ github.event.inputs.version }}
-      NOTARY_PROFILE_NAME: LoomNotary
+      NOTARY_PROFILE_NAME: SkeinNotary
       APPLE_CERTIFICATE_B64: ${{ secrets.APPLE_CERTIFICATE_P12_B64 }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
@@ -153,8 +153,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          keychain_path="$RUNNER_TEMP/loom-build.keychain-db"
-          cert_path="$RUNNER_TEMP/loom-cert.p12"
+          keychain_path="$RUNNER_TEMP/skein-build.keychain-db"
+          cert_path="$RUNNER_TEMP/skein-cert.p12"
 
           echo "$APPLE_CERTIFICATE_B64" | base64 --decode > "$cert_path" 2>/dev/null || \
             echo "$APPLE_CERTIFICATE_B64" | base64 -D > "$cert_path"
@@ -240,8 +240,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_path="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Loom.app"
-          zip_path="$RUNNER_TEMP/Loom.zip"
+          app_path="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app"
+          zip_path="$RUNNER_TEMP/Skein-notary.zip"
 
           if [[ ! -d "$app_path" ]]; then
             echo "Expected app bundle at $app_path" >&2
@@ -304,7 +304,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          key_path="$RUNNER_TEMP/loom-updater.key"
+          key_path="$RUNNER_TEMP/skein-updater.key"
           printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$key_path"
           chmod 600 "$key_path"
           echo "UPDATER_KEY_PATH=$key_path" >> "$GITHUB_ENV"
@@ -317,32 +317,32 @@ jobs:
           set -euo pipefail
 
           app_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
-          app_path="$app_dir/Loom.app"
+          app_path="$app_dir/Skein.app"
           artifacts_dir="release-artifacts"
           dmg_root="$artifacts_dir/dmg-root"
 
           rm -rf "$artifacts_dir"
           mkdir -p "$artifacts_dir" "$dmg_root"
 
-          ditto "$app_path" "$dmg_root/Loom.app"
-          ditto -c -k --keepParent "$app_path" "$artifacts_dir/Loom.zip"
+          ditto "$app_path" "$dmg_root/Skein.app"
+          ditto -c -k --keepParent "$dmg_root/Skein.app" "$artifacts_dir/Skein.zip"
 
           hdiutil create \
-            -volname "Loom" \
+            -volname "Skein" \
             -srcfolder "$dmg_root" \
             -ov \
             -format UDZO \
-            "$artifacts_dir/Loom_${RELEASE_VERSION}_aarch64.dmg"
+            "$artifacts_dir/Skein_${RELEASE_VERSION}_aarch64.dmg"
 
           COPYFILE_DISABLE=1 tar -czf \
-            "$artifacts_dir/Loom.app.tar.gz" \
+            "$artifacts_dir/Skein.app.tar.gz" \
             -C "$app_dir" \
-            "Loom.app"
+            "Skein.app"
 
           bun run tauri signer sign -- \
             -f "$UPDATER_KEY_PATH" \
             -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
-            "$artifacts_dir/Loom.app.tar.gz"
+            "$artifacts_dir/Skein.app.tar.gz"
 
       - name: Generate release notes
         shell: bash
@@ -358,7 +358,7 @@ jobs:
             --jq '.body' > release-artifacts/release-notes.md
 
           if [[ ! -s release-artifacts/release-notes.md ]]; then
-            echo "- Initial Loom release." > release-artifacts/release-notes.md
+            echo "- Initial Skein release." > release-artifacts/release-notes.md
           fi
 
       - name: Build latest.json
@@ -369,7 +369,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          python3 -c 'import json, os; from datetime import datetime, timezone; from pathlib import Path; notes = Path("release-artifacts/release-notes.md").read_text().strip(); signature = Path("release-artifacts/Loom.app.tar.gz.sig").read_text().strip(); payload = {"version": os.environ["RELEASE_VERSION"], "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": {"darwin-aarch64": {"signature": signature, "url": f"https://github.com/{os.environ['"'"'GITHUB_REPOSITORY'"'"']}/releases/download/{os.environ['"'"'RELEASE_TAG'"'"']}/Loom.app.tar.gz"}}}; Path("release-artifacts/latest.json").write_text(json.dumps(payload, indent=2) + "\n")'
+          python3 -c 'import json, os; from datetime import datetime, timezone; from pathlib import Path; notes = Path("release-artifacts/release-notes.md").read_text().strip(); signature = Path("release-artifacts/Skein.app.tar.gz.sig").read_text().strip(); payload = {"version": os.environ["RELEASE_VERSION"], "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": {"darwin-aarch64": {"signature": signature, "url": f"https://github.com/{os.environ['"'"'GITHUB_REPOSITORY'"'"']}/releases/download/{os.environ['"'"'RELEASE_TAG'"'"']}/Skein.app.tar.gz"}}}; Path("release-artifacts/latest.json").write_text(json.dumps(payload, indent=2) + "\n")'
 
       - name: Publish or update GitHub release
         shell: bash
@@ -382,16 +382,16 @@ jobs:
           set -euo pipefail
 
           assets=(
-            "release-artifacts/Loom.zip"
-            "release-artifacts/Loom_${RELEASE_VERSION}_aarch64.dmg"
-            "release-artifacts/Loom.app.tar.gz"
-            "release-artifacts/Loom.app.tar.gz.sig"
+            "release-artifacts/Skein.zip"
+            "release-artifacts/Skein_${RELEASE_VERSION}_aarch64.dmg"
+            "release-artifacts/Skein.app.tar.gz"
+            "release-artifacts/Skein.app.tar.gz.sig"
             "release-artifacts/latest.json"
           )
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release edit "$RELEASE_TAG" \
-              --title "Loom v${RELEASE_VERSION}" \
+              --title "Skein v${RELEASE_VERSION}" \
               --notes-file release-artifacts/release-notes.md
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
             exit 0
@@ -399,7 +399,7 @@ jobs:
 
           if [[ "$PRERELEASE" == "true" ]]; then
             gh release create "$RELEASE_TAG" \
-              --title "Loom v${RELEASE_VERSION}" \
+              --title "Skein v${RELEASE_VERSION}" \
               --notes-file release-artifacts/release-notes.md \
               --target "$SOURCE_SHA" \
               --prerelease \
@@ -408,7 +408,7 @@ jobs:
           fi
 
           gh release create "$RELEASE_TAG" \
-            --title "Loom v${RELEASE_VERSION}" \
+            --title "Skein v${RELEASE_VERSION}" \
             --notes-file release-artifacts/release-notes.md \
             --target "$SOURCE_SHA" \
             "${assets[@]}"

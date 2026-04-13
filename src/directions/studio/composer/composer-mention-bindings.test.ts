@@ -136,7 +136,7 @@ describe("composer-mention-bindings", () => {
       mentionBinding: {
         mention: "github",
         kind: "skill",
-        path: "/tmp/loom/.codex/skills/github/SKILL.md",
+        path: "/tmp/skein/.codex/skills/github/SKILL.md",
       },
     };
     const appItem: ComposerAutocompleteItem = {

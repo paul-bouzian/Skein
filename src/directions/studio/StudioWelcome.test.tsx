@@ -21,10 +21,10 @@ describe("StudioWelcome", () => {
     });
   });
 
-  it("renders the Loom app icon instead of the legacy TX badge", () => {
+  it("renders the Skein app icon instead of the legacy TX badge", () => {
     const { container } = render(<StudioWelcome />);
 
-    expect(screen.getByRole("heading", { name: "Welcome to Loom" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to Skein" })).toBeInTheDocument();
     expect(
       screen.getByText(
         "Add your first project to start managing Codex environments and threads.",

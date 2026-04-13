@@ -32,7 +32,7 @@ describe("ConversationMarkdown", () => {
 
   it("renders local markdown targets as compact file reference tokens", () => {
     const filePath =
-      "/Users/tester/.loom/worktrees/loom-019d5b55/lively-dolphin/src/directions/studio/ConversationMarkdown.tsx";
+      "/Users/tester/.skein/worktrees/skein-019d5b55/lively-dolphin/src/directions/studio/ConversationMarkdown.tsx";
     const { container } = render(
       <ConversationMarkdown
         markdown={`Updated [ConversationMarkdown.tsx](${filePath}) in this pass.`}
@@ -54,7 +54,7 @@ describe("ConversationMarkdown", () => {
 
   it("renders inline markdown inside file reference labels", () => {
     const filePath =
-      "/Users/tester/.loom/worktrees/loom-019d5b55/lively-dolphin/src/directions/studio/ThreadConversation.tsx";
+      "/Users/tester/.skein/worktrees/skein-019d5b55/lively-dolphin/src/directions/studio/ThreadConversation.tsx";
 
     render(
       <ConversationMarkdown

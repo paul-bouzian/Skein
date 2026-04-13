@@ -1,0 +1,4 @@
+interface:
+  display_name: "Skein Standards"
+  short_description: "Prod standards for Skein desktop work"
+  default_prompt: "Use $skein-standards before changing Skein so the Tauri, React, TypeScript, and Rust implementation stays production-grade."
