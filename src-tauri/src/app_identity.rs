@@ -353,13 +353,24 @@ fn merge_directory_contents(source: &Path, destination: &Path) -> AppResult<()> 
                 continue;
             }
 
-            return Err(AppError::Runtime(format!(
-                "Cannot migrate legacy app data because '{}' already exists.",
-                destination_path.display()
-            )));
+            // Legacy namespaces are migrated from newest to oldest. If a path already
+            // exists in the canonical tree, keep that winner and discard the older copy.
+            discard_legacy_conflict(&source_path)?;
+            continue;
         }
 
         fs::rename(&source_path, &destination_path)?;
+    }
+
+    Ok(())
+}
+
+fn discard_legacy_conflict(path: &Path) -> AppResult<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
     }
 
     Ok(())
@@ -718,6 +729,74 @@ mod tests {
         assert!(canonical_app_data_dir.join("threadex.txt").exists());
         assert!(canonical_app_home_dir.join("previous.txt").exists());
         assert!(canonical_app_home_dir.join("threadex.txt").exists());
+        assert!(!legacy_app_data_dirs[0].exists());
+        assert!(!legacy_app_data_dirs[1].exists());
+        assert!(!legacy_app_home_dirs[0].exists());
+        assert!(!legacy_app_home_dirs[1].exists());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn installed_profile_keeps_newer_legacy_entries_when_paths_conflict() {
+        let root =
+            std::env::temp_dir().join(format!("skein-installed-conflict-{}", Uuid::now_v7()));
+        let canonical_app_data_dir = root.join("canonical-app-data");
+        let canonical_app_home_dir = root.join("home").join(".skein");
+        let legacy_app_data_dirs = legacy_app_data_dirs(&root);
+        let legacy_app_home_dirs = LEGACY_APP_HOME_DIR_NAMES
+            .iter()
+            .map(|name| root.join("home").join(name))
+            .collect::<Vec<_>>();
+
+        std::fs::create_dir_all(legacy_app_data_dirs[0].join("nested"))
+            .expect("loom app data should exist");
+        std::fs::create_dir_all(legacy_app_data_dirs[1].join("nested"))
+            .expect("threadex app data should exist");
+        std::fs::create_dir_all(legacy_app_home_dirs[0].join("nested"))
+            .expect("loom home dir should exist");
+        std::fs::create_dir_all(legacy_app_home_dirs[1].join("nested"))
+            .expect("threadex home dir should exist");
+        std::fs::write(
+            legacy_app_data_dirs[0].join("nested").join("shared.txt"),
+            b"loom-app-data",
+        )
+        .expect("loom app data should write");
+        std::fs::write(
+            legacy_app_data_dirs[1].join("nested").join("shared.txt"),
+            b"threadex-app-data",
+        )
+        .expect("threadex app data should write");
+        std::fs::write(
+            legacy_app_home_dirs[0].join("nested").join("shared.txt"),
+            b"loom-home",
+        )
+        .expect("loom home should write");
+        std::fs::write(
+            legacy_app_home_dirs[1].join("nested").join("shared.txt"),
+            b"threadex-home",
+        )
+        .expect("threadex home should write");
+
+        migrate_legacy_namespaces_for_profile(
+            &AppExecutionProfile::Installed,
+            &legacy_app_data_dirs,
+            &canonical_app_data_dir,
+            &legacy_app_home_dirs,
+            &canonical_app_home_dir,
+        )
+        .expect("installed migration should succeed");
+
+        assert_eq!(
+            std::fs::read(canonical_app_data_dir.join("nested").join("shared.txt"))
+                .expect("canonical app data should exist"),
+            b"loom-app-data"
+        );
+        assert_eq!(
+            std::fs::read(canonical_app_home_dir.join("nested").join("shared.txt"))
+                .expect("canonical home should exist"),
+            b"loom-home"
+        );
         assert!(!legacy_app_data_dirs[0].exists());
         assert!(!legacy_app_data_dirs[1].exists());
         assert!(!legacy_app_home_dirs[0].exists());

@@ -51,7 +51,7 @@ Run from the repository root on `main`:
 
 ```bash
 git pull --ff-only
-node scripts/update-version.mjs RELEASE_VERSION
+node scripts/update-version.mjs "$RELEASE_VERSION"
 bun install --frozen-lockfile
 bun run verify
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -62,8 +62,8 @@ If the repo is ready, commit the release source and tag it:
 
 ```bash
 git add .
-git commit -m "chore(release): cut vRELEASE_VERSION" -m "Co-authored-by: Codex <noreply@openai.com>"
-git tag vRELEASE_VERSION
+git commit -m "chore(release): cut v${RELEASE_VERSION}" -m "Co-authored-by: Codex <noreply@openai.com>"
+git tag "v${RELEASE_VERSION}"
 ```
 
 ## Build, Sign, Notarize
@@ -131,7 +131,7 @@ hdiutil create \
   -srcfolder release-artifacts/dmg-root \
   -ov \
   -format UDZO \
-  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg
+  release-artifacts/Skein_${RELEASE_VERSION}_aarch64.dmg
 COPYFILE_DISABLE=1 tar -czf \
   release-artifacts/Skein.app.tar.gz \
   -C src-tauri/target/aarch64-apple-darwin/release/bundle/macos \
@@ -152,7 +152,7 @@ Generate release notes and `latest.json`:
 ```bash
 gh api "repos/paul-bouzian/Skein/releases/generate-notes" \
   -X POST \
-  -F "tag_name=vRELEASE_VERSION" \
+  -F "tag_name=v${RELEASE_VERSION}" \
   -F "target_commitish=$(git rev-parse HEAD)" \
   --jq .body > release-artifacts/release-notes.md
 ```
@@ -160,12 +160,13 @@ gh api "repos/paul-bouzian/Skein/releases/generate-notes" \
 ```bash
 python3 <<'PY'
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 repo = "paul-bouzian/Skein"
-version = "RELEASE_VERSION"
-tag = "vRELEASE_VERSION"
+version = os.environ["RELEASE_VERSION"]
+tag = f"v{version}"
 notes = Path("release-artifacts/release-notes.md").read_text().strip()
 signature = Path("release-artifacts/Skein.app.tar.gz.sig").read_text().strip()
 payload = {
@@ -186,12 +187,12 @@ PY
 ## Publish The GitHub Release
 
 ```bash
-gh release create vRELEASE_VERSION \
-  --title "Skein vRELEASE_VERSION" \
+gh release create "v${RELEASE_VERSION}" \
+  --title "Skein v${RELEASE_VERSION}" \
   --notes-file release-artifacts/release-notes.md \
   --target "$(git rev-parse HEAD)" \
   release-artifacts/Skein.zip \
-  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg \
+  release-artifacts/Skein_${RELEASE_VERSION}_aarch64.dmg \
   release-artifacts/Skein.app.tar.gz \
   release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json
@@ -200,13 +201,13 @@ gh release create vRELEASE_VERSION \
 If the release already exists:
 
 ```bash
-gh release edit vRELEASE_VERSION \
-  --title "Skein vRELEASE_VERSION" \
+gh release edit "v${RELEASE_VERSION}" \
+  --title "Skein v${RELEASE_VERSION}" \
   --notes-file release-artifacts/release-notes.md
 
-gh release upload vRELEASE_VERSION \
+gh release upload "v${RELEASE_VERSION}" \
   release-artifacts/Skein.zip \
-  release-artifacts/Skein_RELEASE_VERSION_aarch64.dmg \
+  release-artifacts/Skein_${RELEASE_VERSION}_aarch64.dmg \
   release-artifacts/Skein.app.tar.gz \
   release-artifacts/Skein.app.tar.gz.sig \
   release-artifacts/latest.json \
