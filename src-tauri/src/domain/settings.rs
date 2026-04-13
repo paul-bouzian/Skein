@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use super::shortcuts::{ShortcutSettings, ShortcutSettingsPatch};
+use crate::serde_helpers::deserialize_explicit_optional;
 
 fn default_collapse_work_activity() -> bool {
     true
@@ -18,14 +19,6 @@ fn default_open_target_id() -> String {
 
 fn default_desktop_notifications_enabled() -> bool {
     false
-}
-
-fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

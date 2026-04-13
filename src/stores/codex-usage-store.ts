@@ -149,50 +149,12 @@ function setUsageSnapshot(
   snapshot: CodexRateLimitSnapshot,
 ) {
   const fetchedAt = Date.now();
-  set((state) => ({
-    snapshot: mergeUsageSnapshot(state.snapshot, snapshot),
+  set(() => ({
+    snapshot,
     loading: false,
     error: null,
     lastFetchedAt: fetchedAt,
   }));
-}
-
-function mergeUsageSnapshot(
-  previous: CodexRateLimitSnapshot | null,
-  next: CodexRateLimitSnapshot,
-): CodexRateLimitSnapshot {
-  return {
-    credits: mergeUsageValue(previous?.credits, next.credits),
-    limitId: mergeUsageValue(previous?.limitId, next.limitId),
-    limitName: mergeUsageValue(previous?.limitName, next.limitName),
-    planType: mergeUsageValue(previous?.planType, next.planType),
-    primary: mergeUsageWindow(previous?.primary, next.primary),
-    secondary: mergeUsageWindow(previous?.secondary, next.secondary),
-  };
-}
-
-function mergeUsageValue<T>(
-  previous: T | null | undefined,
-  next: T | null | undefined,
-) {
-  return next === undefined ? previous : next;
-}
-
-function mergeUsageWindow(
-  previous: CodexRateLimitSnapshot["primary"] | undefined,
-  next: CodexRateLimitSnapshot["primary"] | undefined,
-) {
-  if (next === undefined) {
-    return previous;
-  }
-  if (next === null) {
-    return null;
-  }
-
-  return {
-    ...previous,
-    ...next,
-  };
 }
 
 function isUsageFetchStale(
