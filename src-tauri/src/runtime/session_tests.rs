@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use crate::domain::conversation::ConversationComposerSettings;
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
+use crate::runtime::protocol::AGENT_MESSAGE_DELTA_METHOD;
 use crate::services::workspace::ThreadRuntimeContext;
 
 use super::session::RuntimeSession;
@@ -34,6 +35,12 @@ struct FakeCodexHarness {
 
 impl FakeCodexHarness {
     async fn new() -> (RuntimeSession, Self) {
+        Self::new_with_stream_assistant_responses(true).await
+    }
+
+    async fn new_with_stream_assistant_responses(
+        stream_assistant_responses: bool,
+    ) -> (RuntimeSession, Self) {
         let (client_writer, server_reader) = duplex(32 * 1024);
         let (server_writer, client_reader) = duplex(32 * 1024);
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -50,6 +57,7 @@ impl FakeCodexHarness {
             "env-1".to_string(),
             "/tmp/skein".to_string(),
             "0.1.0".to_string(),
+            stream_assistant_responses,
             client_writer,
             client_reader,
         )
@@ -438,6 +446,7 @@ fn context_with_environment(
             service_tier: None,
         },
         codex_binary_path: Some("/opt/homebrew/bin/codex".to_string()),
+        stream_assistant_responses: true,
     }
 }
 
@@ -515,6 +524,150 @@ async fn open_thread_hydrates_history_and_capabilities() {
     assert!(requests
         .iter()
         .any(|request| request.method == "thread/resume"));
+}
+
+#[tokio::test]
+async fn initialize_omits_opt_out_notification_methods_when_assistant_streaming_enabled() {
+    let (_session, harness) = FakeCodexHarness::new().await;
+
+    let requests = harness.requests().await;
+    let initialize = requests
+        .iter()
+        .find(|request| request.method == "initialize")
+        .expect("initialize request should be recorded");
+
+    assert_eq!(
+        initialize.params["capabilities"]["experimentalApi"],
+        json!(true)
+    );
+    assert!(initialize.params["capabilities"]["optOutNotificationMethods"].is_null());
+}
+
+#[tokio::test]
+async fn initialize_opts_out_of_assistant_deltas_when_assistant_streaming_disabled() {
+    let (_session, harness) = FakeCodexHarness::new_with_stream_assistant_responses(false).await;
+
+    let requests = harness.requests().await;
+    let initialize = requests
+        .iter()
+        .find(|request| request.method == "initialize")
+        .expect("initialize request should be recorded");
+
+    assert_eq!(
+        initialize.params["capabilities"]["optOutNotificationMethods"],
+        json!([AGENT_MESSAGE_DELTA_METHOD])
+    );
+}
+
+#[tokio::test]
+async fn assistant_message_hydrates_from_completed_item_without_live_deltas() {
+    let (session, harness) = FakeCodexHarness::new_with_stream_assistant_responses(false).await;
+
+    let mut runtime_context = context(
+        "thread-local-buffered",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.stream_assistant_responses = false;
+
+    let send_result = session
+        .send_message(
+            runtime_context.clone(),
+            "Buffer assistant output".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+    runtime_context.codex_thread_id = send_result.new_codex_thread_id;
+
+    harness
+        .emit_notification(
+            "item/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "assistant-item-1",
+                    "type": "agentMessage",
+                    "text": "Partial assistant text"
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let started_snapshot = session
+        .open_thread(runtime_context.clone())
+        .await
+        .expect("snapshot should reopen after started item")
+        .snapshot;
+
+    assert!(started_snapshot.items.iter().all(|item| {
+        !matches!(
+            item,
+            crate::domain::conversation::ConversationItem::Message(message)
+                if message.id == "assistant-item-1"
+        )
+    }));
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "assistant-item-1",
+                    "type": "agentMessage",
+                    "text": "Buffered final assistant text"
+                }
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "turn/completed",
+            json!({
+                "threadId": "thr-new",
+                "turn": {
+                    "id": "turn-live-1",
+                    "status": "completed",
+                    "error": null
+                }
+            }),
+        )
+        .await;
+
+    let snapshot = wait_for_snapshot(
+        &session,
+        runtime_context.clone(),
+        |snapshot| {
+            snapshot.items.iter().any(|item| {
+                matches!(
+                    item,
+                    crate::domain::conversation::ConversationItem::Message(message)
+                        if message.id == "assistant-item-1"
+                            && message.text == "Buffered final assistant text"
+                            && !message.is_streaming
+                )
+            }) && matches!(
+                snapshot.status,
+                crate::domain::conversation::ConversationStatus::Completed
+            )
+        },
+    )
+    .await;
+
+    assert!(snapshot.items.iter().any(|item| {
+        matches!(
+            item,
+            crate::domain::conversation::ConversationItem::Message(message)
+                if message.id == "assistant-item-1"
+                    && message.text == "Buffered final assistant text"
+                    && !message.is_streaming
+        )
+    }));
 }
 
 #[tokio::test]
@@ -1849,7 +2002,7 @@ async fn agent_message_deltas_drop_inter_agent_control_envelopes() {
 
     harness
         .emit_notification(
-            "item/agentMessage/delta",
+            AGENT_MESSAGE_DELTA_METHOD,
             json!({
                 "threadId": "thr-new",
                 "turnId": "turn-live-1",
@@ -1879,7 +2032,7 @@ async fn agent_message_deltas_drop_inter_agent_control_envelopes() {
 
     harness
         .emit_notification(
-            "item/agentMessage/delta",
+            AGENT_MESSAGE_DELTA_METHOD,
             json!({
                 "threadId": "thr-new",
                 "turnId": "turn-live-1",

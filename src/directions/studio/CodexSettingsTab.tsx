@@ -87,6 +87,13 @@ export function CodexSettingsTab({
         checked={settings.collapseWorkActivity}
         onChange={(value) => onChange({ collapseWorkActivity: value })}
       />
+      <SettingsToggle
+        disabled={disabled}
+        label="Stream assistant responses"
+        description="Stream assistant replies token by token in real time."
+        checked={settings.streamAssistantResponses}
+        onChange={(value) => onChange({ streamAssistantResponses: value })}
+      />
       <SettingsInput
         disabled={disabled}
         label="Codex binary"

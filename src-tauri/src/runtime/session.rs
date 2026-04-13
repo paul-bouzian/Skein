@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -16,10 +16,10 @@ use uuid::Uuid;
 
 use crate::domain::conversation::{
     ApprovalResponseInput, CommandApprovalDecisionInput, ComposerMentionBindingInput,
-    ConversationEventPayload, ConversationImageAttachment, ConversationInteraction, ConversationItem,
-    ConversationMessageItem, ConversationRole, ConversationStatus, ConversationTaskStatus,
-    EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput, InputModality,
-    PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
+    ConversationEventPayload, ConversationImageAttachment, ConversationInteraction,
+    ConversationItem, ConversationMessageItem, ConversationRole, ConversationStatus,
+    ConversationTaskStatus, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
+    InputModality, PermissionGrantScope, PermissionsApprovalDecisionInput, PlanDecisionAction,
     ProposedPlanStatus, RespondToUserInputRequestInput, SubagentStatus, SubmitPlanDecisionInput,
     ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
@@ -43,6 +43,7 @@ use crate::runtime::protocol::{
     subagents_from_collab_item, task_plan_from_item, task_plan_from_turn_update,
     task_status_from_turn_status, token_usage_snapshot, upsert_item, user_input_payload,
     AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire, AppsListResponse,
+    AGENT_MESSAGE_DELTA_METHOD,
     CollaborationModeListResponse, ErrorNotification, FuzzyFileSearchMatchTypeWire,
     FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification, ItemNotification,
     ModelListResponse, OutgoingNamedInput, OutgoingTextElement, OutgoingUserInputPayload,
@@ -74,7 +75,6 @@ where
     child: Option<Arc<Mutex<Child>>>,
 }
 
-#[derive(Default)]
 struct SessionState {
     snapshots_by_thread: HashMap<String, ThreadConversationSnapshot>,
     local_thread_by_codex_id: HashMap<String, String>,
@@ -83,6 +83,7 @@ struct SessionState {
     pending_server_requests: HashMap<String, PendingServerRequest>,
     turn_modes_by_id: HashMap<String, CollaborationMode>,
     pending_turn_mode_by_thread: HashMap<String, CollaborationMode>,
+    stream_assistant_responses: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +129,21 @@ enum BufferedSnapshotEmitAction {
 
 static SNAPSHOT_EMIT_STATE: OnceLock<Mutex<HashMap<String, BufferedSnapshotEmit>>> =
     OnceLock::new();
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            snapshots_by_thread: HashMap::new(),
+            local_thread_by_codex_id: HashMap::new(),
+            capabilities: None,
+            buffered_assistant_control_deltas: HashMap::new(),
+            pending_server_requests: HashMap::new(),
+            turn_modes_by_id: HashMap::new(),
+            pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
+        }
+    }
+}
 
 impl SnapshotEmitSignature {
     fn from_snapshot(snapshot: &ThreadConversationSnapshot) -> Self {
@@ -193,6 +209,7 @@ impl RuntimeSession {
         environment_path: String,
         binary_path: String,
         app_version: String,
+        stream_assistant_responses: bool,
     ) -> AppResult<Self> {
         Self::spawn_with_app(
             Some(app),
@@ -200,6 +217,7 @@ impl RuntimeSession {
             environment_path,
             binary_path,
             app_version,
+            stream_assistant_responses,
         )
         .await
     }
@@ -209,6 +227,7 @@ impl RuntimeSession {
         environment_path: String,
         binary_path: String,
         app_version: String,
+        stream_assistant_responses: bool,
     ) -> AppResult<Self> {
         Self::spawn_with_app(
             None,
@@ -216,6 +235,7 @@ impl RuntimeSession {
             environment_path,
             binary_path,
             app_version,
+            stream_assistant_responses,
         )
         .await
     }
@@ -226,6 +246,7 @@ impl RuntimeSession {
         environment_path: String,
         binary_path: String,
         app_version: String,
+        stream_assistant_responses: bool,
     ) -> AppResult<Self> {
         let mut command = Command::new(&binary_path);
         command
@@ -251,6 +272,7 @@ impl RuntimeSession {
             app,
             environment_id,
             app_version,
+            stream_assistant_responses,
             SessionTransport {
                 writer: Box::new(stdin),
                 reader: stdout,
@@ -266,6 +288,7 @@ impl RuntimeSession {
         environment_id: String,
         _environment_path: String,
         app_version: String,
+        stream_assistant_responses: bool,
         writer: W,
         reader: R,
     ) -> AppResult<Self>
@@ -277,6 +300,7 @@ impl RuntimeSession {
             None,
             environment_id,
             app_version,
+            stream_assistant_responses,
             SessionTransport {
                 writer: Box::new(writer),
                 reader,
@@ -303,6 +327,7 @@ impl RuntimeSession {
                 pending_server_requests: HashMap::new(),
                 turn_modes_by_id: HashMap::new(),
                 pending_turn_mode_by_thread: HashMap::new(),
+                stream_assistant_responses: true,
             })),
             next_request_id: AtomicU64::new(1),
             stdout_task: Mutex::new(None),
@@ -314,6 +339,7 @@ impl RuntimeSession {
         app: Option<AppHandle>,
         environment_id: String,
         app_version: String,
+        stream_assistant_responses: bool,
         transport: SessionTransport<R, E>,
     ) -> AppResult<Self>
     where
@@ -322,7 +348,10 @@ impl RuntimeSession {
     {
         let writer = Arc::new(Mutex::new(transport.writer));
         let pending = Arc::new(Mutex::new(HashMap::new()));
-        let state = Arc::new(Mutex::new(SessionState::default()));
+        let state = Arc::new(Mutex::new(SessionState {
+            stream_assistant_responses,
+            ..SessionState::default()
+        }));
 
         let stdout_task = spawn_stdout_task(
             app.clone(),
@@ -346,7 +375,10 @@ impl RuntimeSession {
         };
 
         if let Err(error) = session
-            .send_request("initialize", initialize_params(&app_version))
+            .send_request(
+                "initialize",
+                initialize_params(&app_version, stream_assistant_responses),
+            )
             .await
         {
             let _ = session.stop().await;
@@ -1817,6 +1849,7 @@ async fn handle_notification(
                     };
                 let maybe_snapshot = {
                     let mut state = state.lock().await;
+                    let stream_assistant_responses = state.stream_assistant_responses;
                     let Some(local_thread_id) = state
                         .local_thread_by_codex_id
                         .get(&event.thread_id)
@@ -1908,6 +1941,13 @@ async fn handle_notification(
                             });
                             reconcile_snapshot_status(snapshot);
                             Some(snapshot.clone())
+                        } else if is_started
+                            && !stream_assistant_responses
+                            && event.item.get("type").and_then(serde_json::Value::as_str)
+                                == Some("agentMessage")
+                        {
+                            reconcile_snapshot_status(snapshot);
+                            Some(snapshot.clone())
                         } else {
                             if let Some(item) = normalize_item(Some(&event.turn_id), &event.item)
                                 .map(|item| {
@@ -1976,7 +2016,7 @@ async fn handle_notification(
                 .await;
             }
         }
-        "item/agentMessage/delta" => {
+        AGENT_MESSAGE_DELTA_METHOD => {
             if let Ok(event) = serde_json::from_value::<ItemDeltaNotification>(notification.params)
             {
                 let maybe_snapshot = {
@@ -2591,9 +2631,7 @@ fn queue_snapshot_emit(app: AppHandle, snapshot: ThreadConversationSnapshot) {
                     sleep(SNAPSHOT_EMIT_DEBOUNCE).await;
                     let next_snapshot = {
                         let mut emits = emit_state.lock().await;
-                        emits
-                            .get_mut(&thread_id)
-                            .and_then(take_buffered_snapshot)
+                        emits.get_mut(&thread_id).and_then(take_buffered_snapshot)
                     };
 
                     if let Some(snapshot) = next_snapshot {
@@ -3024,7 +3062,10 @@ mod tests {
             },
         );
 
-        session.stop().await.expect("test session should stop cleanly");
+        session
+            .stop()
+            .await
+            .expect("test session should stop cleanly");
 
         assert!(
             !snapshot_emit_state().lock().await.contains_key("thread-1"),
@@ -3057,6 +3098,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
         let item = json!({
             "id": "plan-item-1",
@@ -3092,14 +3134,16 @@ mod tests {
             },
         );
         snapshot.status = ConversationStatus::Completed;
-        snapshot.items.push(ConversationItem::Message(ConversationMessageItem {
-            id: "assistant-1".to_string(),
-            turn_id: Some("turn-1".to_string()),
-            role: ConversationRole::Assistant,
-            text: "Done".to_string(),
-            images: None,
-            is_streaming: false,
-        }));
+        snapshot
+            .items
+            .push(ConversationItem::Message(ConversationMessageItem {
+                id: "assistant-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                role: ConversationRole::Assistant,
+                text: "Done".to_string(),
+                images: None,
+                is_streaming: false,
+            }));
         snapshot
     }
 
@@ -3153,6 +3197,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::from([("turn-new".to_string(), CollaborationMode::Plan)]),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         handle_notification(
@@ -3302,6 +3347,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         mark_runtime_disconnected(&None, &state).await;
@@ -3384,6 +3430,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            stream_assistant_responses: true,
         }));
 
         handle_notification(

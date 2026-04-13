@@ -14,14 +14,13 @@ use crate::domain::conversation::{
     ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{
-    CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot, WorkspaceEvent,
-    WorkspaceEventKind,
+    CodexRateLimitSnapshot, RuntimeState, RuntimeStatusSnapshot, WorkspaceEvent, WorkspaceEventKind,
 };
 use crate::error::{AppError, AppResult};
 use crate::runtime::codex_paths::resolve_codex_binary_path;
 use crate::runtime::protocol::AccountReadResponse;
 use crate::runtime::session::{AppServerAuthStatus, RuntimeSession, SendMessageResult};
-use crate::services::workspace::ThreadRuntimeContext;
+use crate::services::workspace::{EnvironmentRuntimeTarget, ThreadRuntimeContext};
 
 struct RunningRuntime {
     session: Arc<RuntimeSession>,
@@ -110,9 +109,7 @@ impl RuntimeSupervisor {
                 status.pid = None;
                 status.started_at = None;
                 status.last_exit_code = Some(last_exit_code);
-                registry
-                    .last_known
-                    .insert(environment_id.clone(), status);
+                registry.last_known.insert(environment_id.clone(), status);
                 finalized.push(session);
                 changed_environment_ids.push(environment_id);
             }
@@ -142,11 +139,10 @@ impl RuntimeSupervisor {
     pub async fn start(
         &self,
         environment_id: &str,
-        environment_path: &str,
-        codex_binary_path: Option<String>,
+        runtime_target: &EnvironmentRuntimeTarget,
     ) -> AppResult<RuntimeStatusSnapshot> {
         Ok(self
-            .ensure_running_runtime(environment_id, environment_path, codex_binary_path)
+            .ensure_running_runtime(environment_id, runtime_target)
             .await?
             .status)
     }
@@ -196,8 +192,7 @@ impl RuntimeSupervisor {
     async fn ensure_running_runtime(
         &self,
         environment_id: &str,
-        environment_path: &str,
-        codex_binary_path: Option<String>,
+        runtime_target: &EnvironmentRuntimeTarget,
     ) -> AppResult<RunningRuntime> {
         let environment_lock = self.environment_lock(environment_id).await;
         let _environment_guard = environment_lock.lock().await;
@@ -208,16 +203,17 @@ impl RuntimeSupervisor {
             return Ok(runtime);
         }
 
-        let binary_path = resolve_binary_path(codex_binary_path)?;
+        let binary_path = resolve_binary_path(runtime_target.codex_binary_path.clone())?;
 
         let now = Utc::now();
         let session = Arc::new(
             RuntimeSession::spawn(
                 self.app.clone(),
                 environment_id.to_string(),
-                environment_path.to_string(),
+                runtime_target.environment_path.clone(),
                 binary_path.clone(),
                 self.app_version.clone(),
+                runtime_target.stream_assistant_responses,
             )
             .await?,
         );
@@ -282,6 +278,7 @@ impl RuntimeSupervisor {
             environment_path.to_string(),
             binary_path,
             self.app_version.clone(),
+            true,
         )
         .await?;
         Ok(RuntimeReadTarget::Headless(Box::new(session)))
@@ -330,7 +327,11 @@ impl RuntimeSupervisor {
         self.refresh_statuses().await?;
 
         let mut registry = self.registry.lock().await;
-        Ok(touch_running_runtime(&mut registry, environment_id, Utc::now()))
+        Ok(touch_running_runtime(
+            &mut registry,
+            environment_id,
+            Utc::now(),
+        ))
     }
 
     pub async fn open_thread(
@@ -446,13 +447,8 @@ impl RuntimeSupervisor {
         }
 
         for candidate in classification.evictable_candidates {
-            if !should_stop_idle_runtime_candidate(
-                &self.registry,
-                &candidate,
-                Utc::now(),
-                cutoff,
-            )
-            .await
+            if !should_stop_idle_runtime_candidate(&self.registry, &candidate, Utc::now(), cutoff)
+                .await
             {
                 continue;
             }
@@ -510,11 +506,7 @@ impl RuntimeSupervisor {
         context: &ThreadRuntimeContext,
     ) -> AppResult<Arc<RuntimeSession>> {
         Ok(self
-            .ensure_running_runtime(
-                &context.environment_id,
-                &context.environment_path,
-                context.codex_binary_path.clone(),
-            )
+            .ensure_running_runtime(&context.environment_id, &context.environment_runtime_target())
             .await?
             .session)
     }
@@ -651,10 +643,10 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        classify_idle_runtime_candidates, collect_idle_runtime_candidates,
-        finish_headless_read, read_account_from_target, read_auth_status_from_target,
-        resolve_binary_path, should_stop_idle_runtime_candidate, touch_running_runtime,
-        AppServerAuthStatus, RunningRuntime, RuntimeReadTarget, RuntimeRegistry,
+        classify_idle_runtime_candidates, collect_idle_runtime_candidates, finish_headless_read,
+        read_account_from_target, read_auth_status_from_target, resolve_binary_path,
+        should_stop_idle_runtime_candidate, touch_running_runtime, AppServerAuthStatus,
+        RunningRuntime, RuntimeReadTarget, RuntimeRegistry,
     };
     use crate::domain::conversation::{
         ConversationComposerSettings, ConversationMessageItem, ConversationRole,
@@ -837,13 +829,9 @@ mod tests {
         );
         touch_running_runtime(&mut registry, "env-1", touched_at);
 
-        let should_stop = should_stop_idle_runtime_candidate(
-            &Mutex::new(registry),
-            &candidate,
-            now,
-            cutoff,
-        )
-        .await;
+        let should_stop =
+            should_stop_idle_runtime_candidate(&Mutex::new(registry), &candidate, now, cutoff)
+                .await;
 
         assert!(!should_stop);
     }
@@ -946,6 +934,7 @@ mod tests {
             "env-1".to_string(),
             "/tmp/skein".to_string(),
             "0.1.0".to_string(),
+            true,
             client_writer,
             client_reader,
         )
@@ -984,16 +973,18 @@ mod tests {
             },
         );
         snapshot.status = ConversationStatus::Completed;
-        snapshot.items.push(crate::domain::conversation::ConversationItem::Message(
-            ConversationMessageItem {
-                id: "assistant-1".to_string(),
-                turn_id: Some("turn-1".to_string()),
-                role: ConversationRole::Assistant,
-                text: "Done".to_string(),
-                images: None,
-                is_streaming: false,
-            },
-        ));
+        snapshot
+            .items
+            .push(crate::domain::conversation::ConversationItem::Message(
+                ConversationMessageItem {
+                    id: "assistant-1".to_string(),
+                    turn_id: Some("turn-1".to_string()),
+                    role: ConversationRole::Assistant,
+                    text: "Done".to_string(),
+                    images: None,
+                    is_streaming: false,
+                },
+            ));
         snapshot
     }
 

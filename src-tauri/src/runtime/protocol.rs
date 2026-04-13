@@ -20,6 +20,8 @@ use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort
 use crate::domain::workspace::CodexRateLimitSnapshot;
 use crate::error::{AppError, AppResult};
 
+pub const AGENT_MESSAGE_DELTA_METHOD: &str = "item/agentMessage/delta";
+
 #[derive(Debug, Clone)]
 pub enum IncomingMessage {
     Response(ResponseEnvelope),
@@ -563,6 +565,8 @@ pub struct ClientInfo {
 #[serde(rename_all = "camelCase")]
 pub struct InitializeCapabilities {
     pub experimental_api: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub opt_out_notification_methods: Option<Vec<String>>,
 }
 
 pub fn parse_incoming_message(line: &str) -> AppResult<IncomingMessage> {
@@ -612,7 +616,7 @@ pub fn parse_incoming_message(line: &str) -> AppResult<IncomingMessage> {
     }))
 }
 
-pub fn initialize_params(version: &str) -> Value {
+pub fn initialize_params(version: &str, stream_assistant_responses: bool) -> Value {
     json!(InitializeParams {
         client_info: ClientInfo {
             name: APP_NAME.to_string(),
@@ -620,6 +624,8 @@ pub fn initialize_params(version: &str) -> Value {
         },
         capabilities: InitializeCapabilities {
             experimental_api: true,
+            opt_out_notification_methods: (!stream_assistant_responses)
+                .then(|| vec![AGENT_MESSAGE_DELTA_METHOD.to_string()]),
         },
     })
 }
@@ -2424,6 +2430,29 @@ mod tests {
         assert_eq!(payload["mode"], "default");
         assert_eq!(payload["settings"]["reasoning_effort"], "high");
         assert!(payload["settings"]["developer_instructions"].is_null());
+    }
+
+    #[test]
+    fn initialize_params_omit_opt_out_notification_methods_when_streaming_enabled() {
+        let payload = initialize_params("1.2.3", true);
+
+        assert_eq!(payload["capabilities"]["experimentalApi"], true);
+        assert!(
+            payload["capabilities"]
+                .as_object()
+                .and_then(|capabilities| capabilities.get("optOutNotificationMethods"))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn initialize_params_include_assistant_delta_opt_out_when_streaming_disabled() {
+        let payload = initialize_params("1.2.3", false);
+
+        assert_eq!(
+            payload["capabilities"]["optOutNotificationMethods"],
+            json!([AGENT_MESSAGE_DELTA_METHOD])
+        );
     }
 
     #[test]

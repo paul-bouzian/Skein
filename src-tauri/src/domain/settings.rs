@@ -20,6 +20,10 @@ fn default_desktop_notifications_enabled() -> bool {
     false
 }
 
+fn default_stream_assistant_responses() -> bool {
+    true
+}
+
 fn default_attention_notification_sound() -> NotificationSoundId {
     NotificationSoundId::Glass
 }
@@ -140,6 +144,8 @@ pub struct GlobalSettings {
     pub collapse_work_activity: bool,
     #[serde(default = "default_desktop_notifications_enabled")]
     pub desktop_notifications_enabled: bool,
+    #[serde(default = "default_stream_assistant_responses")]
+    pub stream_assistant_responses: bool,
     #[serde(default = "default_notification_sounds")]
     pub notification_sounds: NotificationSoundSettings,
     #[serde(default)]
@@ -161,6 +167,7 @@ impl Default for GlobalSettings {
             default_service_tier: None,
             collapse_work_activity: true,
             desktop_notifications_enabled: false,
+            stream_assistant_responses: true,
             notification_sounds: NotificationSoundSettings::default(),
             shortcuts: ShortcutSettings::default(),
             open_targets: default_open_targets(),
@@ -181,6 +188,7 @@ pub struct GlobalSettingsPatch {
     pub default_service_tier: Option<Option<ServiceTier>>,
     pub collapse_work_activity: Option<bool>,
     pub desktop_notifications_enabled: Option<bool>,
+    pub stream_assistant_responses: Option<bool>,
     pub notification_sounds: Option<NotificationSoundSettingsPatch>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
@@ -224,6 +232,9 @@ impl GlobalSettings {
         }
         if let Some(desktop_notifications_enabled) = patch.desktop_notifications_enabled {
             self.desktop_notifications_enabled = desktop_notifications_enabled;
+        }
+        if let Some(stream_assistant_responses) = patch.stream_assistant_responses {
+            self.stream_assistant_responses = stream_assistant_responses;
         }
         if let Some(notification_sounds) = patch.notification_sounds {
             self.notification_sounds.apply_patch(notification_sounds);
@@ -635,6 +646,7 @@ mod tests {
             default_service_tier: Some(Some(ServiceTier::Fast)),
             collapse_work_activity: Some(true),
             desktop_notifications_enabled: Some(true),
+            stream_assistant_responses: Some(false),
             notification_sounds: Some(NotificationSoundSettingsPatch {
                 attention: Some(super::NotificationSoundChannelSettingsPatch {
                     enabled: Some(true),
@@ -676,6 +688,7 @@ mod tests {
         assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
         assert!(settings.collapse_work_activity);
         assert!(settings.desktop_notifications_enabled);
+        assert!(!settings.stream_assistant_responses);
         assert!(settings.notification_sounds.attention.enabled);
         assert_eq!(settings.notification_sounds.attention.sound, NotificationSoundId::Chord);
         assert!(settings.notification_sounds.completion.enabled);
@@ -736,6 +749,7 @@ mod tests {
 
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
+        assert!(settings.stream_assistant_responses);
         assert_eq!(
             settings.notification_sounds.attention.sound,
             NotificationSoundId::Glass
@@ -763,6 +777,7 @@ mod tests {
 
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
+        assert!(settings.stream_assistant_responses);
         assert!(!settings.notification_sounds.attention.enabled);
         assert_eq!(
             settings.notification_sounds.attention.sound,

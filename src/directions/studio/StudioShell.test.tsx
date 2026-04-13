@@ -520,6 +520,32 @@ describe("StudioShell", () => {
     });
   });
 
+  it("shows the assistant streaming copy in Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByText("Stream assistant responses")).toBeInTheDocument();
+    expect(
+      screen.getByText("Stream assistant replies token by token in real time."),
+    ).toBeInTheDocument();
+  });
+
+  it("saves the assistant streaming setting from Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Stream assistant responses" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        streamAssistantResponses: false,
+      });
+    });
+  });
+
   it("shows the desktop notifications copy in Notifications settings", async () => {
     render(<StudioShell />);
 
