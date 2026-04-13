@@ -1108,6 +1108,7 @@ ol.tx-markdown__list {
   min-height: var(--tx-composer-control-height);
   padding: 14px var(--tx-space-lg);
   font: inherit;
+  letter-spacing: 0;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
