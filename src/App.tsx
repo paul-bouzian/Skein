@@ -18,6 +18,7 @@ import {
   teardownWorktreeScriptListener,
   useWorktreeScriptStore,
 } from "./stores/worktree-script-store";
+import { DesktopNotificationRuntime } from "./shared/DesktopNotificationRuntime";
 
 function App() {
   const initialize = useWorkspaceStore((s) => s.initialize);
@@ -120,7 +121,12 @@ function App() {
     );
   }
 
-  return <StudioShell />;
+  return (
+    <>
+      <StudioShell />
+      <DesktopNotificationRuntime />
+    </>
+  );
 }
 
 export default App;

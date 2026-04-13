@@ -55,6 +55,7 @@ export function makeGlobalSettings(
     defaultApprovalPolicy: "askToEdit",
     defaultServiceTier: null,
     collapseWorkActivity: true,
+    desktopNotificationsEnabled: false,
     shortcuts: {
       openSettings: "mod+comma",
       focusComposer: "mod+l",

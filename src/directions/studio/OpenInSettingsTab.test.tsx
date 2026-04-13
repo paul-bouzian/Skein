@@ -134,7 +134,10 @@ describe("OpenInSettingsTab", () => {
     });
 
     expect(updateGlobalSettings).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultOpenTargetId: expect.any(String) })
+      expect.objectContaining({
+        defaultOpenTargetId: expect.any(String),
+        openTargets: expect.arrayContaining(makeGlobalSettings().openTargets),
+      }),
     );
   });
 

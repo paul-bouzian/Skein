@@ -112,6 +112,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   }
 
   function handleDragStart(e: PointerEvent, index: number) {
+    if (saving) return;
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragStartY.current = e.clientY;
@@ -151,6 +152,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   }
 
   function handleGripKeyDown(e: React.KeyboardEvent, index: number) {
+    if (saving) return;
     if (e.key === "ArrowUp" && index > 0) {
       e.preventDefault();
       updateDraftState((current) => {
@@ -238,6 +240,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
                 className="settings-open-target__grip"
                 tabIndex={0}
                 role="button"
+                aria-label={`Reorder ${target.label}`}
                 onPointerDown={(e) => handleDragStart(e, index)}
                 onKeyDown={(e) => handleGripKeyDown(e, index)}
               >

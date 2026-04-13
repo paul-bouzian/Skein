@@ -19,6 +19,10 @@ vi.mock("./shared/LoadingState", () => ({
   LoadingState: () => <div data-testid="loading-state" />,
 }));
 
+vi.mock("./shared/DesktopNotificationRuntime", () => ({
+  DesktopNotificationRuntime: () => null,
+}));
+
 vi.mock("./lib/bridge", () => ({
   listenToFirstPromptRenameFailures: vi.fn(async () => () => undefined),
   listenToMenuCheckForUpdates: vi.fn(async () => () => undefined),

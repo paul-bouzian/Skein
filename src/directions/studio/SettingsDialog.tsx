@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  isPermissionGranted,
+  requestPermission,
+} from "@tauri-apps/plugin-notification";
+
 import * as bridge from "../../lib/bridge";
 import type {
   ApprovalPolicy,
@@ -40,7 +45,25 @@ type Props = {
 const SETTINGS_PICKER_Z_INDEX = 1310;
 const SETTINGS_REFRESH_ERROR =
   "Settings were saved, but the workspace snapshot could not be refreshed.";
+const DESKTOP_NOTIFICATIONS_ENABLE_ERROR =
+  "Desktop notifications could not be enabled. Check your operating system notification permissions and try again.";
+const DESKTOP_NOTIFICATIONS_PERMISSION_DENIED =
+  "Desktop notifications were not enabled because permission was denied by the operating system.";
 type SettingsTab = "codex" | "openIn" | "shortcuts" | "project";
+
+async function requestDesktopNotificationsAccess(): Promise<
+  "granted" | "denied" | "error"
+> {
+  try {
+    if (await isPermissionGranted()) {
+      return "granted";
+    }
+
+    return (await requestPermission()) === "granted" ? "granted" : "denied";
+  } catch {
+    return "error";
+  }
+}
 
 export function SettingsDialog({ open, onClose }: Props) {
   const settings = useWorkspaceStore(selectSettings);
@@ -55,9 +78,14 @@ export function SettingsDialog({ open, onClose }: Props) {
   const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const updateGlobalSettings = useWorkspaceStore((state) => state.updateGlobalSettings);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [desktopNotificationsNotice, setDesktopNotificationsNotice] = useState<
+    string | null
+  >(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("codex");
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
+  const [desktopNotificationsBusy, setDesktopNotificationsBusy] = useState(false);
   const savingGlobalSettingsRef = useRef(false);
+  const desktopNotificationsBusyRef = useRef(false);
   const modelOptions = useMemo(
     () =>
       settings
@@ -98,6 +126,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) {
       setActionError(null);
+      setDesktopNotificationsNotice(null);
       setActiveTab("codex");
     }
   }, [open]);
@@ -109,13 +138,7 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
   }
 
-  async function handleGlobalChange(patch: GlobalSettingsPatch) {
-    if (savingGlobalSettingsRef.current) {
-      return;
-    }
-
-    savingGlobalSettingsRef.current = true;
-    setSavingGlobalSettings(true);
+  async function applyGlobalSettingsChange(patch: GlobalSettingsPatch) {
     try {
       setActionError(null);
       const result = await updateGlobalSettings(patch);
@@ -129,9 +152,58 @@ export function SettingsDialog({ open, onClose }: Props) {
       setActionError(
         cause instanceof Error ? cause.message : "Failed to save settings",
       );
+    }
+  }
+
+  async function handleGlobalChange(patch: GlobalSettingsPatch) {
+    if (savingGlobalSettingsRef.current) {
+      return;
+    }
+
+    savingGlobalSettingsRef.current = true;
+    setSavingGlobalSettings(true);
+    try {
+      await applyGlobalSettingsChange(patch);
     } finally {
       savingGlobalSettingsRef.current = false;
       setSavingGlobalSettings(false);
+    }
+  }
+
+  async function handleDesktopNotificationsChange(nextValue: boolean) {
+    if (desktopNotificationsBusyRef.current || savingGlobalSettingsRef.current) {
+      return;
+    }
+
+    desktopNotificationsBusyRef.current = true;
+    savingGlobalSettingsRef.current = true;
+    setDesktopNotificationsBusy(true);
+    setSavingGlobalSettings(true);
+    setActionError(null);
+    setDesktopNotificationsNotice(null);
+
+    try {
+      if (!nextValue) {
+        await applyGlobalSettingsChange({ desktopNotificationsEnabled: false });
+        return;
+      }
+
+      const permissionState = await requestDesktopNotificationsAccess();
+      if (permissionState === "error") {
+        setDesktopNotificationsNotice(DESKTOP_NOTIFICATIONS_ENABLE_ERROR);
+        return;
+      }
+      if (permissionState === "denied") {
+        setDesktopNotificationsNotice(DESKTOP_NOTIFICATIONS_PERMISSION_DENIED);
+        return;
+      }
+
+      await applyGlobalSettingsChange({ desktopNotificationsEnabled: true });
+    } finally {
+      savingGlobalSettingsRef.current = false;
+      desktopNotificationsBusyRef.current = false;
+      setSavingGlobalSettings(false);
+      setDesktopNotificationsBusy(false);
     }
   }
 
@@ -245,8 +317,11 @@ export function SettingsDialog({ open, onClose }: Props) {
               <SettingsContent
                 settings={settings}
                 disabled={savingGlobalSettings}
+                desktopNotificationsBusy={desktopNotificationsBusy}
+                desktopNotificationsNotice={desktopNotificationsNotice}
                 modelOptions={modelOptions}
                 onChange={handleGlobalChange}
+                onDesktopNotificationsChange={handleDesktopNotificationsChange}
               />
             ) : null}
             {activeTab === "codex" && !settings ? (
@@ -291,13 +366,19 @@ export function SettingsDialog({ open, onClose }: Props) {
 function SettingsContent({
   settings,
   disabled,
+  desktopNotificationsBusy,
+  desktopNotificationsNotice,
   modelOptions,
   onChange,
+  onDesktopNotificationsChange,
 }: {
   settings: GlobalSettings;
   disabled: boolean;
+  desktopNotificationsBusy: boolean;
+  desktopNotificationsNotice: string | null;
   modelOptions: ComposerPickerOption[];
-  onChange: (patch: GlobalSettingsPatch) => void;
+  onChange: (patch: GlobalSettingsPatch) => Promise<void> | void;
+  onDesktopNotificationsChange: (enabled: boolean) => Promise<void>;
 }) {
   return (
     <div className="settings-list">
@@ -348,6 +429,16 @@ function SettingsContent({
         description="Hide intermediate thinking, tool calls, task progress, and subagent noise behind one collapsible work block. Plans and user interactions stay visible."
         checked={settings.collapseWorkActivity}
         onChange={(value) => onChange({ collapseWorkActivity: value })}
+      />
+      <SettingsToggle
+        disabled={disabled || desktopNotificationsBusy}
+        label="Desktop notifications"
+        description="Show an OS notification when a chat finishes or needs input while the app is in the background."
+        supportText="Desktop app notifications use your operating system notification center."
+        notice={desktopNotificationsNotice}
+        noticeTone="error"
+        checked={settings.desktopNotificationsEnabled}
+        onChange={(value) => void onDesktopNotificationsChange(value)}
       />
       <SettingsInput
         disabled={disabled}
@@ -429,12 +520,18 @@ function SettingsInput({
 function SettingsToggle({
   label,
   description,
+  supportText,
+  notice,
+  noticeTone = "default",
   disabled = false,
   checked,
   onChange,
 }: {
   label: string;
   description: string;
+  supportText?: string;
+  notice?: string | null;
+  noticeTone?: "default" | "error";
   disabled?: boolean;
   checked: boolean;
   onChange: (value: boolean) => void;
@@ -444,6 +541,16 @@ function SettingsToggle({
       <div className="settings-toggle__copy">
         <label className="settings-field__label">{label}</label>
         <p className="settings-field__help">{description}</p>
+        {supportText ? <p className="settings-field__help">{supportText}</p> : null}
+        {notice ? (
+          <p
+            className={`settings-field__help ${
+              noticeTone === "error" ? "settings-field__help--error" : ""
+            }`}
+          >
+            {notice}
+          </p>
+        ) : null}
       </div>
       <button
         type="button"

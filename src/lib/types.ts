@@ -181,6 +181,7 @@ export type GlobalSettings = {
   defaultApprovalPolicy: ApprovalPolicy;
   defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity: boolean;
+  desktopNotificationsEnabled: boolean;
   shortcuts: ShortcutSettings;
   openTargets: OpenTarget[];
   defaultOpenTargetId: string;
@@ -841,6 +842,7 @@ export type GlobalSettingsPatch = {
   defaultApprovalPolicy?: ApprovalPolicy;
   defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity?: boolean;
+  desktopNotificationsEnabled?: boolean;
   shortcuts?: ShortcutSettingsPatch;
   openTargets?: OpenTarget[];
   defaultOpenTargetId?: string;

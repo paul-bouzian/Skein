@@ -133,6 +133,7 @@ export function StudioMain({
         <div
           className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
           style={{ height: terminalVisible ? terminalHeight : undefined }}
+          inert={!terminalVisible || undefined}
         >
           <TerminalPanel theme={theme} />
         </div>

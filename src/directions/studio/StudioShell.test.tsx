@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as notifications from "@tauri-apps/plugin-notification";
 
 import * as bridge from "../../lib/bridge";
 import { isMacPlatform } from "../../lib/shortcuts";
@@ -72,7 +73,13 @@ vi.mock("../../lib/bridge", () => ({
   listenToMenuOpenSettings: vi.fn(async () => () => undefined),
 }));
 
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  isPermissionGranted: vi.fn(),
+  requestPermission: vi.fn(),
+}));
+
 const mockedBridge = vi.mocked(bridge);
+const mockedNotifications = vi.mocked(notifications);
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
@@ -95,6 +102,10 @@ beforeEach(async () => {
   mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
   mockedBridge.updateProjectSettings.mockResolvedValue(makeWorkspaceSnapshot().projects[0]);
   mockedBridge.listenToMenuOpenSettings.mockResolvedValue(() => undefined);
+  mockedNotifications.isPermissionGranted.mockReset();
+  mockedNotifications.requestPermission.mockReset();
+  mockedNotifications.isPermissionGranted.mockResolvedValue(true);
+  mockedNotifications.requestPermission.mockResolvedValue("granted");
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
@@ -504,6 +515,169 @@ describe("StudioShell", () => {
       expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
         collapseWorkActivity: false,
       });
+    });
+  });
+
+  it("shows the desktop notifications copy in Codex settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByText("Desktop notifications")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Show an OS notification when a chat finishes or needs input while the app is in the background.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Desktop app notifications use your operating system notification center.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("requests notification permission before enabling desktop notifications", async () => {
+    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
+    mockedNotifications.requestPermission.mockResolvedValue("granted");
+    mockedBridge.updateGlobalSettings.mockResolvedValue(
+      makeGlobalSettings({ desktopNotificationsEnabled: true }),
+    );
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Desktop notifications" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        desktopNotificationsEnabled: true,
+      });
+    });
+    expect(mockedNotifications.isPermissionGranted).toHaveBeenCalledTimes(1);
+    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables other global settings while desktop notification permission is pending", async () => {
+    const permissionRequest = createDeferred<"granted" | "denied">();
+    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
+    mockedNotifications.requestPermission.mockImplementation(
+      () => permissionRequest.promise,
+    );
+    mockedBridge.updateGlobalSettings.mockResolvedValue(
+      makeGlobalSettings({ desktopNotificationsEnabled: true }),
+    );
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const desktopToggle = screen.getByRole("switch", {
+      name: "Desktop notifications",
+    });
+    const collapseToggle = screen.getByRole("switch", {
+      name: "Collapse work activity",
+    });
+
+    await userEvent.click(desktopToggle);
+
+    await waitFor(() => {
+      expect(desktopToggle).toBeDisabled();
+      expect(collapseToggle).toBeDisabled();
+    });
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+
+    await userEvent.click(collapseToggle);
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+
+    permissionRequest.resolve("granted");
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        desktopNotificationsEnabled: true,
+      });
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps desktop notifications off when notification permission is denied", async () => {
+    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
+    mockedNotifications.requestPermission.mockResolvedValue("denied");
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const toggle = screen.getByRole("switch", { name: "Desktop notifications" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Desktop notifications were not enabled because permission was denied by the operating system.",
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("disables desktop notifications without requesting permission again", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: makeGlobalSettings({ desktopNotificationsEnabled: true }),
+      }),
+    }));
+    mockedBridge.updateGlobalSettings.mockResolvedValue(
+      makeGlobalSettings({ desktopNotificationsEnabled: false }),
+    );
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("switch", { name: "Desktop notifications" }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        desktopNotificationsEnabled: false,
+      });
+    });
+    expect(mockedNotifications.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("ignores repeated desktop notification toggles while the save is in flight", async () => {
+    const saveRequest =
+      createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();
+    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
+    mockedNotifications.requestPermission.mockResolvedValue("granted");
+    mockedBridge.updateGlobalSettings.mockImplementation(() => saveRequest.promise);
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const toggle = screen.getByRole("switch", { name: "Desktop notifications" });
+
+    await userEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).toBeDisabled();
+    });
+    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(toggle);
+
+    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    saveRequest.resolve(makeWorkspaceSnapshot().settings);
+
+    await waitFor(() => {
+      expect(toggle).not.toBeDisabled();
     });
   });
 
