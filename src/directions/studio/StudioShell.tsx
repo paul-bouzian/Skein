@@ -108,9 +108,7 @@ export function StudioShell() {
   }
 
   return (
-    <div
-      className="studio-shell"
-    >
+    <div className="studio-shell">
       <TreeSidebar
         theme={theme}
         collapsed={!projectsSidebarOpen}

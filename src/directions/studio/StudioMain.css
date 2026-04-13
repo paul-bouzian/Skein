@@ -41,7 +41,9 @@
   align-self: center;
   color: var(--tx-text-muted);
   border-radius: var(--tx-radius-sm);
-  transition: all var(--tx-transition-fast);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
 }
 
 .studio-main__toggle-sidebar--active,
@@ -135,7 +137,9 @@
   background: var(--tx-bg-raised);
   border: 1px solid var(--tx-border-subtle);
   box-shadow: var(--tx-shadow-card);
-  transition: all var(--tx-transition-fast);
+  transition:
+    border-color var(--tx-transition-fast),
+    box-shadow var(--tx-transition-fast);
 }
 
 .studio-overview__card:hover {

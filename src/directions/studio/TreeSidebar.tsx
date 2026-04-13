@@ -575,22 +575,22 @@ function renderPullRequestControl(environment: EnvironmentRecord) {
 
   return (
     <Tooltip content={label} side="bottom">
-    <button
-      type="button"
-      className="environment-item__icon-button"
-      data-no-reorder-drag="true"
-      aria-label={label}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
-      }}
-    >
-      <GitBranchIcon
-        size={13}
-        className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
-      />
-    </button>
+      <button
+        type="button"
+        className="environment-item__icon-button"
+        data-no-reorder-drag="true"
+        aria-label={label}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
+        }}
+      >
+        <GitBranchIcon
+          size={13}
+          className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
+        />
+      </button>
     </Tooltip>
   );
 }

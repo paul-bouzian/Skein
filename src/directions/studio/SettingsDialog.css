@@ -173,7 +173,7 @@
 }
 
 .settings-toggle__control:not(.settings-toggle__control--checked):hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: var(--tx-border-muted);
   background: var(--tx-bg-hover);
 }
 

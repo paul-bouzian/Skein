@@ -162,21 +162,23 @@ export function InlineComposer({
   );
   const fastModeSupported = modelSupportsFastMode(selectedModel);
   const fastModeEnabled = fastModeSupported && composer.serviceTier === "fast";
-  let fastModeLabel = "Fast mode is off. Enable faster responses at higher quota usage.";
+  let fastModeLabel: string;
   if (!fastModeSupported) {
     fastModeLabel = `Fast mode is unavailable for ${selectedModel?.displayName ?? composer.model}.`;
   } else if (fastModeEnabled) {
     fastModeLabel = "Fast mode is on. Faster responses use more quota.";
+  } else {
+    fastModeLabel = "Fast mode is off. Enable faster responses at higher quota usage.";
   }
   const imagesEnabled = modelSupportsImageInput(selectedModel);
   const hasAttachedImages = images.length > 0;
   const hasDraftContent = draft.trim().length > 0;
   let imageSupportNotice: string | null = null;
   if (!imagesEnabled && transportEnabled) {
-    imageSupportNotice = modelImageSupportMessage(selectedModel);
-    if (hasAttachedImages) {
-      imageSupportNotice = `${imageSupportNotice} Remove the current images or switch to a model with image input.`;
-    }
+    const base = modelImageSupportMessage(selectedModel);
+    imageSupportNotice = hasAttachedImages
+      ? `${base} Remove the current images or switch to a model with image input.`
+      : base;
   }
   const {
     buttonDisabled: voiceButtonDisabled,
@@ -715,23 +717,23 @@ export function InlineComposer({
             ) : null}
             <Tooltip content={voiceButtonTitle}>
               <span className="tx-composer__voice-button-anchor" title={voiceButtonTitle}>
-              <button
-                type="button"
-                className={voiceButtonClassName}
-                aria-label={voiceButtonLabel}
-                disabled={voiceButtonDisabled}
-                onClick={onVoiceButtonClick}
-              >
-                {isStarting || isTranscribing ? (
-                  <span
-                    className="tx-composer__voice-spinner"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <MicIcon size={18} />
-                )}
-              </button>
-            </span>
+                <button
+                  type="button"
+                  className={voiceButtonClassName}
+                  aria-label={voiceButtonLabel}
+                  disabled={voiceButtonDisabled}
+                  onClick={onVoiceButtonClick}
+                >
+                  {isStarting || isTranscribing ? (
+                    <span
+                      className="tx-composer__voice-spinner"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <MicIcon size={18} />
+                  )}
+                </button>
+              </span>
             </Tooltip>
             <span
               className="tx-composer__voice-live-status"
