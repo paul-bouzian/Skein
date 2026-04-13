@@ -101,7 +101,7 @@
 
 .tx-picker--compact .tx-picker__trigger {
   min-height: 26px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   border-color: transparent;
   background: transparent;
   font-size: var(--tx-text-xs);
@@ -123,6 +123,11 @@
 
 .tx-picker--compact .tx-picker__chevron {
   opacity: 0.5;
+}
+
+.tx-picker--compact + .tx-picker--compact {
+  margin-left: var(--tx-space-xs);
+  padding-left: var(--tx-space-xs);
 }
 
 .tx-picker--compact + .tx-picker--compact::before {

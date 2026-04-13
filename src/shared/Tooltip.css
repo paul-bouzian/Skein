@@ -17,7 +17,8 @@
   font-size: var(--tx-text-xs);
   font-weight: var(--tx-weight-medium);
   line-height: 1.4;
-  white-space: nowrap;
+  white-space: normal;
+  width: max-content;
   pointer-events: none;
   animation: tx-tooltip-in 120ms ease-out;
 }
