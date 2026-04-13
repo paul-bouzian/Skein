@@ -443,6 +443,7 @@ describe("terminal-store", () => {
         defaultReasoningEffort: "high",
         defaultCollaborationMode: "build",
         defaultApprovalPolicy: "askToEdit",
+        streamAssistantResponses: true,
         collapseWorkActivity: true,
         desktopNotificationsEnabled: false,
         notificationSounds: {
