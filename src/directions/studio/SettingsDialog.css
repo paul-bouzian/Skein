@@ -82,11 +82,12 @@
   display: flex;
   align-items: center;
   width: 100%;
-  padding: var(--tx-space-sm) var(--tx-space-md);
-  border-radius: var(--tx-radius-md);
+  height: 32px;
+  padding: 0 var(--tx-space-md);
+  border-radius: var(--tx-radius-sm);
   border: none;
   background: transparent;
-  color: var(--tx-text-secondary);
+  color: var(--tx-text-muted);
   font-size: var(--tx-text-sm);
   font-weight: var(--tx-weight-medium);
   text-align: left;
@@ -102,7 +103,7 @@
 }
 
 .settings-dialog__tab--active {
-  background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-hover));
+  background: var(--tx-bg-active);
   color: var(--tx-text-primary);
   font-weight: var(--tx-weight-semibold);
   cursor: default;
