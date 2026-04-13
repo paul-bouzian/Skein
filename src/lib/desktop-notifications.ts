@@ -86,14 +86,23 @@ export function collectDesktopNotificationCandidates(
   nextSnapshotsByThreadId: Record<string, ThreadConversationSnapshot>,
   options?: {
     suppressUnknownThreads?: boolean;
+    threadIds?: readonly string[];
   },
 ): DesktopNotificationCandidate[] {
   const candidates: DesktopNotificationCandidate[] = [];
   const suppressUnknownThreads = options?.suppressUnknownThreads === true;
+  const threadIds = options?.threadIds ?? Object.keys(nextSnapshotsByThreadId).sort();
 
-  for (const threadId of Object.keys(nextSnapshotsByThreadId).sort()) {
+  for (const threadId of threadIds) {
     const previousSnapshot = previousSnapshotsByThreadId[threadId];
     const nextSnapshot = nextSnapshotsByThreadId[threadId];
+    if (!nextSnapshot) {
+      continue;
+    }
+
+    if (previousSnapshot === nextSnapshot) {
+      continue;
+    }
 
     if (suppressUnknownThreads && !previousSnapshot) {
       continue;

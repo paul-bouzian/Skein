@@ -29,6 +29,7 @@ export type ApprovalPolicy = "askToEdit" | "fullAccess";
 export type OpenTargetKind = "app" | "fileManager";
 export type ServiceTier = "fast" | "flex";
 export type InputModality = "text" | "image";
+export type NotificationSoundId = "glass" | "chord" | "polite";
 export type ConversationStatus =
   | "idle"
   | "running"
@@ -174,6 +175,26 @@ export type ProjectRecord = {
   environments: EnvironmentRecord[];
 };
 
+export type NotificationSoundChannelSettings = {
+  enabled: boolean;
+  sound: NotificationSoundId;
+};
+
+export type NotificationSoundSettings = {
+  attention: NotificationSoundChannelSettings;
+  completion: NotificationSoundChannelSettings;
+};
+
+export type NotificationSoundChannelSettingsPatch = {
+  enabled?: boolean;
+  sound?: NotificationSoundId;
+};
+
+export type NotificationSoundSettingsPatch = {
+  attention?: NotificationSoundChannelSettingsPatch;
+  completion?: NotificationSoundChannelSettingsPatch;
+};
+
 export type GlobalSettings = {
   defaultModel: string;
   defaultReasoningEffort: ReasoningEffort;
@@ -182,6 +203,7 @@ export type GlobalSettings = {
   defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity: boolean;
   desktopNotificationsEnabled: boolean;
+  notificationSounds: NotificationSoundSettings;
   shortcuts: ShortcutSettings;
   openTargets: OpenTarget[];
   defaultOpenTargetId: string;
@@ -843,6 +865,7 @@ export type GlobalSettingsPatch = {
   defaultServiceTier?: ServiceTier | null;
   collapseWorkActivity?: boolean;
   desktopNotificationsEnabled?: boolean;
+  notificationSounds?: NotificationSoundSettingsPatch;
   shortcuts?: ShortcutSettingsPatch;
   openTargets?: OpenTarget[];
   defaultOpenTargetId?: string;

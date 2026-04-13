@@ -20,6 +20,30 @@ fn default_desktop_notifications_enabled() -> bool {
     false
 }
 
+fn default_notification_sound_channel_enabled() -> bool {
+    false
+}
+
+fn default_attention_notification_sound() -> NotificationSoundId {
+    NotificationSoundId::Glass
+}
+
+fn default_completion_notification_sound() -> NotificationSoundId {
+    NotificationSoundId::Polite
+}
+
+fn default_attention_notification_sound_settings() -> NotificationSoundChannelSettings {
+    NotificationSoundChannelSettings::new(default_attention_notification_sound())
+}
+
+fn default_completion_notification_sound_settings() -> NotificationSoundChannelSettings {
+    NotificationSoundChannelSettings::new(default_completion_notification_sound())
+}
+
+fn default_notification_sounds() -> NotificationSoundSettings {
+    NotificationSoundSettings::default()
+}
+
 fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
@@ -61,6 +85,14 @@ pub enum ApprovalPolicy {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationSoundId {
+    Glass,
+    Chord,
+    Polite,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OpenTargetKind {
     #[serde(rename = "app")]
     App,
@@ -84,6 +116,23 @@ pub struct OpenTarget {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundChannelSettings {
+    #[serde(default = "default_notification_sound_channel_enabled")]
+    pub enabled: bool,
+    pub sound: NotificationSoundId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundSettings {
+    #[serde(default = "default_attention_notification_sound_settings")]
+    pub attention: NotificationSoundChannelSettings,
+    #[serde(default = "default_completion_notification_sound_settings")]
+    pub completion: NotificationSoundChannelSettings,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalSettings {
@@ -96,6 +145,8 @@ pub struct GlobalSettings {
     pub collapse_work_activity: bool,
     #[serde(default = "default_desktop_notifications_enabled")]
     pub desktop_notifications_enabled: bool,
+    #[serde(default = "default_notification_sounds")]
+    pub notification_sounds: NotificationSoundSettings,
     #[serde(default)]
     pub shortcuts: ShortcutSettings,
     #[serde(default = "default_open_targets")]
@@ -115,6 +166,7 @@ impl Default for GlobalSettings {
             default_service_tier: None,
             collapse_work_activity: true,
             desktop_notifications_enabled: false,
+            notification_sounds: NotificationSoundSettings::default(),
             shortcuts: ShortcutSettings::default(),
             open_targets: default_open_targets(),
             default_open_target_id: default_open_target_id(),
@@ -134,10 +186,25 @@ pub struct GlobalSettingsPatch {
     pub default_service_tier: Option<Option<ServiceTier>>,
     pub collapse_work_activity: Option<bool>,
     pub desktop_notifications_enabled: Option<bool>,
+    pub notification_sounds: Option<NotificationSoundSettingsPatch>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
     pub default_open_target_id: Option<String>,
     pub codex_binary_path: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundChannelSettingsPatch {
+    pub enabled: Option<bool>,
+    pub sound: Option<NotificationSoundId>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationSoundSettingsPatch {
+    pub attention: Option<NotificationSoundChannelSettingsPatch>,
+    pub completion: Option<NotificationSoundChannelSettingsPatch>,
 }
 
 impl GlobalSettings {
@@ -162,6 +229,9 @@ impl GlobalSettings {
         }
         if let Some(desktop_notifications_enabled) = patch.desktop_notifications_enabled {
             self.desktop_notifications_enabled = desktop_notifications_enabled;
+        }
+        if let Some(notification_sounds) = patch.notification_sounds {
+            self.notification_sounds.apply_patch(notification_sounds);
         }
         if let Some(shortcuts) = patch.shortcuts {
             self.shortcuts.apply_patch(shortcuts);
@@ -220,6 +290,44 @@ impl GlobalSettings {
 
     pub fn validate(&self) -> Result<(), String> {
         self.shortcuts.validate().map_err(|error| error.to_string())
+    }
+}
+
+impl NotificationSoundChannelSettings {
+    fn new(sound: NotificationSoundId) -> Self {
+        Self {
+            enabled: false,
+            sound,
+        }
+    }
+
+    fn apply_patch(&mut self, patch: NotificationSoundChannelSettingsPatch) {
+        if let Some(enabled) = patch.enabled {
+            self.enabled = enabled;
+        }
+        if let Some(sound) = patch.sound {
+            self.sound = sound;
+        }
+    }
+}
+
+impl Default for NotificationSoundSettings {
+    fn default() -> Self {
+        Self {
+            attention: default_attention_notification_sound_settings(),
+            completion: default_completion_notification_sound_settings(),
+        }
+    }
+}
+
+impl NotificationSoundSettings {
+    fn apply_patch(&mut self, patch: NotificationSoundSettingsPatch) {
+        if let Some(attention) = patch.attention {
+            self.attention.apply_patch(attention);
+        }
+        if let Some(completion) = patch.completion {
+            self.completion.apply_patch(completion);
+        }
     }
 }
 
@@ -453,8 +561,9 @@ fn default_open_targets_for_platform() -> Vec<OpenTarget> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch, OpenTarget,
-        OpenTargetKind, ReasoningEffort, ServiceTier,
+        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch,
+        NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget, OpenTargetKind,
+        ReasoningEffort, ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettingsPatch;
 
@@ -470,6 +579,16 @@ mod tests {
             default_service_tier: Some(Some(ServiceTier::Fast)),
             collapse_work_activity: Some(true),
             desktop_notifications_enabled: Some(true),
+            notification_sounds: Some(NotificationSoundSettingsPatch {
+                attention: Some(super::NotificationSoundChannelSettingsPatch {
+                    enabled: Some(true),
+                    sound: Some(NotificationSoundId::Chord),
+                }),
+                completion: Some(super::NotificationSoundChannelSettingsPatch {
+                    enabled: Some(true),
+                    sound: Some(NotificationSoundId::Glass),
+                }),
+            }),
             shortcuts: Some(ShortcutSettingsPatch {
                 toggle_terminal: Some(Some("mod+shift+j".to_string())),
                 ..ShortcutSettingsPatch::default()
@@ -501,6 +620,10 @@ mod tests {
         assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
         assert!(settings.collapse_work_activity);
         assert!(settings.desktop_notifications_enabled);
+        assert!(settings.notification_sounds.attention.enabled);
+        assert_eq!(settings.notification_sounds.attention.sound, NotificationSoundId::Chord);
+        assert!(settings.notification_sounds.completion.enabled);
+        assert_eq!(settings.notification_sounds.completion.sound, NotificationSoundId::Glass);
         assert_eq!(
             settings.shortcuts.toggle_terminal.as_deref(),
             Some("mod+shift+j")
@@ -557,6 +680,14 @@ mod tests {
 
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
         assert_eq!(settings.shortcuts.toggle_terminal.as_deref(), Some("mod+j"));
     }
 
@@ -576,6 +707,16 @@ mod tests {
 
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
+        assert!(!settings.notification_sounds.attention.enabled);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Glass
+        );
+        assert!(!settings.notification_sounds.completion.enabled);
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Polite
+        );
         assert_eq!(
             settings.shortcuts.open_settings.as_deref(),
             Some("mod+comma")

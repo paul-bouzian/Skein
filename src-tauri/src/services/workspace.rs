@@ -2272,7 +2272,9 @@ mod tests {
         ConversationComposerSettings, ConversationImageAttachment,
     };
     use crate::domain::settings::{
-        GlobalSettings, GlobalSettingsPatch, OpenTarget, OpenTargetKind, ServiceTier,
+        GlobalSettings, GlobalSettingsPatch, NotificationSoundChannelSettingsPatch,
+        NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget, OpenTargetKind,
+        ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettings;
     use crate::domain::workspace::{
@@ -2782,6 +2784,44 @@ mod tests {
             .expect("thread context should reload");
 
         assert_eq!(refreshed.composer.service_tier, Some(ServiceTier::Flex));
+    }
+
+    #[test]
+    fn update_settings_persists_notification_sound_preferences() {
+        let harness = WorkspaceHarness::new().expect("harness");
+
+        let updated = harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                notification_sounds: Some(NotificationSoundSettingsPatch {
+                    attention: Some(NotificationSoundChannelSettingsPatch {
+                        enabled: Some(true),
+                        sound: Some(NotificationSoundId::Chord),
+                    }),
+                    completion: Some(NotificationSoundChannelSettingsPatch {
+                        enabled: Some(true),
+                        sound: Some(NotificationSoundId::Glass),
+                    }),
+                }),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+        let reloaded = harness
+            .service
+            .current_settings()
+            .expect("settings should reload");
+
+        assert!(updated.notification_sounds.attention.enabled);
+        assert_eq!(
+            updated.notification_sounds.attention.sound,
+            NotificationSoundId::Chord
+        );
+        assert!(updated.notification_sounds.completion.enabled);
+        assert_eq!(
+            updated.notification_sounds.completion.sound,
+            NotificationSoundId::Glass
+        );
+        assert_eq!(updated.notification_sounds, reloaded.notification_sounds);
     }
 
     #[test]
