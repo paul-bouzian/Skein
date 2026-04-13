@@ -10,6 +10,7 @@ import {
 
 vi.mock("../lib/bridge", () => ({
   spawnTerminal: vi.fn(),
+  runProjectAction: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -61,6 +62,17 @@ beforeEach(() => {
     counter += 1;
     return { ptyId: `pty-${counter}`, cwd: `/path/to/${environmentId}` };
   });
+  mockedBridge.runProjectAction.mockImplementation(async ({ environmentId, actionId }) => {
+    counter += 1;
+    const actionLabel = actionId === "dev" ? "Dev" : `Action ${actionId}`;
+    return {
+      ptyId: `pty-${counter}`,
+      cwd: `/path/to/${environmentId}`,
+      actionId,
+      actionLabel,
+      actionIcon: "play",
+    };
+  });
 });
 
 function slotForA() {
@@ -80,6 +92,7 @@ describe("terminal-store", () => {
     expect(slot.tabs[0]?.title).toBe(ENV_A);
     expect(slot.tabs[0]?.ptyId).toBe("pty-1");
     expect(slot.tabs[0]?.cwd).toBe(`/path/to/${ENV_A}`);
+    expect(slot.tabs[0]?.kind).toBe("shell");
     expect(slot.activeTabId).toBe(id);
     expect(mockedBridge.spawnTerminal).toHaveBeenCalledWith({
       environmentId: ENV_A,
@@ -248,6 +261,129 @@ describe("terminal-store", () => {
 
     expect(slotForA().tabs[0]?.exited).toBe(false);
     expect(slotForB().tabs[0]?.exited).toBe(true);
+  });
+
+  it("opens a manual action tab and makes it active", async () => {
+    const id = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    expect(id).not.toBeNull();
+    const slot = slotForA();
+    expect(slot.tabs).toHaveLength(1);
+    expect(slot.tabs[0]).toMatchObject({
+      id,
+      ptyId: "pty-1",
+      cwd: `/path/to/${ENV_A}`,
+      title: "Dev",
+      kind: "manualAction",
+      actionId: "dev",
+      actionLabel: "Dev",
+      actionIcon: "play",
+      exited: false,
+    });
+    expect(slot.activeTabId).toBe(id);
+    expect(mockedBridge.runProjectAction).toHaveBeenCalledWith({
+      environmentId: ENV_A,
+      actionId: "dev",
+    });
+  });
+
+  it("focuses an existing running manual action instead of relaunching it", async () => {
+    const first = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!first) {
+      throw new Error("expected first action tab");
+    }
+
+    const second = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    expect(second).toBe(first);
+    expect(slotForA().tabs).toHaveLength(1);
+    expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the same action tab id after the previous run exited", async () => {
+    const first = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!first) {
+      throw new Error("expected first action tab");
+    }
+    useTerminalStore.getState().markExited("pty-1");
+
+    const second = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    expect(second).toBe(first);
+    expect(slotForA().tabs).toHaveLength(1);
+    expect(slotForA().tabs[0]?.ptyId).toBe("pty-2");
+    expect(slotForA().tabs[0]?.exited).toBe(false);
+    expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves manual action titles when workspace metadata updates", async () => {
+    await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    useTerminalStore.getState().syncWorkspaceSnapshot({
+      settings: {
+        shortcuts: {},
+        openTargets: [],
+        defaultOpenTargetId: "file-manager",
+        defaultModel: "gpt-5.4",
+        defaultReasoningEffort: "high",
+        defaultCollaborationMode: "build",
+        defaultApprovalPolicy: "askToEdit",
+        collapseWorkActivity: true,
+        desktopNotificationsEnabled: false,
+      },
+      projects: [
+        {
+          id: "project-1",
+          name: "Skein",
+          rootPath: "/tmp/skein",
+          settings: {},
+          sidebarCollapsed: false,
+          createdAt: "2026-04-03T08:00:00Z",
+          updatedAt: "2026-04-03T08:00:00Z",
+          environments: [
+            {
+              id: ENV_A,
+              projectId: "project-1",
+              name: "Local",
+              kind: "local",
+              path: "/path/to/renamed-env",
+              isDefault: true,
+              createdAt: "2026-04-03T08:00:00Z",
+              updatedAt: "2026-04-03T08:00:00Z",
+              threads: [],
+              runtime: { environmentId: ENV_A, state: "running" },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(slotForA().tabs[0]?.title).toBe("Dev");
+    expect(slotForA().tabs[0]?.cwd).toBe("/path/to/renamed-env");
   });
 
   it("reconcileEnvironments prunes deleted environments and hides the panel when empty", async () => {

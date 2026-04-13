@@ -13,6 +13,7 @@ import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
 import { Tooltip } from "../../shared/Tooltip";
+import { EnvironmentActionControl } from "./EnvironmentActionControl";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
 import { ThreadTabs } from "./ThreadTabs";
 import { ThreadConversation } from "./ThreadConversation";
@@ -97,6 +98,11 @@ export function StudioMain({
           <ThreadTabs />
         </div>
         <div className="studio-main__toolbar-actions">
+          <EnvironmentActionControl
+            environmentId={selectedEnvironment?.id ?? null}
+            projectId={selectedProject?.id ?? null}
+            actions={selectedProject?.settings.manualActions ?? []}
+          />
           <OpenEnvironmentControl
             environmentId={selectedEnvironment?.id ?? null}
             settings={settings}

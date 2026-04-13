@@ -295,6 +295,83 @@ export function PlayIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function TestTubeIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M6 2.5h4M7 2.5v3.8l-2.7 4.1A2 2 0 0 0 6 13.5h4a2 2 0 0 0 1.7-3.1L9 6.3V2.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M5.3 9.5h5.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function ChecklistIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M6.8 4h4.7M6.8 8h4.7M6.8 12h4.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path
+        d="M3 4.1 3.8 5l1.5-1.7M3 8.1 3.8 9l1.5-1.7M3 12.1l.8.9 1.5-1.7"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function WrenchIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M9.8 3.1a2.5 2.5 0 0 0 3.1 3.1l-6.2 6.2a1.4 1.4 0 0 1-2-2l6.2-6.2Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="m10.8 2.5 2.7 2.7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function HammerIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M9.5 2.5 13 6l-1.6 1.6-1.2-1.2-4.8 4.8a1 1 0 1 1-1.4-1.4l4.8-4.8L7.6 3.8 9.5 2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function BugIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M8 4.2A3.3 3.3 0 0 1 11.3 7.5v2A3.3 3.3 0 0 1 8 12.8a3.3 3.3 0 0 1-3.3-3.3v-2A3.3 3.3 0 0 1 8 4.2Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M6.5 4.3V3.7A1.5 1.5 0 0 1 8 2.2a1.5 1.5 0 0 1 1.5 1.5v.6M3.5 6.1l1.5.6M11 6.7l1.5-.6M3.5 9.9l1.5-.6M11 9.3l1.5.6M5.1 12.1l-1 1.3M10.9 12.1l1 1.3"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function SendIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

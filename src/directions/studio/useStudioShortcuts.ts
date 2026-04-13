@@ -17,6 +17,7 @@ import {
   selectAdjacentEnvironment,
   selectAdjacentThread,
 } from "./studioActions";
+import { setPreferredActionIdForProject } from "./projectActions";
 
 type Props = {
   settingsOpen: boolean;
@@ -64,6 +65,9 @@ export function useStudioShortcuts({
       const {
         capabilities,
         composer,
+        manualActions,
+        selectedEnvironmentId,
+        selectedProjectId,
         selectedThreadId,
         shortcuts,
         snapshot,
@@ -166,6 +170,25 @@ export function useStudioShortcuts({
         return;
       }
 
+      if (selectedEnvironmentId && selectedProjectId) {
+        for (const action of manualActions) {
+          if (!matchesShortcut(event, action.shortcut)) {
+            continue;
+          }
+          event.preventDefault();
+          void useTerminalStore
+            .getState()
+            .openActionTab(selectedEnvironmentId, action)
+            .then((tabId) => {
+              if (tabId) {
+                setPreferredActionIdForProject(selectedProjectId, action.id);
+              }
+            })
+            .catch(reportShortcutError);
+          return;
+        }
+      }
+
       if (matchesShortcut(event, shortcuts.toggleProjectsSidebar)) {
         event.preventDefault();
         onToggleProjectsSidebar();
@@ -248,6 +271,7 @@ function readShortcutState() {
   const conversationState = useConversationStore.getState();
   const selectedThreadId = workspaceState.selectedThreadId;
   const selectedEnvironmentId = workspaceState.selectedEnvironmentId;
+  const selectedProjectId = workspaceState.selectedProjectId;
   const snapshot = selectedThreadId
     ? conversationState.snapshotsByThreadId[selectedThreadId] ?? null
     : null;
@@ -260,10 +284,16 @@ function readShortcutState() {
   const capabilities = selectedEnvironmentId
     ? conversationState.capabilitiesByEnvironmentId[selectedEnvironmentId] ?? null
     : null;
+  const manualActions =
+    workspaceState.snapshot?.projects.find((project) => project.id === selectedProjectId)?.settings
+      .manualActions ?? [];
 
   return {
     capabilities,
     composer,
+    manualActions,
+    selectedEnvironmentId,
+    selectedProjectId,
     selectedThreadId,
     shortcuts: selectSettings(workspaceState)?.shortcuts ?? null,
     snapshot,

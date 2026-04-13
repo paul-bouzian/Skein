@@ -1,19 +1,23 @@
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use serde::Deserialize;
+use serde::Serialize;
 use tauri::State;
 use tracing::warn;
 
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
-    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectRecord, RuntimeStatusSnapshot,
-    ThreadRecord, WorkspaceSnapshot,
+    CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectActionIcon, ProjectRecord,
+    RuntimeStatusSnapshot, ThreadRecord, WorkspaceSnapshot,
 };
 use crate::error::{AppError, CommandError};
 use crate::services::workspace::{
     AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
     RenameThreadRequest, ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
-    SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest,
+    RunProjectActionRequest, SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest,
 };
+use crate::services::worktree_scripts::{skein_context_environment, SkeinContextInput};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +25,16 @@ use crate::state::AppState;
 pub struct OpenEnvironmentInput {
     pub environment_id: String,
     pub target_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunProjectActionResult {
+    pub pty_id: String,
+    pub cwd: String,
+    pub action_id: String,
+    pub action_label: String,
+    pub action_icon: ProjectActionIcon,
 }
 
 #[tauri::command]
@@ -74,6 +88,47 @@ pub fn update_project_settings(
     state: State<'_, AppState>,
 ) -> Result<ProjectRecord, CommandError> {
     Ok(state.workspace.update_project_settings(input)?)
+}
+
+#[tauri::command]
+pub fn run_project_action(
+    input: RunProjectActionRequest,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<RunProjectActionResult, CommandError> {
+    let target = state.workspace.project_action_execution_target(input)?;
+    let mut env = skein_context_environment(&SkeinContextInput {
+        project_id: &target.project_id,
+        project_name: &target.project_name,
+        project_root: &target.project_root,
+        worktree_id: &target.environment_id,
+        worktree_name: &target.environment_name,
+        worktree_branch: &target.branch_name,
+        worktree_path: std::path::Path::new(&target.cwd),
+        trigger: None,
+    });
+    env.push(("SKEIN_ACTION_ID".to_string(), target.action.id.clone()));
+    env.push((
+        "SKEIN_ACTION_LABEL".to_string(),
+        target.action.label.clone(),
+    ));
+    env.push(("SKEIN_ACTION_KIND".to_string(), "manual".to_string()));
+
+    let pty_id =
+        state
+            .terminal
+            .spawn_with_env(&app, &target.environment_id, &target.cwd, 80, 24, env)?;
+    state
+        .terminal
+        .write(&pty_id, &B64.encode(format!("{}\r", target.action.script)))?;
+
+    Ok(RunProjectActionResult {
+        pty_id,
+        cwd: target.cwd,
+        action_id: target.action.id,
+        action_label: target.action.label,
+        action_icon: target.action.icon,
+    })
 }
 
 #[tauri::command]

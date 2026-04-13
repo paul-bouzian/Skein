@@ -146,6 +146,30 @@ impl TerminalService {
         cols: u16,
         rows: u16,
     ) -> AppResult<String> {
+        self.spawn_with_env(
+            app,
+            environment_id,
+            cwd,
+            cols,
+            rows,
+            std::iter::empty::<(&str, &str)>(),
+        )
+    }
+
+    pub fn spawn_with_env<I, K, V>(
+        &self,
+        app: &AppHandle,
+        environment_id: &str,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+        env_overrides: I,
+    ) -> AppResult<String>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(pty_size(cols, rows))
@@ -184,6 +208,9 @@ impl TerminalService {
         cmd.cwd(&resolved_cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        for (key, value) in env_overrides {
+            cmd.env(key.as_ref(), value.as_ref());
+        }
 
         let child = pair
             .slave

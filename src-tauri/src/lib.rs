@@ -109,6 +109,7 @@ pub fn run() {
             commands::workspace::add_project,
             commands::workspace::rename_project,
             commands::workspace::update_project_settings,
+            commands::workspace::run_project_action,
             commands::workspace::reorder_projects,
             commands::workspace::reorder_worktree_environments,
             commands::workspace::set_project_sidebar_collapsed,

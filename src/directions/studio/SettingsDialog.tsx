@@ -11,6 +11,7 @@ import type {
   CollaborationMode,
   GlobalSettings,
   GlobalSettingsPatch,
+  ProjectSettingsPatch,
   ReasoningEffort,
 } from "../../lib/types";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
@@ -209,10 +210,7 @@ export function SettingsDialog({ open, onClose }: Props) {
 
   async function handleProjectSave(
     projectId: string,
-    patch: {
-      worktreeSetupScript?: string | null;
-      worktreeTeardownScript?: string | null;
-    },
+    patch: ProjectSettingsPatch,
   ) {
     setActionError(null);
 
@@ -350,6 +348,7 @@ export function SettingsDialog({ open, onClose }: Props) {
               <ProjectSettingsTab
                 projects={projects}
                 selectedProjectId={selectedProjectId}
+                shortcutSettings={settings?.shortcuts ?? {}}
                 onSave={handleProjectSave}
               />
             ) : (

@@ -805,8 +805,39 @@ describe("StudioShell", () => {
       expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
         projectId: "project-1",
         patch: {
+          manualActions: [],
           worktreeSetupScript: "pnpm install",
           worktreeTeardownScript: "./scripts/cleanup.sh",
+        },
+      });
+    });
+  });
+
+  it("saves manual project actions from the Project settings tab", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add action" }));
+
+    await userEvent.type(screen.getByLabelText("Label"), "Dev");
+    await userEvent.type(screen.getByLabelText("Script"), "bun run dev");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
+        projectId: "project-1",
+        patch: {
+          manualActions: [
+            expect.objectContaining({
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            }),
+          ],
+          worktreeSetupScript: null,
+          worktreeTeardownScript: null,
         },
       });
     });

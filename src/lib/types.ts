@@ -29,6 +29,13 @@ export type ApprovalPolicy = "askToEdit" | "fullAccess";
 export type OpenTargetKind = "app" | "fileManager";
 export type ServiceTier = "fast" | "flex";
 export type InputModality = "text" | "image";
+export type ProjectActionIcon =
+  | "play"
+  | "test"
+  | "lint"
+  | "configure"
+  | "build"
+  | "debug";
 export type ConversationStatus =
   | "idle"
   | "running"
@@ -119,6 +126,15 @@ export type EnvironmentRecord = {
 export type ProjectSettings = {
   worktreeSetupScript?: string;
   worktreeTeardownScript?: string;
+  manualActions?: ProjectManualAction[];
+};
+
+export type ProjectManualAction = {
+  id: string;
+  label: string;
+  icon: ProjectActionIcon;
+  script: string;
+  shortcut?: string | null;
 };
 
 export type ShortcutSettings = {
@@ -721,11 +737,25 @@ export type RenameProjectRequest = {
 export type ProjectSettingsPatch = {
   worktreeSetupScript?: string | null;
   worktreeTeardownScript?: string | null;
+  manualActions?: ProjectManualAction[] | null;
 };
 
 export type UpdateProjectSettingsRequest = {
   projectId: string;
   patch: ProjectSettingsPatch;
+};
+
+export type RunProjectActionRequest = {
+  environmentId: string;
+  actionId: string;
+};
+
+export type RunProjectActionResult = {
+  ptyId: string;
+  cwd: string;
+  actionId: string;
+  actionLabel: string;
+  actionIcon: ProjectActionIcon;
 };
 
 export type CreateThreadRequest = {

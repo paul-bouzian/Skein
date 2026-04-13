@@ -1,0 +1,126 @@
+.environment-action-control {
+  display: inline-flex;
+  align-items: stretch;
+  align-self: center;
+  min-width: 0;
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-md);
+  background: color-mix(in srgb, var(--tx-bg-raised) 92%, transparent);
+  overflow: hidden;
+  transition:
+    border-color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
+}
+
+.environment-action-control--open,
+.environment-action-control:hover {
+  border-color: var(--tx-border-muted);
+  background: var(--tx-bg-hover);
+}
+
+.environment-action-control__main,
+.environment-action-control__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx-text-secondary);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    opacity var(--tx-transition-fast);
+}
+
+.environment-action-control__main:disabled,
+.environment-action-control__chevron:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.environment-action-control__main {
+  gap: var(--tx-space-sm);
+  min-width: 0;
+  max-width: 176px;
+  padding: 0 10px;
+  height: 28px;
+}
+
+.environment-action-control__chevron {
+  width: 28px;
+  height: 28px;
+  border-left: 1px solid var(--tx-border-subtle);
+}
+
+.environment-action-control__main:not(:disabled):hover,
+.environment-action-control__chevron:not(:disabled):hover {
+  color: var(--tx-text-primary);
+}
+
+.environment-action-control__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+}
+
+.environment-action-control__icon,
+.environment-action-control__option-icon {
+  flex-shrink: 0;
+}
+
+.environment-action-control__chevron-icon {
+  color: currentcolor;
+  transition: transform var(--tx-transition-fast);
+  transform: rotate(90deg);
+}
+
+.environment-action-control__chevron-icon--open {
+  transform: rotate(270deg);
+}
+
+.environment-action-control__menu {
+  gap: 2px;
+  border-color: var(--tx-border-muted);
+  background: var(--tx-bg-overlay);
+  box-shadow: var(--tx-shadow-overlay);
+}
+
+.environment-action-control__option {
+  min-width: 0;
+}
+
+.environment-action-control__option:hover,
+.environment-action-control__option--selected {
+  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-hover));
+  color: var(--tx-text-primary);
+}
+
+.environment-action-control__option-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.environment-action-control__option-label,
+.environment-action-control__option-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-action-control__option-label {
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+}
+
+.environment-action-control__option-meta {
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+}
+
+.environment-action-control__option-check {
+  color: var(--tx-accent);
+}

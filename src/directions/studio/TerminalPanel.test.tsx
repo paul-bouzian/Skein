@@ -17,6 +17,7 @@ vi.mock("./TerminalView", () => ({
 
 vi.mock("../../lib/bridge", () => ({
   spawnTerminal: vi.fn(),
+  runProjectAction: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
   listenToTerminalExit: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -89,6 +90,7 @@ beforeEach(() => {
             cwd: "/p/a",
             title: "a",
             exited: false,
+            kind: "shell",
           },
           {
             id: "t2",
@@ -96,6 +98,7 @@ beforeEach(() => {
             cwd: "/p/b",
             title: "b",
             exited: false,
+            kind: "shell",
           },
         ],
         activeTabId: "t1",
@@ -142,6 +145,7 @@ describe("TerminalPanel", () => {
               cwd: "/p/c",
               title: "c",
               exited: false,
+              kind: "shell",
             },
           ],
           activeTabId: "t3",
@@ -230,6 +234,7 @@ describe("TerminalPanel", () => {
               cwd: "/p/a",
               title: "a",
               exited: false,
+              kind: "shell",
             },
           ],
           activeTabId: "t1",
@@ -242,6 +247,7 @@ describe("TerminalPanel", () => {
               cwd: "/p/b",
               title: "b",
               exited: false,
+              kind: "shell",
             },
           ],
           activeTabId: "t2",
@@ -430,6 +436,7 @@ describe("TerminalPanel", () => {
               cwd: "/tmp/env-2",
               title: "env-2",
               exited: false,
+              kind: "shell",
             },
           ],
           activeTabId: "t3",

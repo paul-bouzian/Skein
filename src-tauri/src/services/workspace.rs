@@ -12,9 +12,9 @@ use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch, OpenTarget};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
     EnvironmentKind, EnvironmentPullRequestSnapshot, EnvironmentRecord,
-    FirstPromptRenameFailureEvent, ManagedWorktreeCreateResult, ProjectRecord, ProjectSettings,
-    ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides, ThreadRecord,
-    ThreadStatus, WorkspaceSnapshot, WorktreeScriptTrigger,
+    FirstPromptRenameFailureEvent, ManagedWorktreeCreateResult, ProjectManualAction, ProjectRecord,
+    ProjectSettings, ProjectSettingsPatch, RuntimeState, RuntimeStatusSnapshot, ThreadOverrides,
+    ThreadRecord, ThreadStatus, WorkspaceSnapshot, WorktreeScriptTrigger,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
@@ -49,6 +49,13 @@ pub struct RenameProjectRequest {
 pub struct UpdateProjectSettingsRequest {
     pub project_id: String,
     pub patch: ProjectSettingsPatch,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunProjectActionRequest {
+    pub environment_id: String,
+    pub action_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +108,18 @@ pub struct WorkspaceService {
     database: AppDatabase,
     managed_worktrees_root: PathBuf,
     worktree_scripts: WorktreeScriptService,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectActionExecutionTarget {
+    pub environment_id: String,
+    pub cwd: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_root: PathBuf,
+    pub environment_name: String,
+    pub branch_name: String,
+    pub action: ProjectManualAction,
 }
 
 #[derive(Debug, Clone)]
@@ -355,6 +374,7 @@ impl WorkspaceService {
     ) -> AppResult<ProjectRecord> {
         let mut connection = self.database.open()?;
         let transaction = connection.transaction()?;
+        let global_settings = self.read_or_seed_stored_settings(&transaction)?;
         let settings_json = transaction
             .query_row(
                 "SELECT settings_json FROM projects WHERE id = ?1 AND archived_at IS NULL",
@@ -365,6 +385,9 @@ impl WorkspaceService {
             .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
         let mut settings = project_settings_from_json(&settings_json, 0)?;
         settings.apply_patch(input.patch);
+        settings
+            .validate(Some(&global_settings.shortcuts))
+            .map_err(AppError::Validation)?;
         let payload = serde_json::to_string(&settings)
             .map_err(|error| AppError::Validation(error.to_string()))?;
         transaction.execute(
@@ -378,6 +401,31 @@ impl WorkspaceService {
         transaction.commit()?;
 
         self.project_by_id(&input.project_id, Vec::new())
+    }
+
+    pub fn project_action_execution_target(
+        &self,
+        input: RunProjectActionRequest,
+    ) -> AppResult<ProjectActionExecutionTarget> {
+        let metadata = self.worktree_environment_metadata(&input.environment_id)?;
+        let action = metadata
+            .project_settings
+            .manual_actions
+            .iter()
+            .find(|action| action.id == input.action_id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound("Project action not found.".to_string()))?;
+
+        Ok(ProjectActionExecutionTarget {
+            environment_id: metadata.environment_id,
+            cwd: metadata.environment_path.to_string_lossy().to_string(),
+            project_id: metadata.project_id,
+            project_name: metadata.project_name,
+            project_root: metadata.project_root,
+            environment_name: metadata.environment_name,
+            branch_name: metadata.branch_name,
+            action,
+        })
     }
 
     pub fn reorder_projects(&self, input: ReorderProjectsRequest) -> AppResult<()> {
@@ -2264,8 +2312,8 @@ mod tests {
 
     use super::{
         AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest, CreateThreadRequest,
-        ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
-        SetProjectSidebarCollapsedRequest, WorkspaceService,
+        ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest, RunProjectActionRequest,
+        SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest, WorkspaceService,
     };
     use crate::domain::conversation::{
         ComposerDraftMentionBinding, ComposerMentionBindingKind, ConversationComposerDraft,
@@ -2276,7 +2324,8 @@ mod tests {
     };
     use crate::domain::shortcuts::ShortcutSettings;
     use crate::domain::workspace::{
-        EnvironmentPullRequestSnapshot, PullRequestState, ThreadStatus,
+        EnvironmentPullRequestSnapshot, ProjectActionIcon, ProjectManualAction,
+        ProjectSettingsPatch, PullRequestState, ThreadStatus,
     };
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
@@ -2336,6 +2385,100 @@ mod tests {
             harness.project_managed_worktree_dir(&project.id),
             Some("krewzer-2".to_string())
         );
+    }
+
+    #[test]
+    fn update_project_settings_rejects_manual_action_global_shortcut_conflicts() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("skein"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        let error = harness
+            .service
+            .update_project_settings(UpdateProjectSettingsRequest {
+                project_id: project.id,
+                patch: ProjectSettingsPatch {
+                    manual_actions: Some(Some(vec![ProjectManualAction {
+                        id: "dev".to_string(),
+                        label: "Dev".to_string(),
+                        icon: ProjectActionIcon::Play,
+                        script: "bun run dev".to_string(),
+                        shortcut: Some("mod+j".to_string()),
+                    }])),
+                    ..ProjectSettingsPatch::default()
+                },
+            })
+            .expect_err("conflicting manual action shortcut should fail");
+
+        assert!(error.to_string().contains("Toggle terminal"));
+    }
+
+    #[test]
+    fn project_action_execution_target_returns_environment_context() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("skein"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project.environments[0].id.clone();
+
+        harness
+            .service
+            .update_project_settings(UpdateProjectSettingsRequest {
+                project_id: project.id.clone(),
+                patch: ProjectSettingsPatch {
+                    manual_actions: Some(Some(vec![ProjectManualAction {
+                        id: "dev".to_string(),
+                        label: "Dev".to_string(),
+                        icon: ProjectActionIcon::Play,
+                        script: "bun run dev".to_string(),
+                        shortcut: Some("mod+shift+d".to_string()),
+                    }])),
+                    ..ProjectSettingsPatch::default()
+                },
+            })
+            .expect("project settings should update");
+
+        let target = harness
+            .service
+            .project_action_execution_target(RunProjectActionRequest {
+                environment_id: environment_id.clone(),
+                action_id: "dev".to_string(),
+            })
+            .expect("action target should resolve");
+
+        assert_eq!(target.environment_id, environment_id);
+        assert_eq!(target.project_id, project.id);
+        assert_eq!(
+            PathBuf::from(&target.cwd)
+                .canonicalize()
+                .expect("canonical cwd"),
+            repo.path.canonicalize().expect("canonical repo path")
+        );
+        assert_eq!(
+            target
+                .project_root
+                .canonicalize()
+                .expect("canonical project root"),
+            repo.path.canonicalize().expect("canonical repo path")
+        );
+        assert_eq!(target.branch_name, "main");
+        assert_eq!(target.action.label, "Dev");
+        assert_eq!(target.action.script, "bun run dev");
     }
 
     #[test]

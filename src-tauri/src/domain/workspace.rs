@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::settings::{GlobalSettings, ServiceTier};
+use super::shortcuts::{normalize_shortcut_option, shortcut_signature, ShortcutSettings};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -66,6 +69,8 @@ pub struct ThreadOverrides {
 pub struct ProjectSettings {
     pub worktree_setup_script: Option<String>,
     pub worktree_teardown_script: Option<String>,
+    #[serde(default)]
+    pub manual_actions: Vec<ProjectManualAction>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,6 +78,28 @@ pub struct ProjectSettings {
 pub struct ProjectSettingsPatch {
     pub worktree_setup_script: Option<Option<String>>,
     pub worktree_teardown_script: Option<Option<String>>,
+    pub manual_actions: Option<Option<Vec<ProjectManualAction>>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectActionIcon {
+    Play,
+    Test,
+    Lint,
+    Configure,
+    Build,
+    Debug,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectManualAction {
+    pub id: String,
+    pub label: String,
+    pub icon: ProjectActionIcon,
+    pub script: String,
+    pub shortcut: Option<String>,
 }
 
 impl ProjectSettings {
@@ -83,6 +110,64 @@ impl ProjectSettings {
         if let Some(worktree_teardown_script) = patch.worktree_teardown_script {
             self.worktree_teardown_script = normalize_project_script(worktree_teardown_script);
         }
+        if let Some(manual_actions) = patch.manual_actions {
+            self.manual_actions = normalize_project_actions(manual_actions);
+        }
+    }
+
+    pub fn validate(&self, shortcuts: Option<&ShortcutSettings>) -> Result<(), String> {
+        let mut seen_action_ids = HashMap::new();
+        let mut seen_signatures = HashMap::new();
+        let mut reserved_shortcuts = HashMap::new();
+
+        if let Some(shortcuts) = shortcuts {
+            for (_, label, shortcut) in shortcuts.bindings() {
+                let Some(shortcut) = shortcut else {
+                    continue;
+                };
+                let signature = shortcut_signature(shortcut.as_str())
+                    .map_err(|message| format!("{label}: {message}"))?;
+                reserved_shortcuts.insert(signature, label);
+            }
+        }
+
+        for (index, action) in self.manual_actions.iter().enumerate() {
+            let action_number = index + 1;
+            if action.id.trim().is_empty() {
+                return Err(format!("Action {action_number}: Id is required."));
+            }
+            if action.label.trim().is_empty() {
+                return Err(format!("Action {action_number}: Label is required."));
+            }
+            if action.script.trim().is_empty() {
+                return Err(format!("Action {action_number}: Script is required."));
+            }
+            if let Some(previous_index) = seen_action_ids.insert(action.id.as_str(), action_number)
+            {
+                return Err(format!(
+                    "Action {action_number}: Duplicate action id \"{}\" already used by action {previous_index}.",
+                    action.id
+                ));
+            }
+            if let Some(shortcut) = action.shortcut.as_deref() {
+                let signature = shortcut_signature(shortcut)
+                    .map_err(|message| format!("Action {action_number} shortcut: {message}"))?;
+                if let Some(global_action) = reserved_shortcuts.get(&signature) {
+                    return Err(format!(
+                        "Action {action_number} shortcut conflicts with global shortcut {global_action}."
+                    ));
+                }
+                if let Some(previous_label) =
+                    seen_signatures.insert(signature, action.label.as_str())
+                {
+                    return Err(format!(
+                        "Action {action_number} shortcut conflicts with action \"{previous_label}\"."
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -259,16 +344,31 @@ fn normalize_project_script(value: Option<String>) -> Option<String> {
     })
 }
 
+fn normalize_project_actions(value: Option<Vec<ProjectManualAction>>) -> Vec<ProjectManualAction> {
+    value
+        .unwrap_or_default()
+        .into_iter()
+        .map(|action| ProjectManualAction {
+            id: action.id.trim().to_string(),
+            label: action.label.trim().to_string(),
+            icon: action.icon,
+            script: action.script.trim().to_string(),
+            shortcut: normalize_shortcut_option(action.shortcut),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, Utc};
     use serde_json::Value;
 
     use super::{
-        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectRecord,
-        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState, WorkspaceEventKind,
-        RuntimeStatusSnapshot,
+        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectActionIcon,
+        ProjectManualAction, ProjectRecord, ProjectSettings, ProjectSettingsPatch,
+        PullRequestState, RuntimeState, RuntimeStatusSnapshot, WorkspaceEventKind,
     };
+    use crate::domain::shortcuts::ShortcutSettings;
 
     #[test]
     fn project_settings_patch_trims_and_clears_scripts() {
@@ -277,6 +377,7 @@ mod tests {
         settings.apply_patch(ProjectSettingsPatch {
             worktree_setup_script: Some(Some("  pnpm install  ".to_string())),
             worktree_teardown_script: Some(Some("   ".to_string())),
+            ..ProjectSettingsPatch::default()
         });
 
         assert_eq!(
@@ -291,6 +392,82 @@ mod tests {
         });
 
         assert_eq!(settings.worktree_setup_script, None);
+    }
+
+    #[test]
+    fn project_settings_patch_normalizes_manual_actions() {
+        let mut settings = ProjectSettings::default();
+
+        settings.apply_patch(ProjectSettingsPatch {
+            manual_actions: Some(Some(vec![ProjectManualAction {
+                id: "  dev  ".to_string(),
+                label: "  Dev server  ".to_string(),
+                icon: ProjectActionIcon::Play,
+                script: "  bun run dev  ".to_string(),
+                shortcut: Some("  mod+shift+d  ".to_string()),
+            }])),
+            ..ProjectSettingsPatch::default()
+        });
+
+        assert_eq!(
+            settings.manual_actions,
+            vec![ProjectManualAction {
+                id: "dev".to_string(),
+                label: "Dev server".to_string(),
+                icon: ProjectActionIcon::Play,
+                script: "bun run dev".to_string(),
+                shortcut: Some("mod+shift+d".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn project_settings_validate_rejects_manual_action_shortcut_conflicts() {
+        let settings = ProjectSettings {
+            manual_actions: vec![
+                ProjectManualAction {
+                    id: "dev".to_string(),
+                    label: "Dev".to_string(),
+                    icon: ProjectActionIcon::Play,
+                    script: "bun run dev".to_string(),
+                    shortcut: Some("mod+shift+d".to_string()),
+                },
+                ProjectManualAction {
+                    id: "stop".to_string(),
+                    label: "Stop".to_string(),
+                    icon: ProjectActionIcon::Debug,
+                    script: "pkill -f vite".to_string(),
+                    shortcut: Some("mod+shift+d".to_string()),
+                },
+            ],
+            ..ProjectSettings::default()
+        };
+
+        let error = settings
+            .validate(Some(&ShortcutSettings::default()))
+            .expect_err("duplicate shortcuts should be rejected");
+
+        assert!(error.contains("shortcut conflicts with action"));
+    }
+
+    #[test]
+    fn project_settings_validate_rejects_conflicts_with_global_shortcuts() {
+        let settings = ProjectSettings {
+            manual_actions: vec![ProjectManualAction {
+                id: "dev".to_string(),
+                label: "Dev".to_string(),
+                icon: ProjectActionIcon::Play,
+                script: "bun run dev".to_string(),
+                shortcut: Some("mod+j".to_string()),
+            }],
+            ..ProjectSettings::default()
+        };
+
+        let error = settings
+            .validate(Some(&ShortcutSettings::default()))
+            .expect_err("global shortcut conflicts should be rejected");
+
+        assert!(error.contains("global shortcut"));
     }
 
     #[test]

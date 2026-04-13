@@ -345,25 +345,64 @@ fn write_log_header(
 }
 
 fn apply_script_environment(command: &mut Command, request: &WorktreeScriptRequest) {
-    let script_trigger = trigger_value(request.trigger);
-    let project_root = request.project_root.to_string_lossy().to_string();
-    let worktree_path = request.worktree_path.to_string_lossy().to_string();
+    for (key, value) in skein_context_environment(&SkeinContextInput {
+        project_id: &request.project_id,
+        project_name: &request.project_name,
+        project_root: &request.project_root,
+        worktree_id: &request.worktree_id,
+        worktree_name: &request.worktree_name,
+        worktree_branch: &request.worktree_branch,
+        worktree_path: &request.worktree_path,
+        trigger: Some(trigger_value(request.trigger)),
+    }) {
+        command.env(key, value);
+    }
+}
+
+pub struct SkeinContextInput<'a> {
+    pub project_id: &'a str,
+    pub project_name: &'a str,
+    pub project_root: &'a Path,
+    pub worktree_id: &'a str,
+    pub worktree_name: &'a str,
+    pub worktree_branch: &'a str,
+    pub worktree_path: &'a Path,
+    pub trigger: Option<&'a str>,
+}
+
+pub fn skein_context_environment(input: &SkeinContextInput<'_>) -> Vec<(String, String)> {
+    let project_root = input.project_root.to_string_lossy().to_string();
+    let worktree_path = input.worktree_path.to_string_lossy().to_string();
+    let mut values = Vec::with_capacity(if input.trigger.is_some() { 16 } else { 14 });
 
     // Keep the legacy namespace available for one transition release because
     // these scripts are persisted user settings and are not auto-migrated.
     for prefix in ["SKEIN", "LOOM"] {
-        command.env(format!("{prefix}_SCRIPT_TRIGGER"), script_trigger);
-        command.env(format!("{prefix}_PROJECT_ID"), &request.project_id);
-        command.env(format!("{prefix}_PROJECT_NAME"), &request.project_name);
-        command.env(format!("{prefix}_PROJECT_ROOT"), &project_root);
-        command.env(format!("{prefix}_WORKTREE_ID"), &request.worktree_id);
-        command.env(format!("{prefix}_WORKTREE_NAME"), &request.worktree_name);
-        command.env(
+        if let Some(trigger) = input.trigger {
+            values.push((format!("{prefix}_SCRIPT_TRIGGER"), trigger.to_string()));
+        }
+        values.push((format!("{prefix}_PROJECT_ID"), input.project_id.to_string()));
+        values.push((
+            format!("{prefix}_PROJECT_NAME"),
+            input.project_name.to_string(),
+        ));
+        values.push((format!("{prefix}_PROJECT_ROOT"), project_root.clone()));
+        values.push((
+            format!("{prefix}_WORKTREE_ID"),
+            input.worktree_id.to_string(),
+        ));
+        values.push((
+            format!("{prefix}_WORKTREE_NAME"),
+            input.worktree_name.to_string(),
+        ));
+        values.push((
             format!("{prefix}_WORKTREE_BRANCH"),
-            &request.worktree_branch,
-        );
-        command.env(format!("{prefix}_WORKTREE_PATH"), &worktree_path);
+            input.worktree_branch.to_string(),
+        ));
+        values.push((format!("{prefix}_WORKTREE_PATH"), worktree_path.clone()));
     }
+
+    values
 }
 
 fn append_log_footer(path: &Path, completion: &WorktreeScriptCompletion) -> std::io::Result<()> {

@@ -1,25 +1,34 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 
+import type { ProjectRecord, ProjectSettingsPatch, ShortcutSettings } from "../../lib/types";
+import { ChevronRightIcon, PlusIcon } from "../../shared/Icons";
 import { APP_NAME } from "../../lib/app-identity";
-import type { ProjectRecord, ProjectSettingsPatch } from "../../lib/types";
-import { ChevronRightIcon } from "../../shared/Icons";
+import { ProjectActionEditor } from "./ProjectActionEditor";
+import {
+  createEmptyProjectActionDraft,
+  normalizeProjectActionDrafts,
+} from "./projectActions";
+import {
+  buildProjectDraft,
+  cloneActionDraft,
+  normalizeScriptDraft,
+  projectDraftDirty,
+  syncProjectDrafts,
+  validateProjectDraft,
+  type ProjectDraft,
+} from "./projectSettingsDraft";
 
 type Props = {
   projects: ProjectRecord[];
   selectedProjectId: string | null;
+  shortcutSettings: ShortcutSettings;
   onSave: (projectId: string, patch: ProjectSettingsPatch) => Promise<void>;
-};
-
-type ProjectDraft = {
-  setup: string;
-  teardown: string;
-  savedSetup: string;
-  savedTeardown: string;
 };
 
 export function ProjectSettingsTab({
   projects,
   selectedProjectId,
+  shortcutSettings,
   onSave,
 }: Props) {
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(
@@ -31,6 +40,12 @@ export function ProjectSettingsTab({
   const [savingByProjectId, setSavingByProjectId] = useState<
     Record<string, boolean>
   >({});
+  const [expandedActionIdsByProjectId, setExpandedActionIdsByProjectId] = useState<
+    Record<string, string[]>
+  >({});
+  const [capturingShortcutActionId, setCapturingShortcutActionId] = useState<string | null>(
+    null,
+  );
   const projectIds = useMemo(() => new Set(projects.map((project) => project.id)), [projects]);
 
   useEffect(() => {
@@ -43,17 +58,33 @@ export function ProjectSettingsTab({
       if (current && projectIds.has(current)) {
         return current;
       }
-
       if (selectedProjectId && projectIds.has(selectedProjectId)) {
         return selectedProjectId;
       }
-
       return projects[0].id;
     });
   }, [projectIds, projects, selectedProjectId]);
 
   useEffect(() => {
     setDraftsByProjectId((current) => syncProjectDrafts(projects, current));
+  }, [projects]);
+
+  useEffect(() => {
+    setExpandedActionIdsByProjectId((current) => {
+      const next: Record<string, string[]> = {};
+
+      for (const project of projects) {
+        const actionIds = (project.settings.manualActions ?? []).map((action) => action.id);
+        const existing = current[project.id];
+        if (existing) {
+          next[project.id] = existing.filter((actionId) => actionIds.includes(actionId));
+          continue;
+        }
+        next[project.id] = [];
+      }
+
+      return next;
+    });
   }, [projects]);
 
   if (projects.length === 0) {
@@ -65,11 +96,16 @@ export function ProjectSettingsTab({
       {projects.map((project) => {
         const draft =
           draftsByProjectId[project.id] ??
-          buildProjectDraft(project.settings.worktreeSetupScript, project.settings.worktreeTeardownScript);
+          buildProjectDraft(
+            project.settings.worktreeSetupScript,
+            project.settings.worktreeTeardownScript,
+            project.settings.manualActions ?? [],
+          );
         const isExpanded = expandedProjectId === project.id;
         const isSaving = savingByProjectId[project.id] ?? false;
-        const isDirty =
-          draft.setup !== draft.savedSetup || draft.teardown !== draft.savedTeardown;
+        const issues = validateProjectDraft(draft, shortcutSettings);
+        const isDirty = projectDraftDirty(draft);
+        const expandedActionIds = expandedActionIdsByProjectId[project.id] ?? [];
 
         return (
           <section key={project.id} className="settings-project-card">
@@ -102,9 +138,9 @@ export function ProjectSettingsTab({
                     Setup Script
                   </label>
                   <p className="settings-field__help">
-                    Runs once after {APP_NAME} creates the worktree, with the
-                    new worktree as the current directory. It runs in the
-                    background and does not block opening the thread.
+                    Runs once after {APP_NAME} creates the worktree, with the new worktree as
+                    the current directory. It runs in the background and does not block opening
+                    the thread.
                   </p>
                   <textarea
                     id={`${project.id}-setup-script`}
@@ -136,9 +172,8 @@ export function ProjectSettingsTab({
                     Teardown Script
                   </label>
                   <p className="settings-field__help">
-                    Runs after {APP_NAME} deletes the worktree, from the project
-                    root. Context is exposed through `SKEIN_*`
-                    environment variables.
+                    Runs after {APP_NAME} deletes the worktree, from the project root. Context
+                    is exposed through `SKEIN_*` environment variables.
                   </p>
                   <textarea
                     id={`${project.id}-teardown-script`}
@@ -162,6 +197,122 @@ export function ProjectSettingsTab({
                   />
                 </div>
 
+                <div className="settings-project-actions">
+                  <div className="settings-project-actions__header">
+                    <div className="settings-project-actions__copy">
+                      <h3 className="settings-project-actions__title">Actions</h3>
+                      <p className="settings-field__help">
+                        Configure reusable manual actions for every environment in this project.
+                        These appear beside the terminal and Open In controls.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-project-actions__add"
+                      aria-label="Add action"
+                      title="Add action"
+                      disabled={isSaving}
+                      onClick={() => {
+                        const nextAction = createEmptyProjectActionDraft();
+                        updateProjectDraft(
+                          setDraftsByProjectId,
+                          project.id,
+                          draft,
+                          (currentDraft) => ({
+                            ...currentDraft,
+                            actions: [...currentDraft.actions, nextAction],
+                          }),
+                        );
+                        setExpandedActionIdsByProjectId((current) => ({
+                          ...current,
+                          [project.id]: [...(current[project.id] ?? []), nextAction.id],
+                        }));
+                      }}
+                    >
+                      <PlusIcon size={12} />
+                    </button>
+                  </div>
+                  {issues.global ? (
+                    <p className="settings-dialog__notice">{issues.global}</p>
+                  ) : null}
+                  {draft.actions.length === 0 ? (
+                    <p className="settings-field__help">
+                      No manual actions yet. Add one to expose a split action button in every
+                      environment for this project.
+                    </p>
+                  ) : (
+                    <div className="settings-project-actions__list">
+                      {draft.actions.map((action) => (
+                        <ProjectActionEditor
+                          key={action.id}
+                          projectId={project.id}
+                          action={action}
+                          issue={issues.actionsById[action.id]}
+                          disabled={isSaving}
+                          expanded={expandedActionIds.includes(action.id)}
+                          capturingShortcut={capturingShortcutActionId === action.id}
+                          onCaptureStart={() => setCapturingShortcutActionId(action.id)}
+                          onCaptureEnd={() =>
+                            setCapturingShortcutActionId((current) =>
+                              current === action.id ? null : current,
+                            )
+                          }
+                          onToggleExpanded={() => {
+                            setCapturingShortcutActionId((current) =>
+                              current === action.id ? null : current,
+                            );
+                            setExpandedActionIdsByProjectId((current) => {
+                              const existing = current[project.id] ?? [];
+                              const next = existing.includes(action.id)
+                                ? existing.filter((actionId) => actionId !== action.id)
+                                : [...existing, action.id];
+                              return {
+                                ...current,
+                                [project.id]: next,
+                              };
+                            });
+                          }}
+                          onRemove={() => {
+                            setCapturingShortcutActionId((current) =>
+                              current === action.id ? null : current,
+                            );
+                            setExpandedActionIdsByProjectId((current) => ({
+                              ...current,
+                              [project.id]: (current[project.id] ?? []).filter(
+                                (actionId) => actionId !== action.id,
+                              ),
+                            }));
+                            updateProjectDraft(
+                              setDraftsByProjectId,
+                              project.id,
+                              draft,
+                              (currentDraft) => ({
+                                ...currentDraft,
+                                actions: currentDraft.actions.filter(
+                                  (candidate) => candidate.id !== action.id,
+                                ),
+                              }),
+                            );
+                          }}
+                          onUpdate={(nextAction) =>
+                            updateProjectDraft(
+                              setDraftsByProjectId,
+                              project.id,
+                              draft,
+                              (currentDraft) => ({
+                                ...currentDraft,
+                                actions: currentDraft.actions.map((candidate) =>
+                                  candidate.id === action.id ? nextAction : candidate,
+                                ),
+                              }),
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="settings-project-card__actions">
                   <button
                     type="button"
@@ -176,6 +327,7 @@ export function ProjectSettingsTab({
                           ...currentDraft,
                           setup: currentDraft.savedSetup,
                           teardown: currentDraft.savedTeardown,
+                          actions: currentDraft.savedActions.map(cloneActionDraft),
                         }),
                       )
                     }
@@ -185,7 +337,7 @@ export function ProjectSettingsTab({
                   <button
                     type="button"
                     className="tx-action-btn tx-action-btn--primary"
-                    disabled={isSaving || !isDirty}
+                    disabled={isSaving || !isDirty || issues.global != null}
                     onClick={() => {
                       void saveProjectDraft(
                         project.id,
@@ -194,7 +346,7 @@ export function ProjectSettingsTab({
                         setSavingByProjectId,
                         setDraftsByProjectId,
                       ).catch(() => {
-                        // The parent settings dialog already surfaces save failures.
+                        /* parent surfaces save errors */
                       });
                     }}
                   >
@@ -219,18 +371,20 @@ async function saveProjectDraft(
 ) {
   const setup = normalizeScriptDraft(draft.setup);
   const teardown = normalizeScriptDraft(draft.teardown);
+  const actions = normalizeProjectActionDrafts(draft.actions);
   setSavingByProjectId((current) => ({ ...current, [projectId]: true }));
 
   try {
     await onSave(projectId, {
       worktreeSetupScript: setup,
       worktreeTeardownScript: teardown,
+      manualActions: actions,
     });
     updateProjectDraft(
       setDraftsByProjectId,
       projectId,
-      buildProjectDraft(setup, teardown),
-      () => buildProjectDraft(setup, teardown),
+      buildProjectDraft(setup, teardown, actions),
+      () => buildProjectDraft(setup, teardown, actions),
     );
   } finally {
     setSavingByProjectId((current) => ({ ...current, [projectId]: false }));
@@ -250,47 +404,4 @@ function updateProjectDraft(
       [projectId]: update(existing),
     };
   });
-}
-
-function syncProjectDrafts(
-  projects: ProjectRecord[],
-  current: Record<string, ProjectDraft>,
-) {
-  const next: Record<string, ProjectDraft> = {};
-
-  for (const project of projects) {
-    const savedSetup = project.settings.worktreeSetupScript ?? "";
-    const savedTeardown = project.settings.worktreeTeardownScript ?? "";
-    const existing = current[project.id];
-    if (!existing) {
-      next[project.id] = buildProjectDraft(savedSetup, savedTeardown);
-      continue;
-    }
-
-    const isDirty =
-      existing.setup !== existing.savedSetup ||
-      existing.teardown !== existing.savedTeardown;
-    next[project.id] = isDirty
-      ? existing
-      : buildProjectDraft(savedSetup, savedTeardown);
-  }
-
-  return next;
-}
-
-function buildProjectDraft(
-  setup: string | null | undefined,
-  teardown: string | null | undefined,
-): ProjectDraft {
-  return {
-    setup: setup ?? "",
-    teardown: teardown ?? "",
-    savedSetup: setup ?? "",
-    savedTeardown: teardown ?? "",
-  };
-}
-
-function normalizeScriptDraft(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

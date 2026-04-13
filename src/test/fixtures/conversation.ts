@@ -157,6 +157,7 @@ export function makeProject(
     settings: {
       worktreeSetupScript: undefined,
       worktreeTeardownScript: undefined,
+      manualActions: [],
     },
     sidebarCollapsed: false,
     createdAt: "2026-04-03T08:00:00Z",

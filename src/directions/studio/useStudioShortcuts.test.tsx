@@ -5,6 +5,7 @@ import { isMacPlatform } from "../../lib/shortcuts";
 import {
   capabilitiesFixture,
   makeConversationSnapshot,
+  makeProject,
   makeProposedPlan,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
@@ -216,5 +217,48 @@ describe("useStudioShortcuts", () => {
     });
 
     expect(useConversationStore.getState().composerByThreadId["thread-1"]).toBeUndefined();
+  });
+
+  it("launches a project action from its shortcut in the selected environment", () => {
+    const openActionTab = vi.fn(async () => "action-tab");
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            settings: {
+              worktreeSetupScript: undefined,
+              worktreeTeardownScript: undefined,
+              manualActions: [
+                {
+                  id: "dev",
+                  label: "Dev",
+                  icon: "play",
+                  script: "bun run dev",
+                  shortcut: "mod+shift+d",
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    }));
+    useTerminalStore.setState({ openActionTab });
+
+    render(<Harness />);
+
+    fireEvent.keyDown(window, {
+      key: "D",
+      shiftKey: true,
+      ...primaryModifier(),
+    });
+
+    expect(openActionTab).toHaveBeenCalledWith("env-1", {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+      script: "bun run dev",
+      shortcut: "mod+shift+d",
+    });
   });
 });

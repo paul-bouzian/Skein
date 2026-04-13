@@ -159,7 +159,7 @@ impl ShortcutSettings {
             .map(String::as_str)
     }
 
-    fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 18] {
+    pub(crate) fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 18] {
         [
             ("openSettings", "Open settings", self.open_settings.as_ref()),
             (
@@ -280,11 +280,15 @@ fn default_interrupt_shortcut() -> &'static str {
     }
 }
 
-fn normalize_shortcut_option(value: Option<String>) -> Option<String> {
+pub(crate) fn normalize_shortcut_option(value: Option<String>) -> Option<String> {
     value.and_then(|shortcut| {
         let trimmed = shortcut.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+pub(crate) fn shortcut_signature(value: &str) -> Result<String, String> {
+    Ok(parse_shortcut(value)?.signature())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

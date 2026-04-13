@@ -38,6 +38,8 @@ import type {
   ProjectRecord,
   ReorderProjectsRequest,
   ReorderWorktreeEnvironmentsRequest,
+  RunProjectActionRequest,
+  RunProjectActionResult,
   ShortcutSettings,
   UpdateProjectSettingsRequest,
   RespondToApprovalRequestInput,
@@ -318,6 +320,12 @@ export function updateProjectSettings(
   input: UpdateProjectSettingsRequest,
 ): Promise<ProjectRecord> {
   return invoke<ProjectRecord>("update_project_settings", { input });
+}
+
+export function runProjectAction(
+  input: RunProjectActionRequest,
+): Promise<RunProjectActionResult> {
+  return invoke<RunProjectActionResult>("run_project_action", { input });
 }
 
 export function reorderProjects(
