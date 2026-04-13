@@ -10,10 +10,10 @@
 }
 
 .project-icon--sm {
-  width: 24px;
-  height: 24px;
-  font-size: var(--tx-text-xs);
-  border-radius: var(--tx-radius-xs);
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  border-radius: 4px;
 }
 
 .project-icon--md {
