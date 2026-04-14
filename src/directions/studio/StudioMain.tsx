@@ -8,7 +8,11 @@ import {
   selectSelectedThread,
   selectProjects,
 } from "../../stores/workspace-store";
-import { useTerminalStore } from "../../stores/terminal-store";
+import {
+  selectHasAnyTerminalTabs,
+  selectTerminalSlot,
+  useTerminalStore,
+} from "../../stores/terminal-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
@@ -48,19 +52,21 @@ export function StudioMain({
   const selectedThread = useWorkspaceStore(selectSelectedThread);
   const settings = useWorkspaceStore(selectSettings);
   const isThreadView = Boolean(selectedThread && selectedEnvironment);
+  const selectedEnvironmentId = selectedEnvironment?.id ?? null;
+  const terminalSlot = useTerminalStore(selectTerminalSlot(selectedEnvironmentId));
+  const hasAnyTerminalTabs = useTerminalStore(selectHasAnyTerminalTabs);
 
-  const terminalVisible = useTerminalStore((s) => s.visible);
-  const terminalHeight = useTerminalStore((s) => s.height);
   const toggleTerminal = useTerminalStore((s) => s.toggleVisible);
+  const setTerminalHeight = useTerminalStore((s) => s.setHeight);
+  const terminalVisible = selectedEnvironmentId != null && terminalSlot.visible;
+  const terminalHeight = terminalSlot.height;
+  const terminalMounted = terminalVisible || hasAnyTerminalTabs;
   const [terminalDragging, setTerminalDragging] = useState(false);
 
-  // Lazy-mount the terminal panel: stay unmounted until the user opens it the
-  // first time, then keep it mounted (toggled via CSS) so PTYs and xterm
-  // scrollback survive hide/show cycles.
-  const [terminalEverOpened, setTerminalEverOpened] = useState(terminalVisible);
   useEffect(() => {
-    if (terminalVisible) setTerminalEverOpened(true);
-    else setTerminalDragging(false);
+    if (!terminalVisible) {
+      setTerminalDragging(false);
+    }
   }, [terminalVisible]);
 
   let content;
@@ -109,12 +115,33 @@ export function StudioMain({
             environmentId={selectedEnvironment?.id ?? null}
             settings={settings}
           />
-          <Tooltip content={terminalVisible ? "Hide terminal" : "Show terminal"} side="bottom">
+          <Tooltip
+            content={
+              !selectedEnvironmentId
+                ? "Select a worktree first"
+                : terminalVisible
+                  ? "Hide terminal"
+                  : "Show terminal"
+            }
+            side="bottom"
+          >
             <button
               type="button"
-              aria-label={terminalVisible ? "Hide terminal" : "Show terminal"}
+              aria-label={
+                !selectedEnvironmentId
+                  ? "Select a worktree first"
+                  : terminalVisible
+                    ? "Hide terminal"
+                    : "Show terminal"
+              }
               className={`studio-main__toggle-terminal ${terminalVisible ? "studio-main__toggle-terminal--active" : ""}`}
-              onClick={toggleTerminal}
+              disabled={!selectedEnvironmentId}
+              onClick={() => {
+                if (!selectedEnvironmentId) {
+                  return;
+                }
+                toggleTerminal(selectedEnvironmentId);
+              }}
             >
               <TerminalIcon size={14} />
             </button>
@@ -136,8 +163,15 @@ export function StudioMain({
       >
         {content}
       </div>
-      {terminalVisible && <TerminalResizeHandle onDraggingChange={setTerminalDragging} />}
-      {terminalEverOpened && (
+      {terminalVisible && selectedEnvironmentId && (
+        <TerminalResizeHandle
+          environmentId={selectedEnvironmentId}
+          initialHeight={terminalHeight}
+          onDraggingChange={setTerminalDragging}
+          onResize={setTerminalHeight}
+        />
+      )}
+      {terminalMounted && (
         <div
           className={`studio-main__terminal ${terminalVisible ? "" : "studio-main__terminal--hidden"}`}
           style={{ height: terminalVisible ? terminalHeight : undefined }}
@@ -151,9 +185,15 @@ export function StudioMain({
 }
 
 function TerminalResizeHandle({
+  environmentId,
+  initialHeight,
   onDraggingChange,
+  onResize,
 }: {
+  environmentId: string;
+  initialHeight: number;
   onDraggingChange: (dragging: boolean) => void;
+  onResize: (environmentId: string, value: number) => void;
 }) {
   const startRef = useRef<{ y: number; height: number } | null>(null);
 
@@ -172,7 +212,7 @@ function TerminalResizeHandle({
         event.currentTarget.setPointerCapture(event.pointerId);
         startRef.current = {
           y: event.clientY,
-          height: useTerminalStore.getState().height,
+          height: initialHeight,
         };
         onDraggingChange(true);
       }}
@@ -180,9 +220,7 @@ function TerminalResizeHandle({
         if (!startRef.current) return;
         // Drag up => grow terminal; drag down => shrink it.
         const delta = event.clientY - startRef.current.y;
-        useTerminalStore
-          .getState()
-          .setHeight(startRef.current.height - delta);
+        onResize(environmentId, startRef.current.height - delta);
       }}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}

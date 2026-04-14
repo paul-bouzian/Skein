@@ -185,8 +185,11 @@ export function useStudioShortcuts({
       }
 
       if (matchesShortcut(event, shortcuts.toggleTerminal)) {
+        if (!selectedEnvironmentId) {
+          return;
+        }
         event.preventDefault();
-        toggleVisible();
+        toggleVisible(selectedEnvironmentId);
         return;
       }
 

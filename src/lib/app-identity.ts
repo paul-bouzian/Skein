@@ -124,12 +124,12 @@ export const TERMINAL_HEIGHT_STORAGE_KEY = buildStorageKey(
 );
 export const LEGACY_TERMINAL_HEIGHT_STORAGE_KEYS =
   buildLegacyStorageKeys("terminal-height");
-export const TERMINAL_VISIBLE_STORAGE_KEY = buildStorageKey(
+export const TERMINAL_LAYOUTS_STORAGE_KEY = buildStorageKey(
   APP_SLUG,
-  "terminal-visible",
+  "terminal-layouts",
 );
-export const LEGACY_TERMINAL_VISIBLE_STORAGE_KEYS =
-  buildLegacyStorageKeys("terminal-visible");
+export const LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS =
+  buildLegacyStorageKeys("terminal-layouts");
 export const VOICE_PROCESSOR_NAME = buildStorageKey(APP_SLUG, "voice-processor");
 
 export const RELEASES_BASE_URL =
