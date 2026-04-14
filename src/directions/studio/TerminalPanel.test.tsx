@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
-import { useTerminalStore } from "../../stores/terminal-store";
+import {
+  selectTerminalSlot,
+  useTerminalStore,
+  type EnvironmentTerminalSlot,
+} from "../../stores/terminal-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { makeWorkspaceSnapshot } from "../../test/fixtures/conversation";
 import { TerminalPanel } from "./TerminalPanel";
@@ -38,6 +42,22 @@ const PANEL_THEME = "dark" as const;
 
 function renderPanel() {
   return render(<TerminalPanel theme={PANEL_THEME} />);
+}
+
+function makeSlot(
+  overrides: Partial<EnvironmentTerminalSlot>,
+): EnvironmentTerminalSlot {
+  return {
+    tabs: [],
+    activeTabId: null,
+    visible: false,
+    height: 280,
+    ...overrides,
+  };
+}
+
+function readSlot(environmentId: string) {
+  return selectTerminalSlot(environmentId)(useTerminalStore.getState());
 }
 
 beforeEach(() => {
@@ -78,11 +98,9 @@ beforeEach(() => {
 
   // Seed terminal store with two tabs in this env to bypass auto-bootstrap.
   useTerminalStore.setState({
-    visible: true,
-    height: 280,
     knownEnvironmentIds: [ENV_ID],
     byEnv: {
-      [ENV_ID]: {
+      [ENV_ID]: makeSlot({
         tabs: [
           {
             id: "t1",
@@ -102,7 +120,8 @@ beforeEach(() => {
           },
         ],
         activeTabId: "t1",
-      },
+        visible: true,
+      }),
     },
   });
 });
@@ -137,7 +156,7 @@ describe("TerminalPanel", () => {
       ...state,
       byEnv: {
         ...state.byEnv,
-        "env-2": {
+        "env-2": makeSlot({
           tabs: [
             {
               id: "t3",
@@ -149,7 +168,8 @@ describe("TerminalPanel", () => {
             },
           ],
           activeTabId: "t3",
-        },
+          visible: true,
+        }),
       },
     }));
 
@@ -222,11 +242,9 @@ describe("TerminalPanel", () => {
       selectedThreadId: null,
     });
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: ["env-1", "env-2"],
       byEnv: {
-        "env-1": {
+        "env-1": makeSlot({
           tabs: [
             {
               id: "t1",
@@ -238,8 +256,9 @@ describe("TerminalPanel", () => {
             },
           ],
           activeTabId: "t1",
-        },
-        "env-2": {
+          visible: true,
+        }),
+        "env-2": makeSlot({
           tabs: [
             {
               id: "t2",
@@ -251,7 +270,8 @@ describe("TerminalPanel", () => {
             },
           ],
           activeTabId: "t2",
-        },
+          visible: true,
+        }),
       },
     });
     mockedBridge.spawnTerminal.mockClear();
@@ -261,9 +281,10 @@ describe("TerminalPanel", () => {
     await user.click(screen.getByLabelText("Close terminal"));
 
     await waitFor(() => {
-      expect(useTerminalStore.getState().byEnv["env-1"]).toBeUndefined();
+      expect(readSlot("env-1").tabs).toHaveLength(0);
     });
-    expect(useTerminalStore.getState().visible).toBe(true);
+    expect(readSlot("env-1").visible).toBe(false);
+    expect(readSlot("env-2").visible).toBe(true);
     expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
     expect(
       screen.getByText("No terminals are open in this worktree."),
@@ -275,7 +296,7 @@ describe("TerminalPanel", () => {
     renderPanel();
 
     await user.click(screen.getByTitle("Hide terminal"));
-    expect(useTerminalStore.getState().visible).toBe(false);
+    expect(readSlot(ENV_ID).visible).toBe(false);
   });
 
   it("activates a tab when its title is clicked", async () => {
@@ -297,8 +318,6 @@ describe("TerminalPanel", () => {
       selectedThreadId: null,
     });
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: [],
       byEnv: {},
     });
@@ -329,10 +348,11 @@ describe("TerminalPanel", () => {
       selectedThreadId: null,
     });
     useTerminalStore.setState({
-      visible: false,
-      height: 280,
       knownEnvironmentIds: ["env-1", "env-2"],
-      byEnv: {},
+      byEnv: {
+        "env-1": makeSlot({ visible: false }),
+        "env-2": makeSlot({ visible: false }),
+      },
     });
     mockedBridge.spawnTerminal.mockClear();
 
@@ -345,15 +365,16 @@ describe("TerminalPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
-    expect(useTerminalStore.getState().byEnv).toEqual({});
+    expect(readSlot("env-1").tabs).toEqual([]);
+    expect(readSlot("env-2").tabs).toEqual([]);
   });
 
   it("short-circuits bootstrap retry after spawn failure and resumes on hide/show", async () => {
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: [ENV_ID],
-      byEnv: {},
+      byEnv: {
+        [ENV_ID]: makeSlot({ visible: true }),
+      },
     });
     mockedBridge.spawnTerminal.mockReset();
     mockedBridge.spawnTerminal.mockRejectedValue(new Error("spawn failed"));
@@ -375,9 +396,9 @@ describe("TerminalPanel", () => {
       expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(1);
 
       // Hide + show: the failed-env cache resets and bootstrap retries once.
-      useTerminalStore.setState({ visible: false });
+      useTerminalStore.getState().setVisible(ENV_ID, false);
       await new Promise((resolve) => setTimeout(resolve, 10));
-      useTerminalStore.setState({ visible: true });
+      useTerminalStore.getState().setVisible(ENV_ID, true);
       await waitFor(() => {
         expect(mockedBridge.spawnTerminal).toHaveBeenCalledTimes(2);
       });
@@ -388,10 +409,10 @@ describe("TerminalPanel", () => {
 
   it("deduplicates auto-bootstrap on the first strict-mode mount", async () => {
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: [ENV_ID],
-      byEnv: {},
+      byEnv: {
+        [ENV_ID]: makeSlot({ visible: true }),
+      },
     });
 
     render(
@@ -424,11 +445,9 @@ describe("TerminalPanel", () => {
       selectedThreadId: null,
     });
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: ["env-1", "env-2"],
       byEnv: {
-        "env-2": {
+        "env-2": makeSlot({
           tabs: [
             {
               id: "t3",
@@ -440,7 +459,9 @@ describe("TerminalPanel", () => {
             },
           ],
           activeTabId: "t3",
-        },
+          visible: true,
+        }),
+        "env-1": makeSlot({ visible: true }),
       },
     });
     mockedBridge.spawnTerminal.mockReset();
@@ -495,10 +516,11 @@ describe("TerminalPanel", () => {
       selectedThreadId: null,
     });
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: ["env-1", "env-2"],
-      byEnv: {},
+      byEnv: {
+        "env-1": makeSlot({ visible: true }),
+        "env-2": makeSlot({ visible: true }),
+      },
     });
 
     // Control the first spawn so it stays pending.

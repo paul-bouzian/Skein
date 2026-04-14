@@ -43,8 +43,6 @@ beforeEach(() => {
   vi.useRealTimers();
   teardownWorkspaceListener();
   useTerminalStore.setState({
-    visible: false,
-    height: 280,
     byEnv: {},
     knownEnvironmentIds: [],
   });
@@ -155,13 +153,13 @@ describe("workspace store", () => {
 
   it("falls back to the local environment when a selected worktree disappears on refresh", async () => {
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: ["env-local", "env-worktree"],
       byEnv: {
         "env-local": {
           tabs: [],
           activeTabId: null,
+          visible: false,
+          height: 280,
         },
         "env-worktree": {
           tabs: [
@@ -175,6 +173,8 @@ describe("workspace store", () => {
             },
           ],
           activeTabId: "terminal-1",
+          visible: true,
+          height: 280,
         },
       },
     });
@@ -466,8 +466,6 @@ describe("workspace store", () => {
 
   it("refreshSnapshot updates terminal cwd metadata when an environment path changes", async () => {
     useTerminalStore.setState({
-      visible: true,
-      height: 280,
       knownEnvironmentIds: ["env-worktree"],
       byEnv: {
         "env-worktree": {
@@ -482,6 +480,8 @@ describe("workspace store", () => {
             },
           ],
           activeTabId: "terminal-1",
+          visible: true,
+          height: 280,
         },
       },
     });

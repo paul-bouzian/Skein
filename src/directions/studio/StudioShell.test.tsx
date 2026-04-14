@@ -17,7 +17,7 @@ import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import { useFirstPromptRenameStore } from "../../stores/first-prompt-rename-store";
 import { useGitReviewStore } from "../../stores/git-review-store";
-import { useTerminalStore } from "../../stores/terminal-store";
+import { selectTerminalSlot, useTerminalStore } from "../../stores/terminal-store";
 import {
   resetVoiceSessionStore,
   useVoiceSessionStore,
@@ -103,15 +103,6 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 const mockedBridge = vi.mocked(bridge);
 const mockedNotifications = vi.mocked(notifications);
-
-function isTerminalVisible(environmentId = "env-1") {
-  const state = useTerminalStore.getState() as {
-    visible?: boolean;
-    byEnv: Record<string, { visible?: boolean } | undefined>;
-  };
-
-  return state.visible ?? state.byEnv[environmentId]?.visible ?? false;
-}
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
@@ -206,8 +197,6 @@ beforeEach(async () => {
     listenerReady: false,
   }));
   useTerminalStore.setState({
-    visible: false,
-    height: 280,
     byEnv: {},
     knownEnvironmentIds: [],
   });
@@ -346,7 +335,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(useTerminalStore.getState().visible).toBe(true);
+      expect(selectTerminalSlot("env-1")(useTerminalStore.getState()).visible).toBe(true);
     });
 
     fireEvent.keyDown(window, {
@@ -355,7 +344,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(useTerminalStore.getState().visible).toBe(false);
+      expect(selectTerminalSlot("env-1")(useTerminalStore.getState()).visible).toBe(false);
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -365,7 +354,7 @@ describe("StudioShell", () => {
       ...primaryModifier(),
     });
 
-    expect(isTerminalVisible()).toBe(false);
+    expect(selectTerminalSlot("env-1")(useTerminalStore.getState()).visible).toBe(false);
   });
 
   it("prevents native Shift+Tab navigation even when mode cycling has no next value", () => {
@@ -1046,7 +1035,7 @@ describe("StudioShell", () => {
       ...primaryModifier(),
     });
 
-    expect(useTerminalStore.getState().visible).toBe(false);
+    expect(selectTerminalSlot("env-1")(useTerminalStore.getState()).visible).toBe(false);
   });
 
   it("traps tab navigation inside the action dialog", async () => {

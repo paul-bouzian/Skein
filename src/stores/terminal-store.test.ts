@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
+import { TERMINAL_LAYOUTS_STORAGE_KEY } from "../lib/app-identity";
 import * as terminalOutputBus from "../lib/terminal-output-bus";
 import {
   MAX_TABS,
@@ -52,10 +53,8 @@ beforeEach(() => {
     configurable: true,
   });
   useTerminalStore.setState({
-    visible: false,
-    height: 280,
     byEnv: {},
-    knownEnvironmentIds: [],
+    knownEnvironmentIds: [ENV_A, ENV_B],
   });
   let counter = 0;
   mockedBridge.spawnTerminal.mockImplementation(async ({ environmentId }) => {
@@ -83,6 +82,11 @@ function slotForB() {
   return selectTerminalSlot(ENV_B)(useTerminalStore.getState());
 }
 
+function readPersistedLayouts() {
+  const raw = localStorage.getItem(TERMINAL_LAYOUTS_STORAGE_KEY);
+  return raw ? (JSON.parse(raw) as Record<string, { visible: boolean; height: number }>) : {};
+}
+
 describe("terminal-store", () => {
   it("opens a tab in the given environment and sets it active", async () => {
     const id = await useTerminalStore.getState().openTab(ENV_A);
@@ -103,28 +107,32 @@ describe("terminal-store", () => {
 
   it("uses the default height when no persisted value exists", async () => {
     vi.resetModules();
-    const { useTerminalStore: freshStore } = await import("./terminal-store");
+    const {
+      selectTerminalSlot: freshSelectTerminalSlot,
+      useTerminalStore: freshStore,
+    } = await import("./terminal-store");
 
-    expect(freshStore.getState().height).toBe(280);
+    expect(freshSelectTerminalSlot(ENV_A)(freshStore.getState()).height).toBe(280);
   });
 
-  it("migrates legacy persisted terminal preferences into the Skein namespace", async () => {
+  it("uses the legacy terminal height as the default env height without propagating visibility", async () => {
     storageState.set("loom-terminal-height", "360");
     storageState.set("loom-terminal-visible", "1");
     storageState.set("threadex-terminal-height", "240");
     storageState.set("threadex-terminal-visible", "0");
 
     vi.resetModules();
-    const { useTerminalStore: freshStore } = await import("./terminal-store");
+    const {
+      selectTerminalSlot: freshSelectTerminalSlot,
+      useTerminalStore: freshStore,
+    } = await import("./terminal-store");
 
-    expect(freshStore.getState().height).toBe(360);
-    expect(freshStore.getState().visible).toBe(true);
+    expect(freshSelectTerminalSlot(ENV_A)(freshStore.getState()).height).toBe(360);
+    expect(freshSelectTerminalSlot(ENV_A)(freshStore.getState()).visible).toBe(false);
     expect(localStorage.getItem("skein-terminal-height")).toBe("360");
-    expect(localStorage.getItem("skein-terminal-visible")).toBe("1");
+    expect(localStorage.getItem("skein-terminal-visible")).toBeNull();
     expect(localStorage.getItem("loom-terminal-height")).toBeNull();
-    expect(localStorage.getItem("loom-terminal-visible")).toBeNull();
     expect(localStorage.getItem("threadex-terminal-height")).toBeNull();
-    expect(localStorage.getItem("threadex-terminal-visible")).toBeNull();
   });
 
   it("keeps tabs from different environments isolated", async () => {
@@ -171,7 +179,6 @@ describe("terminal-store", () => {
     const a = await useTerminalStore.getState().openTab(ENV_A);
     const b = await useTerminalStore.getState().openTab(ENV_A);
     await useTerminalStore.getState().openTab(ENV_A);
-    useTerminalStore.setState({ visible: true });
 
     expect(slotForA().tabs).toHaveLength(3);
 
@@ -181,7 +188,7 @@ describe("terminal-store", () => {
     await useTerminalStore.getState().closeTab(ENV_A, lastId);
     expect(slotForA().tabs).toHaveLength(2);
     expect(slotForA().activeTabId).toBe(b);
-    expect(useTerminalStore.getState().visible).toBe(true);
+    expect(slotForA().visible).toBe(true);
 
     // Close a non-active tab — active stays put.
     if (!a) throw new Error("expected first tab id");
@@ -192,31 +199,30 @@ describe("terminal-store", () => {
     expect(mockedBridge.killTerminal).toHaveBeenCalledTimes(2);
   });
 
-  it("closing the last tab in an env removes the slot and hides the panel", async () => {
+  it("closing the last tab in an env keeps the slot but hides that panel", async () => {
     await useTerminalStore.getState().openTab(ENV_A);
-    useTerminalStore.setState({ visible: true });
 
     const onlyId = slotForA().activeTabId;
     if (!onlyId) throw new Error("expected active tab");
 
     await useTerminalStore.getState().closeTab(ENV_A, onlyId);
 
-    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
-    expect(useTerminalStore.getState().visible).toBe(false);
+    expect(slotForA().tabs).toEqual([]);
+    expect(slotForA().visible).toBe(false);
   });
 
   it("closing the last tab in env A leaves env B's slot intact", async () => {
     await useTerminalStore.getState().openTab(ENV_A);
     await useTerminalStore.getState().openTab(ENV_B);
-    useTerminalStore.setState({ visible: true });
 
     const tabA = slotForA().activeTabId;
     if (!tabA) throw new Error("expected env A tab");
     await useTerminalStore.getState().closeTab(ENV_A, tabA);
 
-    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
+    expect(slotForA().tabs).toEqual([]);
+    expect(slotForA().visible).toBe(false);
     expect(slotForB().tabs).toHaveLength(1);
-    expect(useTerminalStore.getState().visible).toBe(true);
+    expect(slotForB().visible).toBe(true);
   });
 
   it("activateTab updates only the targeted env", async () => {
@@ -228,27 +234,44 @@ describe("terminal-store", () => {
     expect(slotForA().activeTabId).toBe(a1);
   });
 
-  it("setHeight clamps below MIN_HEIGHT and above 0.8 * window.innerHeight", () => {
-    useTerminalStore.getState().setHeight(40);
-    expect(useTerminalStore.getState().height).toBe(120);
+  it("activateTab preserves the current tab state for the environment", async () => {
+    const actionTabId = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!actionTabId) {
+      throw new Error("expected action tab id");
+    }
 
-    useTerminalStore.getState().setHeight(99999);
-    // 0.8 * 1000 = 800
-    expect(useTerminalStore.getState().height).toBe(800);
+    useTerminalStore.getState().markExited("pty-1");
+    useTerminalStore.getState().activateTab(ENV_A, actionTabId);
 
-    useTerminalStore.getState().setHeight(300);
-    expect(useTerminalStore.getState().height).toBe(300);
-    expect(localStorage.getItem("skein-terminal-height")).toBe("300");
+    expect(slotForA().tabs[0]?.exited).toBe(true);
+    expect(slotForA().activeTabId).toBe(actionTabId);
   });
 
-  it("toggleVisible flips visibility and persists to localStorage", () => {
-    expect(useTerminalStore.getState().visible).toBe(false);
-    useTerminalStore.getState().toggleVisible();
-    expect(useTerminalStore.getState().visible).toBe(true);
-    expect(localStorage.getItem("skein-terminal-visible")).toBe("1");
-    useTerminalStore.getState().toggleVisible();
-    expect(useTerminalStore.getState().visible).toBe(false);
-    expect(localStorage.getItem("skein-terminal-visible")).toBe("0");
+  it("setHeight clamps below MIN_HEIGHT and above 0.8 * window.innerHeight", () => {
+    useTerminalStore.getState().setHeight(ENV_A, 40);
+    expect(slotForA().height).toBe(120);
+
+    useTerminalStore.getState().setHeight(ENV_A, 99999);
+    // 0.8 * 1000 = 800
+    expect(slotForA().height).toBe(800);
+
+    useTerminalStore.getState().setHeight(ENV_A, 300);
+    expect(slotForA().height).toBe(300);
+    expect(readPersistedLayouts()[ENV_A]).toMatchObject({ height: 300 });
+  });
+
+  it("toggleVisible flips visibility per environment and persists to localStorage", () => {
+    expect(slotForA().visible).toBe(false);
+    useTerminalStore.getState().toggleVisible(ENV_A);
+    expect(slotForA().visible).toBe(true);
+    expect(readPersistedLayouts()[ENV_A]).toMatchObject({ visible: true });
+    useTerminalStore.getState().toggleVisible(ENV_A);
+    expect(slotForA().visible).toBe(false);
+    expect(readPersistedLayouts()[ENV_A]).toMatchObject({ visible: false });
   });
 
   it("markExited flags the matching tab across all envs", async () => {
@@ -485,18 +508,16 @@ describe("terminal-store", () => {
   it("reconcileEnvironments prunes deleted environments and hides the panel when empty", async () => {
     await useTerminalStore.getState().openTab(ENV_A);
     await useTerminalStore.getState().openTab(ENV_B);
-    useTerminalStore.setState({ visible: true });
 
     useTerminalStore.getState().reconcileEnvironments([ENV_B]);
 
     expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
     expect(useTerminalStore.getState().byEnv[ENV_B]?.tabs).toHaveLength(1);
-    expect(useTerminalStore.getState().visible).toBe(true);
+    expect(slotForB().visible).toBe(true);
 
     useTerminalStore.getState().reconcileEnvironments([]);
 
     expect(useTerminalStore.getState().byEnv).toEqual({});
-    expect(useTerminalStore.getState().visible).toBe(false);
   });
 
   it("kills PTYs for pruned environments during reconciliation", async () => {
@@ -516,19 +537,32 @@ describe("terminal-store", () => {
     expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
   });
 
-  it("preserves visible state when environments exist but tabs have not been restored yet", () => {
-    localStorage.setItem("skein-terminal-visible", "1");
-    useTerminalStore.setState({
-      visible: true,
-      height: 280,
+  it("restores persisted per-environment panel state when environments are reconciled", async () => {
+    localStorage.setItem(
+      "skein-terminal-layouts",
+      JSON.stringify({
+        [ENV_A]: {
+          visible: true,
+          height: 320,
+        },
+      }),
+    );
+    vi.resetModules();
+
+    const {
+      selectTerminalSlot: freshSelectTerminalSlot,
+      useTerminalStore: freshStore,
+    } = await import("./terminal-store");
+    freshStore.setState({
       byEnv: {},
       knownEnvironmentIds: [],
     });
+    freshStore.getState().reconcileEnvironments([ENV_A]);
 
-    useTerminalStore.getState().reconcileEnvironments([ENV_A]);
-
-    expect(useTerminalStore.getState().visible).toBe(true);
-    expect(localStorage.getItem("skein-terminal-visible")).toBe("1");
+    expect(freshSelectTerminalSlot(ENV_A)(freshStore.getState())).toMatchObject({
+      visible: true,
+      height: 320,
+    });
   });
 
   it("kills the PTY if the environment disappears while openTab is in flight", async () => {
@@ -546,6 +580,58 @@ describe("terminal-store", () => {
     await expect(openPromise).resolves.toBeNull();
     expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
       ptyId: "pty-pending",
+    });
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
+  });
+
+  it("kills the PTY if all environments disappear while openTab is in flight", async () => {
+    let resolveSpawn: (value: { ptyId: string; cwd: string }) => void = () => {};
+    const pendingSpawn = new Promise<{ ptyId: string; cwd: string }>((resolve) => {
+      resolveSpawn = resolve;
+    });
+    mockedBridge.spawnTerminal.mockImplementationOnce(() => pendingSpawn);
+    useTerminalStore.getState().reconcileEnvironments([ENV_A]);
+
+    const openPromise = useTerminalStore.getState().openTab(ENV_A);
+    useTerminalStore.getState().reconcileEnvironments([]);
+    resolveSpawn({ ptyId: "pty-empty", cwd: `/path/to/${ENV_A}` });
+
+    await expect(openPromise).resolves.toBeNull();
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-empty",
+    });
+    expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
+  });
+
+  it("kills the PTY if all environments disappear while an action tab is launching", async () => {
+    let resolveRun: (
+      value: Awaited<ReturnType<typeof bridge.runProjectAction>>,
+    ) => void = () => {};
+    const pendingRun = new Promise<Awaited<ReturnType<typeof bridge.runProjectAction>>>(
+      (resolve) => {
+        resolveRun = resolve;
+      },
+    );
+    mockedBridge.runProjectAction.mockImplementationOnce(() => pendingRun);
+    useTerminalStore.getState().reconcileEnvironments([ENV_A]);
+
+    const openPromise = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    useTerminalStore.getState().reconcileEnvironments([]);
+    resolveRun({
+      ptyId: "pty-action-empty",
+      cwd: `/path/to/${ENV_A}`,
+      actionId: "dev",
+      actionLabel: "Dev",
+      actionIcon: "play",
+    });
+
+    await expect(openPromise).resolves.toBeNull();
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-action-empty",
     });
     expect(useTerminalStore.getState().byEnv[ENV_A]).toBeUndefined();
   });

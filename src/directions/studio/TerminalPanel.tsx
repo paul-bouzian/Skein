@@ -39,7 +39,6 @@ function ensureBootstrapTab(
 }
 
 export function TerminalPanel({ theme }: Props) {
-  const visible = useTerminalStore((s) => s.visible);
   const openTab = useTerminalStore((s) => s.openTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const activateTab = useTerminalStore((s) => s.activateTab);
@@ -49,7 +48,7 @@ export function TerminalPanel({ theme }: Props) {
   const env = useWorkspaceStore(selectSelectedEnvironment);
   const environmentId = env?.id ?? null;
   const slot = useTerminalStore(selectTerminalSlot(environmentId));
-  const { tabs, activeTabId } = slot;
+  const { tabs, activeTabId, visible } = slot;
   const selectedEnvironmentId = environmentId ?? "";
   const activeTab =
     tabs.find((tab) => tab.id === activeTabId) ?? tabs[tabs.length - 1] ?? null;
@@ -62,16 +61,11 @@ export function TerminalPanel({ theme }: Props) {
   // env if the user switched worktrees while the first spawn was pending.
   // bootstrapFailedEnvId short-circuits the effect after a spawn failure so
   // we don't hammer the backend in a tight retry loop; it resets when the
-  // panel is hidden or the user switches to a different env. Explicitly
-  // closing the last tab in an env dismisses auto-bootstrap for that env
-  // until the panel is hidden again or the user opens a new tab manually.
+  // panel is hidden or the user switches to a different env.
   const [bootstrapInFlight, setBootstrapInFlight] = useState(false);
   const [bootstrapFailedEnvId, setBootstrapFailedEnvId] = useState<
     string | null
   >(null);
-  const [dismissedBootstrapEnvIds, setDismissedBootstrapEnvIds] = useState<
-    string[]
-  >([]);
   const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
@@ -83,8 +77,6 @@ export function TerminalPanel({ theme }: Props) {
   useEffect(() => {
     if (!visible) {
       setBootstrapFailedEnvId(null);
-      setDismissedBootstrapEnvIds([]);
-      return;
     }
   }, [visible]);
 
@@ -92,14 +84,10 @@ export function TerminalPanel({ theme }: Props) {
     if (!visible || !environmentId || tabs.length > 0) return;
     if (bootstrapInFlight) return;
     if (bootstrapFailedEnvId === environmentId) return;
-    if (dismissedBootstrapEnvIds.includes(environmentId)) return;
     setBootstrapInFlight(true);
     ensureBootstrapTab(environmentId, openTab)
       .then(() => {
         setBootstrapFailedEnvId(null);
-        setDismissedBootstrapEnvIds((current) =>
-          current.filter((id) => id !== environmentId),
-        );
       })
       .catch((error) => {
         console.error("Failed to open terminal:", error);
@@ -113,7 +101,6 @@ export function TerminalPanel({ theme }: Props) {
     openTab,
     bootstrapInFlight,
     bootstrapFailedEnvId,
-    dismissedBootstrapEnvIds,
   ]);
 
   // Subscribe once to terminal-exit events at the panel level.
@@ -178,11 +165,6 @@ export function TerminalPanel({ theme }: Props) {
 
   function handleCloseTab(tabId: string) {
     if (!environmentId) return;
-    if (tabs.length === 1) {
-      setDismissedBootstrapEnvIds((current) =>
-        current.includes(environmentId) ? current : [...current, environmentId],
-      );
-    }
     void closeTab(environmentId, tabId);
   }
 
@@ -264,7 +246,12 @@ export function TerminalPanel({ theme }: Props) {
             className="terminal-panel__action"
             aria-label="Hide terminal"
             title="Hide terminal"
-            onClick={() => setVisible(false)}
+            onClick={() => {
+              if (!environmentId) {
+                return;
+              }
+              setVisible(environmentId, false);
+            }}
           >
             <CloseIcon size={13} />
           </button>
