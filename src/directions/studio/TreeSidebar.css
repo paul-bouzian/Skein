@@ -453,6 +453,49 @@
 .environment-entry {
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.environment-entry--local {
+  /* Project header acts as the local env's row, so this block only carries
+     the local threads and the new-thread affordance below it. */
+}
+
+.environment-entry--local .environment-item__new-thread {
+  position: absolute;
+  top: -26px;
+  right: 4px;
+}
+
+.environment-item__new-thread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--tx-radius-xs);
+  color: var(--tx-text-muted);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--tx-transition-fast),
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+  flex-shrink: 0;
+}
+
+.environment-item-shell:hover .environment-item__new-thread,
+.environment-item__new-thread:focus-visible,
+.project-group:hover .environment-entry--local .environment-item__new-thread,
+.environment-entry--local .environment-item__new-thread:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.environment-item__new-thread:hover {
+  color: var(--tx-text-primary);
+  background: var(--tx-bg-hover);
 }
 
 .environment-thread-list {
