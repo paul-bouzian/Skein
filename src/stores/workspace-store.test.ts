@@ -138,6 +138,21 @@ describe("workspace store", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot(),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: "env-1",
+            threadId: "thread-1",
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedProjectId: "project-1",
       selectedEnvironmentId: "env-1",
       selectedThreadId: "thread-1",
@@ -200,6 +215,21 @@ describe("workspace store", () => {
           }),
         ],
       }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: "env-worktree",
+            threadId: "thread-worktree",
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedProjectId: "project-1",
       selectedEnvironmentId: "env-worktree",
       selectedThreadId: "thread-worktree",
@@ -830,5 +860,196 @@ describe("workspace store", () => {
 
     expect(mockedBridge.getWorkspaceSnapshot).toHaveBeenCalledTimes(1);
     expect(useWorkspaceStore.getState().listenerReady).toBe(true);
+  });
+});
+
+describe("workspace store — grid 2x2 panes", () => {
+  function seedTwoThreadWorkspace() {
+    const snapshot = makeWorkspaceSnapshot({
+      projects: [
+        makeProject({
+          id: "project-a",
+          environments: [
+            makeEnvironment({
+              id: "env-a",
+              projectId: "project-a",
+              kind: "local",
+              isDefault: true,
+              threads: [
+                makeThread({ id: "thread-a-1", environmentId: "env-a" }),
+                makeThread({ id: "thread-a-2", environmentId: "env-a" }),
+              ],
+            }),
+          ],
+        }),
+        makeProject({
+          id: "project-b",
+          environments: [
+            makeEnvironment({
+              id: "env-b",
+              projectId: "project-b",
+              kind: "local",
+              isDefault: true,
+              threads: [
+                makeThread({ id: "thread-b-1", environmentId: "env-b" }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+    useWorkspaceStore.setState((state) => ({ ...state, snapshot }));
+    return snapshot;
+  }
+
+  function slots() {
+    return useWorkspaceStore.getState().layout.slots;
+  }
+
+  it("dropping into an empty layout seeds the first pane in topLeft", () => {
+    seedTwoThreadWorkspace();
+
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight).toBeNull();
+    expect(slots().bottomLeft).toBeNull();
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+  });
+
+  it("drop right on a single pane splits into a row", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-b-1");
+    expect(slots().bottomLeft).toBeNull();
+  });
+
+  it("drop top on a 2-pane row shifts existing panes to bottom", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+
+    useWorkspaceStore.getState().dropThreadInDirection("top", "thread-a-2");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-2");
+    expect(slots().topRight).toBeNull();
+    expect(slots().bottomLeft?.threadId).toBe("thread-a-1");
+    expect(slots().bottomRight?.threadId).toBe("thread-b-1");
+  });
+
+  it("drop left on a 2-pane column shifts existing panes to the right col", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("top", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("bottom", "thread-b-1");
+    // Now primary=col: topLeft=a-1, bottomLeft=b-1.
+
+    useWorkspaceStore.getState().dropThreadInDirection("left", "thread-a-2");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-2");
+    expect(slots().topRight?.threadId).toBe("thread-a-1");
+    expect(slots().bottomLeft).toBeNull();
+    expect(slots().bottomRight?.threadId).toBe("thread-b-1");
+  });
+
+  it("drop on a 3-pane layout fills the matching empty slot", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+    useWorkspaceStore.getState().dropThreadInDirection("bottom", "thread-a-2");
+    // Now slots: TL=a-1, TR=b-1, BL=a-2, BR=null.
+
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-b-1");
+    expect(slots().bottomLeft?.threadId).toBe("thread-a-2");
+    expect(slots().bottomRight?.threadId).toBe("thread-a-1");
+  });
+
+  it("rejects drops in incompatible directions when 3 panes are placed", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+    useWorkspaceStore.getState().dropThreadInDirection("bottom", "thread-a-2");
+    // BR is empty. Valid directions to fill BR = {bottom, right}. Try "top".
+
+    useWorkspaceStore.getState().dropThreadInDirection("top", "thread-a-1");
+
+    expect(slots().bottomRight).toBeNull();
+  });
+
+  it("openThreadInOtherPane places the new pane in the neighbor slot", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+
+    useWorkspaceStore.getState().openThreadInOtherPane("thread-a-1");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-a-1");
+  });
+
+  it("closePane removes the slot and compacts remaining panes", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+
+    useWorkspaceStore.getState().closePane("topRight");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight).toBeNull();
+  });
+
+  it("enforces the maximum pane count", () => {
+    seedTwoThreadWorkspace();
+    const store = useWorkspaceStore.getState;
+    store().dropThreadInDirection("right", "thread-a-1");
+    store().dropThreadInDirection("right", "thread-b-1");
+    store().dropThreadInDirection("bottom", "thread-a-2");
+    store().dropThreadInDirection("bottom", "thread-a-1");
+    expect(Object.values(slots()).filter(Boolean)).toHaveLength(4);
+
+    // 5th rejected.
+    store().dropThreadInDirection("bottom", "thread-a-2");
+    expect(Object.values(slots()).filter(Boolean)).toHaveLength(4);
+  });
+
+  it("setRowRatio clamps values between 0.35 and 0.65", () => {
+    useWorkspaceStore.getState().setRowRatio(0.05);
+    expect(useWorkspaceStore.getState().layout.rowRatio).toBe(0.35);
+
+    useWorkspaceStore.getState().setRowRatio(0.95);
+    expect(useWorkspaceStore.getState().layout.rowRatio).toBe(0.65);
+  });
+
+  it("reconcile removes panes whose thread disappears from the snapshot", async () => {
+    const snapshot = seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+
+    const refreshedSnapshot = makeWorkspaceSnapshot({
+      projects: [snapshot.projects[0]!],
+    });
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(refreshedSnapshot);
+
+    await useWorkspaceStore.getState().refreshSnapshot();
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight).toBeNull();
+  });
+
+  it("selectThread routes to the focused slot", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+    // The new right pane is focused.
+
+    useWorkspaceStore.getState().selectThread("thread-a-2");
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-a-2");
   });
 });

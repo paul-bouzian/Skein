@@ -157,6 +157,8 @@ export type ShortcutSettings = {
   cycleApprovalPolicy?: string | null;
   interruptThread?: string | null;
   approveOrSubmit?: string | null;
+  splitActiveThread?: string | null;
+  closeFocusedPane?: string | null;
 };
 
 export type ShortcutSettingsPatch = {
@@ -178,6 +180,8 @@ export type ShortcutSettingsPatch = {
   cycleApprovalPolicy?: string | null;
   interruptThread?: string | null;
   approveOrSubmit?: string | null;
+  splitActiveThread?: string | null;
+  closeFocusedPane?: string | null;
 };
 
 export type ProjectRecord = {

@@ -61,12 +61,24 @@ describe("studioActions", () => {
           },
         ],
       }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: "env-1",
+            threadId: null,
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedProjectId: "project-1",
       selectedEnvironmentId: "env-1",
       selectedThreadId: null,
-      selectThread: vi.fn((threadId: string | null) =>
-        useWorkspaceStore.setState((current) => ({ ...current, selectedThreadId: threadId })),
-      ),
     }));
   });
 
@@ -78,11 +90,8 @@ describe("studioActions", () => {
   it("does not select a newly created thread when the snapshot refresh fails", async () => {
     mockedBridge.createThread.mockResolvedValue(makeThread({ id: "thread-3" }));
     const refreshSnapshot = vi.fn(async () => false);
-    useWorkspaceStore.setState((state) => ({
-      ...state,
-      refreshSnapshot,
-      selectedThreadId: "thread-1",
-    }));
+    useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+    useWorkspaceStore.getState().selectThread("thread-1");
 
     await expect(createThreadForSelection()).resolves.toBe(false);
 
@@ -96,11 +105,8 @@ describe("studioActions", () => {
       thread: makeThread({ id: "thread-3", environmentId: "env-2" }),
     });
     const refreshSnapshot = vi.fn(async () => false);
-    useWorkspaceStore.setState((state) => ({
-      ...state,
-      refreshSnapshot,
-      selectedThreadId: "thread-1",
-    }));
+    useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+    useWorkspaceStore.getState().selectThread("thread-1");
 
     await expect(createManagedWorktreeForSelection()).resolves.toBe(false);
 
@@ -140,13 +146,22 @@ describe("studioActions", () => {
           },
         ],
       }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: null,
+            threadId: null,
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedEnvironmentId: null,
-      selectEnvironment: vi.fn((environmentId: string | null) =>
-        useWorkspaceStore.setState((current) => ({
-          ...current,
-          selectedEnvironmentId: environmentId,
-        })),
-      ),
     }));
 
     expect(selectAdjacentEnvironment("next")).toBe(true);
@@ -185,13 +200,22 @@ describe("studioActions", () => {
           },
         ],
       }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: null,
+            threadId: null,
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedEnvironmentId: null,
-      selectEnvironment: vi.fn((environmentId: string | null) =>
-        useWorkspaceStore.setState((current) => ({
-          ...current,
-          selectedEnvironmentId: environmentId,
-        })),
-      ),
     }));
 
     expect(selectAdjacentEnvironment("previous")).toBe(true);
@@ -251,14 +275,23 @@ describe("studioActions", () => {
           }),
         ],
       }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-2",
+            environmentId: "env-hidden-2",
+            threadId: null,
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
       selectedProjectId: "project-2",
       selectedEnvironmentId: "env-hidden-2",
-      selectEnvironment: vi.fn((environmentId: string | null) =>
-        useWorkspaceStore.setState((current) => ({
-          ...current,
-          selectedEnvironmentId: environmentId,
-        })),
-      ),
     }));
 
     expect(selectAdjacentEnvironment("next")).toBe(true);
@@ -310,11 +343,8 @@ describe("studioActions", () => {
     confirmMock.mockResolvedValue(true);
     mockedBridge.archiveThread.mockResolvedValue(makeThread({ id: "thread-1" }));
     const refreshSnapshot = vi.fn(async () => false);
-    useWorkspaceStore.setState((state) => ({
-      ...state,
-      refreshSnapshot,
-      selectedThreadId: "thread-1",
-    }));
+    useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+    useWorkspaceStore.getState().selectThread("thread-1");
 
     await expect(archiveThreadWithConfirmation("thread-1")).resolves.toBe(false);
 

@@ -10,8 +10,11 @@ export async function createThreadForSelection() {
   if (!environment) {
     return false;
   }
+  return createThreadForEnvironment(environment.id);
+}
 
-  const thread = await bridge.createThread({ environmentId: environment.id });
+export async function createThreadForEnvironment(environmentId: string) {
+  const thread = await bridge.createThread({ environmentId });
   const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
   if (!refreshed) {
     return false;

@@ -49,6 +49,7 @@ type Props = {
   thread: ThreadRecord;
   composerFocusKey?: number;
   approveOrSubmitKey?: number;
+  onClosePane?: (() => void) | null;
 };
 
 export function ThreadConversation({
@@ -56,6 +57,7 @@ export function ThreadConversation({
   thread,
   composerFocusKey = 0,
   approveOrSubmitKey = 0,
+  onClosePane = null,
 }: Props) {
   const snapshot = useConversationStore(selectConversationSnapshot(thread.id));
   const composer = useConversationStore(selectConversationComposer(thread.id));
@@ -378,6 +380,7 @@ export function ThreadConversation({
         onRetryConnection={
           isConnectionError ? () => void openThread(thread.id) : null
         }
+        onClose={onClosePane}
       />
       <div ref={timelineRef} className="tx-conversation__timeline">
         {isConnecting ? (

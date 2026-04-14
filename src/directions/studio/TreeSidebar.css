@@ -447,3 +447,173 @@
     transform: rotate(360deg);
   }
 }
+
+/* ── Threads nested under environments ── */
+
+.environment-entry {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.environment-entry--local {
+  /* Project header acts as the local env's row, so this block only carries
+     the local threads and the new-thread affordance below it. */
+}
+
+.environment-entry--local .environment-item__new-thread {
+  position: absolute;
+  top: -26px;
+  right: 4px;
+}
+
+.environment-item__new-thread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--tx-radius-xs);
+  color: var(--tx-text-muted);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--tx-transition-fast),
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+  flex-shrink: 0;
+}
+
+.environment-item-shell:hover .environment-item__new-thread,
+.environment-item__new-thread:focus-visible,
+.project-group:hover .environment-entry--local .environment-item__new-thread,
+.environment-entry--local .environment-item__new-thread:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.environment-item__new-thread:hover {
+  color: var(--tx-text-primary);
+  background: var(--tx-bg-hover);
+}
+
+.environment-thread-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 0 0 22px;
+  padding: 1px 0 2px 10px;
+  position: relative;
+}
+
+.environment-thread-list::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 1px;
+  background: var(--tx-border-subtle);
+}
+
+.environment-thread-list__item {
+  display: flex;
+}
+
+.tree-sidebar__thread-row {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.tree-sidebar__thread-split {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--tx-radius-xs);
+  color: var(--tx-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--tx-transition-fast),
+    background var(--tx-transition-fast);
+  background: transparent;
+}
+
+.tree-sidebar__thread-row:hover .tree-sidebar__thread-split,
+.tree-sidebar__thread-split:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tree-sidebar__thread-split:hover {
+  color: var(--tx-text-primary);
+  background: var(--tx-bg-hover);
+}
+
+.tree-sidebar__thread {
+  display: flex;
+  align-items: center;
+  gap: var(--tx-space-xs);
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--tx-space-sm);
+  border-radius: var(--tx-radius-sm);
+  background: transparent;
+  color: var(--tx-text-muted);
+  text-align: left;
+  cursor: default;
+  position: relative;
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.tree-sidebar__thread:hover {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-secondary);
+}
+
+.tree-sidebar__thread--active,
+.tree-sidebar__thread--active:hover {
+  background: var(--tx-bg-active);
+  color: var(--tx-text-primary);
+}
+
+.tree-sidebar__thread--in-pane::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: -10px;
+  width: 2px;
+  background: var(--tx-accent);
+  border-radius: 1px;
+}
+
+.tree-sidebar__thread-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.tree-sidebar__thread-title {
+  font-size: var(--tx-text-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

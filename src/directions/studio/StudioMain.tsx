@@ -1,29 +1,34 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 
 import {
-  useWorkspaceStore,
-  selectSelectedProject,
+  selectHasAnyPane,
+  selectLayout,
   selectSelectedEnvironment,
+  selectSelectedProject,
   selectSettings,
-  selectSelectedThread,
-  selectProjects,
+  useWorkspaceStore,
+  type SlotKey,
+  type WorkspaceLayout,
 } from "../../stores/workspace-store";
 import {
   selectHasAnyTerminalTabs,
   selectTerminalSlot,
   useTerminalStore,
 } from "../../stores/terminal-store";
-import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
-import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
+import { PanelLeftIcon, PanelRightIcon, TerminalIcon } from "../../shared/Icons";
 import { Tooltip } from "../../shared/Tooltip";
 import { EnvironmentActionControl } from "./EnvironmentActionControl";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
-import { ThreadTabs } from "./ThreadTabs";
-import { ThreadConversation } from "./ThreadConversation";
-import { StudioWelcome } from "./StudioWelcome";
+import { PaneDropOverlay, ThreadDragGhost } from "./PaneDropOverlay";
+import { PaneSplitter } from "./PaneSplitter";
+import { DefaultStudioView, StudioPane } from "./StudioPane";
 import { TerminalPanel } from "./TerminalPanel";
-import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
 import type { Theme } from "./StudioShell";
 import "./StudioMain.css";
 
@@ -50,12 +55,13 @@ export function StudioMain({
   onToggleProjectsSidebar,
   onToggleInspector,
 }: Props) {
-  const projects = useWorkspaceStore(selectProjects);
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
-  const selectedThread = useWorkspaceStore(selectSelectedThread);
   const settings = useWorkspaceStore(selectSettings);
-  const isThreadView = Boolean(selectedThread && selectedEnvironment);
+  const layout = useWorkspaceStore(selectLayout);
+  const hasAnyPane = useWorkspaceStore(selectHasAnyPane);
+  const setRowRatio = useWorkspaceStore((state) => state.setRowRatio);
+  const setColRatio = useWorkspaceStore((state) => state.setColRatio);
   const selectedEnvironmentId = selectedEnvironment?.id ?? null;
   const terminalSlot = useTerminalStore(selectTerminalSlot(selectedEnvironmentId));
   const hasAnyTerminalTabs = useTerminalStore(selectHasAnyTerminalTabs);
@@ -66,6 +72,7 @@ export function StudioMain({
   const terminalHeight = terminalSlot.height;
   const terminalMounted = terminalVisible || hasAnyTerminalTabs;
   const [terminalDragging, setTerminalDragging] = useState(false);
+  const [splitDragging, setSplitDragging] = useState(false);
 
   useEffect(() => {
     if (!terminalVisible) {
@@ -73,31 +80,16 @@ export function StudioMain({
     }
   }, [terminalVisible]);
 
-  let content;
-  if (projects.length === 0) {
-    content = <StudioWelcome />;
-  } else if (selectedThread && selectedEnvironment) {
-    content = (
-      <ThreadConversation
-        environment={selectedEnvironment}
-        thread={selectedThread}
-        composerFocusKey={composerFocusKey}
-        approveOrSubmitKey={approveOrSubmitKey}
-      />
-    );
-  } else if (selectedEnvironment) {
-    content = <EnvironmentView environment={selectedEnvironment} />;
-  } else if (selectedProject) {
-    content = <ProjectView project={selectedProject} />;
-  } else {
-    content = <OverviewView projects={projects} />;
-  }
-
   return (
-    <main className={`studio-main${terminalDragging ? " studio-main--resizing" : ""}`}>
+    <main
+      className={`studio-main${terminalDragging ? " studio-main--resizing" : ""}${splitDragging ? " studio-main--split-resizing" : ""}`}
+    >
       <div className="studio-main__toolbar">
         <div className="studio-main__toolbar-primary">
-          <Tooltip content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"} side="bottom">
+          <Tooltip
+            content={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            side="bottom"
+          >
             <button
               type="button"
               aria-label={projectsSidebarOpen ? "Hide sidebar" : "Show sidebar"}
@@ -107,7 +99,6 @@ export function StudioMain({
               <PanelLeftIcon size={14} />
             </button>
           </Tooltip>
-          <ThreadTabs />
         </div>
         <div className="studio-main__toolbar-actions">
           <EnvironmentActionControl
@@ -151,7 +142,10 @@ export function StudioMain({
               <TerminalIcon size={14} />
             </button>
           </Tooltip>
-          <Tooltip content={inspectorOpen ? "Hide inspector" : "Show inspector"} side="bottom">
+          <Tooltip
+            content={inspectorOpen ? "Hide inspector" : "Show inspector"}
+            side="bottom"
+          >
             <button
               type="button"
               aria-label={inspectorOpen ? "Hide inspector" : "Show inspector"}
@@ -163,11 +157,24 @@ export function StudioMain({
           </Tooltip>
         </div>
       </div>
-      <div
-        className={`studio-main__content ${isThreadView ? "studio-main__content--thread" : ""}`}
-      >
-        {content}
+      <div className="studio-main__content">
+        {hasAnyPane ? (
+          <StudioLayout
+            layout={layout}
+            composerFocusKey={composerFocusKey}
+            approveOrSubmitKey={approveOrSubmitKey}
+            onRowRatioChange={setRowRatio}
+            onColRatioChange={setColRatio}
+            onSplitDragChange={setSplitDragging}
+          />
+        ) : (
+          <div className="studio-main__pane studio-main__pane--default">
+            <DefaultStudioView />
+          </div>
+        )}
+        <PaneDropOverlay />
       </div>
+      <ThreadDragGhost />
       {terminalVisible && selectedEnvironmentId && (
         <TerminalResizeHandle
           environmentId={selectedEnvironmentId}
@@ -186,6 +193,149 @@ export function StudioMain({
         </div>
       )}
     </main>
+  );
+}
+
+type StudioLayoutProps = {
+  layout: WorkspaceLayout;
+  composerFocusKey: number;
+  approveOrSubmitKey: number;
+  onRowRatioChange: (ratio: number) => void;
+  onColRatioChange: (ratio: number) => void;
+  onSplitDragChange: (dragging: boolean) => void;
+};
+
+function StudioLayout({
+  layout,
+  composerFocusKey,
+  approveOrSubmitKey,
+  onRowRatioChange,
+  onColRatioChange,
+  onSplitDragChange,
+}: StudioLayoutProps) {
+  const { slots, rowRatio, colRatio } = layout;
+  const hasTop = slots.topLeft !== null || slots.topRight !== null;
+  const hasBottom = slots.bottomLeft !== null || slots.bottomRight !== null;
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // Sync split ratios as CSS variables on the grid root. Panes/rows/cells
+  // read these via `calc(var(...))` so the splitter can update them
+  // imperatively during a drag without triggering a React re-render.
+  useLayoutEffect(() => {
+    gridRef.current?.style.setProperty("--studio-row-ratio", String(rowRatio));
+  }, [rowRatio]);
+  useLayoutEffect(() => {
+    gridRef.current?.style.setProperty("--studio-col-ratio", String(colRatio));
+  }, [colRatio]);
+
+  return (
+    <div ref={gridRef} className="studio-main__grid">
+      {hasTop && (
+        <StudioRow
+          leftSlot="topLeft"
+          rightSlot="topRight"
+          slots={slots}
+          sharesHeight={hasBottom}
+          position="top"
+          colRatio={colRatio}
+          composerFocusKey={composerFocusKey}
+          approveOrSubmitKey={approveOrSubmitKey}
+          onColRatioChange={onColRatioChange}
+          onSplitDragChange={onSplitDragChange}
+        />
+      )}
+      {hasTop && hasBottom && (
+        <PaneSplitter
+          orientation="column"
+          ratio={rowRatio}
+          onCommit={onRowRatioChange}
+          onDraggingChange={onSplitDragChange}
+        />
+      )}
+      {hasBottom && (
+        <StudioRow
+          leftSlot="bottomLeft"
+          rightSlot="bottomRight"
+          slots={slots}
+          sharesHeight={hasTop}
+          position="bottom"
+          colRatio={colRatio}
+          composerFocusKey={composerFocusKey}
+          approveOrSubmitKey={approveOrSubmitKey}
+          onColRatioChange={onColRatioChange}
+          onSplitDragChange={onSplitDragChange}
+        />
+      )}
+    </div>
+  );
+}
+
+type StudioRowProps = {
+  leftSlot: SlotKey;
+  rightSlot: SlotKey;
+  slots: WorkspaceLayout["slots"];
+  sharesHeight: boolean;
+  position: "top" | "bottom";
+  colRatio: number;
+  composerFocusKey: number;
+  approveOrSubmitKey: number;
+  onColRatioChange: (ratio: number) => void;
+  onSplitDragChange: (dragging: boolean) => void;
+};
+
+// Stable style strings: React never re-renders on split-ratio changes because
+// the live value is read from CSS variables on `.studio-main__grid`.
+const ROW_FLEX_SHARED_TOP = "0 0 calc(var(--studio-row-ratio, 0.5) * 100%)";
+const CELL_FLEX_SHARED_LEFT = "0 0 calc(var(--studio-col-ratio, 0.5) * 100%)";
+const FLEX_FILL = "1 1 0%";
+
+function StudioRow({
+  leftSlot,
+  rightSlot,
+  slots,
+  sharesHeight,
+  position,
+  colRatio,
+  composerFocusKey,
+  approveOrSubmitKey,
+  onColRatioChange,
+  onSplitDragChange,
+}: StudioRowProps) {
+  const hasLeft = slots[leftSlot] !== null;
+  const hasRight = slots[rightSlot] !== null;
+  const rowFlex =
+    sharesHeight && position === "top" ? ROW_FLEX_SHARED_TOP : FLEX_FILL;
+  const leftFlex = hasRight ? CELL_FLEX_SHARED_LEFT : FLEX_FILL;
+
+  return (
+    <div className="studio-main__grid-row" style={{ flex: rowFlex }}>
+      {hasLeft && (
+        <div className="studio-main__grid-cell" style={{ flex: leftFlex }}>
+          <StudioPane
+            paneId={leftSlot}
+            composerFocusKey={composerFocusKey}
+            approveOrSubmitKey={approveOrSubmitKey}
+          />
+        </div>
+      )}
+      {hasLeft && hasRight && (
+        <PaneSplitter
+          orientation="row"
+          ratio={colRatio}
+          onCommit={onColRatioChange}
+          onDraggingChange={onSplitDragChange}
+        />
+      )}
+      {hasRight && (
+        <div className="studio-main__grid-cell" style={{ flex: FLEX_FILL }}>
+          <StudioPane
+            paneId={rightSlot}
+            composerFocusKey={composerFocusKey}
+            approveOrSubmitKey={approveOrSubmitKey}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -223,123 +373,11 @@ function TerminalResizeHandle({
       }}
       onPointerMove={(event) => {
         if (!startRef.current) return;
-        // Drag up => grow terminal; drag down => shrink it.
         const delta = event.clientY - startRef.current.y;
         onResize(environmentId, startRef.current.height - delta);
       }}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
     />
-  );
-}
-
-function OverviewView({ projects }: { projects: ProjectRecord[] }) {
-  const selectProject = useWorkspaceStore((s) => s.selectProject);
-
-  return (
-    <div className="studio-overview">
-      <h2 className="studio-overview__title">Workspace</h2>
-      <p className="studio-overview__subtitle">
-        {projects.length} project{projects.length !== 1 ? "s" : ""}
-      </p>
-      <div className="studio-overview__grid">
-        {projects.map((p) => {
-          const envCount = p.environments.length;
-          const threadCount = p.environments.reduce(
-            (sum, e) => sum + e.threads.filter((t) => t.status === "active").length,
-            0,
-          );
-          const runningCount = p.environments.filter(
-            (e) => e.runtime.state === "running",
-          ).length;
-
-          return (
-            <button
-              key={p.id}
-              className="studio-overview__card"
-              onClick={() => selectProject(p.id)}
-            >
-              <h3 className="studio-overview__card-name">{p.name}</h3>
-              <span className="studio-overview__card-path">{p.rootPath}</span>
-              <div className="studio-overview__card-meta">
-                <span>{envCount} env{envCount !== 1 ? "s" : ""}</span>
-                <span>{threadCount} thread{threadCount !== 1 ? "s" : ""}</span>
-                {runningCount > 0 && (
-                  <span className="studio-overview__card-running">
-                    {runningCount} running
-                  </span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ProjectView({ project }: { project: ProjectRecord }) {
-  const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
-  const worktrees = project.environments.filter((environment) => environment.kind !== "local");
-
-  return (
-    <div className="studio-project-view">
-      <div className="studio-project-view__header">
-        <h2>{project.name}</h2>
-        <span className="studio-project-view__path">{project.rootPath}</span>
-      </div>
-      <div className="studio-project-view__envs">
-        <h3 className="studio-section-label">Worktrees</h3>
-        {worktrees.length === 0 ? (
-          <p className="studio-env-view__hint">No worktrees yet for this project.</p>
-        ) : null}
-        {worktrees.map((env) => (
-          <button
-            key={env.id}
-            className="studio-env-row"
-            onClick={() => selectEnvironment(env.id)}
-          >
-            <div className="studio-env-row__left">
-              <EnvironmentKindBadge kind={env.kind} />
-              <span className="studio-env-row__name">{env.name}</span>
-              {env.gitBranch && (
-                <span className="studio-env-row__branch">{env.gitBranch}</span>
-              )}
-            </div>
-            <div className="studio-env-row__right">
-              <span className="studio-env-row__threads">
-                {env.threads.filter((t) => t.status === "active").length} threads
-              </span>
-              <RuntimeIndicator state={env.runtime.state} label />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EnvironmentView({ environment }: { environment: EnvironmentRecord }) {
-  return (
-    <div className="studio-env-view">
-      <div className="studio-env-view__center">
-        <div className="studio-env-view__icon-ring">
-          <ThreadIcon size={24} />
-        </div>
-        <h2 className="studio-env-view__name">{environment.name}</h2>
-        <div className="studio-env-view__meta">
-          <EnvironmentKindBadge kind={environment.kind} />
-          <RuntimeIndicator state={environment.runtime.state} label />
-          {environment.gitBranch && (
-            <span className="studio-env-view__branch-pill">
-              {environment.gitBranch}
-            </span>
-          )}
-        </div>
-        <p className="studio-env-view__hint">
-          Start a new thread to begin working
-        </p>
-      </div>
-    </div>
   );
 }

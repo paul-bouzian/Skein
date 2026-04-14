@@ -33,8 +33,37 @@
 .tx-conversation__status-group {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--tx-space-sm);
+}
+
+.tx-conversation__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--tx-radius-sm);
+  color: var(--tx-text-secondary);
+  background: var(--tx-bg-raised);
+  border: 1px solid var(--tx-border-subtle);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    border-color var(--tx-transition-fast),
+    transform var(--tx-transition-fast);
+}
+
+.tx-conversation__close:hover,
+.tx-conversation__close:focus-visible {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+  border-color: var(--tx-accent);
+}
+
+.tx-conversation__close:active {
+  transform: scale(0.94);
 }
 
 .tx-conversation__timeline {

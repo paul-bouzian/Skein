@@ -1,5 +1,10 @@
 import { create } from "zustand";
 
+import {
+  LEGACY_WORKSPACE_LAYOUT_STORAGE_KEYS,
+  WORKSPACE_LAYOUT_STORAGE_KEY,
+  readLocalStorageWithMigration,
+} from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
 import type {
   BootstrapStatus,
@@ -37,6 +42,48 @@ type WorkspaceStateUpdate =
 type WorkspaceSetter = (partial: WorkspaceStateUpdate) => void;
 const WORKSPACE_REFRESH_DEBOUNCE_MS = 200;
 
+export type SlotKey = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+export type PaneId = SlotKey;
+export type PaneDirection = "top" | "right" | "bottom" | "left";
+
+export type PaneSelection = {
+  projectId: string | null;
+  environmentId: string | null;
+  threadId: string | null;
+};
+
+export type WorkspaceLayout = {
+  slots: Record<SlotKey, PaneSelection | null>;
+  focusedSlot: SlotKey | null;
+  rowRatio: number;
+  colRatio: number;
+};
+
+export const SPLIT_RATIO_MIN = 0.35;
+export const SPLIT_RATIO_MAX = 0.65;
+export const MAX_PANES = 4;
+
+const SLOT_KEYS: readonly SlotKey[] = [
+  "topLeft",
+  "topRight",
+  "bottomLeft",
+  "bottomRight",
+] as const;
+
+const EMPTY_SLOTS: Record<SlotKey, PaneSelection | null> = {
+  topLeft: null,
+  topRight: null,
+  bottomLeft: null,
+  bottomRight: null,
+};
+
+const INITIAL_LAYOUT: WorkspaceLayout = {
+  slots: { ...EMPTY_SLOTS },
+  focusedSlot: null,
+  rowRatio: 0.5,
+  colRatio: 0.5,
+};
+
 type WorkspaceState = {
   snapshot: WorkspaceSnapshot | null;
   bootstrapStatus: BootstrapStatus | null;
@@ -44,6 +91,9 @@ type WorkspaceState = {
   error: string | null;
   listenerReady: boolean;
 
+  layout: WorkspaceLayout;
+
+  // Compat fields derived from the focused slot.
   selectedProjectId: string | null;
   selectedEnvironmentId: string | null;
   selectedThreadId: string | null;
@@ -68,6 +118,27 @@ type WorkspaceState = {
     projectId: string,
     collapsed: boolean,
   ) => Promise<WorkspaceMutationResult>;
+
+  // Pane-layout operations
+  dropThreadInDirection: (
+    direction: PaneDirection,
+    threadId: string,
+  ) => void;
+  applyDropPlan: (
+    plan: {
+      newSlot: SlotKey;
+      updates: Array<{ slot: SlotKey; value: PaneSelection | null }>;
+    },
+    threadId: string,
+  ) => void;
+  openThreadInSlot: (slot: SlotKey, threadId: string) => void;
+  openThreadInOtherPane: (threadId: string) => void;
+  closePane: (slot: SlotKey) => void;
+  setRowRatio: (ratio: number) => void;
+  setColRatio: (ratio: number) => void;
+  focusPane: (slot: SlotKey) => void;
+
+  // Compat setters — route to the focused slot.
   selectProject: (id: string | null) => void;
   selectEnvironment: (id: string | null) => void;
   selectThread: (id: string | null) => void;
@@ -87,6 +158,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   error: null,
   listenerReady: false,
 
+  layout: INITIAL_LAYOUT,
+
   selectedProjectId: null,
   selectedEnvironmentId: null,
   selectedThreadId: null,
@@ -100,12 +173,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         bridge.getWorkspaceSnapshot(),
       ]);
       useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
-      set((state) => ({
-        bootstrapStatus,
-        snapshot,
-        loadingState: "ready",
-        ...reconcileSelection(snapshot, state),
-      }));
+      const persistedLayout = readPersistedLayout();
+      set((state) => {
+        const base = persistedLayout ?? state.layout;
+        return {
+          bootstrapStatus,
+          snapshot,
+          loadingState: "ready",
+          ...withLayout(reconcileLayout(snapshot, base)),
+        };
+      });
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to load workspace";
@@ -151,7 +228,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
       set((state) => ({
         snapshot,
-        ...reconcileSelection(snapshot, state),
+        ...withLayout(reconcileLayout(snapshot, state.layout)),
       }));
       return true;
     } catch (cause: unknown) {
@@ -220,82 +297,242 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       removed = true;
       return {
         snapshot: nextSnapshot,
-        ...reconcileSelection(nextSnapshot, state),
+        ...withLayout(reconcileLayout(nextSnapshot, state.layout)),
       };
     });
     return removed;
   },
 
   reorderProjects: async (projectIds) => {
-    return runWorkspaceMutation(
-      set,
-      get,
-      {
-        run: () => bridge.reorderProjects({ projectIds }),
-        applySnapshot: (snapshot) => reorderProjectsInSnapshot(snapshot, projectIds),
-        writeFailureMessage: "Failed to reorder projects",
-        refreshFailureMessage:
-          "Project order saved, but the workspace failed to refresh.",
-      },
-    );
+    return runWorkspaceMutation(set, get, {
+      run: () => bridge.reorderProjects({ projectIds }),
+      applySnapshot: (snapshot) =>
+        reorderProjectsInSnapshot(snapshot, projectIds),
+      writeFailureMessage: "Failed to reorder projects",
+      refreshFailureMessage:
+        "Project order saved, but the workspace failed to refresh.",
+    });
   },
 
   reorderWorktreeEnvironments: async (projectId, environmentIds) => {
-    return runWorkspaceMutation(
-      set,
-      get,
-      {
-        run: () => bridge.reorderWorktreeEnvironments({ projectId, environmentIds }),
-        applySnapshot: (snapshot) =>
-          reorderWorktreeEnvironmentsInSnapshot(
-            snapshot,
-            projectId,
-            environmentIds,
-          ),
-        writeFailureMessage: "Failed to reorder worktrees",
-        refreshFailureMessage:
-          "Worktree order saved, but the workspace failed to refresh.",
-      },
-    );
+    return runWorkspaceMutation(set, get, {
+      run: () =>
+        bridge.reorderWorktreeEnvironments({ projectId, environmentIds }),
+      applySnapshot: (snapshot) =>
+        reorderWorktreeEnvironmentsInSnapshot(
+          snapshot,
+          projectId,
+          environmentIds,
+        ),
+      writeFailureMessage: "Failed to reorder worktrees",
+      refreshFailureMessage:
+        "Worktree order saved, but the workspace failed to refresh.",
+    });
   },
 
   setProjectSidebarCollapsed: async (projectId, collapsed) => {
-    return runWorkspaceMutation(
-      set,
-      get,
-      {
-        run: () => bridge.setProjectSidebarCollapsed({ projectId, collapsed }),
-        applySnapshot: (snapshot) =>
-          setProjectSidebarCollapsedInSnapshot(snapshot, projectId, collapsed),
-        writeFailureMessage: "Failed to update project collapse state",
-        refreshFailureMessage:
-          "Project collapse state saved, but the workspace failed to refresh.",
-      },
-    );
+    return runWorkspaceMutation(set, get, {
+      run: () => bridge.setProjectSidebarCollapsed({ projectId, collapsed }),
+      applySnapshot: (snapshot) =>
+        setProjectSidebarCollapsedInSnapshot(snapshot, projectId, collapsed),
+      writeFailureMessage: "Failed to update project collapse state",
+      refreshFailureMessage:
+        "Project collapse state saved, but the workspace failed to refresh.",
+    });
   },
 
+  dropThreadInDirection: (direction, threadId) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const resolved = resolveThreadSelection(state.snapshot, threadId);
+      if (!resolved) return state;
+      const result = applySlotDrop(state.layout.slots, direction, resolved);
+      if (!result) return state;
+      return withLayout({
+        ...state.layout,
+        slots: result.slots,
+        focusedSlot: result.focusedSlot,
+      });
+    }),
+
+  applyDropPlan: (plan, threadId) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const resolved = resolveThreadSelection(state.snapshot, threadId);
+      if (!resolved) return state;
+      const nextSlots = { ...state.layout.slots };
+      for (const update of plan.updates) {
+        nextSlots[update.slot] = update.value;
+      }
+      nextSlots[plan.newSlot] = resolved;
+      return withLayout({
+        ...state.layout,
+        slots: nextSlots,
+        focusedSlot: plan.newSlot,
+      });
+    }),
+
+  openThreadInSlot: (slot, threadId) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const resolved = resolveThreadSelection(state.snapshot, threadId);
+      if (!resolved) return state;
+      const slots = { ...state.layout.slots, [slot]: resolved };
+      return withLayout({
+        ...state.layout,
+        slots,
+        focusedSlot: slot,
+      });
+    }),
+
+  openThreadInOtherPane: (threadId) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const resolved = resolveThreadSelection(state.snapshot, threadId);
+      if (!resolved) return state;
+      if (countPanes(state.layout.slots) === 0) {
+        const slots = { ...EMPTY_SLOTS, topLeft: resolved };
+        return withLayout({
+          ...state.layout,
+          slots,
+          focusedSlot: "topLeft",
+        });
+      }
+      // Pick an adjacent empty slot to the focused one, preferring right,
+      // then below, then any remaining empty slot.
+      const focusedSlot = state.layout.focusedSlot ?? firstFilledSlot(
+        state.layout.slots,
+      );
+      if (!focusedSlot) return state;
+      const target = pickNeighborSlot(state.layout.slots, focusedSlot);
+      if (!target) return state;
+      const slots = { ...state.layout.slots, [target]: resolved };
+      return withLayout({
+        ...state.layout,
+        slots,
+        focusedSlot: target,
+      });
+    }),
+
+  closePane: (slot) =>
+    set((state) => {
+      if (!state.layout.slots[slot]) return state;
+      // Capture the focused pane's selection so we can re-find its slot key
+      // after compactSlots potentially shuffles entries.
+      const focusedSelection =
+        state.layout.focusedSlot && state.layout.focusedSlot !== slot
+          ? state.layout.slots[state.layout.focusedSlot]
+          : null;
+      const slots = { ...state.layout.slots, [slot]: null };
+      const compacted = compactSlots(slots);
+      const relocated = focusedSelection
+        ? (SLOT_KEYS.find((key) => compacted[key] === focusedSelection) ?? null)
+        : null;
+      const nextFocus = relocated ?? firstFilledSlot(compacted) ?? null;
+      return withLayout({
+        ...state.layout,
+        slots: compacted,
+        focusedSlot: nextFocus,
+      });
+    }),
+
+  setRowRatio: (ratio) =>
+    set((state) => ({
+      layout: { ...state.layout, rowRatio: clampSplitRatio(ratio) },
+    })),
+
+  setColRatio: (ratio) =>
+    set((state) => ({
+      layout: { ...state.layout, colRatio: clampSplitRatio(ratio) },
+    })),
+
+  focusPane: (slot) =>
+    set((state) => {
+      if (state.layout.focusedSlot === slot) return state;
+      if (!state.layout.slots[slot]) return state;
+      return withLayout({ ...state.layout, focusedSlot: slot });
+    }),
+
   selectProject: (id) =>
-    set((state) => selectProjectState(state.snapshot, id)),
+    set((state) => {
+      const newSelection = buildProjectPane(state.snapshot, id);
+      const target = state.layout.focusedSlot;
+      if (!target) {
+        if (!newSelection) return state;
+        return withLayout({
+          ...state.layout,
+          slots: { ...EMPTY_SLOTS, topLeft: newSelection },
+          focusedSlot: "topLeft",
+        });
+      }
+      // When `newSelection` is null (id === null or unresolved project), we
+      // clear the slot rather than inserting a placeholder selection — a
+      // partial pane would still count as occupied and confuse the layout.
+      const slots = {
+        ...state.layout.slots,
+        [target]: newSelection,
+      };
+      return withLayout({ ...state.layout, slots });
+    }),
 
   selectEnvironment: (id) =>
-    set((state) => selectEnvironmentState(state.snapshot, id)),
+    set((state) => {
+      const target = state.layout.focusedSlot;
+      if (!target) {
+        if (!id) return state;
+        const newSelection = buildEnvironmentPane(state.snapshot, null, id);
+        if (!newSelection) return state;
+        return withLayout({
+          ...state.layout,
+          slots: { ...EMPTY_SLOTS, topLeft: newSelection },
+          focusedSlot: "topLeft",
+        });
+      }
+      const current = state.layout.slots[target] ?? null;
+      const newSelection =
+        buildEnvironmentPane(state.snapshot, current, id) ?? current;
+      const slots = { ...state.layout.slots, [target]: newSelection };
+      return withLayout({ ...state.layout, slots });
+    }),
 
   selectThread: (id) =>
     set((state) => {
-      if (!id || !state.snapshot) {
-        return { selectedThreadId: id };
+      const target = state.layout.focusedSlot;
+      if (!target) {
+        if (!id || !state.snapshot) return state;
+        const resolved = resolveThreadSelection(state.snapshot, id);
+        if (!resolved) return state;
+        return withLayout({
+          ...state.layout,
+          slots: { ...EMPTY_SLOTS, topLeft: resolved },
+          focusedSlot: "topLeft",
+        });
       }
-
-      const selectedThread = findThreadInWorkspace(state.snapshot, id);
-      if (!selectedThread) {
-        return { selectedThreadId: null };
+      const current = state.layout.slots[target] ?? { projectId: null, environmentId: null, threadId: null };
+      if (id === null) {
+        const slots = {
+          ...state.layout.slots,
+          [target]: { ...current, threadId: null },
+        };
+        return withLayout({ ...state.layout, slots });
       }
-
-      return {
-        selectedProjectId: selectedThread.project.id,
-        selectedEnvironmentId: selectedThread.environment.id,
-        selectedThreadId: selectedThread.thread.id,
-      };
+      if (!state.snapshot) {
+        const slots = {
+          ...state.layout.slots,
+          [target]: { ...current, threadId: id },
+        };
+        return withLayout({ ...state.layout, slots });
+      }
+      const resolved = resolveThreadSelection(state.snapshot, id);
+      if (!resolved) {
+        const slots = {
+          ...state.layout.slots,
+          [target]: { ...current, threadId: null },
+        };
+        return withLayout({ ...state.layout, slots });
+      }
+      const slots = { ...state.layout.slots, [target]: resolved };
+      return withLayout({ ...state.layout, slots });
     }),
 }));
 
@@ -406,9 +643,7 @@ export function selectSettings(s: WorkspaceState): GlobalSettings | null {
   return s.snapshot?.settings ?? null;
 }
 
-export function selectSelectedProject(
-  s: WorkspaceState,
-): ProjectRecord | null {
+export function selectSelectedProject(s: WorkspaceState): ProjectRecord | null {
   if (!s.selectedProjectId || !s.snapshot) return null;
   return (
     s.snapshot.projects.find((p) => p.id === s.selectedProjectId) ?? null
@@ -428,9 +663,7 @@ export function selectSelectedEnvironment(
   return null;
 }
 
-export function selectSelectedThread(
-  s: WorkspaceState,
-): ThreadRecord | null {
+export function selectSelectedThread(s: WorkspaceState): ThreadRecord | null {
   if (!s.selectedThreadId || !s.snapshot) return null;
   for (const project of s.snapshot.projects) {
     for (const env of project.environments) {
@@ -441,28 +674,331 @@ export function selectSelectedThread(
   return null;
 }
 
-export function selectEnvironmentRuntimeState(environmentId: string | null) {
-  return (state: WorkspaceState) =>
-    getEnvironmentRuntimeState(state.snapshot, environmentId);
+export function selectLayout(s: WorkspaceState): WorkspaceLayout {
+  return s.layout;
 }
 
-export function getEnvironmentRuntimeState(
-  snapshot: WorkspaceSnapshot | null,
-  environmentId: string | null,
-) {
-  return findEnvironment(snapshot, environmentId)?.environment.runtime.state ?? null;
+export function selectFocusedSlot(s: WorkspaceState): SlotKey | null {
+  return s.layout.focusedSlot;
 }
 
-function reconcileSelection(
+export function selectIsSplitOpen(s: WorkspaceState): boolean {
+  return countPanes(s.layout.slots) > 1;
+}
+
+export function selectHasAnyPane(s: WorkspaceState): boolean {
+  return countPanes(s.layout.slots) > 0;
+}
+
+export function selectThreadInAnyPane(threadId: string) {
+  return (s: WorkspaceState) =>
+    SLOT_KEYS.some((key) => s.layout.slots[key]?.threadId === threadId);
+}
+
+export function selectThreadInFocusedPane(threadId: string) {
+  return (s: WorkspaceState) => {
+    const focused = s.layout.focusedSlot;
+    if (!focused) return false;
+    return s.layout.slots[focused]?.threadId === threadId;
+  };
+}
+
+export function selectPaneProject(slot: SlotKey | null) {
+  return (s: WorkspaceState) => {
+    if (!slot || !s.snapshot) return null;
+    const selection = s.layout.slots[slot];
+    if (!selection?.projectId) return null;
+    return (
+      s.snapshot.projects.find((p) => p.id === selection.projectId) ?? null
+    );
+  };
+}
+
+export function selectPaneEnvironment(slot: SlotKey | null) {
+  return (s: WorkspaceState) => {
+    if (!slot || !s.snapshot) return null;
+    const selection = s.layout.slots[slot];
+    if (!selection?.environmentId) return null;
+    for (const project of s.snapshot.projects) {
+      const env = project.environments.find(
+        (e) => e.id === selection.environmentId,
+      );
+      if (env) return env;
+    }
+    return null;
+  };
+}
+
+export function selectPaneThread(slot: SlotKey | null) {
+  return (s: WorkspaceState) => {
+    if (!slot || !s.snapshot) return null;
+    const selection = s.layout.slots[slot];
+    if (!selection?.threadId) return null;
+    for (const project of s.snapshot.projects) {
+      for (const env of project.environments) {
+        const thread = env.threads.find((t) => t.id === selection.threadId);
+        if (thread) return thread;
+      }
+    }
+    return null;
+  };
+}
+
+/* ── Slot helpers ── */
+
+function withLayout(layout: WorkspaceLayout) {
+  // Ensure focusedSlot points to a filled slot when possible.
+  const focused = layout.focusedSlot;
+  const focusedValid = focused ? layout.slots[focused] !== null : false;
+  const effectiveFocus: SlotKey | null = focusedValid
+    ? focused
+    : (firstFilledSlot(layout.slots) ?? null);
+  const selection: PaneSelection | null = effectiveFocus
+    ? layout.slots[effectiveFocus]
+    : null;
+  return {
+    layout: { ...layout, focusedSlot: effectiveFocus },
+    selectedProjectId: selection?.projectId ?? null,
+    selectedEnvironmentId: selection?.environmentId ?? null,
+    selectedThreadId: selection?.threadId ?? null,
+  };
+}
+
+export function countPanes(
+  slots: Record<SlotKey, PaneSelection | null>,
+): number {
+  return SLOT_KEYS.reduce(
+    (sum, key) => sum + (slots[key] ? 1 : 0),
+    0,
+  );
+}
+
+function firstFilledSlot(
+  slots: Record<SlotKey, PaneSelection | null>,
+): SlotKey | null {
+  return SLOT_KEYS.find((key) => slots[key] !== null) ?? null;
+}
+
+function clampSplitRatio(ratio: number): number {
+  if (Number.isNaN(ratio)) return 0.5;
+  return Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, ratio));
+}
+
+/**
+ * Compute the new slots when dropping `newSelection` on `direction`.
+ *
+ * The new pane occupies the "extreme" side (top→topLeft full width,
+ * right→topRight full height, bottom→bottomLeft full width, left→topLeft full
+ * height). Existing panes shift to the opposite side. If there's no room on
+ * the opposite side (i.e. adding the new pane would exceed 4 panes), returns
+ * null.
+ *
+ * Canonical positions are enforced: TL is always populated first, then TR or
+ * BL depending on orientation, then BR.
+ */
+function applySlotDrop(
+  current: Record<SlotKey, PaneSelection | null>,
+  direction: PaneDirection,
+  newSelection: PaneSelection,
+): { slots: Record<SlotKey, PaneSelection | null>; focusedSlot: SlotKey } | null {
+  const count = countPanes(current);
+  if (count >= MAX_PANES) return null;
+
+  // 0 panes: any drop places new in TL.
+  if (count === 0) {
+    return {
+      slots: { ...EMPTY_SLOTS, topLeft: newSelection },
+      focusedSlot: "topLeft",
+    };
+  }
+
+  // 3 panes: drop may fill the 4th empty slot if the direction is compatible.
+  if (count === 3) {
+    const emptySlot = SLOT_KEYS.find((key) => current[key] === null);
+    if (!emptySlot) return null;
+    const allowed = allowedDirectionsForSlot(emptySlot);
+    if (!allowed.has(direction)) return null;
+    return {
+      slots: { ...current, [emptySlot]: newSelection },
+      focusedSlot: emptySlot,
+    };
+  }
+
+  // 1 or 2 panes: new takes the target side, existing shift to opposite side.
+  const existing = SLOT_KEYS
+    .map((key) => current[key])
+    .filter((value): value is PaneSelection => value !== null);
+
+  const plan = buildShiftPlan(direction, existing.length);
+  if (!plan) return null;
+
+  const slots: Record<SlotKey, PaneSelection | null> = { ...EMPTY_SLOTS };
+  slots[plan.newSlot] = newSelection;
+  plan.existingSlots.forEach((slot, index) => {
+    slots[slot] = existing[index] ?? null;
+  });
+  return { slots, focusedSlot: plan.newSlot };
+}
+
+function buildShiftPlan(
+  direction: PaneDirection,
+  existingCount: number,
+): {
+  newSlot: SlotKey;
+  existingSlots: SlotKey[];
+} | null {
+  switch (direction) {
+    case "top":
+      return {
+        newSlot: "topLeft",
+        existingSlots: ["bottomLeft", "bottomRight"].slice(0, existingCount) as SlotKey[],
+      };
+    case "bottom":
+      return {
+        newSlot: "bottomLeft",
+        existingSlots: ["topLeft", "topRight"].slice(0, existingCount) as SlotKey[],
+      };
+    case "left":
+      return {
+        newSlot: "topLeft",
+        existingSlots: ["topRight", "bottomRight"].slice(0, existingCount) as SlotKey[],
+      };
+    case "right":
+      return {
+        newSlot: "topRight",
+        existingSlots: ["topLeft", "bottomLeft"].slice(0, existingCount) as SlotKey[],
+      };
+  }
+}
+
+function allowedDirectionsForSlot(slot: SlotKey): Set<PaneDirection> {
+  switch (slot) {
+    case "topLeft":
+      return new Set<PaneDirection>(["top", "left"]);
+    case "topRight":
+      return new Set<PaneDirection>(["top", "right"]);
+    case "bottomLeft":
+      return new Set<PaneDirection>(["bottom", "left"]);
+    case "bottomRight":
+      return new Set<PaneDirection>(["bottom", "right"]);
+  }
+}
+
+function pickNeighborSlot(
+  slots: Record<SlotKey, PaneSelection | null>,
+  focused: SlotKey,
+): SlotKey | null {
+  // Prefer the horizontal neighbor, then vertical, then any remaining empty.
+  const ordered: SlotKey[] = (() => {
+    switch (focused) {
+      case "topLeft":
+        return ["topRight", "bottomLeft", "bottomRight"];
+      case "topRight":
+        return ["topLeft", "bottomRight", "bottomLeft"];
+      case "bottomLeft":
+        return ["bottomRight", "topLeft", "topRight"];
+      case "bottomRight":
+        return ["bottomLeft", "topRight", "topLeft"];
+    }
+  })();
+  return ordered.find((slot) => slots[slot] === null) ?? null;
+}
+
+/**
+ * Normalize the slot map so it represents a canonical grid. The invariant
+ * we enforce is:
+ *
+ * - If any pane exists at all, `topLeft` is filled (the top row is never
+ *   empty while bottom has panes).
+ * - Within each row, filled cells shift to the left (no hole to the left of
+ *   a filled pane inside the same row).
+ *
+ * We deliberately allow `topRight === null` while `bottomRight !== null`:
+ * that arrangement represents a "1 pane at top (spans full width) + 2 panes
+ * split at the bottom" layout — `topLeft`'s `colSpan` is 2 when `topRight`
+ * is null, so the render covers the whole top row with no visual hole.
+ * Pulling `bottomRight` up to `topRight` would force a different 3-pane
+ * shape ("2 top split + 1 bottom span") and make panes jump vertically
+ * when a corner is closed, which is not what the user asks for with close.
+ */
+function compactSlots(
+  slots: Record<SlotKey, PaneSelection | null>,
+): Record<SlotKey, PaneSelection | null> {
+  let { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR } = slots;
+
+  // Promote the bottom row to the top when the top row is entirely empty.
+  if (TL === null && TR === null && (BL !== null || BR !== null)) {
+    TL = BL;
+    TR = BR;
+    BL = null;
+    BR = null;
+  }
+
+  // Within each row, shift the filled cell to the left cell when empty.
+  if (TL === null && TR !== null) {
+    TL = TR;
+    TR = null;
+  }
+  if (BL === null && BR !== null) {
+    BL = BR;
+    BR = null;
+  }
+
+  return { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR };
+}
+
+function resolveThreadSelection(
   snapshot: WorkspaceSnapshot,
-  state: Pick<
-    WorkspaceState,
-    "selectedProjectId" | "selectedEnvironmentId" | "selectedThreadId"
-  >,
-) {
-  const selectedProject = findProject(snapshot, state.selectedProjectId);
-  const selectedEnvironment = findEnvironment(snapshot, state.selectedEnvironmentId);
-  const selectedThread = findThreadInWorkspace(snapshot, state.selectedThreadId);
+  threadId: string,
+): PaneSelection | null {
+  const found = findThreadInWorkspace(snapshot, threadId);
+  if (!found) return null;
+  return {
+    projectId: found.project.id,
+    environmentId: found.environment.id,
+    threadId: found.thread.id,
+  };
+}
+
+function reconcileLayout(
+  snapshot: WorkspaceSnapshot,
+  layout: WorkspaceLayout,
+): WorkspaceLayout {
+  const nextSlots: Record<SlotKey, PaneSelection | null> = {
+    ...EMPTY_SLOTS,
+  };
+  for (const key of SLOT_KEYS) {
+    const selection = layout.slots[key];
+    if (!selection) {
+      nextSlots[key] = null;
+      continue;
+    }
+    nextSlots[key] = reconcilePaneSelection(snapshot, selection);
+  }
+  // Always canonicalize: a persisted or legacy layout may contain
+  // non-canonical holes (e.g. TR filled without TL) that would leak into
+  // slot-identity logic otherwise.
+  const compacted = compactSlots(nextSlots);
+  const focusedStillFilled = layout.focusedSlot
+    ? compacted[layout.focusedSlot] !== null
+    : false;
+  const focusedSlot = focusedStillFilled
+    ? layout.focusedSlot
+    : firstFilledSlot(compacted);
+  return {
+    ...layout,
+    slots: compacted,
+    focusedSlot,
+  };
+}
+
+function reconcilePaneSelection(
+  snapshot: WorkspaceSnapshot,
+  pane: PaneSelection,
+): PaneSelection | null {
+  const selectedProject = findProject(snapshot, pane.projectId);
+  const selectedEnvironment = findEnvironment(snapshot, pane.environmentId);
+  const selectedThread = findThreadInWorkspace(snapshot, pane.threadId);
   const fallbackEnvironment = selectedProject
     ? findPrimaryEnvironment(selectedProject)
     : null;
@@ -470,73 +1006,75 @@ function reconcileSelection(
     ? findLatestActiveThread(selectedEnvironment.environment)
     : fallbackEnvironment
       ? findLatestActiveThread(fallbackEnvironment)
-    : null;
+      : null;
 
-  const selectedProjectId =
+  const projectId =
     selectedProject?.id ??
     selectedEnvironment?.project.id ??
     selectedThread?.project.id ??
     null;
 
-  const selectedEnvironmentId =
+  const environmentId =
     selectedEnvironment?.environment.id ??
     selectedThread?.environment.id ??
     fallbackEnvironment?.id ??
     null;
 
-  const selectedThreadId = selectedThread?.thread.id ?? fallbackThread?.id ?? null;
+  const threadId = selectedThread?.thread.id ?? fallbackThread?.id ?? null;
 
-  return {
-    selectedProjectId,
-    selectedEnvironmentId,
-    selectedThreadId,
-  };
+  if (projectId === null && environmentId === null && threadId === null) {
+    return null;
+  }
+
+  return { projectId, environmentId, threadId };
 }
 
-function selectProjectState(
+function buildProjectPane(
   snapshot: WorkspaceSnapshot | null,
   projectId: string | null,
-) {
-  if (!snapshot || !projectId) {
-    return {
-      selectedProjectId: projectId,
-      selectedEnvironmentId: null,
-      selectedThreadId: null,
-    };
+): PaneSelection | null {
+  if (!projectId) return null;
+  if (!snapshot) {
+    return { projectId, environmentId: null, threadId: null };
   }
-
   const project = findProject(snapshot, projectId);
-  const environment = project ? findPrimaryEnvironment(project) : null;
+  if (!project) return null;
+  const environment = findPrimaryEnvironment(project);
+  const thread = environment ? findLatestActiveThread(environment) : null;
   return {
-    selectedProjectId: project?.id ?? null,
-    selectedEnvironmentId: environment?.id ?? null,
-    selectedThreadId: environment ? findLatestActiveThread(environment)?.id ?? null : null,
+    projectId: project.id,
+    environmentId: environment?.id ?? null,
+    threadId: thread?.id ?? null,
   };
 }
 
-function selectEnvironmentState(
+function buildEnvironmentPane(
   snapshot: WorkspaceSnapshot | null,
+  currentPane: PaneSelection | null,
   environmentId: string | null,
-) {
-  if (!snapshot || !environmentId) {
+): PaneSelection | null {
+  if (!environmentId) {
+    if (!currentPane) return null;
+    return { ...currentPane, environmentId: null, threadId: null };
+  }
+  if (!snapshot) {
     return {
-      selectedEnvironmentId: environmentId,
-      selectedThreadId: null,
+      projectId: currentPane?.projectId ?? null,
+      environmentId,
+      threadId: null,
     };
   }
-
-  const selectedEnvironment = findEnvironment(snapshot, environmentId);
-  if (!selectedEnvironment) {
-    return {
-      selectedEnvironmentId: null,
-      selectedThreadId: null,
-    };
+  const resolved = findEnvironment(snapshot, environmentId);
+  if (!resolved) {
+    return currentPane
+      ? { ...currentPane, environmentId: null, threadId: null }
+      : null;
   }
-
+  const thread = findLatestActiveThread(resolved.environment);
   return {
-    selectedProjectId: selectedEnvironment.project.id,
-    selectedEnvironmentId: selectedEnvironment.environment.id,
-    selectedThreadId: findLatestActiveThread(selectedEnvironment.environment)?.id ?? null,
+    projectId: resolved.project.id,
+    environmentId: resolved.environment.id,
+    threadId: thread?.id ?? null,
   };
 }
 
@@ -561,7 +1099,9 @@ function findEnvironment(
   if (!environmentId) return null;
   if (!snapshot) return null;
   for (const project of snapshot.projects) {
-    const environment = project.environments.find((candidate) => candidate.id === environmentId);
+    const environment = project.environments.find(
+      (candidate) => candidate.id === environmentId,
+    );
     if (environment) {
       return { environment, project };
     }
@@ -570,9 +1110,14 @@ function findEnvironment(
 }
 
 function findLatestActiveThread(environment: EnvironmentRecord) {
-  return [...environment.threads]
-    .filter((thread) => thread.status === "active")
-    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0] ?? null;
+  return (
+    [...environment.threads]
+      .filter((thread) => thread.status === "active")
+      .sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      )[0] ?? null
+  );
 }
 
 export function findThreadInWorkspace(
@@ -582,7 +1127,9 @@ export function findThreadInWorkspace(
   if (!snapshot || !threadId) return null;
   for (const project of snapshot.projects) {
     for (const environment of project.environments) {
-      const thread = environment.threads.find((candidate) => candidate.id === threadId);
+      const thread = environment.threads.find(
+        (candidate) => candidate.id === threadId,
+      );
       if (thread) {
         return { thread, environment, project };
       }
@@ -603,7 +1150,9 @@ function removeThreadFromSnapshot(
   const nextProjects = snapshot.projects.map((project) => {
     let projectChanged = false;
     const nextEnvironments = project.environments.map((environment) => {
-      const nextThreads = environment.threads.filter((thread) => thread.id !== threadId);
+      const nextThreads = environment.threads.filter(
+        (thread) => thread.id !== threadId,
+      );
       if (nextThreads.length === environment.threads.length) {
         return environment;
       }
@@ -651,7 +1200,7 @@ function applySnapshotMutation(
     return {
       snapshot: nextSnapshot,
       error: null,
-      ...reconcileSelection(nextSnapshot, state),
+      ...withLayout(reconcileLayout(nextSnapshot, state.layout)),
     };
   });
 }
@@ -782,3 +1331,113 @@ function reorderRecordsById<RecordType extends { id: string }>(
 
   return orderedRecords;
 }
+
+/* ── Layout persistence ── */
+
+const PERSIST_LAYOUT_DEBOUNCE_MS = 100;
+let persistLayoutTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+
+function persistLayoutNow(layout: WorkspaceLayout) {
+  try {
+    const payload = JSON.stringify({
+      slots: layout.slots,
+      focusedSlot: layout.focusedSlot,
+      rowRatio: layout.rowRatio,
+      colRatio: layout.colRatio,
+    });
+    localStorage.setItem(WORKSPACE_LAYOUT_STORAGE_KEY, payload);
+  } catch {
+    /* storage quota or disabled — ignore */
+  }
+}
+
+function schedulePersistLayout(layout: WorkspaceLayout) {
+  if (persistLayoutTimer !== null) {
+    globalThis.clearTimeout(persistLayoutTimer);
+  }
+  persistLayoutTimer = globalThis.setTimeout(() => {
+    persistLayoutTimer = null;
+    persistLayoutNow(layout);
+  }, PERSIST_LAYOUT_DEBOUNCE_MS);
+}
+
+function readPersistedLayout(): WorkspaceLayout | null {
+  let raw: string | null;
+  try {
+    raw = readLocalStorageWithMigration(
+      WORKSPACE_LAYOUT_STORAGE_KEY,
+      LEGACY_WORKSPACE_LAYOUT_STORAGE_KEYS,
+    );
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const candidate = parsed as {
+    slots?: unknown;
+    focusedSlot?: unknown;
+    rowRatio?: unknown;
+    colRatio?: unknown;
+  };
+  const slots = coerceSlots(candidate.slots);
+  if (!slots) return null;
+  const focusedSlot =
+    typeof candidate.focusedSlot === "string" &&
+    SLOT_KEYS.includes(candidate.focusedSlot as SlotKey) &&
+    slots[candidate.focusedSlot as SlotKey] !== null
+      ? (candidate.focusedSlot as SlotKey)
+      : firstFilledSlot(slots);
+  const rowRatio =
+    typeof candidate.rowRatio === "number"
+      ? clampSplitRatio(candidate.rowRatio)
+      : 0.5;
+  const colRatio =
+    typeof candidate.colRatio === "number"
+      ? clampSplitRatio(candidate.colRatio)
+      : 0.5;
+  return { slots, focusedSlot, rowRatio, colRatio };
+}
+
+function coerceSlots(
+  value: unknown,
+): Record<SlotKey, PaneSelection | null> | null {
+  if (!value || typeof value !== "object") return null;
+  const next: Record<SlotKey, PaneSelection | null> = { ...EMPTY_SLOTS };
+  for (const key of SLOT_KEYS) {
+    next[key] = coercePaneSelection((value as Record<string, unknown>)[key]);
+  }
+  return next;
+}
+
+function coercePaneSelection(value: unknown): PaneSelection | null {
+  if (!value || typeof value !== "object") return null;
+  const pane = value as Partial<Record<keyof PaneSelection, unknown>>;
+  const result: PaneSelection = {
+    projectId: typeof pane.projectId === "string" ? pane.projectId : null,
+    environmentId:
+      typeof pane.environmentId === "string" ? pane.environmentId : null,
+    threadId: typeof pane.threadId === "string" ? pane.threadId : null,
+  };
+  if (!result.projectId && !result.environmentId && !result.threadId) {
+    return null;
+  }
+  return result;
+}
+
+// Seed with the current layout so the subscribe doesn't treat the very first
+// unrelated state update (e.g. `loadingState`) as a layout change and schedule
+// a write of INITIAL_LAYOUT before `initialize()` has had a chance to read the
+// persisted copy.
+let persistedLayoutPrev: WorkspaceLayout = useWorkspaceStore.getState().layout;
+useWorkspaceStore.subscribe((state) => {
+  if (state.layout !== persistedLayoutPrev) {
+    persistedLayoutPrev = state.layout;
+    schedulePersistLayout(state.layout);
+  }
+});

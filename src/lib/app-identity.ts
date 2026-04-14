@@ -130,6 +130,18 @@ export const TERMINAL_LAYOUTS_STORAGE_KEY = buildStorageKey(
 );
 export const LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS =
   buildLegacyStorageKeys("terminal-layouts");
+export const WORKSPACE_LAYOUT_STORAGE_KEY = buildStorageKey(
+  APP_SLUG,
+  "workspace-layout",
+);
+export const LEGACY_WORKSPACE_LAYOUT_STORAGE_KEYS =
+  buildLegacyStorageKeys("workspace-layout");
+export const SIDEBAR_EXPANDED_ENVS_STORAGE_KEY = buildStorageKey(
+  APP_SLUG,
+  "sidebar-expanded-envs",
+);
+export const LEGACY_SIDEBAR_EXPANDED_ENVS_STORAGE_KEYS =
+  buildLegacyStorageKeys("sidebar-expanded-envs");
 export const VOICE_PROCESSOR_NAME = buildStorageKey(APP_SLUG, "voice-processor");
 
 export const RELEASES_BASE_URL =

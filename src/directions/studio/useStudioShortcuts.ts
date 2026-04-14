@@ -31,6 +31,8 @@ type Props = {
 };
 
 const APPROVAL_VALUES: ApprovalPolicy[] = ["askToEdit", "fullAccess"];
+const DEFAULT_SPLIT_ACTIVE_THREAD = "mod+\\";
+const DEFAULT_CLOSE_FOCUSED_PANE = "mod+shift+w";
 
 export function useStudioShortcuts({
   shortcutsBlocked,
@@ -232,6 +234,44 @@ export function useStudioShortcuts({
       if (matchesShortcut(event, shortcuts.previousEnvironment)) {
         event.preventDefault();
         selectAdjacentEnvironment("previous");
+        return;
+      }
+
+      if (
+        matchesShortcut(
+          event,
+          shortcuts.splitActiveThread === undefined
+            ? DEFAULT_SPLIT_ACTIVE_THREAD
+            : shortcuts.splitActiveThread,
+        )
+      ) {
+        event.preventDefault();
+        const workspace = useWorkspaceStore.getState();
+        if (workspace.selectedThreadId) {
+          workspace.openThreadInOtherPane(workspace.selectedThreadId);
+        }
+        return;
+      }
+
+      if (
+        matchesShortcut(
+          event,
+          shortcuts.closeFocusedPane === undefined
+            ? DEFAULT_CLOSE_FOCUSED_PANE
+            : shortcuts.closeFocusedPane,
+        )
+      ) {
+        event.preventDefault();
+        const workspace = useWorkspaceStore.getState();
+        const focused = workspace.layout.focusedSlot;
+        // Only close when there's more than one pane — the user should
+        // archive/close the thread instead of closing the last pane.
+        if (
+          focused &&
+          Object.values(workspace.layout.slots).filter(Boolean).length > 1
+        ) {
+          workspace.closePane(focused);
+        }
         return;
       }
 

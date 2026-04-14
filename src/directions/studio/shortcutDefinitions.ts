@@ -83,6 +83,18 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
     description: "Move to the previous environment in sidebar order.",
   },
   {
+    action: "splitActiveThread",
+    group: "Navigation",
+    label: "Split active thread",
+    description: "Duplicate the focused thread into the other pane.",
+  },
+  {
+    action: "closeFocusedPane",
+    group: "Navigation",
+    label: "Close focused pane",
+    description: "Close the currently focused pane in the split view.",
+  },
+  {
     action: "cycleCollaborationMode",
     group: "Composer",
     label: "Cycle Build/Plan mode",

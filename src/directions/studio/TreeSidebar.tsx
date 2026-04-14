@@ -24,10 +24,15 @@ import type {
   ProjectRecord,
   ThreadConversationSnapshot,
 } from "../../lib/types";
+import { SidebarThreadRow } from "./SidebarThreadRow";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
 import { SidebarUtilityActions } from "./SidebarUtilityActions";
 import type { Theme } from "./StudioShell";
-import { createManagedWorktreeForSelection } from "./studioActions";
+import {
+  archiveThreadWithConfirmation,
+  createManagedWorktreeForSelection,
+  createThreadForEnvironment,
+} from "./studioActions";
 import {
   environmentItemClassName,
   projectGroupClassName,
@@ -44,7 +49,7 @@ type Props = {
 };
 
 type ContextMenuState = {
-  kind: "project" | "environment";
+  kind: "project" | "environment" | "thread";
   projectId?: string;
   projectName?: string;
   environmentId?: string;
@@ -53,6 +58,8 @@ type ContextMenuState = {
   path?: string;
   activeThreadCount?: number;
   archivedThreadCount?: number;
+  threadId?: string;
+  threadTitle?: string;
   x: number;
   y: number;
 };
@@ -77,6 +84,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
   );
   const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
+  const selectThread = useWorkspaceStore((s) => s.selectThread);
   const latestScriptFailure = useWorktreeScriptStore(
     (state) => state.latestFailure,
   );
@@ -148,6 +156,174 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
   function handleEnvironmentSelect(environmentId: string) {
     resetMessages();
     selectEnvironment(environmentId);
+  }
+
+  function handleThreadSelect(threadId: string) {
+    resetMessages();
+    selectThread(threadId);
+  }
+
+  function handleOpenThreadInOtherPane(threadId: string) {
+    resetMessages();
+    useWorkspaceStore.getState().openThreadInOtherPane(threadId);
+  }
+
+  async function handleCreateThreadForEnvironment(environmentId: string) {
+    resetMessages();
+    try {
+      const created = await createThreadForEnvironment(environmentId);
+      if (!created) {
+        setActionError(
+          "Thread created, but the workspace failed to refresh. Reload to see it.",
+        );
+      }
+    } catch (cause: unknown) {
+      setActionError(actionErrorMessage(cause, "Failed to create thread"));
+    }
+  }
+
+  function renderEnvironmentThreadList(environment: EnvironmentRecord) {
+    const activeThreads = environment.threads
+      .filter((thread) => thread.status === "active")
+      .sort(
+        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+      );
+    if (activeThreads.length === 0) return null;
+    return (
+      <ul className="environment-thread-list">
+        {activeThreads.map((thread) => (
+          <li
+            key={thread.id}
+            className="environment-thread-list__item"
+          >
+            <SidebarThreadRow
+              thread={thread}
+              onSelect={() => handleThreadSelect(thread.id)}
+              onOpenInOtherPane={() => handleOpenThreadInOtherPane(thread.id)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setContextMenu({
+                  kind: "thread",
+                  threadId: thread.id,
+                  threadTitle: thread.title,
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
+            />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function renderNewThreadButton(environment: EnvironmentRecord) {
+    return (
+      <Tooltip
+        content={`New thread in ${environment.name}`}
+        side="bottom"
+      >
+        <button
+          type="button"
+          className="environment-item__new-thread"
+          aria-label="New thread"
+          data-no-reorder-drag="true"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void handleCreateThreadForEnvironment(environment.id);
+          }}
+        >
+          <PlusIcon size={11} />
+        </button>
+      </Tooltip>
+    );
+  }
+
+  function renderProjectEnvironments(project: ProjectRecord) {
+    const localEnvironment = project.environments.find(
+      (candidate) => candidate.kind === "local",
+    );
+    return (
+      <div className="project-group__environments">
+        {localEnvironment ? (
+          <div className="environment-entry environment-entry--local">
+            {renderNewThreadButton(localEnvironment)}
+            {renderEnvironmentThreadList(localEnvironment)}
+          </div>
+        ) : null}
+        {orderedWorktreeEnvironments(project).map((environment) => (
+          <div key={environment.id} className="environment-entry">
+            <div
+              ref={registerEnvironmentItem(project.id, environment.id)}
+              className={environmentItemClassName(
+                environment,
+                selectedEnvironmentId,
+                dragState,
+              )}
+              style={environmentDragStyle(project.id, environment.id)}
+              onPointerDown={(event) =>
+                handleWorktreePointerDown(event, project, environment.id)
+              }
+              onClick={(event) => {
+                if (event.detail > 0 && shouldSuppressClick()) return;
+                handleEnvironmentSelect(environment.id);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                handleEnvironmentSelect(environment.id);
+                setContextMenu(
+                  buildEnvironmentContextMenuState(
+                    environment,
+                    event.clientX,
+                    event.clientY,
+                  ),
+                );
+              }}
+            >
+              <span className="environment-item__icon-slot">
+                {renderPullRequestControl(environment)}
+              </span>
+              <button
+                type="button"
+                className="environment-item"
+                onKeyDown={(event) =>
+                  void handleWorktreeKeyboardReorder(
+                    event,
+                    project,
+                    environment.id,
+                  )
+                }
+              >
+                <span className="environment-item__primary">
+                  <span className="environment-item__name-row">
+                    <span className="environment-item__name">
+                      {environment.name}
+                    </span>
+                  </span>
+                </span>
+                <span className="environment-item__secondary">
+                  <EnvironmentConversationIndicator environment={environment} />
+                </span>
+              </button>
+              {renderNewThreadButton(environment)}
+            </div>
+            {renderEnvironmentThreadList(environment)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  async function handleArchiveThreadFromMenu(threadId: string) {
+    setContextMenu(null);
+    resetMessages();
+    try {
+      await archiveThreadWithConfirmation(threadId);
+    } catch (cause: unknown) {
+      setActionError(actionErrorMessage(cause, "Failed to archive thread"));
+    }
   }
 
   async function handleRemoveProject(projectId: string, projectName: string) {
@@ -394,72 +570,8 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                     />
                   </button>
                 </div>
-                {!project.sidebarCollapsed && (
-                  <div className="project-group__environments">
-                    {orderedWorktreeEnvironments(project).map((environment) => (
-                      <div
-                        key={environment.id}
-                        ref={registerEnvironmentItem(project.id, environment.id)}
-                        className={environmentItemClassName(
-                          environment,
-                          selectedEnvironmentId,
-                          dragState,
-                        )}
-                        style={environmentDragStyle(project.id, environment.id)}
-                        onPointerDown={(event) =>
-                          handleWorktreePointerDown(
-                            event,
-                            project,
-                            environment.id,
-                          )
-                        }
-                        onClick={(event) => {
-                          if (event.detail > 0 && shouldSuppressClick()) return;
-                          handleEnvironmentSelect(environment.id);
-                        }}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          handleEnvironmentSelect(environment.id);
-                          setContextMenu(
-                            buildEnvironmentContextMenuState(
-                              environment,
-                              event.clientX,
-                              event.clientY,
-                            ),
-                          );
-                        }}
-                      >
-                        <span className="environment-item__icon-slot">
-                          {renderPullRequestControl(environment)}
-                        </span>
-                        <button
-                          type="button"
-                          className="environment-item"
-                          onKeyDown={(event) =>
-                            void handleWorktreeKeyboardReorder(
-                              event,
-                              project,
-                              environment.id,
-                            )
-                          }
-                        >
-                          <span className="environment-item__primary">
-                            <span className="environment-item__name-row">
-                              <span className="environment-item__name">
-                                {environment.name}
-                              </span>
-                            </span>
-                          </span>
-                          <span className="environment-item__secondary">
-                            <EnvironmentConversationIndicator
-                              environment={environment}
-                            />
-                          </span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {!project.sidebarCollapsed &&
+                  renderProjectEnvironments(project)}
               </section>
             ))
           )}
@@ -477,7 +589,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
         createPortal(
           <div
             className="tree-sidebar__context-menu tx-dropdown-menu"
-            style={resolveContextMenuPosition(contextMenu)}
+            style={resolveContextMenuPosition(contextMenu, contextMenu.kind)}
             onPointerDown={(event) => event.stopPropagation()}
             onContextMenu={(event) => event.preventDefault()}
           >
@@ -494,7 +606,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
               >
                 {`Remove from ${APP_NAME}`}
               </button>
-            ) : (
+            ) : contextMenu.kind === "environment" ? (
               <button
                 type="button"
                 className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
@@ -502,6 +614,32 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
               >
                 Delete worktree
               </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option"
+                  onClick={() => {
+                    setContextMenu(null);
+                    if (contextMenu.threadId) {
+                      handleOpenThreadInOtherPane(contextMenu.threadId);
+                    }
+                  }}
+                >
+                  Open in other pane
+                </button>
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
+                  onClick={() => {
+                    if (contextMenu.threadId) {
+                      void handleArchiveThreadFromMenu(contextMenu.threadId);
+                    }
+                  }}
+                >
+                  Archive thread
+                </button>
+              </>
             )}
           </div>,
           document.body,
@@ -666,9 +804,12 @@ function buildEnvironmentContextMenuState(
 
 function resolveContextMenuPosition(
   contextMenu: Pick<ContextMenuState, "x" | "y">,
+  kind: ContextMenuState["kind"],
 ) {
   const menuWidth = 220;
-  const menuHeight = 56;
+  // Each .tx-dropdown-option is ~40px tall (incl. padding). Project and
+  // environment menus have one action, thread menus have two.
+  const menuHeight = kind === "thread" ? 88 : 48;
   const margin = 12;
 
   return {

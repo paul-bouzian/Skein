@@ -3,6 +3,8 @@ import {
   labelForConversationStatus,
   toneForConversationStatus,
 } from "../../lib/conversation-status";
+import { CloseIcon } from "../../shared/Icons";
+import { Tooltip } from "../../shared/Tooltip";
 
 type Props = {
   environment: EnvironmentRecord;
@@ -10,6 +12,7 @@ type Props = {
   snapshot?: ThreadConversationSnapshot | null;
   connectionState?: "idle" | "connecting" | "error";
   onRetryConnection?: (() => void) | null;
+  onClose?: (() => void) | null;
 };
 
 export function ConversationMeta({
@@ -18,6 +21,7 @@ export function ConversationMeta({
   snapshot = null,
   connectionState = "idle",
   onRetryConnection = null,
+  onClose = null,
 }: Props) {
   return (
     <div className="tx-conversation__meta">
@@ -58,6 +62,18 @@ export function ConversationMeta({
           <span className="tx-pill tx-pill--neutral">
             {snapshot.tokenUsage.total.totalTokens.toLocaleString()} tokens
           </span>
+        ) : null}
+        {onClose ? (
+          <Tooltip content="Close pane" side="bottom">
+            <button
+              type="button"
+              aria-label="Close pane"
+              className="tx-conversation__close"
+              onClick={onClose}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </Tooltip>
         ) : null}
       </div>
     </div>

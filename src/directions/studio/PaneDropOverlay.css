@@ -1,0 +1,73 @@
+.pane-drop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  z-index: 50;
+  animation: pane-drop-overlay-fade-in 120ms ease-out both;
+}
+
+.pane-drop-overlay__preview {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--tx-accent);
+  border-radius: var(--tx-radius-md);
+  background: color-mix(in srgb, var(--tx-accent) 18%, var(--tx-bg-base));
+  color: var(--tx-text-primary);
+  pointer-events: none;
+  transition:
+    top 120ms ease-out,
+    bottom 120ms ease-out,
+    left 120ms ease-out,
+    right 120ms ease-out,
+    width 120ms ease-out,
+    height 120ms ease-out;
+}
+
+.pane-drop-overlay__label {
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+  padding: var(--tx-space-xs) var(--tx-space-md);
+  border-radius: var(--tx-radius-sm);
+  background: var(--tx-bg-raised);
+  border: 1px solid var(--tx-accent);
+  color: var(--tx-text-primary);
+}
+
+.thread-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tx-space-xs);
+  max-width: 220px;
+  padding: var(--tx-space-xs) var(--tx-space-sm);
+  background: var(--tx-bg-raised);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-sm);
+  box-shadow: var(--tx-shadow-md);
+  color: var(--tx-text-primary);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-medium);
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.thread-drag-ghost__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes pane-drop-overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
