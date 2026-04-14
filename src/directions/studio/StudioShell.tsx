@@ -68,9 +68,10 @@ export function StudioShell() {
   const actionCreateProject =
     workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const diffPanelOpen = Boolean(selectedFileKey);
+  const shortcutsBlocked = settingsOpen || actionCreateProject != null;
 
   useStudioShortcuts({
-    settingsOpen,
+    shortcutsBlocked,
     onOpenSettings: () => setSettingsOpen(true),
     onRequestApproveOrSubmit: () =>
       setApproveOrSubmitNonce((current) => current + 1),

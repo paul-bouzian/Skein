@@ -30,7 +30,7 @@ type HarnessProps = {
   onRender?: () => void;
   onRequestApproveOrSubmit?: () => void;
   renderComposerInput?: boolean;
-  settingsOpen?: boolean;
+  shortcutsBlocked?: boolean;
 };
 
 function Harness({
@@ -38,11 +38,11 @@ function Harness({
   onRender,
   onRequestApproveOrSubmit = vi.fn(),
   renderComposerInput = false,
-  settingsOpen = false,
+  shortcutsBlocked = false,
 }: HarnessProps) {
   onRender?.();
   useStudioShortcuts({
-    settingsOpen,
+    shortcutsBlocked,
     onOpenSettings,
     onRequestApproveOrSubmit,
     onRequestComposerFocus: vi.fn(),
@@ -218,6 +218,19 @@ describe("useStudioShortcuts", () => {
     });
 
     expect(useConversationStore.getState().composerByThreadId["thread-1"]).toBeUndefined();
+  });
+
+  it("skips studio shortcuts while a modal blocks them", async () => {
+    render(<Harness shortcutsBlocked />);
+
+    fireEvent.keyDown(window, {
+      key: "j",
+      ...primaryModifier(),
+    });
+
+    await waitFor(() => {
+      expect(useTerminalStore.getState().visible).toBe(false);
+    });
   });
 
   it("launches a project action from its shortcut in the selected environment", () => {

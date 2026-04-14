@@ -15,6 +15,15 @@ import { ProjectActionFields } from "./ProjectActionFields";
 import { validateProjectActionDrafts } from "./projectSettingsDraft";
 import "./ProjectActionCreateDialog.css";
 
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "textarea:not([disabled])",
+  "select:not([disabled])",
+  "[href]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
 type Props = {
   open: boolean;
   project: ProjectRecord | null;
@@ -37,7 +46,7 @@ export function ProjectActionCreateDialog({
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !project) {
       return;
     }
 
@@ -45,10 +54,10 @@ export function ProjectActionCreateDialog({
     setCapturingShortcut(false);
     setSaving(false);
     setSaveError(null);
-  }, [open, project?.id]);
+  }, [open, project]);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || !project) {
       return undefined;
     }
 
@@ -57,6 +66,10 @@ export function ProjectActionCreateDialog({
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Tab") {
+        trapDialogFocus(event, dialogRef.current);
+        return;
+      }
       if (event.key !== "Escape" || saving) {
         return;
       }
@@ -83,7 +96,7 @@ export function ProjectActionCreateDialog({
         previousFocusRef.current.focus();
       }
     };
-  }, [onClose, open, saving]);
+  }, [onClose, open, project, saving]);
 
   const issues = useMemo(() => {
     if (!project) {
@@ -215,5 +228,41 @@ export function ProjectActionCreateDialog({
       </section>
     </div>,
     document.body,
+  );
+}
+
+function trapDialogFocus(event: KeyboardEvent, dialog: HTMLElement | null) {
+  if (!dialog || !(event.target instanceof Node) || !dialog.contains(event.target)) {
+    return;
+  }
+
+  const focusable = getFocusableElements(dialog);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+
+  const activeElement = document.activeElement;
+  const firstElement = focusable[0];
+  const lastElement = focusable[focusable.length - 1];
+
+  if (event.shiftKey) {
+    if (activeElement === firstElement || activeElement === dialog) {
+      event.preventDefault();
+      lastElement.focus();
+    }
+    return;
+  }
+
+  if (activeElement === lastElement) {
+    event.preventDefault();
+    firstElement.focus();
+  }
+}
+
+function getFocusableElements(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => !element.hasAttribute("disabled") && element.tabIndex >= 0,
   );
 }

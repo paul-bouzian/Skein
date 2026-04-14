@@ -190,7 +190,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     let project: ProjectRecord | null = null;
     const result = await runWorkspaceMutation(set, get, {
       run: async () => {
-        project = await bridge.updateProjectSettings({ projectId, patch });
+        const nextProject = await bridge.updateProjectSettings({ projectId, patch });
+        if (!nextProject) {
+          throw new Error("Failed to save project settings");
+        }
+        project = nextProject;
       },
       applySnapshot: (snapshot) =>
         project ? mergeProjectSettingsIntoSnapshot(snapshot, project) : snapshot,

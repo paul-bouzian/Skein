@@ -1027,6 +1027,40 @@ describe("StudioShell", () => {
     });
   });
 
+  it("disables studio shortcuts while the action dialog is open", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+
+    fireEvent.keyDown(window, {
+      key: "j",
+      ...primaryModifier(),
+    });
+
+    expect(useTerminalStore.getState().visible).toBe(false);
+  });
+
+  it("traps tab navigation inside the action dialog", async () => {
+    const user = userEvent.setup();
+
+    render(<StudioShell />);
+
+    await user.click(screen.getByRole("button", { name: "Open action dialog" }));
+
+    const closeButton = screen.getByRole("button", {
+      name: "Close add action dialog",
+    });
+    const createButton = screen.getByRole("button", { name: "Create" });
+
+    createButton.focus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+
+    closeButton.focus();
+    await user.tab({ shift: true });
+    expect(createButton).toHaveFocus();
+  });
+
   it("treats icon selection and shift-tab shortcut navigation accessibly", async () => {
     const user = userEvent.setup();
 

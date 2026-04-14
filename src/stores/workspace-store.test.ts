@@ -782,6 +782,29 @@ describe("workspace store", () => {
     );
   });
 
+  it("fails fast when project settings save returns no project", async () => {
+    mockedBridge.updateProjectSettings.mockResolvedValueOnce(null as never);
+    const refreshSnapshot = vi.fn(async () => true);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      refreshSnapshot,
+    }));
+
+    const result = await useWorkspaceStore
+      .getState()
+      .updateProjectSettings("project-1", { manualActions: [] });
+
+    expect(result).toEqual({
+      ok: false,
+      refreshed: false,
+      warningMessage: null,
+      errorMessage: "Failed to save project settings",
+      project: null,
+    });
+    expect(refreshSnapshot).not.toHaveBeenCalled();
+    expect(useWorkspaceStore.getState().error).toBe("Failed to save project settings");
+  });
+
   it("debounces workspace refreshes when workspace events arrive in a burst", async () => {
     vi.useFakeTimers();
     let handler: ((payload: WorkspaceEventPayload) => void) | undefined;
