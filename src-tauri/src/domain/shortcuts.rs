@@ -25,6 +25,8 @@ pub struct ShortcutSettings {
     pub cycle_approval_policy: Option<String>,
     pub interrupt_thread: Option<String>,
     pub approve_or_submit: Option<String>,
+    pub split_active_thread: Option<String>,
+    pub close_focused_pane: Option<String>,
 }
 
 impl Default for ShortcutSettings {
@@ -48,6 +50,8 @@ impl Default for ShortcutSettings {
             cycle_approval_policy: Some("mod+shift+a".to_string()),
             interrupt_thread: Some(default_interrupt_shortcut().to_string()),
             approve_or_submit: Some("mod+enter".to_string()),
+            split_active_thread: Some("mod+\\".to_string()),
+            close_focused_pane: Some("mod+shift+w".to_string()),
         }
     }
 }
@@ -73,6 +77,8 @@ pub struct ShortcutSettingsPatch {
     pub cycle_approval_policy: Option<Option<String>>,
     pub interrupt_thread: Option<Option<String>>,
     pub approve_or_submit: Option<Option<String>>,
+    pub split_active_thread: Option<Option<String>>,
+    pub close_focused_pane: Option<Option<String>>,
 }
 
 impl ShortcutSettings {
@@ -131,6 +137,12 @@ impl ShortcutSettings {
         if let Some(value) = patch.approve_or_submit {
             self.approve_or_submit = normalize_shortcut_option(value);
         }
+        if let Some(value) = patch.split_active_thread {
+            self.split_active_thread = normalize_shortcut_option(value);
+        }
+        if let Some(value) = patch.close_focused_pane {
+            self.close_focused_pane = normalize_shortcut_option(value);
+        }
     }
 
     pub fn validate(&self) -> AppResult<()> {
@@ -159,7 +171,7 @@ impl ShortcutSettings {
             .map(String::as_str)
     }
 
-    pub(crate) fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 18] {
+    pub(crate) fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 20] {
         [
             ("openSettings", "Open settings", self.open_settings.as_ref()),
             (
@@ -230,6 +242,16 @@ impl ShortcutSettings {
                 "approveOrSubmit",
                 "Approve plan / submit pending input",
                 self.approve_or_submit.as_ref(),
+            ),
+            (
+                "splitActiveThread",
+                "Split active thread",
+                self.split_active_thread.as_ref(),
+            ),
+            (
+                "closeFocusedPane",
+                "Close focused pane",
+                self.close_focused_pane.as_ref(),
             ),
         ]
     }

@@ -75,18 +75,11 @@ export function StudioPane({
       className={modifierClasses}
       data-pane-id={paneId}
       onPointerDownCapture={(event) => {
-        if (isFocused) return;
-        // Skip focus when the user is hitting the close button or the
-        // ConversationMeta close icon — otherwise we'd retarget focus
-        // onto this pane for a single frame before it gets closed.
-        if (
-          event.target instanceof Element &&
-          event.target.closest(
-            ".studio-main__pane-close, .tx-conversation__close",
-          )
-        ) {
-          return;
-        }
+        if (shouldSkipFocusCapture(event, isFocused)) return;
+        focusPane(paneId);
+      }}
+      onFocusCapture={(event) => {
+        if (shouldSkipFocusCapture(event, isFocused)) return;
         focusPane(paneId);
       }}
     >
@@ -117,6 +110,19 @@ export function DefaultStudioView() {
     return <StudioWelcome />;
   }
   return <OverviewView projects={projects} />;
+}
+
+// Skip focus capture when the event targets a close affordance — otherwise
+// we'd retarget focus onto the pane for a single frame before it gets closed.
+function shouldSkipFocusCapture(
+  event: React.SyntheticEvent,
+  isFocused: boolean,
+): boolean {
+  if (isFocused) return true;
+  if (!(event.target instanceof Element)) return false;
+  return Boolean(
+    event.target.closest(".studio-main__pane-close, .tx-conversation__close"),
+  );
 }
 
 function OverviewView({ projects }: { projects: ProjectRecord[] }) {

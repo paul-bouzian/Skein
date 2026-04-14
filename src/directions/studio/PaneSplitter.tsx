@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from "react";
+import { useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 import {
   SPLIT_RATIO_MAX,
@@ -7,6 +7,7 @@ import {
 
 type Props = {
   orientation: "row" | "column";
+  ratio: number;
   onCommit: (ratio: number) => void;
   onDraggingChange?: (dragging: boolean) => void;
 };
@@ -20,13 +21,17 @@ type DragSession = {
   lastRatio: number;
 };
 
+const KEYBOARD_STEP = 0.02;
+
 export function PaneSplitter({
   orientation,
+  ratio,
   onCommit,
   onDraggingChange,
 }: Props) {
   const sessionRef = useRef<DragSession | null>(null);
   const isRow = orientation === "row";
+  const varName = isRow ? "--studio-col-ratio" : "--studio-row-ratio";
 
   function endDrag(event: PointerEvent<HTMLDivElement>) {
     const session = sessionRef.current;
@@ -36,6 +41,36 @@ export function PaneSplitter({
     if (session) onCommit(session.lastRatio);
     sessionRef.current = null;
     onDraggingChange?.(false);
+  }
+
+  function adjustByKeyboard(
+    event: KeyboardEvent<HTMLDivElement>,
+    delta: number | "min" | "max",
+  ) {
+    event.preventDefault();
+    const grid = event.currentTarget.closest<HTMLElement>(".studio-main__grid");
+    const current = readCssRatio(grid, varName);
+    const next =
+      delta === "min"
+        ? SPLIT_RATIO_MIN
+        : delta === "max"
+          ? SPLIT_RATIO_MAX
+          : Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, current + delta));
+    grid?.style.setProperty(varName, String(next));
+    onCommit(next);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // Arrow keys adjust the ratio along the splitter's primary axis.
+    if (isRow) {
+      if (event.key === "ArrowLeft") return adjustByKeyboard(event, -KEYBOARD_STEP);
+      if (event.key === "ArrowRight") return adjustByKeyboard(event, KEYBOARD_STEP);
+    } else {
+      if (event.key === "ArrowUp") return adjustByKeyboard(event, -KEYBOARD_STEP);
+      if (event.key === "ArrowDown") return adjustByKeyboard(event, KEYBOARD_STEP);
+    }
+    if (event.key === "Home") return adjustByKeyboard(event, "min");
+    if (event.key === "End") return adjustByKeyboard(event, "max");
   }
 
   return (
@@ -49,6 +84,11 @@ export function PaneSplitter({
       role="separator"
       aria-orientation={isRow ? "vertical" : "horizontal"}
       aria-label="Resize split"
+      aria-valuenow={Math.round(ratio * 100)}
+      aria-valuemin={Math.round(SPLIT_RATIO_MIN * 100)}
+      aria-valuemax={Math.round(SPLIT_RATIO_MAX * 100)}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         event.preventDefault();
         const handle = event.currentTarget;
@@ -57,7 +97,6 @@ export function PaneSplitter({
         const rect = container?.getBoundingClientRect();
         const containerSize = rect ? (isRow ? rect.width : rect.height) : 0;
         const grid = handle.closest<HTMLElement>(".studio-main__grid");
-        const varName = isRow ? "--studio-col-ratio" : "--studio-row-ratio";
         const startRatio = readCssRatio(grid, varName);
         sessionRef.current = {
           pointerStart: isRow ? event.clientX : event.clientY,

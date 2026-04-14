@@ -417,12 +417,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   closePane: (slot) =>
     set((state) => {
       if (!state.layout.slots[slot]) return state;
+      // Capture the focused pane's selection so we can re-find its slot key
+      // after compactSlots potentially shuffles entries.
+      const focusedSelection =
+        state.layout.focusedSlot && state.layout.focusedSlot !== slot
+          ? state.layout.slots[state.layout.focusedSlot]
+          : null;
       const slots = { ...state.layout.slots, [slot]: null };
       const compacted = compactSlots(slots);
-      const nextFocus =
-        state.layout.focusedSlot === slot || !compacted[state.layout.focusedSlot ?? "topLeft"]
-          ? (firstFilledSlot(compacted) ?? null)
-          : state.layout.focusedSlot;
+      const relocated = focusedSelection
+        ? (SLOT_KEYS.find((key) => compacted[key] === focusedSelection) ?? null)
+        : null;
+      const nextFocus = relocated ?? firstFilledSlot(compacted) ?? null;
       return withLayout({
         ...state.layout,
         slots: compacted,

@@ -237,6 +237,7 @@ function StudioLayout({
           slots={slots}
           sharesHeight={hasBottom}
           position="top"
+          colRatio={colRatio}
           composerFocusKey={composerFocusKey}
           approveOrSubmitKey={approveOrSubmitKey}
           onColRatioChange={onColRatioChange}
@@ -246,6 +247,7 @@ function StudioLayout({
       {hasTop && hasBottom && (
         <PaneSplitter
           orientation="column"
+          ratio={rowRatio}
           onCommit={onRowRatioChange}
           onDraggingChange={onSplitDragChange}
         />
@@ -257,6 +259,7 @@ function StudioLayout({
           slots={slots}
           sharesHeight={hasTop}
           position="bottom"
+          colRatio={colRatio}
           composerFocusKey={composerFocusKey}
           approveOrSubmitKey={approveOrSubmitKey}
           onColRatioChange={onColRatioChange}
@@ -273,6 +276,7 @@ type StudioRowProps = {
   slots: WorkspaceLayout["slots"];
   sharesHeight: boolean;
   position: "top" | "bottom";
+  colRatio: number;
   composerFocusKey: number;
   approveOrSubmitKey: number;
   onColRatioChange: (ratio: number) => void;
@@ -291,6 +295,7 @@ function StudioRow({
   slots,
   sharesHeight,
   position,
+  colRatio,
   composerFocusKey,
   approveOrSubmitKey,
   onColRatioChange,
@@ -316,6 +321,7 @@ function StudioRow({
       {hasLeft && hasRight && (
         <PaneSplitter
           orientation="row"
+          ratio={colRatio}
           onCommit={onColRatioChange}
           onDraggingChange={onSplitDragChange}
         />
