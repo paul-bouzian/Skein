@@ -8,7 +8,11 @@ import {
   selectSelectedThread,
   selectProjects,
 } from "../../stores/workspace-store";
-import { selectTerminalSlot, useTerminalStore } from "../../stores/terminal-store";
+import {
+  selectHasAnyTerminalTabs,
+  selectTerminalSlot,
+  useTerminalStore,
+} from "../../stores/terminal-store";
 import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { PanelLeftIcon, PanelRightIcon, TerminalIcon, ThreadIcon } from "../../shared/Icons";
@@ -50,14 +54,13 @@ export function StudioMain({
   const isThreadView = Boolean(selectedThread && selectedEnvironment);
   const selectedEnvironmentId = selectedEnvironment?.id ?? null;
   const terminalSlot = useTerminalStore(selectTerminalSlot(selectedEnvironmentId));
+  const hasAnyTerminalTabs = useTerminalStore(selectHasAnyTerminalTabs);
 
   const toggleTerminal = useTerminalStore((s) => s.toggleVisible);
   const setTerminalHeight = useTerminalStore((s) => s.setHeight);
   const terminalVisible = selectedEnvironmentId != null && terminalSlot.visible;
   const terminalHeight = terminalSlot.height;
-  const terminalMounted =
-    selectedEnvironmentId != null &&
-    (terminalVisible || terminalSlot.tabs.length > 0);
+  const terminalMounted = terminalVisible || hasAnyTerminalTabs;
   const [terminalDragging, setTerminalDragging] = useState(false);
 
   useEffect(() => {

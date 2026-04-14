@@ -574,6 +574,10 @@ export function selectTerminalSlot(environmentId: string | null) {
   };
 }
 
+export function selectHasAnyTerminalTabs(state: TerminalState): boolean {
+  return Object.values(state.byEnv).some((slot) => slot.tabs.length > 0);
+}
+
 function collectEnvironmentMetadata(snapshot: WorkspaceSnapshot) {
   return new Map(
     snapshot.projects.flatMap((project) =>
