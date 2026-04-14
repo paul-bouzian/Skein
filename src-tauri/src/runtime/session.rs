@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{error, warn};
@@ -43,15 +43,15 @@ use crate::runtime::protocol::{
     subagents_from_collab_item, task_plan_from_item, task_plan_from_turn_update,
     task_status_from_turn_status, token_usage_snapshot, upsert_item, user_input_payload,
     AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire, AppsListResponse,
-    AGENT_MESSAGE_DELTA_METHOD,
     CollaborationModeListResponse, ErrorNotification, FuzzyFileSearchMatchTypeWire,
     FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification, ItemNotification,
     ModelListResponse, OutgoingNamedInput, OutgoingTextElement, OutgoingUserInputPayload,
     PlanDeltaNotification, ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
     ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse, TokenUsageNotification,
     TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse, TurnStartedNotification,
-    CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME,
+    AGENT_MESSAGE_DELTA_METHOD, CONVERSATION_EVENT_NAME,
 };
+use crate::runtime::supervisor::RuntimeUsageUpdate;
 use crate::services::composer::{
     build_thread_catalog, connector_mention_slug, load_prompt_definitions, resolve_composer_text,
     trim_file_search_results, AppBinding, SkillBinding,
@@ -190,6 +190,12 @@ pub struct AppServerAuthStatus {
     pub requires_openai_auth: Option<bool>,
 }
 
+#[derive(Debug, Clone)]
+struct UsageUpdateContext {
+    environment_path: String,
+    codex_binary_path: Option<String>,
+}
+
 pub struct RuntimeSession {
     app: Option<AppHandle>,
     environment_id: String,
@@ -210,6 +216,7 @@ impl RuntimeSession {
         binary_path: String,
         app_version: String,
         stream_assistant_responses: bool,
+        usage_updates: mpsc::UnboundedSender<RuntimeUsageUpdate>,
     ) -> AppResult<Self> {
         Self::spawn_with_app(
             Some(app),
@@ -218,6 +225,7 @@ impl RuntimeSession {
             binary_path,
             app_version,
             stream_assistant_responses,
+            Some(usage_updates),
         )
         .await
     }
@@ -236,6 +244,7 @@ impl RuntimeSession {
             binary_path,
             app_version,
             stream_assistant_responses,
+            None,
         )
         .await
     }
@@ -247,6 +256,7 @@ impl RuntimeSession {
         binary_path: String,
         app_version: String,
         stream_assistant_responses: bool,
+        usage_updates: Option<mpsc::UnboundedSender<RuntimeUsageUpdate>>,
     ) -> AppResult<Self> {
         let mut command = Command::new(&binary_path);
         command
@@ -271,8 +281,13 @@ impl RuntimeSession {
         Self::from_transport(
             app,
             environment_id,
+            UsageUpdateContext {
+                environment_path: environment_path.clone(),
+                codex_binary_path: Some(binary_path.clone()),
+            },
             app_version,
             stream_assistant_responses,
+            usage_updates,
             SessionTransport {
                 writer: Box::new(stdin),
                 reader: stdout,
@@ -286,7 +301,7 @@ impl RuntimeSession {
     #[cfg(test)]
     pub(crate) async fn from_test_transport<R, W>(
         environment_id: String,
-        _environment_path: String,
+        environment_path: String,
         app_version: String,
         stream_assistant_responses: bool,
         writer: W,
@@ -299,8 +314,13 @@ impl RuntimeSession {
         Self::from_transport(
             None,
             environment_id,
+            UsageUpdateContext {
+                environment_path,
+                codex_binary_path: None,
+            },
             app_version,
             stream_assistant_responses,
+            None,
             SessionTransport {
                 writer: Box::new(writer),
                 reader,
@@ -338,8 +358,10 @@ impl RuntimeSession {
     async fn from_transport<R, E>(
         app: Option<AppHandle>,
         environment_id: String,
+        usage_update_context: UsageUpdateContext,
         app_version: String,
         stream_assistant_responses: bool,
+        usage_updates: Option<mpsc::UnboundedSender<RuntimeUsageUpdate>>,
         transport: SessionTransport<R, E>,
     ) -> AppResult<Self>
     where
@@ -356,8 +378,10 @@ impl RuntimeSession {
         let stdout_task = spawn_stdout_task(
             app.clone(),
             environment_id.clone(),
+            usage_update_context,
             pending.clone(),
             state.clone(),
+            usage_updates,
             transport.reader,
         );
         let stderr_task = spawn_stderr_task(environment_id.clone(), transport.stderr_reader);
@@ -1597,8 +1621,10 @@ impl RuntimeSession {
 fn spawn_stdout_task<R>(
     app: Option<AppHandle>,
     environment_id: String,
+    usage_update_context: UsageUpdateContext,
     pending: PendingRequestMap,
     state: Arc<Mutex<SessionState>>,
+    usage_updates: Option<mpsc::UnboundedSender<RuntimeUsageUpdate>>,
     reader: R,
 ) -> JoinHandle<()>
 where
@@ -1621,7 +1647,16 @@ where
                         handle_server_request(&app, &state, request).await;
                     }
                     Ok(IncomingMessage::Notification(notification)) => {
-                        handle_notification(&app, &state, &environment_id, notification).await;
+                        handle_notification(
+                            &app,
+                            &state,
+                            &environment_id,
+                            &usage_update_context.environment_path,
+                            usage_update_context.codex_binary_path.as_deref(),
+                            &usage_updates,
+                            notification,
+                        )
+                        .await;
                     }
                     Err(error) => {
                         error!("failed to parse codex notification: {error}");
@@ -1700,6 +1735,9 @@ async fn handle_notification(
     app: &Option<AppHandle>,
     state: &Arc<Mutex<SessionState>>,
     environment_id: &str,
+    environment_path: &str,
+    codex_binary_path: Option<&str>,
+    usage_updates: &Option<mpsc::UnboundedSender<RuntimeUsageUpdate>>,
     notification: crate::runtime::protocol::ServerNotificationEnvelope,
 ) {
     match notification.method.as_str() {
@@ -2155,7 +2193,13 @@ async fn handle_notification(
             }
         }
         "account/rateLimits/updated" => {
-            emit_usage_from_handle(app, environment_id, &notification.params);
+            emit_usage_update_from_params(
+                usage_updates,
+                environment_id,
+                environment_path,
+                codex_binary_path,
+                &notification.params,
+            );
         }
         "error" => {
             if let Ok(event) = serde_json::from_value::<ErrorNotification>(notification.params) {
@@ -2717,24 +2761,39 @@ impl ConversationItemSnapshotExt for ConversationItem {
     }
 }
 
-fn emit_usage_from_handle(app: &Option<AppHandle>, environment_id: &str, params: &Value) {
-    let Some(app) = app.as_ref() else {
+fn emit_usage_update_from_params(
+    usage_updates: &Option<mpsc::UnboundedSender<RuntimeUsageUpdate>>,
+    environment_id: &str,
+    environment_path: &str,
+    codex_binary_path: Option<&str>,
+    params: &Value,
+) {
+    let Some(usage_updates) = usage_updates.as_ref() else {
         return;
     };
-    let Some(payload) = usage_event_payload(environment_id, params) else {
+    let Some(update) =
+        usage_update_payload(environment_id, environment_path, codex_binary_path, params)
+    else {
         return;
     };
-    if let Err(error) = app.emit(CODEX_USAGE_EVENT_NAME, payload) {
-        warn!("failed to emit codex usage snapshot: {error}");
+    if let Err(error) = usage_updates.send(update) {
+        warn!("failed to forward codex usage snapshot: {error}");
     }
 }
 
-fn usage_event_payload(environment_id: &str, params: &Value) -> Option<Value> {
+fn usage_update_payload(
+    environment_id: &str,
+    environment_path: &str,
+    codex_binary_path: Option<&str>,
+    params: &Value,
+) -> Option<RuntimeUsageUpdate> {
     let rate_limits = params.get("rateLimits")?.clone();
-    Some(json!({
-        "environmentId": environment_id,
-        "rateLimits": rate_limits,
-    }))
+    Some(RuntimeUsageUpdate {
+        environment_id: environment_id.to_string(),
+        environment_path: environment_path.to_string(),
+        codex_binary_path: codex_binary_path.map(str::to_string),
+        rate_limits,
+    })
 }
 
 fn model_supports_image_input(
@@ -2774,8 +2833,6 @@ fn mark_item_streaming(item: ConversationItem) -> ConversationItem {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
     use crate::domain::conversation::{
         CollaborationModeOption, ConversationComposerSettings, ConversationItemStatus,
@@ -3100,7 +3157,7 @@ mod tests {
             pending_turn_mode_by_thread: HashMap::new(),
             stream_assistant_responses: true,
         }));
-        let item = json!({
+        let item = serde_json::json!({
             "id": "plan-item-1",
             "type": "plan",
             "text": "## Proposed plan\n\n- Inspect runtime"
@@ -3204,9 +3261,12 @@ mod tests {
             &None,
             &state,
             "env-1",
+            "/tmp/skein",
+            Some("/opt/homebrew/bin/codex"),
+            &None,
             crate::runtime::protocol::ServerNotificationEnvelope {
                 method: "item/started".to_string(),
-                params: json!({
+                params: serde_json::json!({
                     "threadId": "thr_codex",
                     "turnId": "turn-new",
                     "item": {
@@ -3366,10 +3426,12 @@ mod tests {
     }
 
     #[test]
-    fn usage_event_payload_preserves_partial_rate_limit_updates() {
-        let payload = usage_event_payload(
+    fn usage_update_payload_preserves_partial_rate_limit_updates() {
+        let payload = usage_update_payload(
             "env-1",
-            &json!({
+            "/tmp/skein",
+            Some("/opt/homebrew/bin/codex"),
+            &serde_json::json!({
                 "rateLimits": {
                     "primary": {
                         "resetsAt": 1_775_306_400
@@ -3379,20 +3441,29 @@ mod tests {
         )
         .expect("rate limits payload should be emitted");
 
-        assert_eq!(payload["environmentId"], json!("env-1"));
+        assert_eq!(payload.environment_id, "env-1");
+        assert_eq!(payload.environment_path, "/tmp/skein");
         assert_eq!(
-            payload["rateLimits"]["primary"]["resetsAt"],
-            json!(1_775_306_400)
+            payload.codex_binary_path.as_deref(),
+            Some("/opt/homebrew/bin/codex")
         );
-        assert!(payload["rateLimits"]["primary"]
-            .get("usedPercent")
-            .is_none());
-        assert!(payload["rateLimits"].get("secondary").is_none());
+        assert_eq!(
+            payload.rate_limits["primary"]["resetsAt"],
+            serde_json::json!(1_775_306_400)
+        );
+        assert!(payload.rate_limits["primary"].get("usedPercent").is_none());
+        assert!(payload.rate_limits.get("secondary").is_none());
     }
 
     #[test]
-    fn usage_event_payload_requires_rate_limits_object() {
-        assert!(usage_event_payload("env-1", &json!({})).is_none());
+    fn usage_update_payload_requires_rate_limits_object() {
+        assert!(usage_update_payload(
+            "env-1",
+            "/tmp/skein",
+            Some("/opt/homebrew/bin/codex"),
+            &serde_json::json!({})
+        )
+        .is_none());
     }
 
     #[tokio::test]
@@ -3437,9 +3508,12 @@ mod tests {
             &None,
             &state,
             "env-1",
+            "/tmp/skein",
+            Some("/opt/homebrew/bin/codex"),
+            &None,
             crate::runtime::protocol::ServerNotificationEnvelope {
                 method: "item/reasoning/summaryTextDelta".to_string(),
-                params: json!({
+                params: serde_json::json!({
                     "threadId": "thr_codex",
                     "turnId": "turn-1",
                     "itemId": "reasoning-1",
@@ -3452,9 +3526,12 @@ mod tests {
             &None,
             &state,
             "env-1",
+            "/tmp/skein",
+            Some("/opt/homebrew/bin/codex"),
+            &None,
             crate::runtime::protocol::ServerNotificationEnvelope {
                 method: "item/commandExecution/outputDelta".to_string(),
-                params: json!({
+                params: serde_json::json!({
                     "threadId": "thr_codex",
                     "turnId": "turn-1",
                     "itemId": "tool-1",

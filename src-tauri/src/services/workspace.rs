@@ -2379,7 +2379,9 @@ fn validate_project_shortcuts_against_global_settings(
         let (project_name, project_settings) = row?;
         project_settings
             .validate(Some(shortcuts))
-            .map_err(|error| AppError::Validation(format!("Project \"{project_name}\": {error}")))?;
+            .map_err(|error| {
+                AppError::Validation(format!("Project \"{project_name}\": {error}"))
+            })?;
     }
 
     Ok(())
@@ -3324,7 +3326,10 @@ mod tests {
             NotificationSoundId::Polite
         );
         assert_eq!(updated.notification_sounds, reloaded.notification_sounds);
-        assert_eq!(updated.desktop_notifications_enabled, reloaded.desktop_notifications_enabled);
+        assert_eq!(
+            updated.desktop_notifications_enabled,
+            reloaded.desktop_notifications_enabled
+        );
     }
 
     #[test]

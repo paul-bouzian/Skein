@@ -407,7 +407,9 @@ fn migrate_legacy_database_file(db_dir: &Path) -> AppResult<()> {
     existing_legacy_paths.sort_by_key(|path| {
         LEGACY_APP_DATABASE_FILE_NAMES
             .iter()
-            .position(|candidate| path.file_name().and_then(|name| name.to_str()) == Some(*candidate))
+            .position(|candidate| {
+                path.file_name().and_then(|name| name.to_str()) == Some(*candidate)
+            })
             .unwrap_or(LEGACY_APP_DATABASE_FILE_NAMES.len())
     });
 

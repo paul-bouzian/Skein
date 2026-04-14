@@ -6,6 +6,7 @@ mod infrastructure;
 #[cfg(target_os = "macos")]
 mod menu;
 mod runtime;
+mod serde_helpers;
 mod services;
 mod state;
 

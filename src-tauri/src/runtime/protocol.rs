@@ -2,7 +2,7 @@ use crate::app_identity::APP_NAME;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 
-pub use crate::app_identity::{CODEX_USAGE_EVENT_NAME, CONVERSATION_EVENT_NAME};
+pub use crate::app_identity::CONVERSATION_EVENT_NAME;
 use crate::domain::conversation::{
     CollaborationModeOption, ConversationApprovalKind, ConversationComposerSettings,
     ConversationErrorSnapshot, ConversationImageAttachment, ConversationInteraction,
@@ -2437,12 +2437,10 @@ mod tests {
         let payload = initialize_params("1.2.3", true);
 
         assert_eq!(payload["capabilities"]["experimentalApi"], true);
-        assert!(
-            payload["capabilities"]
-                .as_object()
-                .and_then(|capabilities| capabilities.get("optOutNotificationMethods"))
-                .is_none()
-        );
+        assert!(payload["capabilities"]
+            .as_object()
+            .and_then(|capabilities| capabilities.get("optOutNotificationMethods"))
+            .is_none());
     }
 
     #[test]

@@ -99,11 +99,13 @@ describe("codex usage store", () => {
     callback!({
       environmentId: "env-1",
       rateLimits: {
-        primary: { usedPercent: 72 },
+        primary: { usedPercent: 72, windowDurationMins: 300 },
+        secondary: { usedPercent: 44, windowDurationMins: 10_080 },
       },
     });
 
     expect(useCodexUsageStore.getState().snapshot?.primary?.usedPercent).toBe(72);
+    expect(useCodexUsageStore.getState().snapshot?.secondary?.usedPercent).toBe(44);
     expect(useCodexUsageStore.getState().loading).toBe(false);
   });
 
@@ -180,7 +182,7 @@ describe("codex usage store", () => {
     expect(state.lastFetchedAt).toBe(new Date("2026-04-04T10:00:01Z").valueOf());
   });
 
-  it("merges partial live usage updates into the existing snapshot", async () => {
+  it("replaces cached usage with the canonical live snapshot", async () => {
     let callback: ((payload: CodexUsageEventPayload) => void) | null = null;
     mockedBridge.listenToCodexUsageEvents.mockImplementation(async (handler) => {
       callback = handler;
@@ -206,21 +208,30 @@ describe("codex usage store", () => {
     callback!({
       environmentId: "env-1",
       rateLimits: {
+        limitName: "Pro",
         primary: {
           usedPercent: 72,
+          windowDurationMins: 300,
+          resetsAt: 1_775_306_400,
+        },
+        secondary: {
+          usedPercent: 61,
+          windowDurationMins: 10_080,
+          resetsAt: 1_775_910_400,
         },
       },
     });
 
     const { snapshot } = useCodexUsageStore.getState();
-    expect(snapshot?.planType).toBe("pro");
+    expect(snapshot?.planType).toBeUndefined();
+    expect(snapshot?.limitName).toBe("Pro");
     expect(snapshot?.primary).toEqual({
       usedPercent: 72,
       windowDurationMins: 300,
       resetsAt: 1_775_306_400,
     });
     expect(snapshot?.secondary).toEqual({
-      usedPercent: 55,
+      usedPercent: 61,
       windowDurationMins: 10_080,
       resetsAt: 1_775_910_400,
     });

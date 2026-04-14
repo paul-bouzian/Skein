@@ -182,8 +182,9 @@ impl PullRequestHarness {
     fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let temp_root = std::env::temp_dir().join(format!("skein-pr-test-{}", Uuid::now_v7()));
         fs::create_dir_all(&temp_root)?;
-        let database =
-            crate::infrastructure::database::AppDatabase::for_test(temp_root.join("skein.sqlite3"))?;
+        let database = crate::infrastructure::database::AppDatabase::for_test(
+            temp_root.join("skein.sqlite3"),
+        )?;
         let managed_root = temp_root.join("managed-worktrees");
         fs::create_dir_all(&managed_root)?;
         let gh_path = temp_root.join("bin");

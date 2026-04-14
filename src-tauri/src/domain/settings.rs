@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::shortcuts::{ShortcutSettings, ShortcutSettingsPatch};
+use crate::serde_helpers::deserialize_explicit_optional;
 
 fn default_collapse_work_activity() -> bool {
     true
@@ -43,15 +44,6 @@ fn default_completion_notification_sound_settings() -> NotificationSoundChannelS
 fn default_notification_sounds() -> NotificationSoundSettings {
     NotificationSoundSettings::default()
 }
-
-fn deserialize_explicit_optional<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
@@ -193,6 +185,7 @@ pub struct GlobalSettingsPatch {
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
     pub default_open_target_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_optional")]
     pub codex_binary_path: Option<Option<String>>,
 }
 
@@ -690,9 +683,15 @@ mod tests {
         assert!(settings.desktop_notifications_enabled);
         assert!(!settings.stream_assistant_responses);
         assert!(settings.notification_sounds.attention.enabled);
-        assert_eq!(settings.notification_sounds.attention.sound, NotificationSoundId::Chord);
+        assert_eq!(
+            settings.notification_sounds.attention.sound,
+            NotificationSoundId::Chord
+        );
         assert!(settings.notification_sounds.completion.enabled);
-        assert_eq!(settings.notification_sounds.completion.sound, NotificationSoundId::Glass);
+        assert_eq!(
+            settings.notification_sounds.completion.sound,
+            NotificationSoundId::Glass
+        );
         assert_eq!(
             settings.shortcuts.toggle_terminal.as_deref(),
             Some("mod+shift+j")
@@ -741,6 +740,14 @@ mod tests {
             .expect("service tier patch should deserialize");
 
         assert_eq!(patch.default_service_tier, Some(None));
+    }
+
+    #[test]
+    fn deserializes_null_codex_binary_path_patch_as_explicit_clear() {
+        let patch: GlobalSettingsPatch = serde_json::from_str(r#"{"codexBinaryPath":null}"#)
+            .expect("codex binary path patch should deserialize");
+
+        assert_eq!(patch.codex_binary_path, Some(None));
     }
 
     #[test]

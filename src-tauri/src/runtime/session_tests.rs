@@ -639,24 +639,20 @@ async fn assistant_message_hydrates_from_completed_item_without_live_deltas() {
         )
         .await;
 
-    let snapshot = wait_for_snapshot(
-        &session,
-        runtime_context.clone(),
-        |snapshot| {
-            snapshot.items.iter().any(|item| {
-                matches!(
-                    item,
-                    crate::domain::conversation::ConversationItem::Message(message)
-                        if message.id == "assistant-item-1"
-                            && message.text == "Buffered final assistant text"
-                            && !message.is_streaming
-                )
-            }) && matches!(
-                snapshot.status,
-                crate::domain::conversation::ConversationStatus::Completed
+    let snapshot = wait_for_snapshot(&session, runtime_context.clone(), |snapshot| {
+        snapshot.items.iter().any(|item| {
+            matches!(
+                item,
+                crate::domain::conversation::ConversationItem::Message(message)
+                    if message.id == "assistant-item-1"
+                        && message.text == "Buffered final assistant text"
+                        && !message.is_streaming
             )
-        },
-    )
+        }) && matches!(
+            snapshot.status,
+            crate::domain::conversation::ConversationStatus::Completed
+        )
+    })
     .await;
 
     assert!(snapshot.items.iter().any(|item| {
