@@ -103,8 +103,12 @@
 }
 
 .git-diff-panel__file--selected .git-diff-panel__file-header {
-  border-color: color-mix(in srgb, var(--tx-accent) 26%, var(--tx-border-subtle));
-  background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-raised));
+  border-color: color-mix(in srgb, var(--tx-accent) 25%, var(--tx-border-subtle));
+  background: var(--tx-bg-hover);
+}
+
+.git-diff-panel__file--selected .git-diff-panel__file-path {
+  color: var(--tx-accent);
 }
 
 .git-diff-panel__file-header {

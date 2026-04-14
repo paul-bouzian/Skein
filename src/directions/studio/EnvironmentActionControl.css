@@ -90,10 +90,21 @@
   min-width: 0;
 }
 
-.environment-action-control__option:hover,
-.environment-action-control__option--selected {
-  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-hover));
+.environment-action-control__option:hover {
+  background: var(--tx-bg-hover);
   color: var(--tx-text-primary);
+}
+
+.environment-action-control__option--selected {
+  background: var(--tx-bg-hover);
+}
+
+.environment-action-control__option--selected .environment-action-control__option-label {
+  color: var(--tx-accent);
+}
+
+.environment-action-control__option--selected:hover .environment-action-control__option-label {
+  color: var(--tx-accent-hover);
 }
 
 .environment-action-control__option-copy {

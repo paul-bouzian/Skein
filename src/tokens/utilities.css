@@ -1,4 +1,23 @@
-/* ── Shared utility classes ── */
+/* ==========================================================================
+   Shared UI primitives — conventions for new components.
+
+   Buttons: pick one system per surface.
+     .tx-action-btn (32px, settings/toolbars) — .tx-button (36px, conversation CTAs).
+     Variants behave the same in both:
+       --primary   transparent bg + subtle border + accent text.
+       --secondary bg-hover surface + muted text (neutral, zero accent).
+       --ghost     fully transparent, tertiary actions.
+
+   Selectable items (list options, file rows, dropdown entries):
+     hover = background: var(--tx-bg-hover).
+     selected = same background + color: var(--tx-accent) on the label.
+     Never fill backgrounds with accent tints.
+
+   Intentional full-accent backgrounds (do NOT neutralize):
+     .tx-composer__send-button, .tx-composer__icon-toggle--active,
+     .settings-toggle__control--checked, focus-visible rings,
+     live status chips (voice, failed subagent, notices).
+   ========================================================================== */
 
 .tx-section-label {
   font-size: var(--tx-text-xs);
@@ -34,25 +53,37 @@
 }
 
 .tx-action-btn--primary {
-  border: 1px solid color-mix(in srgb, var(--tx-accent) 42%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 16%, transparent);
-  color: var(--tx-text-primary);
+  border: 1px solid var(--tx-border-muted);
+  background: transparent;
+  color: var(--tx-accent);
 }
 
 .tx-action-btn--primary:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 60%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-muted));
+  background: var(--tx-bg-hover);
+  color: var(--tx-accent-hover);
 }
 
 .tx-action-btn--secondary {
-  border: 1px solid var(--tx-border-subtle);
-  background: transparent;
+  border: 1px solid transparent;
+  background: var(--tx-bg-hover);
   color: var(--tx-text-secondary);
   box-shadow: none;
 }
 
 .tx-action-btn--secondary:hover:not(:disabled) {
-  border-color: var(--tx-border-muted);
+  background: var(--tx-bg-active);
+  color: var(--tx-text-primary);
+}
+
+.tx-action-btn--ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--tx-text-secondary);
+  box-shadow: none;
+}
+
+.tx-action-btn--ghost:hover:not(:disabled) {
   background: var(--tx-bg-hover);
   color: var(--tx-text-primary);
 }

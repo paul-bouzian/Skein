@@ -317,8 +317,12 @@
 }
 
 .inspector-file-row--selected {
-  border-color: color-mix(in srgb, var(--tx-accent) 18%, var(--tx-border-subtle));
-  background: color-mix(in srgb, var(--tx-accent) 8%, var(--tx-bg-base));
+  background: var(--tx-bg-hover);
+  border-color: transparent;
+}
+
+.inspector-file-row--selected .inspector-file-row__path {
+  color: var(--tx-accent);
 }
 
 .inspector-file-row__select {

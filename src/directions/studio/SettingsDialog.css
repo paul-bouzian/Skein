@@ -516,9 +516,9 @@
 
 .settings-project-action__icon-btn--selected,
 .settings-project-action__icon-btn--selected:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-focus));
-  background: color-mix(in srgb, var(--tx-accent) 12%, var(--tx-bg-sunken));
-  color: var(--tx-text-primary);
+  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-muted));
+  background: transparent;
+  color: var(--tx-accent);
 }
 
 .settings-project-action__chips {
@@ -703,8 +703,8 @@
 
 .settings-open-target__default-btn--active,
 .settings-open-target__default-btn--active:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 50%, transparent);
-  background: color-mix(in srgb, var(--tx-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-muted));
+  background: transparent;
   color: var(--tx-accent);
 }
 

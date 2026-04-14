@@ -91,10 +91,21 @@
   min-width: 0;
 }
 
-.open-environment-control__option:hover,
-.open-environment-control__option--selected {
-  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-hover));
+.open-environment-control__option:hover {
+  background: var(--tx-bg-hover);
   color: var(--tx-text-primary);
+}
+
+.open-environment-control__option--selected {
+  background: var(--tx-bg-hover);
+}
+
+.open-environment-control__option--selected .open-environment-control__option-label {
+  color: var(--tx-accent);
+}
+
+.open-environment-control__option--selected:hover .open-environment-control__option-label {
+  color: var(--tx-accent-hover);
 }
 
 .open-environment-control__option-copy {

@@ -638,13 +638,21 @@ ol.tx-markdown__list {
   text-align: left;
   transition:
     border-color var(--tx-transition-fast),
-    background var(--tx-transition-fast);
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
 }
 
-.tx-interaction__option:hover,
+.tx-interaction__option:hover {
+  background: var(--tx-bg-hover);
+}
+
 .tx-interaction__option--selected {
-  border-color: color-mix(in srgb, var(--tx-accent) 38%, var(--tx-border-subtle));
-  background: color-mix(in srgb, var(--tx-accent) 10%, var(--tx-bg-base));
+  background: var(--tx-bg-hover);
+  border-color: color-mix(in srgb, var(--tx-accent) 25%, var(--tx-border-subtle));
+}
+
+.tx-interaction__option--selected .tx-interaction__option-label {
+  color: var(--tx-accent);
 }
 
 .tx-interaction__option-label {
@@ -690,9 +698,9 @@ ol.tx-markdown__list {
   min-height: 36px;
   padding: 0 14px;
   border-radius: var(--tx-radius-md);
-  border: 1px solid color-mix(in srgb, var(--tx-accent) 35%, var(--tx-border-subtle));
-  background: color-mix(in srgb, var(--tx-accent) 14%, var(--tx-bg-base));
-  color: var(--tx-text-primary);
+  border: 1px solid var(--tx-border-muted);
+  background: transparent;
+  color: var(--tx-accent);
   font-size: var(--tx-text-sm);
   font-weight: var(--tx-weight-semibold);
   transition:
@@ -702,19 +710,31 @@ ol.tx-markdown__list {
 }
 
 .tx-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--tx-accent) 55%, var(--tx-border-subtle));
-  background: color-mix(in srgb, var(--tx-accent) 20%, var(--tx-bg-base));
+  border-color: color-mix(in srgb, var(--tx-accent) 45%, var(--tx-border-muted));
+  background: var(--tx-bg-hover);
+  color: var(--tx-accent-hover);
 }
 
 .tx-button--secondary {
-  border-color: var(--tx-border-subtle);
-  background: var(--tx-bg-base);
+  border-color: transparent;
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-secondary);
+}
+
+.tx-button--secondary:hover:not(:disabled) {
+  background: var(--tx-bg-active);
+  color: var(--tx-text-primary);
 }
 
 .tx-button--ghost {
   border-color: transparent;
   background: transparent;
   color: var(--tx-text-secondary);
+}
+
+.tx-button--ghost:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
 }
 
 .tx-button:disabled {
