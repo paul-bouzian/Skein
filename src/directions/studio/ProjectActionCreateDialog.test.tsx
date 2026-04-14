@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { makeProject } from "../../test/fixtures/conversation";
@@ -9,6 +10,35 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 
 describe("ProjectActionCreateDialog", () => {
+  it("keeps the draft intact when the backing project refreshes with the same id", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const initialProject = makeProject({ id: "project-1", name: "Skein" });
+    const { rerender } = render(
+      <ProjectActionCreateDialog
+        open
+        project={initialProject}
+        shortcutSettings={{}}
+        onClose={onClose}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Label"), "Dev");
+    await user.type(screen.getByLabelText("Script"), "bun run dev");
+
+    rerender(
+      <ProjectActionCreateDialog
+        open
+        project={makeProject({ id: "project-1", name: "Skein" })}
+        shortcutSettings={{}}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.getByLabelText("Label")).toHaveValue("Dev");
+    expect(screen.getByLabelText("Script")).toHaveValue("bun run dev");
+  });
+
   it("cleans up focus and body scroll lock when the backing project disappears", async () => {
     const opener = document.createElement("button");
     opener.type = "button";

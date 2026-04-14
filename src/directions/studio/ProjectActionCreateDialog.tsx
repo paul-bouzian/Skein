@@ -44,9 +44,10 @@ export function ProjectActionCreateDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const projectId = project?.id ?? null;
 
   useEffect(() => {
-    if (!open || !project) {
+    if (!open || !projectId) {
       return;
     }
 
@@ -54,7 +55,7 @@ export function ProjectActionCreateDialog({
     setCapturingShortcut(false);
     setSaving(false);
     setSaveError(null);
-  }, [open, project]);
+  }, [open, projectId]);
 
   useEffect(() => {
     if (!open || !project) {
