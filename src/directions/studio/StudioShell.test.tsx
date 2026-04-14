@@ -260,6 +260,35 @@ describe("StudioShell", () => {
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
   });
 
+  it("closes the action dialog before opening settings from the menu event", async () => {
+    let callback: (() => void) | null = null;
+    mockedBridge.listenToMenuOpenSettings.mockImplementation(async (next) => {
+      callback = next;
+      return () => undefined;
+    });
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+    expect(screen.getByRole("dialog", { name: "Add Action" })).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await act(async () => {
+      callback?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog", { name: "Add Action" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
+  });
+
   it("opens settings from the global keyboard shortcut", async () => {
     render(<StudioShell />);
 

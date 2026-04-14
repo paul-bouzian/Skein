@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
@@ -68,11 +68,17 @@ export function StudioShell() {
   const actionCreateProject =
     workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const diffPanelOpen = Boolean(selectedFileKey);
-  const shortcutsBlocked = settingsOpen || actionCreateProject != null;
+  const actionCreateDialogOpen = !settingsOpen && actionCreateProject != null;
+  const shortcutsBlocked = settingsOpen || actionCreateDialogOpen;
+
+  const openSettingsDialog = useCallback(() => {
+    setActionCreateProjectId(null);
+    setSettingsOpen(true);
+  }, []);
 
   useStudioShortcuts({
     shortcutsBlocked,
-    onOpenSettings: () => setSettingsOpen(true),
+    onOpenSettings: openSettingsDialog,
     onRequestApproveOrSubmit: () =>
       setApproveOrSubmitNonce((current) => current + 1),
     onRequestComposerFocus: () => setComposerFocusNonce((current) => current + 1),
@@ -95,7 +101,7 @@ export function StudioShell() {
     let unlisten: (() => void) | null = null;
 
     void bridge.listenToMenuOpenSettings(() => {
-      setSettingsOpen(true);
+      openSettingsDialog();
     }).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
@@ -108,7 +114,7 @@ export function StudioShell() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [openSettingsDialog]);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -119,7 +125,7 @@ export function StudioShell() {
       <TreeSidebar
         theme={theme}
         collapsed={!projectsSidebarOpen}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettingsDialog}
         onToggleTheme={toggleTheme}
       />
       <StudioMain
@@ -143,7 +149,7 @@ export function StudioShell() {
         onClose={() => setSettingsOpen(false)}
       />
       <ProjectActionCreateDialog
-        open={actionCreateProject != null}
+        open={actionCreateDialogOpen}
         project={actionCreateProject}
         shortcutSettings={settings?.shortcuts ?? {}}
         onClose={() => setActionCreateProjectId(null)}
