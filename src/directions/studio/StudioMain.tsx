@@ -29,6 +29,7 @@ type Props = {
   inspectorOpen: boolean;
   composerFocusKey: number;
   approveOrSubmitKey: number;
+  onOpenActionCreateDialog: () => void;
   onToggleProjectsSidebar: () => void;
   onToggleInspector: () => void;
 };
@@ -39,6 +40,7 @@ export function StudioMain({
   inspectorOpen,
   composerFocusKey,
   approveOrSubmitKey,
+  onOpenActionCreateDialog,
   onToggleProjectsSidebar,
   onToggleInspector,
 }: Props) {
@@ -104,6 +106,7 @@ export function StudioMain({
             environmentId={selectedEnvironment?.id ?? null}
             projectId={selectedProject?.id ?? null}
             actions={selectedProject?.settings.manualActions ?? []}
+            onAddAction={onOpenActionCreateDialog}
           />
           <OpenEnvironmentControl
             environmentId={selectedEnvironment?.id ?? null}

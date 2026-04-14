@@ -12,8 +12,11 @@ import {
 } from "../../stores/git-review-store";
 import {
   selectSelectedEnvironment,
+  selectSelectedProject,
+  selectSettings,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
+import { ProjectActionCreateDialog } from "./ProjectActionCreateDialog";
 import { useVoiceSessionStore } from "../../stores/voice-session-store";
 import { SettingsDialog } from "./SettingsDialog";
 import { TreeSidebar } from "./TreeSidebar";
@@ -45,10 +48,13 @@ export function StudioShell() {
   const [projectsSidebarOpen, setProjectsSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionCreateProjectId, setActionCreateProjectId] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
   const [approveOrSubmitNonce, setApproveOrSubmitNonce] = useState(0);
   const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
+  const settings = useWorkspaceStore(selectSettings);
+  const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const reconcileVoiceSessionSnapshot = useVoiceSessionStore(
     (state) => state.reconcileWorkspaceSnapshot,
@@ -59,6 +65,8 @@ export function StudioShell() {
   const selectedFileKey = useGitReviewStore(
     selectGitReviewSelectedFile(selectedEnvironment?.id ?? null, scope),
   );
+  const actionCreateProject =
+    workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const diffPanelOpen = Boolean(selectedFileKey);
 
   useStudioShortcuts({
@@ -119,6 +127,9 @@ export function StudioShell() {
         inspectorOpen={inspectorOpen}
         composerFocusKey={composerFocusNonce}
         approveOrSubmitKey={approveOrSubmitNonce}
+        onOpenActionCreateDialog={() =>
+          setActionCreateProjectId(selectedProject?.id ?? null)
+        }
         onToggleProjectsSidebar={() =>
           setProjectsSidebarOpen((current) => !current)
         }
@@ -129,6 +140,12 @@ export function StudioShell() {
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <ProjectActionCreateDialog
+        open={actionCreateProject != null}
+        project={actionCreateProject}
+        shortcutSettings={settings?.shortcuts ?? {}}
+        onClose={() => setActionCreateProjectId(null)}
       />
       <div className="studio-notice-stack">
         <FirstPromptRenameFailureNotice />

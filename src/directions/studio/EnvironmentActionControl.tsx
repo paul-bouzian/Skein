@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 
 import { formatShortcut } from "../../lib/shortcuts";
 import type { ProjectManualAction } from "../../lib/types";
-import { CheckIcon, ChevronRightIcon } from "../../shared/Icons";
+import { CheckIcon, ChevronRightIcon, PlusIcon } from "../../shared/Icons";
 import { useTerminalStore } from "../../stores/terminal-store";
 import { ProjectActionIcon } from "./ProjectActionIcon";
 import {
@@ -17,6 +17,7 @@ type Props = {
   environmentId: string | null;
   projectId: string | null;
   actions: ProjectManualAction[];
+  onAddAction: () => void;
 };
 
 type MenuPosition = {
@@ -31,6 +32,7 @@ export function EnvironmentActionControl({
   environmentId,
   projectId,
   actions,
+  onAddAction,
 }: Props) {
   const openActionTab = useTerminalStore((state) => state.openActionTab);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -124,11 +126,17 @@ export function EnvironmentActionControl({
     };
   }, [menuOpen]);
 
-  if (!environmentId || !projectId || actions.length === 0) {
+  if (!environmentId || !projectId) {
     return null;
   }
 
-  const disabled = !activeAction || busy;
+  const hasActions = actions.length > 0;
+  const disabled = busy;
+
+  function openAddActionDialog() {
+    setMenuOpen(false);
+    onAddAction();
+  }
 
   async function launchAction(action: ProjectManualAction) {
     if (!environmentId || !projectId || busy) {
@@ -160,6 +168,15 @@ export function EnvironmentActionControl({
     }
   }
 
+  function handlePrimaryActionClick() {
+    if (activeAction) {
+      void launchAction(activeAction);
+      return;
+    }
+
+    openAddActionDialog();
+  }
+
   return (
     <>
       <div
@@ -170,9 +187,9 @@ export function EnvironmentActionControl({
           type="button"
           className="environment-action-control__main"
           disabled={disabled}
-          title={activeAction ? `Run ${activeAction.label}` : "Run project action"}
-          aria-label={activeAction ? `Run ${activeAction.label}` : "Run project action"}
-          onClick={() => activeAction && void launchAction(activeAction)}
+          title={activeAction ? `Run ${activeAction.label}` : "Add project action"}
+          aria-label={activeAction ? `Run ${activeAction.label}` : "Add project action"}
+          onClick={handlePrimaryActionClick}
         >
           {activeAction ? (
             <ProjectActionIcon
@@ -180,9 +197,11 @@ export function EnvironmentActionControl({
               size={14}
               className="environment-action-control__icon"
             />
-          ) : null}
+          ) : (
+            <PlusIcon size={14} className="environment-action-control__icon" />
+          )}
           <span className="environment-action-control__label">
-            {activeAction?.label ?? "Actions"}
+            {activeAction?.label ?? "Add action"}
           </span>
         </button>
         <button
@@ -191,8 +210,8 @@ export function EnvironmentActionControl({
           disabled={busy}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          aria-label="Choose project action"
-          title="Choose project action"
+          aria-label={hasActions ? "Choose project action" : "Project action options"}
+          title={hasActions ? "Choose project action" : "Project action options"}
           onClick={() => setMenuOpen((current) => !current)}
         >
           <ChevronRightIcon
@@ -245,6 +264,26 @@ export function EnvironmentActionControl({
                   </button>
                 );
               })}
+              {hasActions ? (
+                <div className="environment-action-control__divider" role="separator" />
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                className="environment-action-control__option environment-action-control__option--add tx-dropdown-option"
+                onClick={openAddActionDialog}
+              >
+                <PlusIcon
+                  size={16}
+                  className="environment-action-control__option-icon environment-action-control__option-icon--add"
+                />
+                <span className="environment-action-control__option-copy">
+                  <span className="environment-action-control__option-label">Add action</span>
+                  <span className="environment-action-control__option-meta">
+                    Create a reusable project action
+                  </span>
+                </span>
+              </button>
             </div>,
             document.body,
           )

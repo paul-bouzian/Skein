@@ -80,6 +80,13 @@ export function validateProjectDraft(
   draft: ProjectDraft,
   shortcutSettings: ShortcutSettings,
 ): ProjectDraftIssues {
+  return validateProjectActionDrafts(draft.actions, shortcutSettings);
+}
+
+export function validateProjectActionDrafts(
+  actions: ProjectActionDraft[],
+  shortcutSettings: ShortcutSettings,
+): ProjectDraftIssues {
   const actionsById: Record<string, ProjectActionDraftIssues> = {};
   const seenActionIds = new Set<string>();
   const seenShortcuts = new Map<string, { actionId: string; label: string }>();
@@ -95,7 +102,7 @@ export function validateProjectDraft(
 
   let hasIssues = false;
 
-  for (const action of draft.actions) {
+  for (const action of actions) {
     const issue: ProjectActionDraftIssues = {};
     const actionId = action.id.trim();
     const label = action.label.trim();

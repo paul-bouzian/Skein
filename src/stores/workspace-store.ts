@@ -5,6 +5,7 @@ import type {
   BootstrapStatus,
   EnvironmentRecord,
   GlobalSettings,
+  ProjectSettingsPatch,
   ProjectRecord,
   ThreadRecord,
   WorkspaceSnapshot,
@@ -22,6 +23,10 @@ type WorkspaceMutationResult = {
 
 type WorkspaceSettingsMutationResult = WorkspaceMutationResult & {
   settings: GlobalSettings | null;
+};
+
+type WorkspaceProjectMutationResult = WorkspaceMutationResult & {
+  project: ProjectRecord | null;
 };
 
 type WorkspaceStateUpdate =
@@ -49,6 +54,10 @@ type WorkspaceState = {
   updateGlobalSettings: (
     patch: Parameters<typeof bridge.updateGlobalSettings>[0],
   ) => Promise<WorkspaceSettingsMutationResult>;
+  updateProjectSettings: (
+    projectId: string,
+    patch: ProjectSettingsPatch,
+  ) => Promise<WorkspaceProjectMutationResult>;
   removeThread: (threadId: string) => boolean;
   reorderProjects: (projectIds: string[]) => Promise<WorkspaceMutationResult>;
   reorderWorktreeEnvironments: (
@@ -154,47 +163,45 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   updateGlobalSettings: async (patch) => {
-    let settings: GlobalSettings;
-    try {
-      settings = await bridge.updateGlobalSettings(patch);
-    } catch (cause: unknown) {
-      const message =
-        cause instanceof Error ? cause.message : "Failed to save settings";
-      set({ error: message });
-      return {
-        ok: false,
-        refreshed: false,
-        warningMessage: null,
-        errorMessage: message,
-        settings: null,
-      };
-    }
+    let settings: GlobalSettings | null = null;
+    const result = await runWorkspaceMutation(set, get, {
+      run: async () => {
+        settings = await bridge.updateGlobalSettings(patch);
+      },
+      applySnapshot: (snapshot) =>
+        settings
+          ? {
+              ...snapshot,
+              settings,
+            }
+          : snapshot,
+      writeFailureMessage: "Failed to save settings",
+      refreshFailureMessage:
+        "Settings were saved, but the workspace snapshot could not be refreshed.",
+    });
 
-    applySnapshotMutation(set, (snapshot) => ({
-      ...snapshot,
-      settings,
-    }));
-
-    if (await get().refreshSnapshot()) {
-      set({ error: null });
-      return {
-        ok: true,
-        refreshed: true,
-        warningMessage: null,
-        errorMessage: null,
-        settings,
-      };
-    }
-
-    const warningMessage =
-      "Settings were saved, but the workspace snapshot could not be refreshed.";
-    set({ error: warningMessage });
     return {
-      ok: true,
-      refreshed: false,
-      warningMessage,
-      errorMessage: null,
+      ...result,
       settings,
+    };
+  },
+
+  updateProjectSettings: async (projectId, patch) => {
+    let project: ProjectRecord | null = null;
+    const result = await runWorkspaceMutation(set, get, {
+      run: async () => {
+        project = await bridge.updateProjectSettings({ projectId, patch });
+      },
+      applySnapshot: (snapshot) =>
+        project ? replaceProjectInSnapshot(snapshot, project) : snapshot,
+      writeFailureMessage: "Failed to save project settings",
+      refreshFailureMessage:
+        "Project settings were saved, but the workspace snapshot could not be refreshed.",
+    });
+
+    return {
+      ...result,
+      project,
     };
   },
 
@@ -716,6 +723,28 @@ function setProjectSidebarCollapsedInSnapshot(
       ...project,
       sidebarCollapsed: collapsed,
     };
+  });
+
+  return changed
+    ? {
+        ...snapshot,
+        projects: nextProjects,
+      }
+    : snapshot;
+}
+
+function replaceProjectInSnapshot(
+  snapshot: WorkspaceSnapshot,
+  project: ProjectRecord,
+) {
+  let changed = false;
+  const nextProjects = snapshot.projects.map((candidate) => {
+    if (candidate.id !== project.id) {
+      return candidate;
+    }
+
+    changed = true;
+    return project;
   });
 
   return changed

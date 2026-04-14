@@ -36,12 +36,14 @@ describe("EnvironmentActionControl", () => {
   it("runs the primary action from the main button", async () => {
     const user = userEvent.setup();
     const openActionTab = vi.fn(async () => "tab-1");
+    const onAddAction = vi.fn();
     useTerminalStore.setState({ openActionTab });
 
     render(
       <EnvironmentActionControl
         environmentId="env-1"
         projectId="project-1"
+        onAddAction={onAddAction}
         actions={[
           {
             id: "dev",
@@ -63,11 +65,13 @@ describe("EnvironmentActionControl", () => {
       script: "bun run dev",
       shortcut: "mod+shift+d",
     });
+    expect(onAddAction).not.toHaveBeenCalled();
   });
 
   it("launches the chosen menu action and remembers it as the next primary action", async () => {
     const user = userEvent.setup();
     const openActionTab = vi.fn(async () => "tab-2");
+    const onAddAction = vi.fn();
     useTerminalStore.setState({ openActionTab });
     const actions = [
       {
@@ -89,6 +93,7 @@ describe("EnvironmentActionControl", () => {
       <EnvironmentActionControl
         environmentId="env-1"
         projectId="project-1"
+        onAddAction={onAddAction}
         actions={actions}
       />,
     );
@@ -106,9 +111,61 @@ describe("EnvironmentActionControl", () => {
         environmentId="env-1"
         projectId="project-1"
         actions={[...actions]}
+        onAddAction={onAddAction}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Run Stop" })).toBeInTheDocument();
+    expect(onAddAction).not.toHaveBeenCalled();
+  });
+
+  it("shows the control without actions and routes both entry points to add action", async () => {
+    const user = userEvent.setup();
+    const onAddAction = vi.fn();
+
+    render(
+      <EnvironmentActionControl
+        environmentId="env-1"
+        projectId="project-1"
+        actions={[]}
+        onAddAction={onAddAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add project action" }));
+    expect(onAddAction).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Project action options" }));
+    expect(screen.getByRole("menuitem", { name: /Add action/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: /Add action/i }));
+    expect(onAddAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers add action alongside existing actions in the menu", async () => {
+    const user = userEvent.setup();
+    const onAddAction = vi.fn();
+
+    render(
+      <EnvironmentActionControl
+        environmentId="env-1"
+        projectId="project-1"
+        onAddAction={onAddAction}
+        actions={[
+          {
+            id: "dev",
+            label: "Dev",
+            icon: "play",
+            script: "bun run dev",
+            shortcut: null,
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Choose project action" }));
+    await user.click(screen.getByRole("menuitem", { name: /Add action/i }));
+
+    expect(onAddAction).toHaveBeenCalledTimes(1);
   });
 });

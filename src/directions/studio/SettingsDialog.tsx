@@ -5,7 +5,6 @@ import {
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
-import * as bridge from "../../lib/bridge";
 import { CodexSettingsTab } from "./CodexSettingsTab";
 import type { GlobalSettingsPatch, ProjectSettingsPatch } from "../../lib/types";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
@@ -31,8 +30,6 @@ type Props = {
 };
 
 const SETTINGS_PICKER_Z_INDEX = 1310;
-const SETTINGS_REFRESH_ERROR =
-  "Settings were saved, but the workspace snapshot could not be refreshed.";
 const DESKTOP_NOTIFICATIONS_ENABLE_ERROR =
   "Desktop notifications could not be enabled. Check your operating system notification permissions and try again.";
 const DESKTOP_NOTIFICATIONS_PERMISSION_DENIED =
@@ -63,8 +60,8 @@ export function SettingsDialog({ open, onClose }: Props) {
   const capabilities = useConversationStore(
     selectConversationCapabilities(selectedEnvironmentId),
   );
-  const refreshSnapshot = useWorkspaceStore((state) => state.refreshSnapshot);
   const updateGlobalSettings = useWorkspaceStore((state) => state.updateGlobalSettings);
+  const updateProjectSettings = useWorkspaceStore((state) => state.updateProjectSettings);
   const [actionError, setActionError] = useState<string | null>(null);
   const [desktopNotificationsNotice, setDesktopNotificationsNotice] = useState<
     string | null
@@ -118,13 +115,6 @@ export function SettingsDialog({ open, onClose }: Props) {
       setActiveTab("codex");
     }
   }, [open]);
-
-  async function refreshWorkspaceOrThrow() {
-    const refreshed = await refreshSnapshot();
-    if (!refreshed) {
-      throw new Error(SETTINGS_REFRESH_ERROR);
-    }
-  }
 
   async function applyGlobalSettingsChange(patch: GlobalSettingsPatch) {
     try {
@@ -200,22 +190,14 @@ export function SettingsDialog({ open, onClose }: Props) {
     patch: ProjectSettingsPatch,
   ) {
     setActionError(null);
-
-    try {
-      await bridge.updateProjectSettings({ projectId, patch });
-    } catch (cause: unknown) {
-      const message =
-        cause instanceof Error ? cause.message : "Failed to save project settings";
+    const result = await updateProjectSettings(projectId, patch);
+    if (!result.ok) {
+      const message = result.errorMessage ?? "Failed to save project settings";
       setActionError(message);
-      throw cause;
+      throw new Error(message);
     }
-
-    try {
-      await refreshWorkspaceOrThrow();
-    } catch (cause: unknown) {
-      const message =
-        cause instanceof Error ? cause.message : "Failed to save project settings";
-      setActionError(message);
+    if (result.warningMessage) {
+      setActionError(result.warningMessage);
     }
   }
 

@@ -22,6 +22,7 @@ vi.mock("../lib/bridge", () => ({
   listenToWorkspaceEvents: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
   updateGlobalSettings: vi.fn(),
+  updateProjectSettings: vi.fn(),
   reorderProjects: vi.fn(),
   reorderWorktreeEnvironments: vi.fn(),
   setProjectSidebarCollapsed: vi.fn(),
@@ -48,6 +49,7 @@ beforeEach(() => {
     knownEnvironmentIds: [],
   });
   mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
+  mockedBridge.updateProjectSettings.mockResolvedValue(makeProject());
   useWorkspaceStore.setState(initialWorkspaceState, true);
   useWorkspaceStore.setState({ loadingState: "ready" });
 });
@@ -549,6 +551,114 @@ describe("workspace store", () => {
     ).toBe("zed");
   });
 
+  it("updates project settings through the shared mutation helper", async () => {
+    mockedBridge.updateProjectSettings.mockResolvedValue(
+      makeProject({
+        settings: {
+          worktreeSetupScript: "pnpm install",
+          worktreeTeardownScript: undefined,
+          manualActions: [
+            {
+              id: "dev",
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            },
+          ],
+        },
+      }),
+    );
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+      makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            settings: {
+              worktreeSetupScript: "pnpm install",
+              worktreeTeardownScript: undefined,
+              manualActions: [
+                {
+                  id: "dev",
+                  label: "Dev",
+                  icon: "play",
+                  script: "bun run dev",
+                  shortcut: null,
+                },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot(),
+    }));
+
+    const result = await useWorkspaceStore.getState().updateProjectSettings("project-1", {
+      worktreeSetupScript: "pnpm install",
+      worktreeTeardownScript: null,
+      manualActions: [
+        {
+          id: "dev",
+          label: "Dev",
+          icon: "play",
+          script: "bun run dev",
+          shortcut: null,
+        },
+      ],
+    });
+
+    expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
+      projectId: "project-1",
+      patch: {
+        worktreeSetupScript: "pnpm install",
+        worktreeTeardownScript: null,
+        manualActions: [
+          {
+            id: "dev",
+            label: "Dev",
+            icon: "play",
+            script: "bun run dev",
+            shortcut: null,
+          },
+        ],
+      },
+    });
+    expect(result).toEqual({
+      ok: true,
+      refreshed: true,
+      warningMessage: null,
+      errorMessage: null,
+      project: makeProject({
+        settings: {
+          worktreeSetupScript: "pnpm install",
+          worktreeTeardownScript: undefined,
+          manualActions: [
+            {
+              id: "dev",
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            },
+          ],
+        },
+      }),
+    });
+    expect(
+      useWorkspaceStore.getState().snapshot?.projects[0]?.settings.manualActions,
+    ).toEqual([
+      {
+        id: "dev",
+        label: "Dev",
+        icon: "play",
+        script: "bun run dev",
+        shortcut: null,
+      },
+    ]);
+  });
+
   it("returns a warning when settings save succeeds but refresh fails", async () => {
     mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
     useWorkspaceStore.setState((state) => ({
@@ -568,6 +678,68 @@ describe("workspace store", () => {
         "Settings were saved, but the workspace snapshot could not be refreshed.",
       errorMessage: null,
       settings: makeGlobalSettings(),
+    });
+  });
+
+  it("returns a warning when project settings save succeeds but refresh fails", async () => {
+    mockedBridge.updateProjectSettings.mockResolvedValue(
+      makeProject({
+        settings: {
+          worktreeSetupScript: undefined,
+          worktreeTeardownScript: undefined,
+          manualActions: [
+            {
+              id: "dev",
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            },
+          ],
+        },
+      }),
+    );
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot(),
+      refreshSnapshot: vi.fn(async () => false),
+    }));
+
+    const result = await useWorkspaceStore.getState().updateProjectSettings("project-1", {
+      worktreeSetupScript: null,
+      worktreeTeardownScript: null,
+      manualActions: [
+        {
+          id: "dev",
+          label: "Dev",
+          icon: "play",
+          script: "bun run dev",
+          shortcut: null,
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      refreshed: false,
+      warningMessage:
+        "Project settings were saved, but the workspace snapshot could not be refreshed.",
+      errorMessage: null,
+      project: makeProject({
+        settings: {
+          worktreeSetupScript: undefined,
+          worktreeTeardownScript: undefined,
+          manualActions: [
+            {
+              id: "dev",
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            },
+          ],
+        },
+      }),
     });
   });
 
