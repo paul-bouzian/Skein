@@ -5,7 +5,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tokio::sync::{mpsc, Mutex};
 use tracing::warn;
 
@@ -92,7 +92,7 @@ pub const RUNTIME_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum UsageUpdateOrigin {
     LiveNotification,
-    ManualRead,
+    DirectRead,
     ConfirmationRead,
 }
 
@@ -304,25 +304,20 @@ impl RuntimeSupervisor {
             .await?;
 
         let snapshot = read_account_rate_limits_from_target(read_target).await?;
-        let apply_result = apply_account_usage_snapshot(
-            &self.account_usage,
-            snapshot,
-            UsageUpdateOrigin::ManualRead,
-        )
-        .await?;
-
-        schedule_usage_confirmation_if_needed(
+        let apply_result = store_account_usage_snapshot_from_read(
             &self.app,
             &self.app_version,
             &self.registry,
             &self.account_usage,
-            apply_result.confirmation_requested,
+            snapshot,
+            UsageUpdateOrigin::DirectRead,
             Some(UsageConfirmationFallback {
                 environment_id: environment_id.to_string(),
                 environment_path: environment_path.to_string(),
                 codex_binary_path,
             }),
-        );
+        )
+        .await?;
 
         Ok(apply_result.snapshot)
     }
@@ -409,12 +404,48 @@ impl RuntimeSupervisor {
             .insert(environment_id.to_string(), status.clone());
         drop(registry);
         self.emit_runtime_status_event(environment_id);
+        self.schedule_runtime_usage_priming(environment_id, runtime_target, &session);
 
         Ok(RunningRuntime {
             session,
             status,
             last_activity_at: now,
         })
+    }
+
+    fn schedule_runtime_usage_priming(
+        &self,
+        environment_id: &str,
+        runtime_target: &EnvironmentRuntimeTarget,
+        session: &Arc<RuntimeSession>,
+    ) {
+        let app = self.app.clone();
+        let app_version = self.app_version.clone();
+        let registry = self.registry.clone();
+        let account_usage = self.account_usage.clone();
+        let environment_id = environment_id.to_string();
+        let session = session.clone();
+        let confirmation_fallback = UsageConfirmationFallback {
+            environment_id: environment_id.clone(),
+            environment_path: runtime_target.environment_path.clone(),
+            codex_binary_path: runtime_target.codex_binary_path.clone(),
+        };
+
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = prime_running_runtime_usage(
+                &app,
+                &app_version,
+                &registry,
+                &account_usage,
+                &environment_id,
+                session,
+                confirmation_fallback,
+            )
+            .await
+            {
+                warn!("failed to prime Codex usage for running runtime {environment_id}: {error}");
+            }
+        });
     }
 
     async fn environment_lock(&self, environment_id: &str) -> Arc<Mutex<()>> {
@@ -780,8 +811,57 @@ async fn apply_account_usage_patch_struct(
     })
 }
 
-fn schedule_usage_confirmation_if_needed(
-    app: &AppHandle,
+async fn store_account_usage_snapshot_from_read<R: Runtime>(
+    app: &AppHandle<R>,
+    app_version: &str,
+    registry: &Arc<Mutex<RuntimeRegistry>>,
+    account_usage: &Arc<Mutex<AccountUsageState>>,
+    snapshot: CodexRateLimitSnapshot,
+    origin: UsageUpdateOrigin,
+    confirmation_fallback: Option<UsageConfirmationFallback>,
+) -> AppResult<UsageApplyResult> {
+    let apply_result = apply_account_usage_snapshot(account_usage, snapshot, origin).await?;
+    schedule_usage_confirmation_if_needed(
+        app,
+        app_version,
+        registry,
+        account_usage,
+        apply_result.confirmation_requested,
+        confirmation_fallback,
+    );
+    Ok(apply_result)
+}
+
+async fn prime_running_runtime_usage<R: Runtime>(
+    app: &AppHandle<R>,
+    app_version: &str,
+    registry: &Arc<Mutex<RuntimeRegistry>>,
+    account_usage: &Arc<Mutex<AccountUsageState>>,
+    environment_id: &str,
+    session: Arc<RuntimeSession>,
+    confirmation_fallback: UsageConfirmationFallback,
+) -> AppResult<CodexRateLimitSnapshot> {
+    let snapshot = session.read_account_rate_limits().await?;
+    let apply_result = store_account_usage_snapshot_from_read(
+        app,
+        app_version,
+        registry,
+        account_usage,
+        snapshot,
+        UsageUpdateOrigin::DirectRead,
+        Some(confirmation_fallback),
+    )
+    .await?;
+
+    if apply_result.changed {
+        emit_account_usage_event(app, environment_id, &apply_result.snapshot);
+    }
+
+    Ok(apply_result.snapshot)
+}
+
+fn schedule_usage_confirmation_if_needed<R: Runtime>(
+    app: &AppHandle<R>,
     app_version: &str,
     registry: &Arc<Mutex<RuntimeRegistry>>,
     account_usage: &Arc<Mutex<AccountUsageState>>,
@@ -801,8 +881,8 @@ fn schedule_usage_confirmation_if_needed(
     );
 }
 
-fn schedule_usage_confirmation(
-    app: AppHandle,
+fn schedule_usage_confirmation<R: Runtime>(
+    app: AppHandle<R>,
     app_version: String,
     registry: Arc<Mutex<RuntimeRegistry>>,
     account_usage: Arc<Mutex<AccountUsageState>>,
@@ -888,8 +968,8 @@ async fn latest_running_usage_source(
         .map(|(environment_id, runtime)| (environment_id.clone(), runtime.session.clone()))
 }
 
-fn emit_account_usage_event(
-    app: &AppHandle,
+fn emit_account_usage_event<R: Runtime>(
+    app: &AppHandle<R>,
     environment_id: &str,
     snapshot: &CodexRateLimitSnapshot,
 ) {
@@ -1279,20 +1359,26 @@ fn resolve_binary_path(codex_binary_path: Option<String>) -> AppResult<String> {
 mod tests {
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use serde_json::{json, Value};
+    use tauri::test::{mock_app, MockRuntime};
+    use tauri::{Event, EventId, Listener};
     use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
     use tokio::sync::Mutex;
 
     use super::{
         apply_account_usage_patch, apply_account_usage_snapshot, classify_idle_runtime_candidates,
-        collect_idle_runtime_candidates, finish_headless_read, latest_running_usage_source,
-        merge_account_usage_snapshot, read_account_from_target, read_auth_status_from_target,
-        resolve_binary_path, should_stop_idle_runtime_candidate, touch_running_runtime,
-        usage_snapshot_is_empty, usage_snapshot_patch_from_snapshot, AccountUsageState,
-        AppServerAuthStatus, CodexRateLimitSnapshotPatch, RunningRuntime, RuntimeReadTarget,
-        RuntimeRegistry, RuntimeUsageUpdate, UsageUpdateOrigin,
+        collect_idle_runtime_candidates, emit_account_usage_event, finish_headless_read,
+        latest_running_usage_source, merge_account_usage_snapshot, prime_running_runtime_usage,
+        read_account_from_target, read_auth_status_from_target, resolve_binary_path,
+        should_stop_idle_runtime_candidate, store_account_usage_snapshot_from_read,
+        touch_running_runtime, usage_snapshot_is_empty, usage_snapshot_patch_from_snapshot,
+        AccountUsageState, AppServerAuthStatus, CodexRateLimitSnapshotPatch, RunningRuntime,
+        RuntimeReadTarget, RuntimeRegistry, RuntimeUsageUpdate, UsageConfirmationFallback,
+        UsageUpdateOrigin,
     };
+    use crate::app_identity::CODEX_USAGE_EVENT_NAME;
     use crate::domain::conversation::{
         ConversationComposerSettings, ConversationMessageItem, ConversationRole,
         ConversationStatus, SubagentThreadSnapshot, ThreadConversationSnapshot,
@@ -1349,6 +1435,199 @@ mod tests {
             .find(|request| request.method == "account/read")
             .expect("account/read request should be recorded");
         assert_eq!(account_request.params["refreshToken"], false);
+    }
+
+    #[tokio::test]
+    async fn priming_a_running_runtime_reads_usage_updates_state_and_emits_event() {
+        let app = mock_app();
+        let app_handle = app.handle().clone();
+        let (event_rx, listener) = listen_for_usage_events(&app_handle);
+        let (session, harness) = spawn_test_session().await;
+        let registry = Arc::new(Mutex::new(RuntimeRegistry::default()));
+        let account_usage = Arc::new(Mutex::new(AccountUsageState::default()));
+
+        let snapshot = prime_running_runtime_usage(
+            &app_handle,
+            "0.1.0",
+            &registry,
+            &account_usage,
+            "env-1",
+            Arc::new(session),
+            test_confirmation_fallback(),
+        )
+        .await
+        .expect("usage priming should succeed");
+
+        app_handle.unlisten(listener);
+
+        assert_eq!(
+            snapshot.primary.as_ref().map(|window| window.used_percent),
+            Some(64)
+        );
+        assert_eq!(
+            account_usage
+                .lock()
+                .await
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.secondary.as_ref())
+                .map(|window| window.used_percent),
+            Some(22)
+        );
+
+        let requests = harness.requests().await;
+        assert_single_rate_limit_read(&requests);
+
+        let payload = event_rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("usage event should be emitted");
+        let payload: Value =
+            serde_json::from_str(&payload).expect("usage event payload should decode");
+        assert_eq!(payload["environmentId"], "env-1");
+        assert_eq!(payload["rateLimits"]["primary"]["usedPercent"], 64);
+        assert_eq!(payload["rateLimits"]["secondary"]["usedPercent"], 22);
+    }
+
+    #[tokio::test]
+    async fn storing_a_manual_read_snapshot_preserves_the_existing_emit_contract() {
+        let app = mock_app();
+        let app_handle = app.handle().clone();
+        let (event_rx, listener) = listen_for_usage_events(&app_handle);
+        let registry = Arc::new(Mutex::new(RuntimeRegistry::default()));
+        let account_usage = Arc::new(Mutex::new(AccountUsageState::default()));
+
+        let apply_result = store_account_usage_snapshot_from_read(
+            &app_handle,
+            "0.1.0",
+            &registry,
+            &account_usage,
+            make_rate_limit_snapshot(
+                Some(CodexPlanType::Pro),
+                Some(make_rate_limit_window(64, Some(1_775_306_400), Some(300))),
+                Some(make_rate_limit_window(
+                    22,
+                    Some(1_775_910_400),
+                    Some(10_080),
+                )),
+            ),
+            UsageUpdateOrigin::DirectRead,
+            Some(test_confirmation_fallback()),
+        )
+        .await
+        .expect("manual read snapshot should apply");
+
+        app_handle.unlisten(listener);
+
+        assert!(apply_result.changed);
+        assert_eq!(
+            account_usage
+                .lock()
+                .await
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.primary.as_ref())
+                .map(|window| window.used_percent),
+            Some(64)
+        );
+        assert!(event_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[tokio::test]
+    async fn priming_a_running_runtime_leaves_usage_state_unchanged_when_the_read_fails() {
+        let app = mock_app();
+        let app_handle = app.handle().clone();
+        let (event_rx, listener) = listen_for_usage_events(&app_handle);
+        let (session, harness) = spawn_test_session_with_rate_limits_response(Err(
+            "rate limits unavailable".to_string(),
+        ))
+        .await;
+        let registry = Arc::new(Mutex::new(RuntimeRegistry::default()));
+        let account_usage = Arc::new(Mutex::new(AccountUsageState::default()));
+
+        let result = prime_running_runtime_usage(
+            &app_handle,
+            "0.1.0",
+            &registry,
+            &account_usage,
+            "env-1",
+            Arc::new(session),
+            test_confirmation_fallback(),
+        )
+        .await;
+
+        app_handle.unlisten(listener);
+
+        assert!(matches!(
+            result,
+            Err(AppError::Runtime(message)) if message.contains("rate limits unavailable")
+        ));
+        assert!(account_usage.lock().await.snapshot.is_none());
+        assert!(event_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+        let requests = harness.requests().await;
+        assert_single_rate_limit_read(&requests);
+    }
+
+    #[test]
+    fn emitting_account_usage_event_serializes_the_expected_payload() {
+        let app = mock_app();
+        let app_handle = app.handle().clone();
+        let (event_rx, listener) = listen_for_usage_events(&app_handle);
+
+        emit_account_usage_event(
+            &app_handle,
+            "env-1",
+            &make_rate_limit_snapshot(
+                Some(CodexPlanType::Pro),
+                Some(make_rate_limit_window(64, Some(1_775_306_400), Some(300))),
+                Some(make_rate_limit_window(
+                    22,
+                    Some(1_775_910_400),
+                    Some(10_080),
+                )),
+            ),
+        );
+
+        app_handle.unlisten(listener);
+
+        let payload = event_rx
+            .recv_timeout(Duration::from_millis(200))
+            .expect("usage event should be emitted");
+        let payload: Value =
+            serde_json::from_str(&payload).expect("usage event payload should decode");
+        assert_eq!(payload["environmentId"], "env-1");
+        assert_eq!(payload["rateLimits"]["primary"]["usedPercent"], 64);
+        assert_eq!(payload["rateLimits"]["secondary"]["usedPercent"], 22);
+    }
+
+    fn listen_for_usage_events(
+        app_handle: &tauri::AppHandle<MockRuntime>,
+    ) -> (std::sync::mpsc::Receiver<String>, EventId) {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let listener = app_handle.listen_any(CODEX_USAGE_EVENT_NAME, move |event: Event| {
+            event_tx
+                .send(event.payload().to_string())
+                .expect("usage event should send");
+        });
+        (event_rx, listener)
+    }
+
+    fn test_confirmation_fallback() -> UsageConfirmationFallback {
+        UsageConfirmationFallback {
+            environment_id: "env-1".to_string(),
+            environment_path: "/tmp/skein".to_string(),
+            codex_binary_path: None,
+        }
+    }
+
+    fn assert_single_rate_limit_read(requests: &[RecordedRequest]) {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.method == "account/rateLimits/read")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1794,7 +2073,7 @@ mod tests {
                     Some(10_080),
                 )),
             ),
-            UsageUpdateOrigin::ManualRead,
+            UsageUpdateOrigin::DirectRead,
         )
         .await
         .expect("initial snapshot should apply");
@@ -1860,7 +2139,7 @@ mod tests {
                     Some(10_080),
                 )),
             ),
-            UsageUpdateOrigin::ManualRead,
+            UsageUpdateOrigin::DirectRead,
         )
         .await
         .expect("initial snapshot should apply");
@@ -1901,7 +2180,7 @@ mod tests {
                     Some(10_080),
                 )),
             ),
-            UsageUpdateOrigin::ManualRead,
+            UsageUpdateOrigin::DirectRead,
         )
         .await
         .expect("initial snapshot should apply");
@@ -1937,7 +2216,7 @@ mod tests {
         let result = apply_account_usage_snapshot(
             &account_usage,
             make_rate_limit_snapshot(None, None, None),
-            UsageUpdateOrigin::ManualRead,
+            UsageUpdateOrigin::DirectRead,
         )
         .await
         .expect("empty initial snapshot should apply");
@@ -1966,7 +2245,7 @@ mod tests {
                     Some(10_080),
                 )),
             ),
-            UsageUpdateOrigin::ManualRead,
+            UsageUpdateOrigin::DirectRead,
         )
         .await
         .expect("initial snapshot should apply");
@@ -2133,10 +2412,35 @@ mod tests {
     }
 
     async fn spawn_test_session() -> (RuntimeSession, FakeCodexHarness) {
+        spawn_test_session_with_rate_limits_response(Ok(json!({
+            "rateLimits": {
+                "primary": {
+                    "usedPercent": 64,
+                    "windowDurationMins": 300,
+                    "resetsAt": 1_775_306_400
+                },
+                "secondary": {
+                    "usedPercent": 22,
+                    "windowDurationMins": 10_080,
+                    "resetsAt": 1_775_910_400
+                }
+            }
+        })))
+        .await
+    }
+
+    async fn spawn_test_session_with_rate_limits_response(
+        rate_limits_response: Result<Value, String>,
+    ) -> (RuntimeSession, FakeCodexHarness) {
         let (client_writer, server_reader) = duplex(32 * 1024);
         let (server_writer, client_reader) = duplex(32 * 1024);
         let requests = Arc::new(Mutex::new(Vec::new()));
-        let task = spawn_fake_codex(server_reader, server_writer, requests.clone());
+        let task = spawn_fake_codex(
+            server_reader,
+            server_writer,
+            requests.clone(),
+            rate_limits_response,
+        );
         let session = RuntimeSession::from_test_transport(
             "env-1".to_string(),
             "/tmp/skein".to_string(),
@@ -2239,6 +2543,7 @@ mod tests {
         reader: DuplexStream,
         writer: DuplexStream,
         requests: Arc<Mutex<Vec<RecordedRequest>>>,
+        rate_limits_response: Result<Value, String>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let writer = Arc::new(Mutex::new(writer));
@@ -2283,6 +2588,18 @@ mod tests {
                         "id": id,
                         "result": { "data": [{ "cwd": "/tmp/skein", "skills": [], "errors": [] }] }
                     }),
+                    "account/rateLimits/read" => match &rate_limits_response {
+                        Ok(result) => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": result
+                        }),
+                        Err(message) => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32000, "message": message }
+                        }),
+                    },
                     "app/list" => json!({
                         "jsonrpc": "2.0",
                         "id": id,
