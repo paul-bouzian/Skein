@@ -87,8 +87,6 @@ describe("useStudioShortcuts", () => {
       listenerReady: false,
     }));
     useTerminalStore.setState({
-      visible: false,
-      height: 280,
       byEnv: {},
       knownEnvironmentIds: [],
     });
@@ -298,6 +296,7 @@ describe("useStudioShortcuts", () => {
     });
 
     expect(toggleVisible).toHaveBeenCalledTimes(1);
+    expect(toggleVisible).toHaveBeenCalledWith("env-1");
     expect(openActionTab).not.toHaveBeenCalled();
   });
 

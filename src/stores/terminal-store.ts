@@ -2,9 +2,9 @@ import { create } from "zustand";
 
 import {
   LEGACY_TERMINAL_HEIGHT_STORAGE_KEYS,
-  LEGACY_TERMINAL_VISIBLE_STORAGE_KEYS,
+  LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS,
   TERMINAL_HEIGHT_STORAGE_KEY,
-  TERMINAL_VISIBLE_STORAGE_KEY,
+  TERMINAL_LAYOUTS_STORAGE_KEY,
   readLocalStorageWithMigration,
 } from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
@@ -19,12 +19,23 @@ const MIN_HEIGHT = 120;
 export const MAX_TABS = 10;
 const pendingActionTabOpens = new Map<string, Promise<string | null>>();
 
+type PersistedTerminalLayout = {
+  visible: boolean;
+  height: number;
+};
+
+type PersistedTerminalLayouts = Record<string, PersistedTerminalLayout>;
+
+let persistedLayoutsCache: PersistedTerminalLayouts | null = null;
+let persistedLayoutsRawCache: string | null = null;
+let hasLoadedPersistedLayouts = false;
+
 function clampHeight(value: number): number {
   const max = Math.floor(window.innerHeight * 0.8);
   return Math.max(MIN_HEIGHT, Math.min(value, max));
 }
 
-function readHeight(): number {
+function readLegacyHeight(): number {
   try {
     const rawValue = readLocalStorageWithMigration(
       TERMINAL_HEIGHT_STORAGE_KEY,
@@ -39,17 +50,8 @@ function readHeight(): number {
   return DEFAULT_HEIGHT;
 }
 
-function readVisible(): boolean {
-  try {
-    return (
-      readLocalStorageWithMigration(
-        TERMINAL_VISIBLE_STORAGE_KEY,
-        LEGACY_TERMINAL_VISIBLE_STORAGE_KEYS,
-      ) === "1"
-    );
-  } catch {
-    return false;
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function basenameOf(path: string): string {
@@ -75,26 +77,202 @@ export type TerminalTab = {
 export type EnvironmentTerminalSlot = {
   tabs: TerminalTab[];
   activeTabId: string | null;
-};
-
-export const EMPTY_TERMINAL_SLOT: EnvironmentTerminalSlot = Object.freeze({
-  tabs: [],
-  activeTabId: null,
-});
-
-type TerminalState = {
   visible: boolean;
   height: number;
-  // Tabs are keyed by environmentId so the panel always shows shells started
-  // inside the currently selected worktree. Switching environments swaps the
-  // visible tab list; PTYs from inactive environments stay alive in the
-  // background until their tabs are explicitly closed.
+};
+
+const legacyHeight = readLegacyHeight();
+
+function defaultTerminalSlot(
+  layout?: Partial<PersistedTerminalLayout>,
+): EnvironmentTerminalSlot {
+  return {
+    tabs: [],
+    activeTabId: null,
+    visible: layout?.visible === true,
+    height: clampHeight(layout?.height ?? legacyHeight),
+  };
+}
+
+export const EMPTY_TERMINAL_SLOT: EnvironmentTerminalSlot = Object.freeze(
+  defaultTerminalSlot(),
+);
+
+function parsePersistedLayouts(rawValue: string | null): PersistedTerminalLayouts {
+  if (rawValue == null) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!isRecord(parsed)) {
+      return {};
+    }
+
+    const layouts: PersistedTerminalLayouts = {};
+    for (const [environmentId, rawLayout] of Object.entries(parsed)) {
+      if (!isRecord(rawLayout)) {
+        continue;
+      }
+
+      const heightValue =
+        typeof rawLayout.height === "number"
+          ? rawLayout.height
+          : Number(rawLayout.height);
+      layouts[environmentId] = {
+        visible: rawLayout.visible === true,
+        height: Number.isFinite(heightValue)
+          ? clampHeight(heightValue)
+          : legacyHeight,
+      };
+    }
+    return layouts;
+  } catch {
+    return {};
+  }
+}
+
+function readPersistedLayouts(): PersistedTerminalLayouts {
+  let rawValue: string | null = null;
+
+  try {
+    rawValue = hasLoadedPersistedLayouts
+      ? localStorage.getItem(TERMINAL_LAYOUTS_STORAGE_KEY)
+      : readLocalStorageWithMigration(
+          TERMINAL_LAYOUTS_STORAGE_KEY,
+          LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS,
+        );
+  } catch {
+    rawValue = null;
+  }
+
+  if (
+    hasLoadedPersistedLayouts &&
+    persistedLayoutsCache != null &&
+    rawValue === persistedLayoutsRawCache
+  ) {
+    return persistedLayoutsCache;
+  }
+
+  const layouts = parsePersistedLayouts(rawValue);
+  persistedLayoutsCache = layouts;
+  persistedLayoutsRawCache = rawValue;
+  hasLoadedPersistedLayouts = true;
+  return layouts;
+}
+
+function writePersistedLayouts(layouts: PersistedTerminalLayouts) {
+  try {
+    const rawValue = JSON.stringify(layouts);
+    localStorage.setItem(TERMINAL_LAYOUTS_STORAGE_KEY, rawValue);
+    persistedLayoutsCache = layouts;
+    persistedLayoutsRawCache = rawValue;
+    hasLoadedPersistedLayouts = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistedLayoutFor(environmentId: string) {
+  return readPersistedLayouts()[environmentId];
+}
+
+function persistSlot(environmentId: string, slot: EnvironmentTerminalSlot) {
+  const persistedLayouts = readPersistedLayouts();
+  writePersistedLayouts({
+    ...persistedLayouts,
+    [environmentId]: {
+      visible: slot.visible,
+      height: slot.height,
+    },
+  });
+}
+
+function dropPersistedLayouts(environmentIds: string[]) {
+  if (environmentIds.length === 0) {
+    return;
+  }
+
+  const nextLayouts = { ...readPersistedLayouts() };
+  let changed = false;
+  for (const environmentId of environmentIds) {
+    if (!(environmentId in nextLayouts)) {
+      continue;
+    }
+    delete nextLayouts[environmentId];
+    changed = true;
+  }
+
+  if (changed) {
+    writePersistedLayouts(nextLayouts);
+  }
+}
+
+function normalizeSlot(
+  slot: EnvironmentTerminalSlot | undefined,
+  environmentId: string,
+): EnvironmentTerminalSlot {
+  if (!slot) {
+    return defaultTerminalSlot(persistedLayoutFor(environmentId));
+  }
+
+  let persistedLayout: PersistedTerminalLayout | undefined;
+  const resolveDefaults = () => {
+    persistedLayout ??= persistedLayoutFor(environmentId);
+    return defaultTerminalSlot(persistedLayout);
+  };
+
+  return {
+    tabs: Array.isArray(slot.tabs) ? slot.tabs : [],
+    activeTabId: slot.activeTabId ?? null,
+    visible:
+      typeof slot.visible === "boolean"
+        ? slot.visible
+        : resolveDefaults().visible,
+    height:
+      typeof slot.height === "number" && Number.isFinite(slot.height)
+        ? clampHeight(slot.height)
+        : resolveDefaults().height,
+  };
+}
+
+function slotForEnvironment(
+  byEnv: Record<string, EnvironmentTerminalSlot>,
+  environmentId: string,
+): EnvironmentTerminalSlot {
+  return normalizeSlot(byEnv[environmentId], environmentId);
+}
+
+function isKnownEnvironment(
+  knownEnvironmentIds: string[],
+  environmentId: string,
+) {
+  return (
+    knownEnvironmentIds.length === 0 ||
+    knownEnvironmentIds.includes(environmentId)
+  );
+}
+
+async function killTerminalSession(ptyId: string) {
+  try {
+    await bridge.killTerminal({ ptyId });
+  } catch {
+    /* ignore: terminal may already be dead */
+  } finally {
+    dropPendingTerminalOutput(ptyId);
+  }
+}
+
+type TerminalState = {
+  // Tabs and panel chrome are keyed by environmentId so the selected worktree
+  // restores its own terminal state without leaking visibility or size to
+  // sibling environments.
   byEnv: Record<string, EnvironmentTerminalSlot>;
   knownEnvironmentIds: string[];
 
-  toggleVisible: () => void;
-  setVisible: (visible: boolean) => void;
-  setHeight: (value: number) => void;
+  toggleVisible: (environmentId: string) => void;
+  setVisible: (environmentId: string, visible: boolean) => void;
+  setHeight: (environmentId: string, value: number) => void;
   reconcileEnvironments: (environmentIds: string[]) => void;
   syncWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => void;
 
@@ -108,296 +286,286 @@ type TerminalState = {
   markExited: (ptyId: string) => void;
 };
 
-export const useTerminalStore = create<TerminalState>((set, get) => ({
-  visible: readVisible(),
-  height: readHeight(),
-  byEnv: {},
-  knownEnvironmentIds: [],
-
-  toggleVisible: () => {
-    const next = !get().visible;
-    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, next ? "1" : "0");
-    set({ visible: next });
-  },
-
-  setVisible: (visible) => {
-    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, visible ? "1" : "0");
-    set({ visible });
-  },
-
-  setHeight: (value) => {
-    const clamped = clampHeight(value);
-    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(clamped));
-    set({ height: clamped });
-  },
-
-  reconcileEnvironments: (environmentIds) => {
-    const ptyIdsToKill: string[] = [];
-    set((state) =>
-      reconcileTerminalSnapshot(state, environmentIds, ptyIdsToKill),
-    );
-    disposeTerminals(ptyIdsToKill);
-  },
-
-  syncWorkspaceSnapshot: (snapshot) => {
-    const metadataByEnv = collectEnvironmentMetadata(snapshot);
-    const environmentIds = [...metadataByEnv.keys()];
-    const ptyIdsToKill: string[] = [];
-
-    set((state) =>
-      reconcileTerminalSnapshot(state, environmentIds, ptyIdsToKill, (slot, environmentId) => {
-        const metadata = metadataByEnv.get(environmentId);
-        if (!metadata) {
-          return slot;
-        }
-
-        return {
-          ...slot,
-          tabs: slot.tabs.map((tab) => ({
-            ...tab,
-            cwd: metadata.path,
-            title: tab.kind === "shell" ? basenameOf(metadata.path) : tab.title,
-          })),
-        };
-      }),
-    );
-
-    disposeTerminals(ptyIdsToKill);
-  },
-
-  openTab: async (environmentId) => {
-    const slot = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-    if (slot.tabs.length >= MAX_TABS) return null;
-    // Attach the output bus BEFORE spawning so any bytes emitted between
-    // spawn and the TerminalView subscribe are buffered, not dropped.
-    await ensureTerminalOutputBusReady();
-    // Generous defaults; FitAddon will resize immediately after mount.
-    const { ptyId, cwd } = await bridge.spawnTerminal({
-      environmentId,
-      cols: 80,
-      rows: 24,
-    });
-    // Re-check the cap after the async spawn: concurrent openTab calls can
-    // both pass the initial check. If we raced past the cap, kill the PTY we
-    // just created and bail.
-    const slotAfter = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-    const knownEnvironmentIds = get().knownEnvironmentIds;
-    const environmentKnown =
-      knownEnvironmentIds.length === 0 ||
-      knownEnvironmentIds.includes(environmentId);
-    if (!environmentKnown || slotAfter.tabs.length >= MAX_TABS) {
-      try {
-        await bridge.killTerminal({ ptyId });
-      } catch {
-        /* ignore: terminal may already be dead */
-      }
-      dropPendingTerminalOutput(ptyId);
-      return null;
-    }
-    const id = crypto.randomUUID();
+export const useTerminalStore = create<TerminalState>((set, get) => {
+  function updateSlot(
+    environmentId: string,
+    updater: (slot: EnvironmentTerminalSlot) => EnvironmentTerminalSlot,
+  ) {
+    let nextSlot: EnvironmentTerminalSlot | null = null;
+    let shouldPersist = false;
     set((state) => {
-      const existing = state.byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
+      const currentSlot = slotForEnvironment(state.byEnv, environmentId);
+      nextSlot = updater(currentSlot);
+      shouldPersist =
+        currentSlot.visible !== nextSlot.visible ||
+        currentSlot.height !== nextSlot.height;
       return {
-        visible: true,
         byEnv: {
           ...state.byEnv,
-          [environmentId]: {
-            tabs: [
-              ...existing.tabs,
-              {
-                id,
-                ptyId,
-                cwd,
-                title: basenameOf(cwd),
-                exited: false,
-                kind: "shell",
-              },
-            ],
-            activeTabId: id,
-          },
+          [environmentId]: nextSlot as EnvironmentTerminalSlot,
         },
       };
     });
-    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "1");
-    return id;
-  },
+    if (nextSlot && shouldPersist) {
+      persistSlot(environmentId, nextSlot);
+    }
+    return nextSlot;
+  }
 
-  openActionTab: async (environmentId, action) => {
-    const slot = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-    const runningTab = slot.tabs.find(
-      (tab) => tab.kind === "manualAction" && tab.actionId === action.id && !tab.exited,
-    );
-    if (runningTab) {
-      localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "1");
-      set((state) => {
-        const existing = state.byEnv[environmentId];
-        if (!existing) {
-          return { visible: true };
-        }
-        return {
-          visible: true,
-          byEnv: {
-            ...state.byEnv,
-            [environmentId]: {
-              ...existing,
-              activeTabId: runningTab.id,
-            },
+  return {
+    byEnv: {},
+    knownEnvironmentIds: [],
+
+    toggleVisible: (environmentId) => {
+      updateSlot(environmentId, (slot) => ({
+        ...slot,
+        visible: !slot.visible,
+      }));
+    },
+
+    setVisible: (environmentId, visible) => {
+      updateSlot(environmentId, (slot) => ({
+        ...slot,
+        visible,
+      }));
+    },
+
+    setHeight: (environmentId, value) => {
+      updateSlot(environmentId, (slot) => ({
+        ...slot,
+        height: clampHeight(value),
+      }));
+    },
+
+    reconcileEnvironments: (environmentIds) => {
+      const ptyIdsToKill: string[] = [];
+      const removedEnvironmentIds: string[] = [];
+      set((state) =>
+        reconcileTerminalSnapshot(
+          state,
+          environmentIds,
+          ptyIdsToKill,
+          removedEnvironmentIds,
+        ),
+      );
+      dropPersistedLayouts(removedEnvironmentIds);
+      disposeTerminals(ptyIdsToKill);
+    },
+
+    syncWorkspaceSnapshot: (snapshot) => {
+      const metadataByEnv = collectEnvironmentMetadata(snapshot);
+      const environmentIds = [...metadataByEnv.keys()];
+      const ptyIdsToKill: string[] = [];
+      const removedEnvironmentIds: string[] = [];
+
+      set((state) =>
+        reconcileTerminalSnapshot(
+          state,
+          environmentIds,
+          ptyIdsToKill,
+          removedEnvironmentIds,
+          (slot, environmentId) => {
+            const metadata = metadataByEnv.get(environmentId);
+            if (!metadata) {
+              return slot;
+            }
+
+            return {
+              ...slot,
+              tabs: slot.tabs.map((tab) => ({
+                ...tab,
+                cwd: metadata.path,
+                title: tab.kind === "shell" ? basenameOf(metadata.path) : tab.title,
+              })),
+            };
           },
-        };
-      });
-      return runningTab.id;
-    }
+        ),
+      );
 
-    const operationKey = actionTabOperationKey(environmentId, action.id);
-    const pendingOpen = pendingActionTabOpens.get(operationKey);
-    if (pendingOpen) {
-      return pendingOpen;
-    }
+      dropPersistedLayouts(removedEnvironmentIds);
+      disposeTerminals(ptyIdsToKill);
+    },
 
-    const reusableTab = slot.tabs.find(
-      (tab) => tab.kind === "manualAction" && tab.actionId === action.id,
-    );
-    const nextTabCount = reusableTab ? slot.tabs.length : slot.tabs.length + 1;
-    if (nextTabCount > MAX_TABS) {
-      return null;
-    }
-
-    const openPromise = (async () => {
+    openTab: async (environmentId) => {
+      const slot = slotForEnvironment(get().byEnv, environmentId);
+      if (slot.tabs.length >= MAX_TABS) return null;
+      // Attach the output bus BEFORE spawning so any bytes emitted between
+      // spawn and the TerminalView subscribe are buffered, not dropped.
       await ensureTerminalOutputBusReady();
-      const { ptyId, cwd, actionId, actionLabel, actionIcon } = await bridge.runProjectAction({
+      // Generous defaults; FitAddon will resize immediately after mount.
+      const { ptyId, cwd } = await bridge.spawnTerminal({
         environmentId,
-        actionId: action.id,
+        cols: 80,
+        rows: 24,
       });
-      const slotAfter = get().byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-      const knownEnvironmentIds = get().knownEnvironmentIds;
-      const environmentKnown =
-        knownEnvironmentIds.length === 0 || knownEnvironmentIds.includes(environmentId);
-      const reusableTabStillPresent =
-        reusableTab != null && slotAfter.tabs.some((tab) => tab.id === reusableTab.id);
-      const nextTabCount = reusableTabStillPresent
-        ? slotAfter.tabs.length
-        : slotAfter.tabs.length + 1;
-      if (!environmentKnown || nextTabCount > MAX_TABS) {
-        try {
-          await bridge.killTerminal({ ptyId });
-        } catch {
-          /* ignore: terminal may already be dead */
-        }
-        dropPendingTerminalOutput(ptyId);
+      // Re-check the cap after the async spawn: concurrent openTab calls can
+      // both pass the initial check. If we raced past the cap, kill the PTY we
+      // just created and bail.
+      const slotAfter = slotForEnvironment(get().byEnv, environmentId);
+      if (
+        !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
+        slotAfter.tabs.length >= MAX_TABS
+      ) {
+        await killTerminalSession(ptyId);
         return null;
       }
 
-      const nextTabId =
-        reusableTabStillPresent && reusableTab ? reusableTab.id : crypto.randomUUID();
-      const nextTab: TerminalTab = {
-        id: nextTabId,
-        ptyId,
-        cwd,
-        title: actionLabel,
-        exited: false,
-        kind: "manualAction",
-        actionId,
-        actionLabel,
-        actionIcon,
-      };
-
-      set((state) => {
-        const existing = state.byEnv[environmentId] ?? EMPTY_TERMINAL_SLOT;
-        return {
-          visible: true,
-          byEnv: {
-            ...state.byEnv,
-            [environmentId]: {
-              tabs: reusableTabStillPresent
-                ? existing.tabs.map((tab) => (tab.id === reusableTab.id ? nextTab : tab))
-                : [...existing.tabs, nextTab],
-              activeTabId: nextTabId,
-            },
+      const id = crypto.randomUUID();
+      updateSlot(environmentId, (existing) => ({
+        ...existing,
+        visible: true,
+        tabs: [
+          ...existing.tabs,
+          {
+            id,
+            ptyId,
+            cwd,
+            title: basenameOf(cwd),
+            exited: false,
+            kind: "shell",
           },
+        ],
+        activeTabId: id,
+      }));
+      return id;
+    },
+
+    openActionTab: async (environmentId, action) => {
+      const slot = slotForEnvironment(get().byEnv, environmentId);
+      const runningTab = slot.tabs.find(
+        (tab) => tab.kind === "manualAction" && tab.actionId === action.id && !tab.exited,
+      );
+      if (runningTab) {
+        updateSlot(environmentId, (existing) => ({
+          ...existing,
+          visible: true,
+          activeTabId: runningTab.id,
+        }));
+        return runningTab.id;
+      }
+
+      const operationKey = actionTabOperationKey(environmentId, action.id);
+      const pendingOpen = pendingActionTabOpens.get(operationKey);
+      if (pendingOpen) {
+        return pendingOpen;
+      }
+
+      const reusableTab = slot.tabs.find(
+        (tab) => tab.kind === "manualAction" && tab.actionId === action.id,
+      );
+      const nextTabCount = reusableTab ? slot.tabs.length : slot.tabs.length + 1;
+      if (nextTabCount > MAX_TABS) {
+        return null;
+      }
+
+      const openPromise = (async () => {
+        await ensureTerminalOutputBusReady();
+        const { ptyId, cwd, actionId, actionLabel, actionIcon } =
+          await bridge.runProjectAction({
+            environmentId,
+            actionId: action.id,
+          });
+        const slotAfter = slotForEnvironment(get().byEnv, environmentId);
+        const reusableTabStillPresent =
+          reusableTab != null && slotAfter.tabs.some((tab) => tab.id === reusableTab.id);
+        const nextTabCount = reusableTabStillPresent
+          ? slotAfter.tabs.length
+          : slotAfter.tabs.length + 1;
+        if (
+          !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
+          nextTabCount > MAX_TABS
+        ) {
+          await killTerminalSession(ptyId);
+          return null;
+        }
+
+        const nextTabId =
+          reusableTabStillPresent && reusableTab ? reusableTab.id : crypto.randomUUID();
+        const nextTab: TerminalTab = {
+          id: nextTabId,
+          ptyId,
+          cwd,
+          title: actionLabel,
+          exited: false,
+          kind: "manualAction",
+          actionId,
+          actionLabel,
+          actionIcon,
+        };
+
+        updateSlot(environmentId, (existing) => ({
+          ...existing,
+          visible: true,
+          tabs: reusableTabStillPresent
+            ? existing.tabs.map((tab) => (tab.id === reusableTab.id ? nextTab : tab))
+            : [...existing.tabs, nextTab],
+          activeTabId: nextTabId,
+        }));
+        return nextTabId;
+      })();
+
+      pendingActionTabOpens.set(operationKey, openPromise);
+      try {
+        return await openPromise;
+      } finally {
+        if (pendingActionTabOpens.get(operationKey) === openPromise) {
+          pendingActionTabOpens.delete(operationKey);
+        }
+      }
+    },
+
+    closeTab: async (environmentId, id) => {
+      const slot = get().byEnv[environmentId];
+      const tab = slot?.tabs.find((t) => t.id === id);
+      if (!tab) return;
+      await killTerminalSession(tab.ptyId);
+      updateSlot(environmentId, (existing) => {
+        const tabs = existing.tabs.filter((currentTab) => currentTab.id !== id);
+        return {
+          ...existing,
+          tabs,
+          activeTabId:
+            existing.activeTabId === id
+              ? (tabs[tabs.length - 1]?.id ?? null)
+              : existing.activeTabId,
+          visible: tabs.length > 0 ? existing.visible : false,
         };
       });
-      localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "1");
-      return nextTabId;
-    })();
+    },
 
-    pendingActionTabOpens.set(operationKey, openPromise);
-    try {
-      return await openPromise;
-    } finally {
-      if (pendingActionTabOpens.get(operationKey) === openPromise) {
-        pendingActionTabOpens.delete(operationKey);
-      }
-    }
-  },
-
-  closeTab: async (environmentId, id) => {
-    const slot = get().byEnv[environmentId];
-    const tab = slot?.tabs.find((t) => t.id === id);
-    if (!tab) return;
-    try {
-      await bridge.killTerminal({ ptyId: tab.ptyId });
-    } catch {
-      /* ignore: terminal may already be dead */
-    }
-    dropPendingTerminalOutput(tab.ptyId);
-    set((state) => {
-      const existing = state.byEnv[environmentId];
-      if (!existing) return state;
-      const tabs = existing.tabs.filter((t) => t.id !== id);
-      const activeTabId =
-        existing.activeTabId === id
-          ? (tabs[tabs.length - 1]?.id ?? null)
-          : existing.activeTabId;
-      // Closing the last tab in this env removes the empty slot so byEnv
-      // doesn't grow forever. Hide the panel only when no terminals remain
-      // anywhere in the workspace.
-      if (tabs.length === 0) {
-        const nextByEnv = { ...state.byEnv };
-        delete nextByEnv[environmentId];
-        const hasTabsRemaining = Object.values(nextByEnv).some(
-          (slot) => slot.tabs.length > 0,
-        );
-        if (!hasTabsRemaining) {
-          localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "0");
-        }
-        return { byEnv: nextByEnv, visible: hasTabsRemaining ? state.visible : false };
-      }
-      return {
+    activateTab: (environmentId, id) => {
+      const existing = get().byEnv[environmentId];
+      if (!existing) return;
+      set((state) => ({
         byEnv: {
           ...state.byEnv,
-          [environmentId]: { tabs, activeTabId },
-        },
-      };
-    });
-  },
-
-  activateTab: (environmentId, id) =>
-    set((state) => {
-      const existing = state.byEnv[environmentId];
-      if (!existing) return state;
-      return {
-        byEnv: {
-          ...state.byEnv,
-          [environmentId]: { ...existing, activeTabId: id },
-        },
-      };
-    }),
-
-  markExited: (ptyId) =>
-    set((state) => ({
-      byEnv: Object.fromEntries(
-        Object.entries(state.byEnv).map(([envId, slot]) => [
-          envId,
-          {
-            ...slot,
-            tabs: slot.tabs.map((tab) =>
-              tab.ptyId === ptyId ? { ...tab, exited: true } : tab,
-            ),
+          [environmentId]: {
+            ...existing,
+            activeTabId: id,
           },
-        ]),
-      ),
-    })),
-}));
+        },
+      }));
+    },
+
+    markExited: (ptyId) =>
+      set((state) => ({
+        byEnv: Object.fromEntries(
+          Object.entries(state.byEnv).map(([envId]) => {
+            const normalized = slotForEnvironment(state.byEnv, envId);
+            return [
+              envId,
+              {
+                ...normalized,
+                tabs: normalized.tabs.map((tab) =>
+                  tab.ptyId === ptyId ? { ...tab, exited: true } : tab,
+                ),
+              },
+            ];
+          }),
+        ),
+      })),
+  };
+});
 
 export function selectTerminalSlot(environmentId: string | null) {
   return (state: TerminalState): EnvironmentTerminalSlot => {
@@ -418,9 +586,10 @@ function collectEnvironmentMetadata(snapshot: WorkspaceSnapshot) {
 }
 
 function reconcileTerminalSnapshot(
-  state: Pick<TerminalState, "byEnv" | "visible">,
+  state: Pick<TerminalState, "byEnv">,
   environmentIds: string[],
   ptyIdsToKill: string[],
+  removedEnvironmentIds: string[],
   transformSlot?: (
     slot: EnvironmentTerminalSlot,
     environmentId: string,
@@ -429,8 +598,10 @@ function reconcileTerminalSnapshot(
   const validEnvironmentIds = new Set(environmentIds);
   const nextByEnv: TerminalState["byEnv"] = {};
 
-  for (const [environmentId, slot] of Object.entries(state.byEnv)) {
+  for (const [environmentId, rawSlot] of Object.entries(state.byEnv)) {
+    const slot = normalizeSlot(rawSlot, environmentId);
     if (!validEnvironmentIds.has(environmentId)) {
+      removedEnvironmentIds.push(environmentId);
       for (const tab of slot.tabs) {
         ptyIdsToKill.push(tab.ptyId);
       }
@@ -442,27 +613,24 @@ function reconcileTerminalSnapshot(
       : slot;
   }
 
-  const visible = validEnvironmentIds.size === 0 ? false : state.visible;
-  if (!visible && validEnvironmentIds.size === 0) {
-    localStorage.setItem(TERMINAL_VISIBLE_STORAGE_KEY, "0");
+  for (const environmentId of environmentIds) {
+    if (environmentId in nextByEnv) {
+      continue;
+    }
+    const slot = slotForEnvironment(nextByEnv, environmentId);
+    nextByEnv[environmentId] = transformSlot
+      ? transformSlot(slot, environmentId)
+      : slot;
   }
 
   return {
     byEnv: nextByEnv,
     knownEnvironmentIds: environmentIds,
-    visible,
   };
 }
 
 function disposeTerminals(ptyIds: string[]) {
   for (const ptyId of ptyIds) {
-    void bridge
-      .killTerminal({ ptyId })
-      .catch(() => {
-        /* ignore: terminal may already be dead */
-      })
-      .finally(() => {
-        dropPendingTerminalOutput(ptyId);
-      });
+    void killTerminalSession(ptyId);
   }
 }
