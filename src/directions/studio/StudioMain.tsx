@@ -23,13 +23,15 @@ import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
 import type { Theme } from "./StudioShell";
 import "./StudioMain.css";
 
+const NOOP = () => undefined;
+
 type Props = {
   theme: Theme;
   projectsSidebarOpen: boolean;
   inspectorOpen: boolean;
   composerFocusKey: number;
   approveOrSubmitKey: number;
-  onOpenActionCreateDialog: () => void;
+  onOpenActionCreateDialog?: () => void;
   onToggleProjectsSidebar: () => void;
   onToggleInspector: () => void;
 };
@@ -40,7 +42,7 @@ export function StudioMain({
   inspectorOpen,
   composerFocusKey,
   approveOrSubmitKey,
-  onOpenActionCreateDialog,
+  onOpenActionCreateDialog = NOOP,
   onToggleProjectsSidebar,
   onToggleInspector,
 }: Props) {

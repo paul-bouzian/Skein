@@ -104,6 +104,15 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 const mockedBridge = vi.mocked(bridge);
 const mockedNotifications = vi.mocked(notifications);
 
+function isTerminalVisible(environmentId = "env-1") {
+  const state = useTerminalStore.getState() as {
+    visible?: boolean;
+    byEnv: Record<string, { visible?: boolean } | undefined>;
+  };
+
+  return state.visible ?? state.byEnv[environmentId]?.visible ?? false;
+}
+
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
   let reject: (reason?: unknown) => void = () => undefined;
@@ -356,7 +365,7 @@ describe("StudioShell", () => {
       ...primaryModifier(),
     });
 
-    expect(useTerminalStore.getState().visible).toBe(false);
+    expect(isTerminalVisible()).toBe(false);
   });
 
   it("prevents native Shift+Tab navigation even when mode cycling has no next value", () => {

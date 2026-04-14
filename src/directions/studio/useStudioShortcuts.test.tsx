@@ -25,6 +25,15 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: vi.fn(),
 }));
 
+function isTerminalVisible(environmentId = "env-1") {
+  const state = useTerminalStore.getState() as {
+    visible?: boolean;
+    byEnv: Record<string, { visible?: boolean } | undefined>;
+  };
+
+  return state.visible ?? state.byEnv[environmentId]?.visible ?? false;
+}
+
 type HarnessProps = {
   onOpenSettings?: () => void;
   onRender?: () => void;
@@ -229,7 +238,7 @@ describe("useStudioShortcuts", () => {
     });
 
     await waitFor(() => {
-      expect(useTerminalStore.getState().visible).toBe(false);
+      expect(isTerminalVisible()).toBe(false);
     });
   });
 
