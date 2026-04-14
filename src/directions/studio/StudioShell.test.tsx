@@ -28,11 +28,25 @@ import { StudioShell } from "./StudioShell";
 const storageState = new Map<string, string>();
 
 vi.mock("./StudioMain", () => ({
-  StudioMain: () => <div data-testid="studio-main" />,
+  StudioMain: ({
+    inspectorOpen,
+    onToggleInspector,
+  }: {
+    inspectorOpen: boolean;
+    onToggleInspector: () => void;
+  }) => (
+    <div data-testid="studio-main">
+      <button type="button" onClick={onToggleInspector}>
+        {inspectorOpen ? "Hide inspector" : "Show inspector"}
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("./InspectorPanel", () => ({
-  InspectorPanel: () => <div data-testid="inspector-panel" />,
+  InspectorPanel: ({ collapsed = false }: { collapsed?: boolean }) => (
+    <div data-testid="inspector-panel" data-collapsed={String(collapsed)} />
+  ),
 }));
 
 vi.mock("./GitDiffPanel", () => ({
@@ -249,6 +263,59 @@ describe("StudioShell", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+  });
+
+  it("starts with the review panel closed and opens it from the toolbar toggle", async () => {
+    render(<StudioShell />);
+
+    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Show inspector" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show inspector" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+        "data-collapsed",
+        "false",
+      );
+    });
+    expect(screen.getByRole("button", { name: "Hide inspector" })).toBeInTheDocument();
+  });
+
+  it("toggles the review panel with the global shortcut", async () => {
+    render(<StudioShell />);
+
+    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+
+    fireEvent.keyDown(window, {
+      key: "g",
+      ...primaryModifier(),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+        "data-collapsed",
+        "false",
+      );
+    });
+
+    fireEvent.keyDown(window, {
+      key: "g",
+      ...primaryModifier(),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+        "data-collapsed",
+        "true",
+      );
     });
   });
 
