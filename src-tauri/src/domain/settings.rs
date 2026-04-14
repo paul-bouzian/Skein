@@ -185,6 +185,7 @@ pub struct GlobalSettingsPatch {
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
     pub default_open_target_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_explicit_optional")]
     pub codex_binary_path: Option<Option<String>>,
 }
 
@@ -739,6 +740,14 @@ mod tests {
             .expect("service tier patch should deserialize");
 
         assert_eq!(patch.default_service_tier, Some(None));
+    }
+
+    #[test]
+    fn deserializes_null_codex_binary_path_patch_as_explicit_clear() {
+        let patch: GlobalSettingsPatch = serde_json::from_str(r#"{"codexBinaryPath":null}"#)
+            .expect("codex binary path patch should deserialize");
+
+        assert_eq!(patch.codex_binary_path, Some(None));
     }
 
     #[test]

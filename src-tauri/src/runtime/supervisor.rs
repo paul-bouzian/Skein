@@ -926,17 +926,20 @@ fn merge_account_usage_snapshot(
         limit_id: next_limit_id.as_deref(),
         limit_name: next_limit_name.as_deref(),
     };
+    let same_limit = previous_context.is_none_or(|context| same_usage_limit(context, next_context));
+    let previous_windows = same_limit.then_some(previous).flatten();
+    let previous_window_context = same_limit.then_some(previous_context).flatten();
 
     let primary = merge_usage_window(
-        previous.and_then(|snapshot| snapshot.primary.as_ref()),
+        previous_windows.and_then(|snapshot| snapshot.primary.as_ref()),
         patch.primary.as_ref(),
-        previous_context,
+        previous_window_context,
         next_context,
     );
     let secondary = merge_usage_window(
-        previous.and_then(|snapshot| snapshot.secondary.as_ref()),
+        previous_windows.and_then(|snapshot| snapshot.secondary.as_ref()),
         patch.secondary.as_ref(),
-        previous_context,
+        previous_window_context,
         next_context,
     );
 
@@ -1674,6 +1677,47 @@ mod tests {
                 .map(|window| window.used_percent),
             Some(64)
         );
+    }
+
+    #[test]
+    fn merge_account_usage_snapshot_clears_old_windows_when_limit_changes() {
+        let previous = CodexRateLimitSnapshot {
+            credits: None,
+            limit_id: Some("pro-hourly".to_string()),
+            limit_name: Some("Pro".to_string()),
+            plan_type: Some(CodexPlanType::Pro),
+            primary: Some(make_rate_limit_window(64, Some(1_775_306_400), Some(300))),
+            secondary: Some(make_rate_limit_window(
+                22,
+                Some(1_775_910_400),
+                Some(10_080),
+            )),
+        };
+        let patch = serde_json::from_value::<CodexRateLimitSnapshotPatch>(json!({
+            "limitId": "team-hourly",
+            "limitName": "Team",
+            "primary": {
+                "usedPercent": 7,
+                "resetsAt": 1_775_342_400,
+                "windowDurationMins": 300
+            }
+        }))
+        .expect("limit change patch should decode");
+
+        let merged = merge_account_usage_snapshot(Some(&previous), &patch);
+
+        assert!(!merged.regression_detected);
+        assert_eq!(merged.snapshot.limit_id.as_deref(), Some("team-hourly"));
+        assert_eq!(merged.snapshot.limit_name.as_deref(), Some("Team"));
+        assert_eq!(
+            merged
+                .snapshot
+                .primary
+                .as_ref()
+                .map(|window| window.used_percent),
+            Some(7)
+        );
+        assert_eq!(merged.snapshot.secondary, None);
     }
 
     #[test]
