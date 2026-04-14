@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
@@ -12,8 +12,11 @@ import {
 } from "../../stores/git-review-store";
 import {
   selectSelectedEnvironment,
+  selectSelectedProject,
+  selectSettings,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
+import { ProjectActionCreateDialog } from "./ProjectActionCreateDialog";
 import { useVoiceSessionStore } from "../../stores/voice-session-store";
 import { SettingsDialog } from "./SettingsDialog";
 import { TreeSidebar } from "./TreeSidebar";
@@ -45,10 +48,13 @@ export function StudioShell() {
   const [projectsSidebarOpen, setProjectsSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionCreateProjectId, setActionCreateProjectId] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
   const [approveOrSubmitNonce, setApproveOrSubmitNonce] = useState(0);
   const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
+  const settings = useWorkspaceStore(selectSettings);
+  const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
   const reconcileVoiceSessionSnapshot = useVoiceSessionStore(
     (state) => state.reconcileWorkspaceSnapshot,
@@ -59,11 +65,20 @@ export function StudioShell() {
   const selectedFileKey = useGitReviewStore(
     selectGitReviewSelectedFile(selectedEnvironment?.id ?? null, scope),
   );
+  const actionCreateProject =
+    workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const diffPanelOpen = Boolean(selectedFileKey);
+  const actionCreateDialogOpen = !settingsOpen && actionCreateProject != null;
+  const shortcutsBlocked = settingsOpen || actionCreateDialogOpen;
+
+  const openSettingsDialog = useCallback(() => {
+    setActionCreateProjectId(null);
+    setSettingsOpen(true);
+  }, []);
 
   useStudioShortcuts({
-    settingsOpen,
-    onOpenSettings: () => setSettingsOpen(true),
+    shortcutsBlocked,
+    onOpenSettings: openSettingsDialog,
     onRequestApproveOrSubmit: () =>
       setApproveOrSubmitNonce((current) => current + 1),
     onRequestComposerFocus: () => setComposerFocusNonce((current) => current + 1),
@@ -86,7 +101,7 @@ export function StudioShell() {
     let unlisten: (() => void) | null = null;
 
     void bridge.listenToMenuOpenSettings(() => {
-      setSettingsOpen(true);
+      openSettingsDialog();
     }).then((nextUnlisten) => {
       if (disposed) {
         nextUnlisten();
@@ -99,7 +114,7 @@ export function StudioShell() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [openSettingsDialog]);
 
   function toggleTheme() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
@@ -110,7 +125,7 @@ export function StudioShell() {
       <TreeSidebar
         theme={theme}
         collapsed={!projectsSidebarOpen}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={openSettingsDialog}
         onToggleTheme={toggleTheme}
       />
       <StudioMain
@@ -119,6 +134,9 @@ export function StudioShell() {
         inspectorOpen={inspectorOpen}
         composerFocusKey={composerFocusNonce}
         approveOrSubmitKey={approveOrSubmitNonce}
+        onOpenActionCreateDialog={() =>
+          setActionCreateProjectId(selectedProject?.id ?? null)
+        }
         onToggleProjectsSidebar={() =>
           setProjectsSidebarOpen((current) => !current)
         }
@@ -129,6 +147,12 @@ export function StudioShell() {
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <ProjectActionCreateDialog
+        open={actionCreateDialogOpen}
+        project={actionCreateProject}
+        shortcutSettings={settings?.shortcuts ?? {}}
+        onClose={() => setActionCreateProjectId(null)}
       />
       <div className="studio-notice-stack">
         <FirstPromptRenameFailureNotice />

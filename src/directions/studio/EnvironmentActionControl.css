@@ -90,6 +90,12 @@
   min-width: 0;
 }
 
+.environment-action-control__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--tx-border-subtle);
+}
+
 .environment-action-control__option:hover {
   background: var(--tx-bg-hover);
   color: var(--tx-text-primary);
@@ -127,9 +133,17 @@
   font-weight: var(--tx-weight-medium);
 }
 
+.environment-action-control__option--add .environment-action-control__option-label {
+  color: var(--tx-text-primary);
+}
+
 .environment-action-control__option-meta {
   font-size: var(--tx-text-xs);
   color: var(--tx-text-muted);
+}
+
+.environment-action-control__option-icon--add {
+  color: var(--tx-accent);
 }
 
 .environment-action-control__option-check {

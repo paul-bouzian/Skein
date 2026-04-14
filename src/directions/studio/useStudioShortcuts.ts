@@ -22,7 +22,7 @@ import {
 import { setPreferredActionIdForProject } from "./projectActions";
 
 type Props = {
-  settingsOpen: boolean;
+  shortcutsBlocked: boolean;
   onOpenSettings: () => void;
   onRequestApproveOrSubmit: () => void;
   onRequestComposerFocus: () => void;
@@ -33,14 +33,14 @@ type Props = {
 const APPROVAL_VALUES: ApprovalPolicy[] = ["askToEdit", "fullAccess"];
 
 export function useStudioShortcuts({
-  settingsOpen,
+  shortcutsBlocked,
   onOpenSettings,
   onRequestApproveOrSubmit,
   onRequestComposerFocus,
   onToggleProjectsSidebar,
   onToggleReviewPanel,
 }: Props) {
-  const settingsOpenRef = useRef(settingsOpen);
+  const shortcutsBlockedRef = useRef(shortcutsBlocked);
   const callbacksRef = useRef({
     onOpenSettings,
     onRequestApproveOrSubmit,
@@ -49,7 +49,7 @@ export function useStudioShortcuts({
     onToggleReviewPanel,
   });
 
-  settingsOpenRef.current = settingsOpen;
+  shortcutsBlockedRef.current = shortcutsBlocked;
   callbacksRef.current = {
     onOpenSettings,
     onRequestApproveOrSubmit,
@@ -60,7 +60,7 @@ export function useStudioShortcuts({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.repeat || settingsOpenRef.current) {
+      if (event.defaultPrevented || event.repeat || shortcutsBlockedRef.current) {
         return;
       }
 

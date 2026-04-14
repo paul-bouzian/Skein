@@ -1,0 +1,87 @@
+.project-action-create-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: grid;
+  place-items: center;
+  padding: var(--tx-space-xl);
+  background: color-mix(in srgb, var(--tx-bg-base) 48%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.project-action-create-dialog {
+  width: min(560px, calc(100vw - (var(--tx-space-xl) * 2)));
+  max-height: min(760px, calc(100vh - (var(--tx-space-xl) * 2)));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--tx-border-muted);
+  border-radius: var(--tx-radius-2xl);
+  background: var(--tx-bg-overlay);
+  box-shadow: var(--tx-shadow-overlay);
+  overflow: hidden;
+}
+
+.project-action-create-dialog__header,
+.project-action-create-dialog__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--tx-space-md);
+  padding: var(--tx-space-lg) var(--tx-space-xl);
+}
+
+.project-action-create-dialog__header {
+  box-shadow: inset 0 -1px 0 var(--tx-border-subtle);
+}
+
+.project-action-create-dialog__copy {
+  display: grid;
+  gap: var(--tx-space-xs);
+}
+
+.project-action-create-dialog__title {
+  margin: 0;
+  font-size: var(--tx-text-lg);
+  font-weight: var(--tx-weight-semibold);
+  letter-spacing: -0.01em;
+  color: var(--tx-text-primary);
+}
+
+.project-action-create-dialog__close {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-sm);
+  background: transparent;
+  color: var(--tx-text-muted);
+  transition:
+    background var(--tx-transition-fast),
+    border-color var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.project-action-create-dialog__close:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  border-color: var(--tx-border-muted);
+  color: var(--tx-text-primary);
+}
+
+.project-action-create-dialog__close:focus-visible {
+  border-color: var(--tx-border-focus);
+}
+
+.project-action-create-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--tx-space-md);
+  padding: var(--tx-space-xl);
+}
+
+.project-action-create-dialog__actions {
+  justify-content: flex-end;
+  box-shadow: inset 0 1px 0 var(--tx-border-subtle);
+}

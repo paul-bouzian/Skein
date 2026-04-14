@@ -25,12 +25,21 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   message: vi.fn(),
 }));
 
+function isTerminalVisible(environmentId = "env-1") {
+  const state = useTerminalStore.getState() as {
+    visible?: boolean;
+    byEnv: Record<string, { visible?: boolean } | undefined>;
+  };
+
+  return state.visible ?? state.byEnv[environmentId]?.visible ?? false;
+}
+
 type HarnessProps = {
   onOpenSettings?: () => void;
   onRender?: () => void;
   onRequestApproveOrSubmit?: () => void;
   renderComposerInput?: boolean;
-  settingsOpen?: boolean;
+  shortcutsBlocked?: boolean;
 };
 
 function Harness({
@@ -38,11 +47,11 @@ function Harness({
   onRender,
   onRequestApproveOrSubmit = vi.fn(),
   renderComposerInput = false,
-  settingsOpen = false,
+  shortcutsBlocked = false,
 }: HarnessProps) {
   onRender?.();
   useStudioShortcuts({
-    settingsOpen,
+    shortcutsBlocked,
     onOpenSettings,
     onRequestApproveOrSubmit,
     onRequestComposerFocus: vi.fn(),
@@ -216,6 +225,19 @@ describe("useStudioShortcuts", () => {
     });
 
     expect(useConversationStore.getState().composerByThreadId["thread-1"]).toBeUndefined();
+  });
+
+  it("skips studio shortcuts while a modal blocks them", async () => {
+    render(<Harness shortcutsBlocked />);
+
+    fireEvent.keyDown(window, {
+      key: "j",
+      ...primaryModifier(),
+    });
+
+    await waitFor(() => {
+      expect(isTerminalVisible()).toBe(false);
+    });
   });
 
   it("launches a project action from its shortcut in the selected environment", () => {

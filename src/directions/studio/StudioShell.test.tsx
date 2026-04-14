@@ -29,18 +29,23 @@ const storageState = new Map<string, string>();
 
 vi.mock("./StudioMain", () => ({
   StudioMain: ({
+    onOpenActionCreateDialog,
     inspectorOpen,
     onToggleInspector,
   }: {
+    onOpenActionCreateDialog: () => void;
     inspectorOpen: boolean;
     onToggleInspector: () => void;
   }) => (
-    <div data-testid="studio-main">
-      <button type="button" onClick={onToggleInspector}>
-        {inspectorOpen ? "Hide inspector" : "Show inspector"}
+     <div data-testid="studio-main">
+      <button type="button" onClick={onOpenActionCreateDialog}>
+        Open action dialog
       </button>
-    </div>
-  ),
+       <button type="button" onClick={onToggleInspector}>
+         {inspectorOpen ? "Hide inspector" : "Show inspector"}
+       </button>
+     </div>
+   ),
 }));
 
 vi.mock("./InspectorPanel", () => ({
@@ -90,6 +95,10 @@ vi.mock("../../lib/bridge", () => ({
 vi.mock("@tauri-apps/plugin-notification", () => ({
   isPermissionGranted: vi.fn(),
   requestPermission: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  message: vi.fn(),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -249,6 +258,35 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  });
+
+  it("closes the action dialog before opening settings from the menu event", async () => {
+    let callback: (() => void) | null = null;
+    mockedBridge.listenToMenuOpenSettings.mockImplementation(async (next) => {
+      callback = next;
+      return () => undefined;
+    });
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+    expect(screen.getByRole("dialog", { name: "Add Action" })).toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await act(async () => {
+      callback?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog", { name: "Add Action" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("opens settings from the global keyboard shortcut", async () => {
@@ -927,6 +965,8 @@ describe("StudioShell", () => {
       expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
         projectId: "project-1",
         patch: {
+          worktreeSetupScript: null,
+          worktreeTeardownScript: null,
           manualActions: [
             expect.objectContaining({
               label: "Dev",
@@ -935,11 +975,162 @@ describe("StudioShell", () => {
               shortcut: null,
             }),
           ],
-          worktreeSetupScript: null,
-          worktreeTeardownScript: null,
         },
       });
     });
+  });
+
+  it("creates manual project actions from the studio action control", async () => {
+    mockedBridge.updateProjectSettings.mockImplementation(async ({ projectId, patch }) =>
+      makeProject({
+        id: projectId,
+        settings: {
+          worktreeSetupScript: patch.worktreeSetupScript ?? undefined,
+          worktreeTeardownScript: patch.worktreeTeardownScript ?? undefined,
+          manualActions: patch.manualActions ?? [],
+        },
+      }),
+    );
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+    expect(screen.getByRole("dialog", { name: "Add Action" })).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Label"), "Dev");
+    await userEvent.type(screen.getByLabelText("Script"), "bun run dev");
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.updateProjectSettings).toHaveBeenCalledWith({
+        projectId: "project-1",
+        patch: {
+          manualActions: [
+            expect.objectContaining({
+              label: "Dev",
+              icon: "play",
+              script: "bun run dev",
+              shortcut: null,
+            }),
+          ],
+        },
+      });
+    });
+    const actionCreateCall =
+      mockedBridge.updateProjectSettings.mock.calls[
+        mockedBridge.updateProjectSettings.mock.calls.length - 1
+      ]?.[0];
+    expect(actionCreateCall?.patch).not.toHaveProperty("worktreeSetupScript");
+    expect(actionCreateCall?.patch).not.toHaveProperty("worktreeTeardownScript");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Add Action" })).toBeNull();
+    });
+    expect(
+      useWorkspaceStore.getState().snapshot?.projects[0]?.settings.manualActions,
+    ).toEqual([
+      expect.objectContaining({
+        label: "Dev",
+        icon: "play",
+        script: "bun run dev",
+        shortcut: null,
+      }),
+    ]);
+  });
+
+  it("moves focus into the action dialog and restores it when the dialog closes", async () => {
+    render(<StudioShell />);
+
+    const opener = screen.getByRole("button", { name: "Open action dialog" });
+    await userEvent.click(opener);
+
+    const dialog = screen.getByRole("dialog", { name: "Add Action" });
+    await waitFor(() => {
+      expect(dialog).toHaveFocus();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(opener).toHaveFocus();
+    });
+  });
+
+  it("disables studio shortcuts while the action dialog is open", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+
+    fireEvent.keyDown(window, {
+      key: "j",
+      ...primaryModifier(),
+    });
+
+    expect(selectTerminalSlot("env-1")(useTerminalStore.getState()).visible).toBe(false);
+  });
+
+  it("traps tab navigation inside the action dialog", async () => {
+    const user = userEvent.setup();
+
+    render(<StudioShell />);
+
+    await user.click(screen.getByRole("button", { name: "Open action dialog" }));
+
+    const closeButton = screen.getByRole("button", {
+      name: "Close add action dialog",
+    });
+    const createButton = screen.getByRole("button", { name: "Create" });
+
+    createButton.focus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+
+    closeButton.focus();
+    await user.tab({ shift: true });
+    expect(createButton).toHaveFocus();
+  });
+
+  it("treats icon selection and shift-tab shortcut navigation accessibly", async () => {
+    const user = userEvent.setup();
+
+    render(<StudioShell />);
+
+    await user.click(screen.getByRole("button", { name: "Open action dialog" }));
+    const iconButtons = screen.getAllByRole("button").filter((button) =>
+      button.className.includes("settings-project-action__icon-btn"),
+    );
+
+    expect(iconButtons[0]).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(iconButtons[1]).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    const shortcutInput = screen.getByLabelText("Project action shortcut");
+    await user.click(shortcutInput);
+    await user.tab({ shift: true });
+
+    expect((shortcutInput as HTMLInputElement).value).toBe("Not set");
+    expect(screen.getByRole("button", { name: "Stop" })).toHaveFocus();
+  });
+
+  it("blocks studio action creation when the shortcut conflicts with global settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open action dialog" }));
+    await userEvent.type(screen.getByLabelText("Label"), "Dev");
+    await userEvent.type(screen.getByLabelText("Script"), "bun run dev");
+
+    const shortcutInput = screen.getByLabelText("Dev shortcut");
+    await userEvent.click(shortcutInput);
+    fireEvent.keyDown(shortcutInput, { key: "j", ctrlKey: true });
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(
+      await screen.findByText("Toggle terminal already uses this shortcut."),
+    ).toBeInTheDocument();
+    expect(mockedBridge.updateProjectSettings).not.toHaveBeenCalled();
   });
 
   it("keeps project script saves successful when only the refresh fails", async () => {
@@ -959,7 +1150,7 @@ describe("StudioShell", () => {
 
     expect(
       await screen.findByText(
-        "Settings were saved, but the workspace snapshot could not be refreshed.",
+        "Project settings were saved, but the workspace snapshot could not be refreshed.",
       ),
     ).toBeInTheDocument();
     await waitFor(() => {
