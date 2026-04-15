@@ -57,7 +57,13 @@ export function StudioPane({
       />
     );
   } else if (draft) {
-    content = <ThreadDraftComposer projectId={draft.projectId} paneId={paneId} />;
+    content = (
+      <ThreadDraftComposer
+        key={`${paneId}:${draft.projectId}`}
+        projectId={draft.projectId}
+        paneId={paneId}
+      />
+    );
   } else if (environment) {
     content = <EnvironmentView environment={environment} />;
   } else if (project) {

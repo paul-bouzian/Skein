@@ -193,7 +193,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           bootstrapStatus,
           snapshot,
           loadingState: "ready",
-          ...withLayout(reconcileLayout(snapshot, base)),
+          ...withLayout(reconcileLayout(snapshot, base, state.draftBySlot)),
         };
       });
     } catch (cause: unknown) {
@@ -241,7 +241,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
       set((state) => ({
         snapshot,
-        ...withLayout(reconcileLayout(snapshot, state.layout)),
+        ...withLayout(reconcileLayout(snapshot, state.layout, state.draftBySlot)),
       }));
       return true;
     } catch (cause: unknown) {
@@ -310,7 +310,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       removed = true;
       return {
         snapshot: nextSnapshot,
-        ...withLayout(reconcileLayout(nextSnapshot, state.layout)),
+        ...withLayout(
+          reconcileLayout(nextSnapshot, state.layout, state.draftBySlot),
+        ),
       };
     });
     return removed;
@@ -1093,6 +1095,7 @@ function resolveThreadSelection(
 function reconcileLayout(
   snapshot: WorkspaceSnapshot,
   layout: WorkspaceLayout,
+  draftBySlot: Partial<Record<SlotKey, ThreadDraftState>>,
 ): WorkspaceLayout {
   const nextSlots: Record<SlotKey, PaneSelection | null> = {
     ...EMPTY_SLOTS,
@@ -1101,6 +1104,14 @@ function reconcileLayout(
     const selection = layout.slots[key];
     if (!selection) {
       nextSlots[key] = null;
+      continue;
+    }
+    // Draft panes hold `environmentId` / `threadId` intentionally null.
+    // `reconcilePaneSelection` would fill them with the project's fallback
+    // env + latest active thread, causing StudioPane to flip into
+    // `ThreadConversation` and wipe the in-progress draft composer.
+    if (draftBySlot[key]) {
+      nextSlots[key] = selection;
       continue;
     }
     nextSlots[key] = reconcilePaneSelection(snapshot, selection);
@@ -1330,7 +1341,9 @@ function applySnapshotMutation(
     return {
       snapshot: nextSnapshot,
       error: null,
-      ...withLayout(reconcileLayout(nextSnapshot, state.layout)),
+      ...withLayout(
+        reconcileLayout(nextSnapshot, state.layout, state.draftBySlot),
+      ),
     };
   });
 }

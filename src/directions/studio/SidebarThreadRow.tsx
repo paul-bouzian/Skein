@@ -18,23 +18,32 @@ export type ThreadWorktreeBadge = {
   branch: string;
 };
 
-type Props = {
+type SharedProps = {
   thread: ThreadRecord;
-  worktree?: ThreadWorktreeBadge | null;
   onSelect: () => void;
   onOpenInOtherPane: () => void;
   onContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
-  onBranchChipClick?: (event: React.MouseEvent<HTMLElement>) => void;
 };
 
-function SidebarThreadRowImpl({
-  thread,
-  worktree = null,
-  onSelect,
-  onOpenInOtherPane,
-  onContextMenu,
-  onBranchChipClick,
-}: Props) {
+// Keep the worktree chip and its click handler aligned: a chip is only
+// rendered for worktree threads, and when it is the click handler must be
+// provided — otherwise the chip would be a focusable no-op.
+type Props =
+  | (SharedProps & { worktree?: null; onBranchChipClick?: never })
+  | (SharedProps & {
+      worktree: ThreadWorktreeBadge;
+      onBranchChipClick: (event: React.MouseEvent<HTMLElement>) => void;
+    });
+
+function SidebarThreadRowImpl(props: Props) {
+  const {
+    thread,
+    onSelect,
+    onOpenInOtherPane,
+    onContextMenu,
+  } = props;
+  const worktree = props.worktree ?? null;
+  const onBranchChipClick = props.onBranchChipClick;
   const tone = useConversationStore((state) =>
     indicatorToneForConversationStatus(
       state.snapshotsByThreadId[thread.id]?.status ?? null,
@@ -69,7 +78,7 @@ function SidebarThreadRowImpl({
         </span>
         <span className="tree-sidebar__thread-title">{thread.title}</span>
       </button>
-      {worktree ? (
+      {worktree && onBranchChipClick ? (
         <button
           type="button"
           className="tree-sidebar__thread-branch"
@@ -79,7 +88,7 @@ function SidebarThreadRowImpl({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onBranchChipClick?.(event);
+            onBranchChipClick(event);
           }}
         >
           <GitBranchIcon size={10} className="tree-sidebar__thread-branch-icon" />
