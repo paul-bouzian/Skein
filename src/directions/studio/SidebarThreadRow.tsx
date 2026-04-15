@@ -65,30 +65,29 @@ function SidebarThreadRowImpl({
         {...dragHandlers}
       >
         <span className="tree-sidebar__thread-indicator">
-          {worktree ? (
-            <GitBranchIcon size={11} />
-          ) : (
-            <RuntimeIndicator tone={tone} size="sm" />
-          )}
+          <RuntimeIndicator tone={tone} size="sm" />
         </span>
         <span className="tree-sidebar__thread-title">{thread.title}</span>
-        {worktree ? (
-          <button
-            type="button"
-            className="tree-sidebar__thread-branch"
-            title={`Worktree: ${worktree.branch}`}
-            data-no-reorder-drag="true"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onBranchChipClick?.(event);
-            }}
-          >
-            {worktree.branch}
-          </button>
-        ) : null}
       </button>
+      {worktree ? (
+        <button
+          type="button"
+          className="tree-sidebar__thread-branch"
+          title={`Worktree: ${worktree.branch}`}
+          data-no-reorder-drag="true"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onBranchChipClick?.(event);
+          }}
+        >
+          <GitBranchIcon size={10} className="tree-sidebar__thread-branch-icon" />
+          <span className="tree-sidebar__thread-branch-label">
+            {worktree.branch}
+          </span>
+        </button>
+      ) : null}
       <Tooltip content="Open in other pane" side="bottom">
         <button
           type="button"

@@ -82,18 +82,20 @@ export function EnvironmentSelector({
   function pickLocal() {
     onChange({ kind: "local" });
     setEnvMenuOpen(false);
+    setBranchMenuOpen(false);
   }
 
   function pickExisting(environmentId: string) {
     onChange({ kind: "existing", environmentId });
     setEnvMenuOpen(false);
+    setBranchMenuOpen(false);
   }
 
   function pickNewWorktree() {
     const branch =
       value.kind === "new"
         ? value.baseBranch
-        : defaultBaseBranch ?? availableBranches[0] ?? "main";
+        : defaultBaseBranch ?? availableBranches[0] ?? "";
     const name = value.kind === "new" ? value.name : "";
     onChange({ kind: "new", baseBranch: branch, name });
     setEnvMenuOpen(false);
@@ -104,6 +106,9 @@ export function EnvironmentSelector({
     onChange({ ...value, baseBranch: branch });
     setBranchMenuOpen(false);
   }
+
+  const canPickNewWorktree =
+    availableBranches.length > 0 || Boolean(defaultBaseBranch);
 
   return (
     <div className="thread-draft-env" data-disabled={disabled ? "true" : undefined}>
@@ -209,7 +214,12 @@ export function EnvironmentSelector({
                 active={value.kind === "new"}
                 icon={<PlusIcon size={11} />}
                 label="New worktree…"
-                sub="Create a fresh worktree from a base branch"
+                sub={
+                  canPickNewWorktree
+                    ? "Create a fresh worktree from a base branch"
+                    : "No local branches available"
+                }
+                disabled={!canPickNewWorktree}
                 onSelect={pickNewWorktree}
               />
             </div>,
@@ -254,18 +264,21 @@ function MenuOption({
   icon,
   label,
   sub,
+  disabled = false,
   onSelect,
 }: {
   active: boolean;
   icon: React.ReactNode;
   label: string;
   sub?: string;
+  disabled?: boolean;
   onSelect: () => void;
 }) {
   return (
     <button
       type="button"
       className={`tx-dropdown-option thread-draft-env__option ${active ? "thread-draft-env__option--active" : ""}`}
+      disabled={disabled}
       onClick={onSelect}
     >
       <span className="thread-draft-env__option-icon">{icon}</span>

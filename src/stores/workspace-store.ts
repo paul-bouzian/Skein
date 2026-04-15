@@ -439,8 +439,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         state.layout.focusedSlot && state.layout.focusedSlot !== slot
           ? state.layout.slots[state.layout.focusedSlot]
           : null;
-      const slots = { ...state.layout.slots, [slot]: null };
-      const compacted = compactSlots(slots);
+      const slotsWithClosedCleared = {
+        ...state.layout.slots,
+        [slot]: null,
+      };
+      const draftsWithClosedCleared = omitSlot(state.draftBySlot, slot);
+      const { slots: compacted, drafts: remappedDrafts } =
+        compactSlotsAndDrafts(slotsWithClosedCleared, draftsWithClosedCleared);
       const relocated = focusedSelection
         ? (SLOT_KEYS.find((key) => compacted[key] === focusedSelection) ?? null)
         : null;
@@ -451,7 +456,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           slots: compacted,
           focusedSlot: nextFocus,
         }),
-        draftBySlot: omitSlot(state.draftBySlot, slot),
+        draftBySlot: remappedDrafts,
       };
     }),
 
@@ -1015,7 +1020,24 @@ function pickNeighborSlot(
 function compactSlots(
   slots: Record<SlotKey, PaneSelection | null>,
 ): Record<SlotKey, PaneSelection | null> {
+  return compactSlotsAndDrafts(slots, {}).slots;
+}
+
+// Compacts slots the same way compactSlots does, and remaps draft entries so
+// each draft follows its pane selection's new position. Drafts whose source
+// slot stays in place are preserved; drafts in now-empty slots are dropped.
+function compactSlotsAndDrafts(
+  slots: Record<SlotKey, PaneSelection | null>,
+  drafts: Partial<Record<SlotKey, ThreadDraftState>>,
+): {
+  slots: Record<SlotKey, PaneSelection | null>;
+  drafts: Partial<Record<SlotKey, ThreadDraftState>>;
+} {
   let { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR } = slots;
+  let dTL = drafts.topLeft;
+  let dTR = drafts.topRight;
+  let dBL = drafts.bottomLeft;
+  let dBR = drafts.bottomRight;
 
   // Promote the bottom row to the top when the top row is entirely empty.
   if (TL === null && TR === null && (BL !== null || BR !== null)) {
@@ -1023,19 +1045,36 @@ function compactSlots(
     TR = BR;
     BL = null;
     BR = null;
+    dTL = dBL;
+    dTR = dBR;
+    dBL = undefined;
+    dBR = undefined;
   }
 
   // Within each row, shift the filled cell to the left cell when empty.
   if (TL === null && TR !== null) {
     TL = TR;
     TR = null;
+    dTL = dTR;
+    dTR = undefined;
   }
   if (BL === null && BR !== null) {
     BL = BR;
     BR = null;
+    dBL = dBR;
+    dBR = undefined;
   }
 
-  return { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR };
+  const nextDrafts: Partial<Record<SlotKey, ThreadDraftState>> = {};
+  if (dTL !== undefined) nextDrafts.topLeft = dTL;
+  if (dTR !== undefined) nextDrafts.topRight = dTR;
+  if (dBL !== undefined) nextDrafts.bottomLeft = dBL;
+  if (dBR !== undefined) nextDrafts.bottomRight = dBR;
+
+  return {
+    slots: { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR },
+    drafts: nextDrafts,
+  };
 }
 
 function resolveThreadSelection(

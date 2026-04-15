@@ -622,7 +622,8 @@
   display: flex;
   align-items: center;
   gap: var(--tx-space-xs);
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 26px;
   padding: 0 var(--tx-space-sm);
   border-radius: var(--tx-radius-sm);
@@ -677,22 +678,33 @@
 }
 
 .tree-sidebar__thread-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   flex-shrink: 0;
-  max-width: 90px;
+  max-width: 100px;
   padding: 1px 6px;
+  margin-left: 4px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
   color: color-mix(in srgb, var(--tx-accent) 75%, var(--tx-text-secondary));
   font-family: var(--tx-font-mono);
   font-size: 10px;
   line-height: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   transition:
     background var(--tx-transition-fast),
     color var(--tx-transition-fast),
     opacity var(--tx-transition-fast);
+}
+
+.tree-sidebar__thread-branch-icon {
+  flex-shrink: 0;
+}
+
+.tree-sidebar__thread-branch-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tree-sidebar__thread-branch:hover {

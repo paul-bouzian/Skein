@@ -3,6 +3,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
 import type {
   ConversationComposerSettings,
+  ConversationImageAttachment,
   EnvironmentRecord,
   ThreadRecord,
   WorkspaceSnapshot,
@@ -60,6 +61,7 @@ export type SendThreadDraftInput = {
   projectId: string;
   selection: EnvSelection;
   text: string;
+  images?: ConversationImageAttachment[];
   composer?: ConversationComposerSettings | null;
 };
 
@@ -71,7 +73,8 @@ export async function sendThreadDraft(
   input: SendThreadDraftInput,
 ): Promise<SendThreadDraftResult> {
   const { paneId, projectId, selection, text, composer } = input;
-  if (text.trim().length === 0) {
+  const images = input.images ?? [];
+  if (text.trim().length === 0 && images.length === 0) {
     return { ok: false, error: "Message is empty" };
   }
 
@@ -111,7 +114,7 @@ export async function sendThreadDraft(
   // up the optimistic user message and the FirstPromptNamingNotice spinner.
   useConversationStore.getState().enqueuePendingFirstMessage(thread.id, {
     text: text.trim(),
-    images: [],
+    images,
     composer: composer ?? null,
   });
 

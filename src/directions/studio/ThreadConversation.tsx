@@ -89,6 +89,10 @@ export function ThreadConversation({
   const consumePendingFirstMessage = useConversationStore(
     (state) => state.consumePendingFirstMessage,
   );
+  const enqueuePendingFirstMessage = useConversationStore(
+    (state) => state.enqueuePendingFirstMessage,
+  );
+  const pendingFirstMessageRetryRef = useRef(false);
   const [isPreparingWorktreeName, setIsPreparingWorktreeName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -110,6 +114,7 @@ export function ThreadConversation({
   useEffect(() => {
     submitGenerationRef.current += 1;
     submitInFlightRef.current = false;
+    pendingFirstMessageRetryRef.current = false;
     setIsPreparingWorktreeName(false);
     setIsSubmitting(false);
   }, [thread.id]);
@@ -342,7 +347,22 @@ export function ThreadConversation({
       setIsPreparingWorktreeName(true);
     }
     void sendMessage(thread.id, payload.text, payload.images, [])
-      .catch(() => false)
+      .then((sent) => {
+        if (sent) return;
+        // Send failed. Re-enqueue once so the user can retry without losing
+        // their message; any subsequent failure leaves the draft in place
+        // rather than looping forever.
+        if (!pendingFirstMessageRetryRef.current) {
+          pendingFirstMessageRetryRef.current = true;
+          enqueuePendingFirstMessage(thread.id, payload);
+        }
+      })
+      .catch(() => {
+        if (!pendingFirstMessageRetryRef.current) {
+          pendingFirstMessageRetryRef.current = true;
+          enqueuePendingFirstMessage(thread.id, payload);
+        }
+      })
       .finally(() => {
         finishSubmitCycle(submitGeneration);
       });
@@ -354,6 +374,7 @@ export function ThreadConversation({
     transportReady,
     pendingFirstMessage,
     consumePendingFirstMessage,
+    enqueuePendingFirstMessage,
     sendMessage,
     environment.id,
     thread.id,

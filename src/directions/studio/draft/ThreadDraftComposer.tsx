@@ -6,6 +6,7 @@ import type {
   ConversationComposerSettings,
   ConversationImageAttachment,
   EnvironmentCapabilitiesSnapshot,
+  GlobalSettings,
   ModelOption,
   ProjectRecord,
   ReasoningEffort,
@@ -14,6 +15,7 @@ import { ThreadIcon } from "../../../shared/Icons";
 import { useConversationStore } from "../../../stores/conversation-store";
 import {
   selectProjects,
+  selectSettings,
   useWorkspaceStore,
   type SlotKey,
 } from "../../../stores/workspace-store";
@@ -28,7 +30,11 @@ type Props = {
   paneId: SlotKey;
 };
 
-const DEFAULT_COMPOSER: ConversationComposerSettings = {
+// Used only when the workspace has not yet loaded its global settings.
+// Once settings are available we seed the draft composer from them so the
+// user's configured defaults (model, effort, mode, approval, tier) take
+// precedence over these hard-coded fallbacks.
+const BOOTSTRAP_COMPOSER: ConversationComposerSettings = {
   model: "gpt-5.4",
   reasoningEffort: "high",
   collaborationMode: "build",
@@ -68,6 +74,18 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
 const PRIORITY_BRANCHES = ["main", "master"] as const;
 const PRIORITY_SET: ReadonlySet<string> = new Set(PRIORITY_BRANCHES);
 
+function composerFromSettings(
+  settings: GlobalSettings,
+): ConversationComposerSettings {
+  return {
+    model: settings.defaultModel,
+    reasoningEffort: settings.defaultReasoningEffort,
+    collaborationMode: settings.defaultCollaborationMode,
+    approvalPolicy: settings.defaultApprovalPolicy,
+    serviceTier: settings.defaultServiceTier ?? null,
+  };
+}
+
 function pickCapabilitiesForProject(
   cache: Record<string, EnvironmentCapabilitiesSnapshot>,
   project: ProjectRecord | undefined,
@@ -92,13 +110,15 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
   const project = useWorkspaceStore((state) =>
     selectProjects(state).find((candidate) => candidate.id === projectId),
   );
+  const settings = useWorkspaceStore(selectSettings);
   const [text, setText] = useState("");
   const [images, setImages] = useState<ConversationImageAttachment[]>([]);
   const [mentionBindings, setMentionBindings] = useState<
     ComposerDraftMentionBinding[]
   >([]);
-  const [composer, setComposer] =
-    useState<ConversationComposerSettings>(DEFAULT_COMPOSER);
+  const [composer, setComposer] = useState<ConversationComposerSettings>(() =>
+    settings ? composerFromSettings(settings) : BOOTSTRAP_COMPOSER,
+  );
   const [selection, setSelection] = useState<EnvSelection>({ kind: "local" });
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoaded, setBranchesLoaded] = useState(false);
@@ -174,7 +194,10 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
   const effortOptions: ReasoningEffort[] =
     selectedModel?.supportedReasoningEfforts ?? FALLBACK_EFFORT_OPTIONS;
 
-  async function handleSend(sendText: string) {
+  async function handleSend(
+    sendText: string,
+    sendImages: ConversationImageAttachment[],
+  ) {
     if (isSending) return;
     setIsSending(true);
     setError(null);
@@ -184,6 +207,7 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         projectId,
         selection,
         text: sendText,
+        images: sendImages,
         composer,
       });
       if (!result.ok) {
@@ -228,7 +252,9 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         threadId={`draft:${paneId}`}
         composer={composer}
         collaborationModes={collaborationModes}
-        disabled={false}
+        disabled={
+          selection.kind === "new" && selection.baseBranch.trim().length === 0
+        }
         draft={text}
         effortOptions={effortOptions}
         focusKey={`draft:${paneId}`}
@@ -248,8 +274,8 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         }}
         onChangeMentionBindings={setMentionBindings}
         onInterrupt={() => undefined}
-        onSend={(next) => {
-          void handleSend(next);
+        onSend={(next, nextImages) => {
+          void handleSend(next, nextImages);
         }}
         onUpdateComposer={(patch) =>
           setComposer((previous) => ({ ...previous, ...patch }))
