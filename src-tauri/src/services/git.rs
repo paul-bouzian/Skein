@@ -251,6 +251,19 @@ pub fn list_branch_refs(repo_root: &Path) -> AppResult<Vec<String>> {
     Ok(stdout_message_lines(&output.stdout))
 }
 
+pub fn list_local_branches(repo_root: &Path) -> AppResult<Vec<String>> {
+    let output = command_output(
+        repo_root,
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?;
+
+    if !output.status.success() {
+        return Err(AppError::Git(stderr_message(&output.stderr)));
+    }
+
+    Ok(stdout_message_lines(&output.stdout))
+}
+
 pub fn branch_exists(repo_root: &Path, branch_name: &str) -> AppResult<bool> {
     let needle = branch_name.trim();
     Ok(list_branch_refs(repo_root)?.into_iter().any(|reference| {

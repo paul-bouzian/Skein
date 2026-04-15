@@ -8,7 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
+import type { ProjectRecord } from "../../lib/types";
 import {
   listsMatch,
   moveItemToIndex,
@@ -596,25 +596,6 @@ export function projectGroupClassName(
     project.id === selectedProjectId ? "project-group--selected" : null,
     dragState?.kind === "project" && dragState.projectId === project.id
       ? "project-group--dragging"
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-}
-
-export function environmentItemClassName(
-  environment: EnvironmentRecord,
-  selectedEnvironmentId: string | null,
-  dragState: SidebarDragState | null,
-) {
-  return [
-    "environment-item-shell",
-    selectedEnvironmentId === environment.id
-      ? "environment-item-shell--selected"
-      : null,
-    dragState?.kind === "environment" &&
-    dragState.environmentId === environment.id
-      ? "environment-item-shell--dragging"
       : null,
   ]
     .filter(Boolean)

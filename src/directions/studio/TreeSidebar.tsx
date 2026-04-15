@@ -16,13 +16,18 @@ import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import * as bridge from "../../lib/bridge";
 import { ProjectIcon } from "../../shared/ProjectIcon";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { ChevronRightIcon, GitBranchIcon, PlusIcon } from "../../shared/Icons";
+import {
+  ChevronRightIcon,
+  DotsHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+} from "../../shared/Icons";
 import { Tooltip } from "../../shared/Tooltip";
 import type {
   EnvironmentRecord,
-  EnvironmentPullRequestSnapshot,
   ProjectRecord,
   ThreadConversationSnapshot,
+  ThreadRecord,
 } from "../../lib/types";
 import { SidebarThreadRow } from "./SidebarThreadRow";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
@@ -32,9 +37,9 @@ import {
   archiveThreadWithConfirmation,
   createManagedWorktreeForSelection,
   createThreadForEnvironment,
+  openThreadDraftForProject,
 } from "./studioActions";
 import {
-  environmentItemClassName,
   projectGroupClassName,
   useTreeSidebarReorder,
 } from "./useTreeSidebarReorder";
@@ -49,17 +54,20 @@ type Props = {
 };
 
 type ContextMenuState = {
-  kind: "project" | "environment" | "thread";
+  kind: "project" | "environment" | "thread" | "branch";
   projectId?: string;
   projectName?: string;
   environmentId?: string;
   environmentName?: string;
   branchName?: string;
   path?: string;
+  pullRequestUrl?: string;
   activeThreadCount?: number;
   archivedThreadCount?: number;
   threadId?: string;
   threadTitle?: string;
+  threadWorktreeEnvId?: string | null;
+  threadWorktreeBranch?: string | null;
   x: number;
   y: number;
 };
@@ -71,9 +79,6 @@ const PROJECT_REMOVAL_DIALOG_TITLE = "Remove project";
 export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggleTheme }: Props) {
   const projects = useWorkspaceStore(selectProjects);
   const selectedProjectId = useWorkspaceStore((s) => s.selectedProjectId);
-  const selectedEnvironmentId = useWorkspaceStore(
-    (s) => s.selectedEnvironmentId,
-  );
   const refreshSnapshot = useWorkspaceStore((s) => s.refreshSnapshot);
   const reorderProjects = useWorkspaceStore((s) => s.reorderProjects);
   const reorderWorktreeEnvironments = useWorkspaceStore(
@@ -83,7 +88,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     (s) => s.setProjectSidebarCollapsed,
   );
   const selectProject = useWorkspaceStore((s) => s.selectProject);
-  const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
   const latestScriptFailure = useWorktreeScriptStore(
     (state) => state.latestFailure,
@@ -103,13 +107,9 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     orderedProjects,
     orderedWorktreeEnvironments,
     registerProjectItem,
-    registerEnvironmentItem,
     handleProjectPointerDown,
-    handleWorktreePointerDown,
     handleProjectKeyboardReorder,
-    handleWorktreeKeyboardReorder,
     projectDragStyle,
-    environmentDragStyle,
     shouldSuppressClick,
   } = useTreeSidebarReorder({
     projects,
@@ -153,11 +153,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     selectProject(projectId);
   }
 
-  function handleEnvironmentSelect(environmentId: string) {
-    resetMessages();
-    selectEnvironment(environmentId);
-  }
-
   function handleThreadSelect(threadId: string) {
     resetMessages();
     selectThread(threadId);
@@ -168,7 +163,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     useWorkspaceStore.getState().openThreadInOtherPane(threadId);
   }
 
-  async function handleCreateThreadForEnvironment(environmentId: string) {
+  async function handleCreateThreadInEnvironment(environmentId: string) {
     resetMessages();
     try {
       const created = await createThreadForEnvironment(environmentId);
@@ -182,20 +177,52 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     }
   }
 
-  function renderEnvironmentThreadList(environment: EnvironmentRecord) {
-    const activeThreads = environment.threads
-      .filter((thread) => thread.status === "active")
-      .sort(
-        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+  function handleOpenThreadDraft(projectId: string) {
+    resetMessages();
+    openThreadDraftForProject(projectId);
+  }
+
+  function renderProjectThreads(project: ProjectRecord) {
+    const localEnvironment = project.environments.find(
+      (candidate) => candidate.kind === "local",
+    );
+    const worktreeEnvironments = orderedWorktreeEnvironments(project);
+    const localThreads = localEnvironment
+      ? localEnvironment.threads
+          .filter((thread) => thread.status === "active")
+          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      : [];
+    const worktreeThreadRows: Array<{
+      thread: ThreadRecord;
+      env: EnvironmentRecord;
+    }> = [];
+    for (const environment of worktreeEnvironments) {
+      const threads = environment.threads
+        .filter((thread) => thread.status === "active")
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+      for (const thread of threads) {
+        worktreeThreadRows.push({ thread, env: environment });
+      }
+    }
+
+    if (localThreads.length === 0 && worktreeThreadRows.length === 0) {
+      return (
+        <div className="project-group__threads project-group__threads--empty">
+          <p className="project-group__empty-hint">
+            No threads yet — click{" "}
+            <span aria-hidden>
+              <PencilIcon size={10} />
+            </span>{" "}
+            to start one.
+          </p>
+        </div>
       );
-    if (activeThreads.length === 0) return null;
+    }
+
     return (
-      <ul className="environment-thread-list">
-        {activeThreads.map((thread) => (
-          <li
-            key={thread.id}
-            className="environment-thread-list__item"
-          >
+      <ul className="project-group__threads">
+        {localThreads.map((thread) => (
+          <li key={thread.id} className="project-group__thread-item">
             <SidebarThreadRow
               thread={thread}
               onSelect={() => handleThreadSelect(thread.id)}
@@ -206,6 +233,8 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   kind: "thread",
                   threadId: thread.id,
                   threadTitle: thread.title,
+                  threadWorktreeEnvId: null,
+                  threadWorktreeBranch: null,
                   x: event.clientX,
                   y: event.clientY,
                 });
@@ -213,106 +242,55 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
             />
           </li>
         ))}
-      </ul>
-    );
-  }
-
-  function renderNewThreadButton(environment: EnvironmentRecord) {
-    return (
-      <Tooltip
-        content={`New thread in ${environment.name}`}
-        side="bottom"
-      >
-        <button
-          type="button"
-          className="environment-item__new-thread"
-          aria-label="New thread"
-          data-no-reorder-drag="true"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void handleCreateThreadForEnvironment(environment.id);
-          }}
-        >
-          <PlusIcon size={11} />
-        </button>
-      </Tooltip>
-    );
-  }
-
-  function renderProjectEnvironments(project: ProjectRecord) {
-    const localEnvironment = project.environments.find(
-      (candidate) => candidate.kind === "local",
-    );
-    return (
-      <div className="project-group__environments">
-        {localEnvironment ? (
-          <div className="environment-entry environment-entry--local">
-            {renderNewThreadButton(localEnvironment)}
-            {renderEnvironmentThreadList(localEnvironment)}
-          </div>
-        ) : null}
-        {orderedWorktreeEnvironments(project).map((environment) => (
-          <div key={environment.id} className="environment-entry">
-            <div
-              ref={registerEnvironmentItem(project.id, environment.id)}
-              className={environmentItemClassName(
-                environment,
-                selectedEnvironmentId,
-                dragState,
-              )}
-              style={environmentDragStyle(project.id, environment.id)}
-              onPointerDown={(event) =>
-                handleWorktreePointerDown(event, project, environment.id)
-              }
-              onClick={(event) => {
-                if (event.detail > 0 && shouldSuppressClick()) return;
-                handleEnvironmentSelect(environment.id);
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                handleEnvironmentSelect(environment.id);
-                setContextMenu(
-                  buildEnvironmentContextMenuState(
-                    environment,
-                    event.clientX,
-                    event.clientY,
-                  ),
-                );
-              }}
-            >
-              <span className="environment-item__icon-slot">
-                {renderPullRequestControl(environment)}
-              </span>
-              <button
-                type="button"
-                className="environment-item"
-                onKeyDown={(event) =>
-                  void handleWorktreeKeyboardReorder(
-                    event,
-                    project,
-                    environment.id,
-                  )
+        {worktreeThreadRows.map(({ thread, env }) => {
+          const branchLabel = env.gitBranch ?? env.name;
+          return (
+            <li key={thread.id} className="project-group__thread-item">
+              <SidebarThreadRow
+                thread={thread}
+                worktree={{
+                  environmentId: env.id,
+                  branch: branchLabel,
+                }}
+                onSelect={() => handleThreadSelect(thread.id)}
+                onOpenInOtherPane={() =>
+                  handleOpenThreadInOtherPane(thread.id)
                 }
-              >
-                <span className="environment-item__primary">
-                  <span className="environment-item__name-row">
-                    <span className="environment-item__name">
-                      {environment.name}
-                    </span>
-                  </span>
-                </span>
-                <span className="environment-item__secondary">
-                  <EnvironmentConversationIndicator environment={environment} />
-                </span>
-              </button>
-              {renderNewThreadButton(environment)}
-            </div>
-            {renderEnvironmentThreadList(environment)}
-          </div>
-        ))}
-      </div>
+                onBranchChipClick={(event) => {
+                  setContextMenu({
+                    kind: "branch",
+                    environmentId: env.id,
+                    environmentName: env.name,
+                    branchName: branchLabel,
+                    pullRequestUrl: env.pullRequest?.url,
+                    path: env.path,
+                    activeThreadCount: env.threads.filter(
+                      (candidate) => candidate.status === "active",
+                    ).length,
+                    archivedThreadCount: env.threads.filter(
+                      (candidate) => candidate.status === "archived",
+                    ).length,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setContextMenu({
+                    kind: "thread",
+                    threadId: thread.id,
+                    threadTitle: thread.title,
+                    threadWorktreeEnvId: env.id,
+                    threadWorktreeBranch: branchLabel,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
+              />
+            </li>
+          );
+        })}
+      </ul>
     );
   }
 
@@ -390,7 +368,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
 
   async function handleDeleteWorktree(menu: ContextMenuState) {
     if (
-      menu.kind !== "environment" ||
+      (menu.kind !== "environment" && menu.kind !== "branch") ||
       !menu.environmentId ||
       !menu.environmentName
     ) {
@@ -547,31 +525,50 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       <ProjectLocalSummary project={project} />
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    className="project-group__create"
-                    data-no-reorder-drag="true"
-                    aria-label={`Create worktree for ${project.name}`}
-                    title={`Create worktree for ${project.name}`}
-                    disabled={creatingWorktreeProjectId === project.id}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      void handleCreateManagedWorktree(project.id);
-                    }}
-                  >
-                    <PlusIcon
-                      size={12}
-                      className={
-                        creatingWorktreeProjectId === project.id
-                          ? "project-group__create-icon project-group__create-icon--spinning"
-                          : "project-group__create-icon"
-                      }
-                    />
-                  </button>
+                  <Tooltip content="Project menu" side="bottom">
+                    <button
+                      type="button"
+                      className="project-group__menu"
+                      data-no-reorder-drag="true"
+                      aria-label={`Actions for ${project.name}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect =
+                          event.currentTarget.getBoundingClientRect();
+                        setContextMenu(
+                          buildProjectContextMenuState(
+                            project.id,
+                            project.name,
+                            rect.left,
+                            rect.bottom + 4,
+                          ),
+                        );
+                      }}
+                    >
+                      <DotsHorizontalIcon size={13} />
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="New thread" side="bottom">
+                    <button
+                      type="button"
+                      className="project-group__new-thread"
+                      data-no-reorder-drag="true"
+                      aria-label={`New thread in ${project.name}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleOpenThreadDraft(project.id);
+                      }}
+                    >
+                      <PencilIcon size={13} />
+                    </button>
+                  </Tooltip>
                 </div>
                 {!project.sidebarCollapsed &&
-                  renderProjectEnvironments(project)}
+                  renderProjectThreads(project)}
               </section>
             ))
           )}
@@ -594,18 +591,46 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
             onContextMenu={(event) => event.preventDefault()}
           >
             {contextMenu.kind === "project" ? (
-              <button
-                type="button"
-                className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
-                onClick={() =>
-                  void handleRemoveProject(
-                    contextMenu.projectId ?? "",
-                    contextMenu.projectName ?? "Project",
-                  )
-                }
-              >
-                {`Remove from ${APP_NAME}`}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option"
+                  onClick={() => {
+                    setContextMenu(null);
+                    if (contextMenu.projectId) {
+                      handleOpenThreadDraft(contextMenu.projectId);
+                    }
+                  }}
+                >
+                  New thread
+                </button>
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option"
+                  disabled={creatingWorktreeProjectId === contextMenu.projectId}
+                  onClick={() => {
+                    setContextMenu(null);
+                    if (contextMenu.projectId) {
+                      void handleCreateManagedWorktree(contextMenu.projectId);
+                    }
+                  }}
+                >
+                  Create worktree (standalone)
+                </button>
+                <div className="tree-sidebar__context-separator" />
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
+                  onClick={() =>
+                    void handleRemoveProject(
+                      contextMenu.projectId ?? "",
+                      contextMenu.projectName ?? "Project",
+                    )
+                  }
+                >
+                  {`Remove from ${APP_NAME}`}
+                </button>
+              </>
             ) : contextMenu.kind === "environment" ? (
               <button
                 type="button"
@@ -614,6 +639,47 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
               >
                 Delete worktree
               </button>
+            ) : contextMenu.kind === "branch" ? (
+              <>
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option"
+                  onClick={() => {
+                    const envId = contextMenu.environmentId;
+                    setContextMenu(null);
+                    if (envId) void handleCreateThreadInEnvironment(envId);
+                  }}
+                >
+                  {contextMenu.branchName
+                    ? `New thread in ${contextMenu.branchName}`
+                    : "New thread here"}
+                </button>
+                {contextMenu.pullRequestUrl ? (
+                  <button
+                    type="button"
+                    className="tree-sidebar__context-item tx-dropdown-option"
+                    onClick={() => {
+                      const url = contextMenu.pullRequestUrl;
+                      setContextMenu(null);
+                      if (url) {
+                        void Promise.resolve(openUrl(url)).catch(
+                          () => undefined,
+                        );
+                      }
+                    }}
+                  >
+                    Open pull request
+                  </button>
+                ) : null}
+                <div className="tree-sidebar__context-separator" />
+                <button
+                  type="button"
+                  className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
+                  onClick={() => void handleDeleteWorktree(contextMenu)}
+                >
+                  Delete worktree
+                </button>
+              </>
             ) : (
               <>
                 <button
@@ -628,6 +694,22 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                 >
                   Open in other pane
                 </button>
+                {contextMenu.threadWorktreeEnvId ? (
+                  <button
+                    type="button"
+                    className="tree-sidebar__context-item tx-dropdown-option"
+                    onClick={() => {
+                      const envId = contextMenu.threadWorktreeEnvId;
+                      setContextMenu(null);
+                      if (envId) void handleCreateThreadInEnvironment(envId);
+                    }}
+                  >
+                    {contextMenu.threadWorktreeBranch
+                      ? `New thread in ${contextMenu.threadWorktreeBranch}`
+                      : "New thread in same worktree"}
+                  </button>
+                ) : null}
+                <div className="tree-sidebar__context-separator" />
                 <button
                   type="button"
                   className="tree-sidebar__context-item tx-dropdown-option tree-sidebar__context-item--danger"
@@ -691,48 +773,6 @@ function selectEnvironmentIndicatorTone(environment: EnvironmentRecord) {
     );
 }
 
-function renderPullRequestControl(environment: EnvironmentRecord) {
-  const pullRequest = environment.pullRequest;
-  if (!pullRequest) {
-    return (
-      <span className="environment-item__icon-shell" aria-hidden="true">
-        <GitBranchIcon size={13} className="environment-item__icon" />
-      </span>
-    );
-  }
-
-  const label = pullRequestAriaLabel(pullRequest);
-
-  return (
-    <Tooltip content={label} side="bottom">
-      <button
-        type="button"
-        className="environment-item__icon-button"
-        data-no-reorder-drag="true"
-        aria-label={label}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void Promise.resolve(openUrl(pullRequest.url)).catch(() => undefined);
-        }}
-      >
-        <GitBranchIcon
-          size={13}
-          className={`environment-item__icon environment-item__icon--${pullRequest.state}`}
-        />
-      </button>
-    </Tooltip>
-  );
-}
-
-function pullRequestAriaLabel(pullRequest: EnvironmentPullRequestSnapshot) {
-  const stateLabel =
-    pullRequest.state === "merged"
-      ? "Merged pull request"
-      : "Open pull request";
-  return `${stateLabel} #${pullRequest.number}: ${pullRequest.title}`;
-}
-
 async function showProjectRemovalBlockedDialog(
   cause: unknown,
 ): Promise<boolean> {
@@ -780,36 +820,18 @@ function buildProjectContextMenuState(
   return { kind: "project", projectId, projectName, x, y };
 }
 
-function buildEnvironmentContextMenuState(
-  environment: EnvironmentRecord,
-  x: number,
-  y: number,
-): ContextMenuState {
-  return {
-    kind: "environment",
-    environmentId: environment.id,
-    environmentName: environment.name,
-    branchName: environment.gitBranch,
-    path: environment.path,
-    activeThreadCount: environment.threads.filter(
-      (thread) => thread.status === "active",
-    ).length,
-    archivedThreadCount: environment.threads.filter(
-      (thread) => thread.status === "archived",
-    ).length,
-    x,
-    y,
-  };
-}
-
 function resolveContextMenuPosition(
   contextMenu: Pick<ContextMenuState, "x" | "y">,
   kind: ContextMenuState["kind"],
 ) {
   const menuWidth = 220;
-  // Each .tx-dropdown-option is ~40px tall (incl. padding). Project and
-  // environment menus have one action, thread menus have two.
-  const menuHeight = kind === "thread" ? 88 : 48;
+  // Each .tx-dropdown-option is ~40px tall (incl. padding). Rough budget:
+  //   project menu : 3 items + separator
+  //   branch menu  : up to 3 items + separator
+  //   thread menu  : 2–3 items + separator
+  //   environment menu : 1 item
+  const menuHeight =
+    kind === "project" || kind === "branch" || kind === "thread" ? 160 : 48;
   const margin = 12;
 
   return {

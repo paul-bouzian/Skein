@@ -285,7 +285,9 @@ mod tests {
     use super::PullRequestMonitorService;
     use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
     use crate::services::git;
-    use crate::services::workspace::{AddProjectRequest, PullRequestWatchTarget, WorkspaceService};
+    use crate::services::workspace::{
+        AddProjectRequest, CreateManagedWorktreeRequest, PullRequestWatchTarget, WorkspaceService,
+    };
     use crate::services::worktree_scripts::WorktreeScriptService;
 
     #[test]
@@ -388,7 +390,7 @@ mod tests {
                 .expect("project should be added");
             let worktree = self
                 .workspace
-                .create_managed_worktree(&project.id)
+                .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
                 .expect("worktree should be created");
 
             self.workspace

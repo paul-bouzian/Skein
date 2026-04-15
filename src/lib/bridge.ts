@@ -354,10 +354,25 @@ export function removeProject(projectId: string): Promise<void> {
   return invoke<void>("remove_project", { projectId });
 }
 
+export type CreateManagedWorktreeOptions = {
+  baseBranch?: string;
+  name?: string;
+};
+
 export function createManagedWorktree(
   projectId: string,
+  options?: CreateManagedWorktreeOptions,
 ): Promise<ManagedWorktreeCreateResult> {
-  return invoke<ManagedWorktreeCreateResult>("create_managed_worktree", { projectId });
+  const input: Record<string, unknown> = { projectId };
+  if (options?.baseBranch !== undefined) input.baseBranch = options.baseBranch;
+  if (options?.name !== undefined) input.name = options.name;
+  return invoke<ManagedWorktreeCreateResult>("create_managed_worktree", {
+    input,
+  });
+}
+
+export function listProjectBranches(projectId: string): Promise<string[]> {
+  return invoke<string[]>("list_project_branches", { projectId });
 }
 
 export function deleteWorktreeEnvironment(

@@ -52,6 +52,10 @@ export type PaneSelection = {
   threadId: string | null;
 };
 
+export type ThreadDraftState = {
+  projectId: string;
+};
+
 export type WorkspaceLayout = {
   slots: Record<SlotKey, PaneSelection | null>;
   focusedSlot: SlotKey | null;
@@ -92,6 +96,9 @@ type WorkspaceState = {
   listenerReady: boolean;
 
   layout: WorkspaceLayout;
+
+  // Ephemeral draft composer state per pane (not persisted).
+  draftBySlot: Partial<Record<SlotKey, ThreadDraftState>>;
 
   // Compat fields derived from the focused slot.
   selectedProjectId: string | null;
@@ -142,6 +149,10 @@ type WorkspaceState = {
   selectProject: (id: string | null) => void;
   selectEnvironment: (id: string | null) => void;
   selectThread: (id: string | null) => void;
+
+  // Thread draft composer orchestration.
+  openThreadDraft: (projectId: string, slot?: SlotKey) => SlotKey | null;
+  closeThreadDraft: (slot: SlotKey) => void;
 };
 
 let unlistenWorkspaceEvents: null | (() => void) = null;
@@ -159,6 +170,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   listenerReady: false,
 
   layout: INITIAL_LAYOUT,
+
+  draftBySlot: {},
 
   selectedProjectId: null,
   selectedEnvironmentId: null,
@@ -378,11 +391,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const resolved = resolveThreadSelection(state.snapshot, threadId);
       if (!resolved) return state;
       const slots = { ...state.layout.slots, [slot]: resolved };
-      return withLayout({
-        ...state.layout,
-        slots,
-        focusedSlot: slot,
-      });
+      return {
+        ...withLayout({
+          ...state.layout,
+          slots,
+          focusedSlot: slot,
+        }),
+        draftBySlot: omitSlot(state.draftBySlot, slot),
+      };
     }),
 
   openThreadInOtherPane: (threadId) =>
@@ -416,7 +432,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   closePane: (slot) =>
     set((state) => {
-      if (!state.layout.slots[slot]) return state;
+      if (!state.layout.slots[slot] && !state.draftBySlot[slot]) return state;
       // Capture the focused pane's selection so we can re-find its slot key
       // after compactSlots potentially shuffles entries.
       const focusedSelection =
@@ -429,11 +445,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ? (SLOT_KEYS.find((key) => compacted[key] === focusedSelection) ?? null)
         : null;
       const nextFocus = relocated ?? firstFilledSlot(compacted) ?? null;
-      return withLayout({
-        ...state.layout,
-        slots: compacted,
-        focusedSlot: nextFocus,
-      });
+      return {
+        ...withLayout({
+          ...state.layout,
+          slots: compacted,
+          focusedSlot: nextFocus,
+        }),
+        draftBySlot: omitSlot(state.draftBySlot, slot),
+      };
     }),
 
   setRowRatio: (ratio) =>
@@ -459,11 +478,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const target = state.layout.focusedSlot;
       if (!target) {
         if (!newSelection) return state;
-        return withLayout({
-          ...state.layout,
-          slots: { ...EMPTY_SLOTS, topLeft: newSelection },
-          focusedSlot: "topLeft",
-        });
+        return {
+          ...withLayout({
+            ...state.layout,
+            slots: { ...EMPTY_SLOTS, topLeft: newSelection },
+            focusedSlot: "topLeft",
+          }),
+          draftBySlot: omitSlot(state.draftBySlot, "topLeft"),
+        };
       }
       // When `newSelection` is null (id === null or unresolved project), we
       // clear the slot rather than inserting a placeholder selection — a
@@ -472,7 +494,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ...state.layout.slots,
         [target]: newSelection,
       };
-      return withLayout({ ...state.layout, slots });
+      return {
+        ...withLayout({ ...state.layout, slots }),
+        draftBySlot: omitSlot(state.draftBySlot, target),
+      };
     }),
 
   selectEnvironment: (id) =>
@@ -482,17 +507,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         if (!id) return state;
         const newSelection = buildEnvironmentPane(state.snapshot, null, id);
         if (!newSelection) return state;
-        return withLayout({
-          ...state.layout,
-          slots: { ...EMPTY_SLOTS, topLeft: newSelection },
-          focusedSlot: "topLeft",
-        });
+        return {
+          ...withLayout({
+            ...state.layout,
+            slots: { ...EMPTY_SLOTS, topLeft: newSelection },
+            focusedSlot: "topLeft",
+          }),
+          draftBySlot: omitSlot(state.draftBySlot, "topLeft"),
+        };
       }
       const current = state.layout.slots[target] ?? null;
       const newSelection =
         buildEnvironmentPane(state.snapshot, current, id) ?? current;
       const slots = { ...state.layout.slots, [target]: newSelection };
-      return withLayout({ ...state.layout, slots });
+      return {
+        ...withLayout({ ...state.layout, slots }),
+        draftBySlot: omitSlot(state.draftBySlot, target),
+      };
     }),
 
   selectThread: (id) =>
@@ -502,11 +533,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         if (!id || !state.snapshot) return state;
         const resolved = resolveThreadSelection(state.snapshot, id);
         if (!resolved) return state;
-        return withLayout({
-          ...state.layout,
-          slots: { ...EMPTY_SLOTS, topLeft: resolved },
-          focusedSlot: "topLeft",
-        });
+        return {
+          ...withLayout({
+            ...state.layout,
+            slots: { ...EMPTY_SLOTS, topLeft: resolved },
+            focusedSlot: "topLeft",
+          }),
+          draftBySlot: omitSlot(state.draftBySlot, "topLeft"),
+        };
       }
       const current = state.layout.slots[target] ?? { projectId: null, environmentId: null, threadId: null };
       if (id === null) {
@@ -514,14 +548,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           ...state.layout.slots,
           [target]: { ...current, threadId: null },
         };
-        return withLayout({ ...state.layout, slots });
+        return {
+          ...withLayout({ ...state.layout, slots }),
+          draftBySlot: omitSlot(state.draftBySlot, target),
+        };
       }
       if (!state.snapshot) {
         const slots = {
           ...state.layout.slots,
           [target]: { ...current, threadId: id },
         };
-        return withLayout({ ...state.layout, slots });
+        return {
+          ...withLayout({ ...state.layout, slots }),
+          draftBySlot: omitSlot(state.draftBySlot, target),
+        };
       }
       const resolved = resolveThreadSelection(state.snapshot, id);
       if (!resolved) {
@@ -529,11 +569,45 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           ...state.layout.slots,
           [target]: { ...current, threadId: null },
         };
-        return withLayout({ ...state.layout, slots });
+        return {
+          ...withLayout({ ...state.layout, slots }),
+          draftBySlot: omitSlot(state.draftBySlot, target),
+        };
       }
       const slots = { ...state.layout.slots, [target]: resolved };
-      return withLayout({ ...state.layout, slots });
+      return {
+        ...withLayout({ ...state.layout, slots }),
+        draftBySlot: omitSlot(state.draftBySlot, target),
+      };
     }),
+
+  openThreadDraft: (projectId, requestedSlot) => {
+    let opened: SlotKey | null = null;
+    set((state) => {
+      const slot: SlotKey =
+        requestedSlot ??
+        state.layout.focusedSlot ??
+        firstFilledSlot(state.layout.slots) ??
+        "topLeft";
+      opened = slot;
+      const selection: PaneSelection = {
+        projectId,
+        environmentId: null,
+        threadId: null,
+      };
+      const slots = { ...state.layout.slots, [slot]: selection };
+      return {
+        ...withLayout({ ...state.layout, slots, focusedSlot: slot }),
+        draftBySlot: { ...state.draftBySlot, [slot]: { projectId } },
+      };
+    });
+    return opened;
+  },
+
+  closeThreadDraft: (slot) =>
+    set((state) => ({
+      draftBySlot: omitSlot(state.draftBySlot, slot),
+    })),
 }));
 
 export function teardownWorkspaceListener() {
@@ -742,6 +816,23 @@ export function selectPaneThread(slot: SlotKey | null) {
     }
     return null;
   };
+}
+
+export function selectPaneDraft(slot: SlotKey | null) {
+  return (s: WorkspaceState) => {
+    if (!slot) return null;
+    return s.draftBySlot[slot] ?? null;
+  };
+}
+
+function omitSlot(
+  drafts: Partial<Record<SlotKey, ThreadDraftState>>,
+  slot: SlotKey,
+): Partial<Record<SlotKey, ThreadDraftState>> {
+  if (!(slot in drafts)) return drafts;
+  const next = { ...drafts };
+  delete next[slot];
+  return next;
 }
 
 /* ── Slot helpers ── */

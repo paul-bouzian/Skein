@@ -13,7 +13,9 @@ use super::{
 };
 use crate::domain::workspace::PullRequestState;
 use crate::services::git;
-use crate::services::workspace::{AddProjectRequest, PullRequestWatchTarget, WorkspaceService};
+use crate::services::workspace::{
+    AddProjectRequest, CreateManagedWorktreeRequest, PullRequestWatchTarget, WorkspaceService,
+};
 use crate::services::worktree_scripts::WorktreeScriptService;
 
 #[test]
@@ -144,7 +146,7 @@ fn resolver_prefers_open_pull_requests_and_ignores_closed_only_matches() {
         .expect("project should be added");
     let worktree = harness
         .workspace
-        .create_managed_worktree(&project.id)
+        .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
         .expect("worktree should be created");
     let worktree_path = PathBuf::from(&worktree.environment.path);
 

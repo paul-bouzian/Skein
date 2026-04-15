@@ -217,14 +217,14 @@
   }
 }
 
-.studio-main__pane--split.studio-main__pane--focused::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  box-shadow: inset 0 0 0 1px var(--tx-accent-subtle, var(--tx-accent));
-  opacity: 0.35;
-  border-radius: var(--tx-radius-sm);
+.studio-main__pane--split {
+  transition:
+    background var(--tx-transition-fast),
+    box-shadow var(--tx-transition-fast);
+}
+
+.studio-main__pane--split.studio-main__pane--focused {
+  background: var(--tx-bg-raised);
 }
 
 .studio-main__pane-splitter {

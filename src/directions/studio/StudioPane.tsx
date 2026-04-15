@@ -6,6 +6,7 @@ import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
 import {
   selectFocusedSlot,
   selectIsSplitOpen,
+  selectPaneDraft,
   selectPaneEnvironment,
   selectPaneProject,
   selectPaneThread,
@@ -13,6 +14,7 @@ import {
   useWorkspaceStore,
   type SlotKey,
 } from "../../stores/workspace-store";
+import { ThreadDraftComposer } from "./draft/ThreadDraftComposer";
 import { StudioWelcome } from "./StudioWelcome";
 import { ThreadConversation } from "./ThreadConversation";
 
@@ -31,6 +33,7 @@ export function StudioPane({
   const project = useWorkspaceStore(selectPaneProject(paneId));
   const environment = useWorkspaceStore(selectPaneEnvironment(paneId));
   const thread = useWorkspaceStore(selectPaneThread(paneId));
+  const draft = useWorkspaceStore(selectPaneDraft(paneId));
   const focusedSlot = useWorkspaceStore(selectFocusedSlot);
   const isSplit = useWorkspaceStore(selectIsSplitOpen);
   const focusPane = useWorkspaceStore((state) => state.focusPane);
@@ -53,6 +56,8 @@ export function StudioPane({
         onClosePane={closeHandler}
       />
     );
+  } else if (draft) {
+    content = <ThreadDraftComposer projectId={draft.projectId} paneId={paneId} />;
   } else if (environment) {
     content = <EnvironmentView environment={environment} />;
   } else if (project) {

@@ -43,6 +43,12 @@ type OpenThreadOptions = {
 
 export type ThreadHydrationState = "cold" | "loading" | "ready" | "error";
 
+export type PendingFirstMessage = {
+  text: string;
+  images: ConversationImageAttachment[];
+  composer: ConversationComposerSettings | null;
+};
+
 type ConversationState = {
   snapshotsByThreadId: Record<string, ThreadConversationSnapshot>;
   capabilitiesByEnvironmentId: Record<string, EnvironmentCapabilitiesSnapshot>;
@@ -50,6 +56,7 @@ type ConversationState = {
   draftByThreadId: Record<string, ConversationComposerDraft>;
   hydrationByThreadId: Record<string, ThreadHydrationState>;
   errorByThreadId: Record<string, string | null>;
+  pendingFirstMessageByThreadId: Record<string, PendingFirstMessage>;
   listenerReady: boolean;
 
   initializeListener: () => Promise<void>;
@@ -83,6 +90,11 @@ type ConversationState = {
     answers: Record<string, string[]>,
   ) => Promise<void>;
   submitPlanDecision: (input: SubmitPlanDecisionInput) => Promise<boolean>;
+  enqueuePendingFirstMessage: (
+    threadId: string,
+    payload: PendingFirstMessage,
+  ) => void;
+  consumePendingFirstMessage: (threadId: string) => PendingFirstMessage | null;
 };
 
 type ConversationStateData = Pick<
@@ -93,6 +105,7 @@ type ConversationStateData = Pick<
   | "draftByThreadId"
   | "hydrationByThreadId"
   | "errorByThreadId"
+  | "pendingFirstMessageByThreadId"
   | "listenerReady"
 >;
 
@@ -103,6 +116,7 @@ export const INITIAL_CONVERSATION_STATE: ConversationStateData = {
   draftByThreadId: {},
   hydrationByThreadId: {},
   errorByThreadId: {},
+  pendingFirstMessageByThreadId: {},
   listenerReady: false,
 };
 
@@ -425,7 +439,32 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       return false;
     }
   },
+
+  enqueuePendingFirstMessage: (threadId, payload) =>
+    set((state) => ({
+      pendingFirstMessageByThreadId: {
+        ...state.pendingFirstMessageByThreadId,
+        [threadId]: payload,
+      },
+    })),
+
+  consumePendingFirstMessage: (threadId) => {
+    const pending = get().pendingFirstMessageByThreadId[threadId] ?? null;
+    if (!pending) return null;
+    set((state) => {
+      if (!(threadId in state.pendingFirstMessageByThreadId)) return state;
+      const next = { ...state.pendingFirstMessageByThreadId };
+      delete next[threadId];
+      return { pendingFirstMessageByThreadId: next };
+    });
+    return pending;
+  },
 }));
+
+export function selectPendingFirstMessage(threadId: string | null) {
+  return (state: ConversationState) =>
+    (threadId ? state.pendingFirstMessageByThreadId[threadId] : null) ?? null;
+}
 
 export function selectConversationSnapshot(threadId: string | null) {
   return (state: ConversationState) =>
@@ -501,19 +540,37 @@ async function openThreadWithOptions(
     try {
       const response = await bridge.openThreadConversation(threadId);
       set((state) => {
+        // The bridge call can race with live snapshot events and in-flight
+        // optimistic updates (the listener and `sendMessage` both write to
+        // `snapshotsByThreadId`). If the store already holds a snapshot with
+        // more items than the one the bridge just returned, keep the newer
+        // one — otherwise we'd overwrite an optimistic user message with an
+        // empty snapshot the backend fetched before the send landed.
+        const existingSnapshot = state.snapshotsByThreadId[threadId];
+        const shouldKeepExisting =
+          existingSnapshot !== undefined &&
+          existingSnapshot.items.length > response.snapshot.items.length;
+        const nextSnapshot = shouldKeepExisting
+          ? existingSnapshot
+          : response.snapshot;
         return {
           snapshotsByThreadId: {
             ...state.snapshotsByThreadId,
-            [threadId]: response.snapshot,
+            [threadId]: nextSnapshot,
           },
           capabilitiesByEnvironmentId: {
             ...state.capabilitiesByEnvironmentId,
             [response.capabilities.environmentId]: response.capabilities,
           },
-          composerByThreadId: {
-            ...state.composerByThreadId,
-            [threadId]: response.snapshot.composer,
-          },
+          // Preserve composer settings the caller may have seeded (e.g. the
+          // draft composer's model / effort / fast-mode choice before the
+          // thread was created).
+          composerByThreadId: state.composerByThreadId[threadId]
+            ? state.composerByThreadId
+            : {
+                ...state.composerByThreadId,
+                [threadId]: response.snapshot.composer,
+              },
           draftByThreadId: hydrateDraftEntry(
             state.draftByThreadId,
             threadId,

@@ -37,6 +37,27 @@ pub struct CreateThreadRequest {
     pub overrides: Option<ThreadOverrides>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateManagedWorktreeRequest {
+    pub project_id: String,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+impl CreateManagedWorktreeRequest {
+    #[cfg(test)]
+    pub fn for_project(project_id: &str) -> Self {
+        Self {
+            project_id: project_id.to_string(),
+            base_branch: None,
+            name: None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameProjectRequest {
@@ -611,15 +632,40 @@ impl WorkspaceService {
 
     pub fn create_managed_worktree(
         &self,
-        project_id: &str,
+        input: CreateManagedWorktreeRequest,
     ) -> AppResult<ManagedWorktreeCreateResult> {
+        let project_id = input.project_id.as_str();
         let project = self.project_metadata(project_id)?;
-        let base_branch = git::current_branch(&project.root_path)?
-            .or_else(|| git::resolve_base_reference(&project.root_path, None))
-            .ok_or_else(|| {
-                AppError::Git("Unable to determine a base branch for this project.".to_string())
-            })?;
-        let candidate = self.next_managed_worktree_candidate(project_id, &project)?;
+
+        let base_branch = if let Some(provided) = input.base_branch.as_deref() {
+            let trimmed = provided.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::Validation(
+                    "Base branch cannot be empty.".to_string(),
+                ));
+            }
+            if !git::branch_exists(&project.root_path, trimmed)? {
+                return Err(AppError::Validation(format!(
+                    "Base branch '{trimmed}' does not exist in this project."
+                )));
+            }
+            trimmed.to_string()
+        } else {
+            git::current_branch(&project.root_path)?
+                .or_else(|| git::resolve_base_reference(&project.root_path, None))
+                .ok_or_else(|| {
+                    AppError::Git(
+                        "Unable to determine a base branch for this project.".to_string(),
+                    )
+                })?
+        };
+
+        let candidate = if let Some(provided_name) = input.name.as_deref() {
+            self.named_managed_worktree_candidate(project_id, &project, provided_name)?
+        } else {
+            self.next_managed_worktree_candidate(project_id, &project)?
+        };
+
         git::create_worktree(
             &project.root_path,
             &candidate.destination,
@@ -1717,6 +1763,81 @@ impl WorkspaceService {
         })
     }
 
+    fn named_managed_worktree_candidate(
+        &self,
+        project_id: &str,
+        project: &ProjectMetadata,
+        requested_name: &str,
+    ) -> AppResult<ManagedWorktreeCandidate> {
+        let trimmed = requested_name.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Validation(
+                "Worktree name cannot be empty.".to_string(),
+            ));
+        }
+        if trimmed.contains('\n') || trimmed.contains(char::is_whitespace) {
+            return Err(AppError::Validation(
+                "Worktree name cannot contain whitespace.".to_string(),
+            ));
+        }
+
+        let managed_worktree_dir =
+            self.ensure_project_managed_worktree_dir(project_id, &project.root_path)?;
+
+        let connection = self.database.open()?;
+        let existing_name: Option<String> = connection
+            .query_row(
+                "
+                SELECT name
+                FROM environments
+                WHERE project_id = ?1 AND LOWER(name) = LOWER(?2)
+                LIMIT 1
+                ",
+                params![project_id, trimmed],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(name) = existing_name {
+            return Err(AppError::Validation(format!(
+                "An environment named '{name}' already exists for this project."
+            )));
+        }
+
+        let branch_refs = git::list_branch_refs(&project.root_path)?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        if branch_ref_exists(&branch_refs, trimmed) {
+            return Err(AppError::Validation(format!(
+                "Branch '{trimmed}' already exists in this repository."
+            )));
+        }
+
+        let destination = git::managed_worktree_path(
+            &self.managed_worktrees_root,
+            &managed_worktree_dir,
+            trimmed,
+        );
+        if destination.exists() {
+            return Err(AppError::Validation(format!(
+                "A worktree folder already exists at {}.",
+                destination.display()
+            )));
+        }
+
+        Ok(ManagedWorktreeCandidate {
+            branch_name: trimmed.to_string(),
+            destination,
+        })
+    }
+
+    pub fn list_project_branches(&self, project_id: &str) -> AppResult<Vec<String>> {
+        let project = self.project_metadata(project_id)?;
+        let mut branches = git::list_local_branches(&project.root_path)?;
+        branches.sort();
+        branches.dedup();
+        Ok(branches)
+    }
+
     fn worktree_environment_metadata(
         &self,
         environment_id: &str,
@@ -2398,8 +2519,9 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest, CreateThreadRequest,
-        ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest, RunProjectActionRequest,
+        AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest,
+        CreateManagedWorktreeRequest, CreateThreadRequest, ReorderProjectsRequest,
+        ReorderWorktreeEnvironmentsRequest, RunProjectActionRequest,
         SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest, WorkspaceService,
     };
     use crate::domain::conversation::{
@@ -2742,7 +2864,7 @@ mod tests {
 
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
 
         assert_eq!(
@@ -2831,7 +2953,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         let managed_dir = harness
             .project_managed_worktree_dir(&project.id)
@@ -3347,7 +3469,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         let fake_codex = harness.create_fake_codex(
             r#"{"threadTitle":"Add themes","worktreeLabel":"Add themes","branchSlug":"add-themes"}"#,
@@ -3407,7 +3529,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         let original_environment = result.environment.clone();
         let fake_codex = harness.create_failing_fake_codex("naming auth failed", 42);
@@ -3459,7 +3581,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         let fake_codex = harness.create_failing_fake_codex("", 43);
 
@@ -3495,7 +3617,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
 
         let event = harness
@@ -3534,7 +3656,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         harness
             .open_connection()
@@ -3568,7 +3690,7 @@ mod tests {
             .expect("project should be added");
         let result = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
 
         let snapshot = harness
@@ -3736,11 +3858,11 @@ mod tests {
             .expect("project should be added");
         let worktree_one = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree one should be created");
         let worktree_two = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree two should be created");
 
         harness
@@ -3755,7 +3877,7 @@ mod tests {
             .expect("worktrees should reorder");
         let worktree_three = harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree three should be created");
 
         let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
@@ -3833,7 +3955,7 @@ mod tests {
             .expect("project should be added");
         harness
             .service
-            .create_managed_worktree(&project.id)
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
             .expect("worktree should be created");
         let local_environment_id = project
             .environments

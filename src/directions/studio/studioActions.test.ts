@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
 import {
@@ -13,9 +13,12 @@ import {
   archiveThreadWithConfirmation,
   createManagedWorktreeForSelection,
   createThreadForSelection,
+  openThreadDraftForProject,
   selectAdjacentEnvironment,
   selectAdjacentThread,
+  sendThreadDraft,
 } from "./studioActions";
+import { useConversationStore } from "../../stores/conversation-store";
 
 const confirmMock = vi.fn();
 
@@ -23,6 +26,7 @@ vi.mock("../../lib/bridge", () => ({
   archiveThread: vi.fn(),
   createManagedWorktree: vi.fn(),
   createThread: vi.fn(),
+  sendThreadMessage: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -377,5 +381,149 @@ describe("studioActions", () => {
 
     await expect(archivePromise).resolves.toBe(false);
     expect(mockedBridge.archiveThread).not.toHaveBeenCalled();
+  });
+
+  describe("thread draft", () => {
+    it("openThreadDraftForProject stores the draft on the focused slot", () => {
+      const slot = openThreadDraftForProject("project-1");
+      expect(slot).toBe("topLeft");
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+        projectId: "project-1",
+      });
+    });
+
+    it("sendThreadDraft creates a thread and enqueues the first message for the conversation view", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      const refreshSnapshot = vi.fn(async () => {
+        useWorkspaceStore.setState((state) => {
+          if (!state.snapshot) return state;
+          const nextProjects = state.snapshot.projects.map((project) =>
+            project.id === "project-1"
+              ? {
+                  ...project,
+                  environments: project.environments.map((env) =>
+                    env.id === "env-1"
+                      ? { ...env, threads: [...env.threads, newThread] }
+                      : env,
+                  ),
+                }
+              : project,
+          );
+          return {
+            ...state,
+            snapshot: { ...state.snapshot, projects: nextProjects },
+          };
+        });
+        return true;
+      });
+      useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        projectId: "project-1",
+        selection: { kind: "local" },
+        text: "Hello",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockedBridge.createThread).toHaveBeenCalledWith({
+        environmentId: "env-1",
+      });
+      // The draft hands the first message off to ThreadConversation rather
+      // than calling bridge.sendThreadMessage itself.
+      expect(mockedBridge.sendThreadMessage).not.toHaveBeenCalled();
+      expect(
+        useConversationStore.getState().pendingFirstMessageByThreadId[
+          newThread.id
+        ],
+      ).toEqual({ text: "Hello", images: [], composer: null });
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toBeUndefined();
+      expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
+    });
+
+    it("sendThreadDraft with a new-worktree selection forwards baseBranch and name", async () => {
+      const newEnv = makeEnvironment({
+        id: "env-new",
+        kind: "managedWorktree",
+      });
+      const newThread = makeThread({
+        id: "thread-new",
+        environmentId: newEnv.id,
+      });
+      mockedBridge.createManagedWorktree.mockResolvedValue({
+        environment: newEnv,
+        thread: newThread,
+      });
+      mockedBridge.sendThreadMessage.mockResolvedValue({
+        threadId: newThread.id,
+      } as unknown as Awaited<ReturnType<typeof bridge.sendThreadMessage>>);
+      const refreshSnapshot = vi.fn(async () => true);
+      useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        projectId: "project-1",
+        selection: {
+          kind: "new",
+          baseBranch: "main",
+          name: "fix/crash",
+        },
+        text: "Investigate crash",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockedBridge.createManagedWorktree).toHaveBeenCalledWith(
+        "project-1",
+        { baseBranch: "main", name: "fix/crash" },
+      );
+      expect(mockedBridge.createThread).not.toHaveBeenCalled();
+    });
+
+    it("sendThreadDraft surfaces an error when refreshSnapshot fails", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      const refreshSnapshot = vi.fn(async () => false);
+      useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        projectId: "project-1",
+        selection: { kind: "local" },
+        text: "Hi",
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Thread created, but the workspace failed to refresh.",
+      });
+      expect(mockedBridge.sendThreadMessage).not.toHaveBeenCalled();
+    });
+
+    it("sendThreadDraft refuses empty messages", async () => {
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        projectId: "project-1",
+        selection: { kind: "local" },
+        text: "   ",
+      });
+
+      expect(result).toEqual({ ok: false, error: "Message is empty" });
+      expect(mockedBridge.createThread).not.toHaveBeenCalled();
+    });
+
+    afterEach(() => {
+      useConversationStore.setState((state) => ({
+        ...state,
+        snapshotsByThreadId: {},
+        composerByThreadId: {},
+        errorByThreadId: {},
+        draftByThreadId: {},
+        pendingFirstMessageByThreadId: {},
+      }));
+    });
   });
 });

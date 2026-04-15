@@ -2,7 +2,7 @@ import { memo } from "react";
 
 import { indicatorToneForConversationStatus } from "../../lib/conversation-status";
 import type { ThreadRecord } from "../../lib/types";
-import { PanelRightIcon } from "../../shared/Icons";
+import { GitBranchIcon, PanelRightIcon } from "../../shared/Icons";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { Tooltip } from "../../shared/Tooltip";
 import { useConversationStore } from "../../stores/conversation-store";
@@ -13,18 +13,27 @@ import {
 } from "../../stores/workspace-store";
 import { useThreadDrag } from "./useThreadDrag";
 
+export type ThreadWorktreeBadge = {
+  environmentId: string;
+  branch: string;
+};
+
 type Props = {
   thread: ThreadRecord;
+  worktree?: ThreadWorktreeBadge | null;
   onSelect: () => void;
   onOpenInOtherPane: () => void;
   onContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
+  onBranchChipClick?: (event: React.MouseEvent<HTMLElement>) => void;
 };
 
 function SidebarThreadRowImpl({
   thread,
+  worktree = null,
   onSelect,
   onOpenInOtherPane,
   onContextMenu,
+  onBranchChipClick,
 }: Props) {
   const tone = useConversationStore((state) =>
     indicatorToneForConversationStatus(
@@ -56,9 +65,29 @@ function SidebarThreadRowImpl({
         {...dragHandlers}
       >
         <span className="tree-sidebar__thread-indicator">
-          <RuntimeIndicator tone={tone} size="sm" />
+          {worktree ? (
+            <GitBranchIcon size={11} />
+          ) : (
+            <RuntimeIndicator tone={tone} size="sm" />
+          )}
         </span>
         <span className="tree-sidebar__thread-title">{thread.title}</span>
+        {worktree ? (
+          <button
+            type="button"
+            className="tree-sidebar__thread-branch"
+            title={`Worktree: ${worktree.branch}`}
+            data-no-reorder-drag="true"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onBranchChipClick?.(event);
+            }}
+          >
+            {worktree.branch}
+          </button>
+        ) : null}
       </button>
       <Tooltip content="Open in other pane" side="bottom">
         <button

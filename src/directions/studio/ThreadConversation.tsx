@@ -25,6 +25,7 @@ import {
   selectConversationError,
   selectConversationHydration,
   selectConversationSnapshot,
+  selectPendingFirstMessage,
   useConversationStore,
 } from "../../stores/conversation-store";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
@@ -82,6 +83,12 @@ export function ThreadConversation({
     (state) => state.respondToUserInputRequest,
   );
   const submitPlanDecision = useConversationStore((state) => state.submitPlanDecision);
+  const pendingFirstMessage = useConversationStore(
+    selectPendingFirstMessage(thread.id),
+  );
+  const consumePendingFirstMessage = useConversationStore(
+    (state) => state.consumePendingFirstMessage,
+  );
   const [isPreparingWorktreeName, setIsPreparingWorktreeName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -315,6 +322,42 @@ export function ThreadConversation({
       });
     });
   }
+
+  // When the pane switches from a draft composer to a freshly-created
+  // thread, `sendThreadDraft` stashes the user's first message in the
+  // conversation store. Once this thread is fully hydrated we replay it
+  // through the same path a normal first-message send would take — this
+  // seeds the optimistic user message and lights up the "Naming the
+  // branch and worktree" spinner for auto-renamed worktrees.
+  useEffect(() => {
+    if (!transportReady) return;
+    if (!pendingFirstMessage) return;
+    if (submitInFlightRef.current) return;
+
+    const payload = consumePendingFirstMessage(thread.id);
+    if (!payload) return;
+
+    const submitGeneration = beginSubmitCycle();
+    if (shouldShowFirstPromptNamingNotice(environment, thread, payload.text)) {
+      setIsPreparingWorktreeName(true);
+    }
+    void sendMessage(thread.id, payload.text, payload.images, [])
+      .catch(() => false)
+      .finally(() => {
+        finishSubmitCycle(submitGeneration);
+      });
+    // `environment` and `thread` are read snapshots of props; we only need
+    // their identity (id). `beginSubmitCycle` / `finishSubmitCycle` /
+    // `setIsPreparingWorktreeName` are stable on the component instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    transportReady,
+    pendingFirstMessage,
+    consumePendingFirstMessage,
+    sendMessage,
+    environment.id,
+    thread.id,
+  ]);
 
   async function handleSend(
     text: string,

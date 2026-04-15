@@ -13,8 +13,9 @@ use crate::domain::workspace::{
 };
 use crate::error::{AppError, CommandError};
 use crate::services::workspace::{
-    AddProjectRequest, ArchiveThreadRequest, CreateThreadRequest, RenameProjectRequest,
-    RenameThreadRequest, ReorderProjectsRequest, ReorderWorktreeEnvironmentsRequest,
+    AddProjectRequest, ArchiveThreadRequest, CreateManagedWorktreeRequest, CreateThreadRequest,
+    RenameProjectRequest, RenameThreadRequest, ReorderProjectsRequest,
+    ReorderWorktreeEnvironmentsRequest,
     RunProjectActionRequest, SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest,
 };
 use crate::services::worktree_scripts::{skein_context_environment, SkeinContextInput};
@@ -182,12 +183,20 @@ pub async fn remove_project(
 
 #[tauri::command]
 pub fn create_managed_worktree(
-    project_id: String,
+    input: CreateManagedWorktreeRequest,
     state: State<'_, AppState>,
 ) -> Result<ManagedWorktreeCreateResult, CommandError> {
-    let result = state.workspace.create_managed_worktree(&project_id)?;
+    let result = state.workspace.create_managed_worktree(input)?;
     state.pull_requests.refresh_now();
     Ok(result)
+}
+
+#[tauri::command]
+pub fn list_project_branches(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, CommandError> {
+    Ok(state.workspace.list_project_branches(&project_id)?)
 }
 
 #[tauri::command]

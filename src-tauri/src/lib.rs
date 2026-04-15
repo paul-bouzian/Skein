@@ -117,6 +117,7 @@ pub fn run() {
             commands::workspace::ensure_project_can_be_removed,
             commands::workspace::remove_project,
             commands::workspace::create_managed_worktree,
+            commands::workspace::list_project_branches,
             commands::workspace::delete_worktree_environment,
             commands::workspace::create_thread,
             commands::workspace::rename_thread,

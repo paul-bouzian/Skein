@@ -1052,4 +1052,82 @@ describe("workspace store — grid 2x2 panes", () => {
     expect(slots().topLeft?.threadId).toBe("thread-a-1");
     expect(slots().topRight?.threadId).toBe("thread-a-2");
   });
+
+  describe("thread draft state", () => {
+    function drafts() {
+      return useWorkspaceStore.getState().draftBySlot;
+    }
+
+    it("openThreadDraft seeds topLeft when the layout is empty", () => {
+      seedTwoThreadWorkspace();
+
+      const slot = useWorkspaceStore
+        .getState()
+        .openThreadDraft("project-a");
+
+      expect(slot).toBe("topLeft");
+      expect(drafts().topLeft).toEqual({ projectId: "project-a" });
+      expect(slots().topLeft).toEqual({
+        projectId: "project-a",
+        environmentId: null,
+        threadId: null,
+      });
+      expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+    });
+
+    it("openThreadDraft reuses the currently focused slot", () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+      useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+
+      const slot = useWorkspaceStore
+        .getState()
+        .openThreadDraft("project-a");
+
+      expect(slot).toBe("topRight");
+      expect(drafts().topRight?.projectId).toBe("project-a");
+      expect(slots().topRight?.threadId).toBeNull();
+    });
+
+    it("selectThread clears the draft for the focused slot", () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.getState().openThreadDraft("project-a");
+      expect(drafts().topLeft).toBeDefined();
+
+      useWorkspaceStore.getState().selectThread("thread-a-1");
+
+      expect(drafts().topLeft).toBeUndefined();
+      expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    });
+
+    it("selectProject clears the draft in the focused slot", () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.getState().openThreadDraft("project-a");
+
+      useWorkspaceStore.getState().selectProject("project-b");
+
+      expect(drafts().topLeft).toBeUndefined();
+    });
+
+    it("closePane removes the draft entry for that slot", () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.getState().openThreadDraft("project-a");
+
+      useWorkspaceStore.getState().closePane("topLeft");
+
+      expect(drafts().topLeft).toBeUndefined();
+      expect(slots().topLeft).toBeNull();
+    });
+
+    it("closeThreadDraft removes only the targeted slot's draft", () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      useWorkspaceStore.getState().openThreadDraft("project-b", "topRight");
+
+      useWorkspaceStore.getState().closeThreadDraft("topRight");
+
+      expect(drafts().topRight).toBeUndefined();
+      expect(drafts().topLeft?.projectId).toBe("project-a");
+    });
+  });
 });

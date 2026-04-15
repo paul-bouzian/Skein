@@ -1,0 +1,203 @@
+/* Use the same grid as a real thread so the layout matches exactly, then
+   add an extra row underneath the composer for the env selector. */
+
+.thread-draft {
+  /* Override the base 4-row grid to add a 5th row for the env selector bar. */
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  padding-bottom: var(--tx-space-md);
+}
+
+.thread-draft__empty {
+  margin: auto;
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-sm);
+}
+
+.thread-draft__error {
+  margin: 0;
+  padding: var(--tx-space-sm) var(--tx-space-md);
+  border-radius: var(--tx-radius-sm);
+  background: color-mix(in srgb, var(--tx-accent) 14%, transparent);
+  color: var(--tx-text-primary);
+  font-size: var(--tx-text-xs);
+}
+
+/* ── Env selector row (below the composer) ── */
+
+.thread-draft-env {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tx-space-sm);
+  padding: 0 var(--tx-space-xs);
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+}
+
+.thread-draft-env[data-disabled="true"] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.thread-draft-env__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tx-border-subtle);
+  background: var(--tx-bg-raised);
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-xs);
+  transition:
+    background var(--tx-transition-fast),
+    border-color var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.thread-draft-env__chip:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  border-color: var(--tx-border-muted);
+  color: var(--tx-text-primary);
+}
+
+.thread-draft-env__chip:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.thread-draft-env__chip--branch {
+  font-family: var(--tx-font-mono);
+}
+
+.thread-draft-env__chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx-text-muted);
+  flex-shrink: 0;
+}
+
+.thread-draft-env__chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.thread-draft-env__chip-caret {
+  color: var(--tx-text-muted);
+  transition: transform var(--tx-transition-fast);
+}
+
+.thread-draft-env__chip-caret--open {
+  transform: rotate(90deg);
+}
+
+.thread-draft-env__separator {
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+}
+
+.thread-draft-env__name {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--tx-border-subtle);
+  background: var(--tx-bg-raised);
+  color: var(--tx-text-primary);
+  font-family: var(--tx-font-mono);
+  font-size: var(--tx-text-xs);
+  min-width: 140px;
+  outline: none;
+  transition:
+    border-color var(--tx-transition-fast),
+    background var(--tx-transition-fast);
+}
+
+.thread-draft-env__name:focus {
+  border-color: var(--tx-border-focus);
+}
+
+.thread-draft-env__name::placeholder {
+  color: var(--tx-text-muted);
+  font-family: var(--tx-font-mono);
+}
+
+.thread-draft-env__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+/* ── Menus (floating) ── */
+
+.thread-draft-env__menu {
+  z-index: 1200;
+  min-width: 280px;
+  max-height: 320px;
+}
+
+.thread-draft-env__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--tx-space-sm);
+  padding: var(--tx-space-sm) 10px;
+}
+
+.thread-draft-env__option--active {
+  background: var(--tx-bg-active);
+  color: var(--tx-text-primary);
+}
+
+.thread-draft-env__option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--tx-text-muted);
+  margin-top: 2px;
+}
+
+.thread-draft-env__option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.thread-draft-env__option-label {
+  font-size: var(--tx-text-sm);
+  color: var(--tx-text-primary);
+}
+
+.thread-draft-env__option-sub {
+  font-size: 10px;
+  color: var(--tx-text-muted);
+}
+
+.thread-draft-env__group-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx-text-muted);
+  padding: var(--tx-space-sm) 10px 2px;
+}
+
+.thread-draft-env__separator-line {
+  height: 1px;
+  background: var(--tx-border-subtle);
+  margin: var(--tx-space-xs) 6px;
+}
+
+.thread-draft-env__empty {
+  padding: var(--tx-space-sm) 10px;
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+}

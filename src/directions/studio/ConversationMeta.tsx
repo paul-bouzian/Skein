@@ -27,12 +27,7 @@ export function ConversationMeta({
     <div className="tx-conversation__meta">
       <div>
         <h2 className="tx-conversation__title">{thread.title}</h2>
-        <p className="tx-conversation__subtitle">
-          {environment.name}
-          {(snapshot?.codexThreadId ?? thread.codexThreadId) ? (
-            <> · {snapshot?.codexThreadId ?? thread.codexThreadId}</>
-          ) : null}
-        </p>
+        <p className="tx-conversation__subtitle">{environment.name}</p>
       </div>
       <div className="tx-conversation__status-group">
         {snapshot ? (
@@ -59,23 +54,38 @@ export function ConversationMeta({
           )
         ) : null}
         {snapshot?.tokenUsage ? (
-          <span className="tx-pill tx-pill--neutral">
-            {snapshot.tokenUsage.total.totalTokens.toLocaleString()} tokens
+          <span
+            className="tx-pill tx-pill--neutral"
+            title={`${snapshot.tokenUsage.total.totalTokens.toLocaleString()} tokens`}
+          >
+            {formatTokenCount(snapshot.tokenUsage.total.totalTokens)} tokens
           </span>
         ) : null}
-        {onClose ? (
-          <Tooltip content="Close pane" side="bottom">
-            <button
-              type="button"
-              aria-label="Close pane"
-              className="tx-conversation__close"
-              onClick={onClose}
-            >
-              <CloseIcon size={12} />
-            </button>
-          </Tooltip>
-        ) : null}
       </div>
+      {onClose ? (
+        <Tooltip content="Close pane" side="bottom">
+          <button
+            type="button"
+            aria-label="Close pane"
+            className="tx-conversation__close"
+            onClick={onClose}
+          >
+            <CloseIcon size={12} />
+          </button>
+        </Tooltip>
+      ) : null}
     </div>
   );
+}
+
+function formatTokenCount(value: number): string {
+  if (value < 1_000) return value.toString();
+  if (value < 1_000_000) return `${trimDecimal(value / 1_000)}K`;
+  if (value < 1_000_000_000) return `${trimDecimal(value / 1_000_000)}M`;
+  return `${trimDecimal(value / 1_000_000_000)}B`;
+}
+
+function trimDecimal(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1);
 }

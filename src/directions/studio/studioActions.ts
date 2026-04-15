@@ -1,9 +1,19 @@
 import { confirm } from "@tauri-apps/plugin-dialog";
 
 import * as bridge from "../../lib/bridge";
-import type { EnvironmentRecord, WorkspaceSnapshot } from "../../lib/types";
+import type {
+  ConversationComposerSettings,
+  EnvironmentRecord,
+  ThreadRecord,
+  WorkspaceSnapshot,
+} from "../../lib/types";
+import { useConversationStore } from "../../stores/conversation-store";
 import { useVoiceSessionStore } from "../../stores/voice-session-store";
-import { useWorkspaceStore } from "../../stores/workspace-store";
+import {
+  useWorkspaceStore,
+  type SlotKey,
+} from "../../stores/workspace-store";
+import type { EnvSelection } from "./draft/EnvironmentSelector";
 
 export async function createThreadForSelection() {
   const environment = selectedEnvironment();
@@ -38,6 +48,113 @@ export async function createManagedWorktreeForSelection() {
   return true;
 }
 
+export function openThreadDraftForProject(
+  projectId: string,
+  slot?: SlotKey,
+): SlotKey | null {
+  return useWorkspaceStore.getState().openThreadDraft(projectId, slot);
+}
+
+export type SendThreadDraftInput = {
+  paneId: SlotKey;
+  projectId: string;
+  selection: EnvSelection;
+  text: string;
+  composer?: ConversationComposerSettings | null;
+};
+
+export type SendThreadDraftResult =
+  | { ok: true; thread: ThreadRecord }
+  | { ok: false; error: string };
+
+export async function sendThreadDraft(
+  input: SendThreadDraftInput,
+): Promise<SendThreadDraftResult> {
+  const { paneId, projectId, selection, text, composer } = input;
+  if (text.trim().length === 0) {
+    return { ok: false, error: "Message is empty" };
+  }
+
+  let thread: ThreadRecord;
+  try {
+    thread = await resolveDraftThread(projectId, selection);
+  } catch (cause: unknown) {
+    return {
+      ok: false,
+      error:
+        cause instanceof Error ? cause.message : "Failed to create thread",
+    };
+  }
+
+  const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
+  if (!refreshed) {
+    return {
+      ok: false,
+      error: "Thread created, but the workspace failed to refresh.",
+    };
+  }
+
+  // Seed the conversation store's composer with the draft picks so the
+  // first send carries the user's chosen model / effort / mode and the
+  // thread view stays consistent with what they configured in the draft.
+  if (composer) {
+    useConversationStore.setState((state) => ({
+      composerByThreadId: {
+        ...state.composerByThreadId,
+        [thread.id]: composer,
+      },
+    }));
+  }
+
+  // Hand the message off to ThreadConversation: it consumes the pending
+  // first message on mount and runs its own handleSend, which already wires
+  // up the optimistic user message and the FirstPromptNamingNotice spinner.
+  useConversationStore.getState().enqueuePendingFirstMessage(thread.id, {
+    text: text.trim(),
+    images: [],
+    composer: composer ?? null,
+  });
+
+  // Close the draft and switch the pane — ThreadConversation mounts and
+  // takes over from here.
+  useWorkspaceStore.getState().closeThreadDraft(paneId);
+  useWorkspaceStore.getState().openThreadInSlot(paneId, thread.id);
+
+  return { ok: true, thread };
+}
+
+async function resolveDraftThread(
+  projectId: string,
+  selection: EnvSelection,
+): Promise<ThreadRecord> {
+  if (selection.kind === "new") {
+    const trimmedName = selection.name.trim();
+    const result = await bridge.createManagedWorktree(projectId, {
+      baseBranch: selection.baseBranch,
+      ...(trimmedName.length > 0 ? { name: trimmedName } : {}),
+    });
+    return result.thread;
+  }
+
+  if (selection.kind === "existing") {
+    return bridge.createThread({ environmentId: selection.environmentId });
+  }
+
+  const localEnv = findLocalEnvironment(projectId);
+  if (!localEnv) {
+    throw new Error("No local environment found for this project.");
+  }
+  return bridge.createThread({ environmentId: localEnv.id });
+}
+
+function findLocalEnvironment(projectId: string): EnvironmentRecord | null {
+  const snapshot = useWorkspaceStore.getState().snapshot;
+  const project = snapshot?.projects.find(
+    (candidate) => candidate.id === projectId,
+  );
+  return project?.environments.find((env) => env.kind === "local") ?? null;
+}
+
 export async function archiveThreadWithConfirmation(threadId: string) {
   const snapshot = useWorkspaceStore.getState().snapshot;
   const target = findThread(snapshot, threadId);
@@ -61,10 +178,60 @@ export async function archiveThreadWithConfirmation(threadId: string) {
     return false;
   }
 
+  const archivedEnvironmentId = latestTarget.environment.id;
+  const archivedEnvironmentKind = latestTarget.environment.kind;
+
   await bridge.archiveThread({ threadId: latestTarget.thread.id });
   useWorkspaceStore.getState().removeThread(latestTarget.thread.id);
   const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
+
+  if (refreshed && archivedEnvironmentKind !== "local") {
+    await maybePromptDeleteEmptyWorktree(archivedEnvironmentId);
+  }
+
   return refreshed;
+}
+
+async function maybePromptDeleteEmptyWorktree(environmentId: string) {
+  const targetEnv = findEnvironmentById(environmentId);
+  if (!targetEnv || targetEnv.kind === "local") return;
+  const stillHasActiveThread = targetEnv.threads.some(
+    (thread) => thread.status === "active",
+  );
+  if (stillHasActiveThread) return;
+
+  const approved = await confirm(
+    `The worktree "${targetEnv.name}" has no more active threads. Delete it?`,
+    {
+      title: "Delete empty worktree",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Keep",
+    },
+  );
+  if (!approved) return;
+
+  try {
+    await bridge.deleteWorktreeEnvironment(environmentId);
+    await useWorkspaceStore.getState().refreshSnapshot();
+  } catch {
+    // A failure to delete the worktree is not worth surfacing a duplicate
+    // notice here; the user can retry from the chip menu.
+  }
+}
+
+function findEnvironmentById(
+  environmentId: string,
+): EnvironmentRecord | null {
+  const snapshot = useWorkspaceStore.getState().snapshot;
+  if (!snapshot) return null;
+  for (const project of snapshot.projects) {
+    const match = project.environments.find(
+      (env) => env.id === environmentId,
+    );
+    if (match) return match;
+  }
+  return null;
 }
 
 export function selectAdjacentThread(direction: "next" | "previous") {

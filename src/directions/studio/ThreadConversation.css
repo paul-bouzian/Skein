@@ -36,12 +36,15 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--tx-space-sm);
+  min-width: 0;
 }
 
 .tx-conversation__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  align-self: flex-start;
   width: 26px;
   height: 26px;
   border-radius: var(--tx-radius-sm);
