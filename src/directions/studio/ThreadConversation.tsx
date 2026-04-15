@@ -27,6 +27,7 @@ import {
   selectConversationSnapshot,
   selectPendingFirstMessage,
   useConversationStore,
+  type PendingFirstMessage,
 } from "../../stores/conversation-store";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationBanner, ConversationItemRow } from "./ConversationItemRow";
@@ -346,26 +347,41 @@ export function ThreadConversation({
     if (shouldShowFirstPromptNamingNotice(environment, thread, payload.text)) {
       setIsPreparingWorktreeName(true);
     }
-    void sendMessage(thread.id, payload.text, payload.images, [])
+    void sendMessage(
+      thread.id,
+      payload.text,
+      payload.images,
+      payload.mentionBindings,
+    )
       .then((sent) => {
         if (sent) return;
-        // Send failed. Re-enqueue once so the user can retry without losing
-        // their message; any subsequent failure leaves the draft in place
-        // rather than looping forever.
-        if (!pendingFirstMessageRetryRef.current) {
-          pendingFirstMessageRetryRef.current = true;
-          enqueuePendingFirstMessage(thread.id, payload);
-        }
+        handleFailedReplay(payload);
       })
       .catch(() => {
-        if (!pendingFirstMessageRetryRef.current) {
-          pendingFirstMessageRetryRef.current = true;
-          enqueuePendingFirstMessage(thread.id, payload);
-        }
+        handleFailedReplay(payload);
       })
       .finally(() => {
         finishSubmitCycle(submitGeneration);
       });
+
+    function handleFailedReplay(retryPayload: PendingFirstMessage) {
+      // First failure: put the payload back into the pending slot so the
+      // effect retries once (transient hydration / network hiccups).
+      if (!pendingFirstMessageRetryRef.current) {
+        pendingFirstMessageRetryRef.current = true;
+        enqueuePendingFirstMessage(thread.id, retryPayload);
+        return;
+      }
+      // Second failure: the replay path has given up. Restore text and
+      // images into the thread's regular composer draft so the user still
+      // sees their message and can send it manually. Mention bindings
+      // carry only the send-time input shape (no positions), so they are
+      // not re-injected into the draft — the user re-types any @-mention.
+      updateDraft(thread.id, {
+        text: retryPayload.text,
+        images: retryPayload.images,
+      });
+    }
     // `environment` and `thread` are read snapshots of props; we only need
     // their identity (id). `beginSubmitCycle` / `finishSubmitCycle` /
     // `setIsPreparingWorktreeName` are stable on the component instance.

@@ -139,6 +139,7 @@ type WorkspaceState = {
     threadId: string,
   ) => void;
   openThreadInSlot: (slot: SlotKey, threadId: string) => void;
+  setPaneSelection: (slot: SlotKey, selection: PaneSelection) => void;
   openThreadInOtherPane: (threadId: string) => void;
   closePane: (slot: SlotKey) => void;
   setRowRatio: (ratio: number) => void;
@@ -393,6 +394,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const resolved = resolveThreadSelection(state.snapshot, threadId);
       if (!resolved) return state;
       const slots = { ...state.layout.slots, [slot]: resolved };
+      return {
+        ...withLayout({
+          ...state.layout,
+          slots,
+          focusedSlot: slot,
+        }),
+        draftBySlot: omitSlot(state.draftBySlot, slot),
+      };
+    }),
+
+  // Writes a pane selection directly, bypassing snapshot lookup. Used when
+  // the caller already owns an authoritative selection (e.g. a freshly
+  // created thread returned by the bridge) and cannot wait for the next
+  // workspace snapshot to propagate.
+  setPaneSelection: (slot, selection) =>
+    set((state) => {
+      const slots = { ...state.layout.slots, [slot]: selection };
       return {
         ...withLayout({
           ...state.layout,

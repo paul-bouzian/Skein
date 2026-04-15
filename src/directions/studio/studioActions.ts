@@ -2,6 +2,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 
 import * as bridge from "../../lib/bridge";
 import type {
+  ComposerMentionBindingInput,
   ConversationComposerSettings,
   ConversationImageAttachment,
   EnvironmentRecord,
@@ -62,6 +63,7 @@ export type SendThreadDraftInput = {
   selection: EnvSelection;
   text: string;
   images?: ConversationImageAttachment[];
+  mentionBindings?: ComposerMentionBindingInput[];
   composer?: ConversationComposerSettings | null;
 };
 
@@ -74,13 +76,14 @@ export async function sendThreadDraft(
 ): Promise<SendThreadDraftResult> {
   const { paneId, projectId, selection, text, composer } = input;
   const images = input.images ?? [];
+  const mentionBindings = input.mentionBindings ?? [];
   if (text.trim().length === 0 && images.length === 0) {
     return { ok: false, error: "Message is empty" };
   }
 
-  let thread: ThreadRecord;
+  let resolved: ResolvedDraftThread;
   try {
-    thread = await resolveDraftThread(projectId, selection);
+    resolved = await resolveDraftThread(projectId, selection);
   } catch (cause: unknown) {
     return {
       ok: false,
@@ -88,14 +91,18 @@ export async function sendThreadDraft(
         cause instanceof Error ? cause.message : "Failed to create thread",
     };
   }
+  const { thread, environment } = resolved;
 
-  const refreshed = await useWorkspaceStore.getState().refreshSnapshot();
-  if (!refreshed) {
-    return {
-      ok: false,
-      error: "Thread created, but the workspace failed to refresh.",
-    };
-  }
+  // Stage the new thread in the local snapshot so pane resolution works
+  // before `refreshSnapshot` completes. Without this, a slow refresh would
+  // leave the pane rendering the project overview instead of the thread.
+  mergeCreatedThreadIntoSnapshot(projectId, thread, environment);
+
+  // Refresh runs in the background. Earlier versions awaited it and
+  // surfaced failures as an error, which drove users to retry and
+  // accidentally create duplicate threads/worktrees — the backend
+  // already committed to the one we just got back.
+  void useWorkspaceStore.getState().refreshSnapshot();
 
   // Seed the conversation store's composer with the draft picks so the
   // first send carries the user's chosen model / effort / mode and the
@@ -115,39 +122,94 @@ export async function sendThreadDraft(
   useConversationStore.getState().enqueuePendingFirstMessage(thread.id, {
     text: text.trim(),
     images,
+    mentionBindings,
     composer: composer ?? null,
   });
 
   // Close the draft and switch the pane — ThreadConversation mounts and
   // takes over from here.
   useWorkspaceStore.getState().closeThreadDraft(paneId);
-  useWorkspaceStore.getState().openThreadInSlot(paneId, thread.id);
+  useWorkspaceStore.getState().setPaneSelection(paneId, {
+    projectId,
+    environmentId: thread.environmentId,
+    threadId: thread.id,
+  });
 
   return { ok: true, thread };
 }
 
+type ResolvedDraftThread = {
+  thread: ThreadRecord;
+  // Populated only for "new worktree" flows, where the backend returns the
+  // freshly-created environment alongside the thread.
+  environment?: EnvironmentRecord;
+};
+
 async function resolveDraftThread(
   projectId: string,
   selection: EnvSelection,
-): Promise<ThreadRecord> {
+): Promise<ResolvedDraftThread> {
   if (selection.kind === "new") {
     const trimmedName = selection.name.trim();
+    const baseBranch = selection.baseBranch.trim();
     const result = await bridge.createManagedWorktree(projectId, {
-      baseBranch: selection.baseBranch,
+      // Leaving baseBranch empty lets the backend fall back to
+      // resolve_base_reference (remote/upstream), which is how the legacy
+      // standalone flow worked and matters for detached-HEAD repos.
+      ...(baseBranch.length > 0 ? { baseBranch } : {}),
       ...(trimmedName.length > 0 ? { name: trimmedName } : {}),
     });
-    return result.thread;
+    return { thread: result.thread, environment: result.environment };
   }
 
   if (selection.kind === "existing") {
-    return bridge.createThread({ environmentId: selection.environmentId });
+    const thread = await bridge.createThread({
+      environmentId: selection.environmentId,
+    });
+    return { thread };
   }
 
   const localEnv = findLocalEnvironment(projectId);
   if (!localEnv) {
     throw new Error("No local environment found for this project.");
   }
-  return bridge.createThread({ environmentId: localEnv.id });
+  const thread = await bridge.createThread({ environmentId: localEnv.id });
+  return { thread };
+}
+
+// Merges a freshly-created thread (and optionally its new worktree
+// environment) into the local snapshot so UI that depends on snapshot lookup
+// (pane resolution, sidebar, etc.) sees it immediately. The next successful
+// `refreshSnapshot` call will overwrite this with the backend's canonical
+// view; this is only a stopgap so the user is not blocked when a refresh
+// fails transiently.
+function mergeCreatedThreadIntoSnapshot(
+  projectId: string,
+  thread: ThreadRecord,
+  environment: EnvironmentRecord | undefined,
+): void {
+  useWorkspaceStore.setState((state) => {
+    if (!state.snapshot) return state;
+    const nextProjects = state.snapshot.projects.map((project) => {
+      if (project.id !== projectId) return project;
+      let environments = project.environments;
+      if (
+        environment &&
+        !environments.some((candidate) => candidate.id === environment.id)
+      ) {
+        environments = [...environments, environment];
+      }
+      environments = environments.map((env) => {
+        if (env.id !== thread.environmentId) return env;
+        if (env.threads.some((candidate) => candidate.id === thread.id)) {
+          return env;
+        }
+        return { ...env, threads: [...env.threads, thread] };
+      });
+      return { ...project, environments };
+    });
+    return { snapshot: { ...state.snapshot, projects: nextProjects } };
+  });
 }
 
 function findLocalEnvironment(projectId: string): EnvironmentRecord | null {

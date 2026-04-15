@@ -1780,6 +1780,22 @@ impl WorkspaceService {
                 "Worktree name cannot contain whitespace.".to_string(),
             ));
         }
+        // Reject anything that could escape the per-project managed-worktree
+        // directory: path components, separators, traversal segments, or
+        // null bytes. Git refnames already forbid some of these, but path
+        // containment needs its own guard before we resolve the destination.
+        if trimmed == "."
+            || trimmed == ".."
+            || trimmed.starts_with('.')
+            || trimmed.contains('/')
+            || trimmed.contains('\\')
+            || trimmed.contains('\0')
+        {
+            return Err(AppError::Validation(
+                "Worktree name cannot contain path separators or start with '.'."
+                    .to_string(),
+            ));
+        }
 
         let managed_worktree_dir =
             self.ensure_project_managed_worktree_dir(project_id, &project.root_path)?;
@@ -1817,6 +1833,16 @@ impl WorkspaceService {
             &managed_worktree_dir,
             trimmed,
         );
+        let expected_parent = self.managed_worktrees_root.join(&managed_worktree_dir);
+        // Defence in depth: after path assembly the destination's direct
+        // parent must still be the expected per-project directory. Rejects
+        // pathological inputs that slipped past the character check.
+        if destination.parent() != Some(expected_parent.as_path()) {
+            return Err(AppError::Validation(
+                "Worktree name would escape the managed worktree directory."
+                    .to_string(),
+            ));
+        }
         if destination.exists() {
             return Err(AppError::Validation(format!(
                 "A worktree folder already exists at {}.",
@@ -2879,6 +2905,45 @@ mod tests {
                 .map(ToString::to_string),
             Some("legacy-repo-dir".to_string())
         );
+    }
+
+    #[test]
+    fn create_managed_worktree_rejects_path_traversal_names() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("traversal-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        for bad_name in [
+            "..",
+            ".",
+            "../escape",
+            "nested/name",
+            "nested\\name",
+            ".hidden",
+        ] {
+            let error = harness
+                .service
+                .create_managed_worktree(CreateManagedWorktreeRequest {
+                    project_id: project.id.clone(),
+                    base_branch: None,
+                    name: Some(bad_name.to_string()),
+                })
+                .expect_err(
+                    "path-like worktree names must be rejected before git sees them",
+                );
+            assert!(
+                matches!(error, crate::error::AppError::Validation(_)),
+                "expected Validation error for name {bad_name:?}, got {error:?}"
+            );
+        }
     }
 
     #[test]

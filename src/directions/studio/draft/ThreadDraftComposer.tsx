@@ -3,6 +3,7 @@ import * as bridge from "../../../lib/bridge";
 import type {
   CollaborationModeOption,
   ComposerDraftMentionBinding,
+  ComposerMentionBindingInput,
   ConversationComposerSettings,
   ConversationImageAttachment,
   EnvironmentCapabilitiesSnapshot,
@@ -153,18 +154,18 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
   const defaultBaseBranch =
     branches[0] ?? localEnvironment?.gitBranch ?? null;
 
-  // If the user flipped to "new worktree" before branches finished loading
-  // (or picked a branch that no longer exists), realign onto the default.
+  // Realign the selection's baseBranch when the user's previously-picked
+  // branch disappears from the listing. An empty baseBranch is a valid
+  // state — it tells the backend to pick the repository default, which is
+  // how detached-HEAD / no-local-branch repos still land on a sensible
+  // base.
   useEffect(() => {
     if (selection.kind !== "new" || !branchesLoaded) return;
-    const branchIsValid =
-      selection.baseBranch.length > 0 &&
-      branches.includes(selection.baseBranch);
-    if (branchIsValid) return;
-    if (!defaultBaseBranch || defaultBaseBranch === selection.baseBranch) {
-      return;
-    }
-    setSelection({ ...selection, baseBranch: defaultBaseBranch });
+    if (selection.baseBranch.length === 0) return;
+    if (branches.includes(selection.baseBranch)) return;
+    const fallback = defaultBaseBranch ?? "";
+    if (fallback === selection.baseBranch) return;
+    setSelection({ ...selection, baseBranch: fallback });
   }, [selection, branches, branchesLoaded, defaultBaseBranch]);
 
   const resolvedComposerEnvId =
@@ -197,6 +198,7 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
   async function handleSend(
     sendText: string,
     sendImages: ConversationImageAttachment[],
+    sendMentionBindings: ComposerMentionBindingInput[],
   ) {
     if (isSending) return;
     setIsSending(true);
@@ -208,6 +210,7 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         selection,
         text: sendText,
         images: sendImages,
+        mentionBindings: sendMentionBindings,
         composer,
       });
       if (!result.ok) {
@@ -252,9 +255,7 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         threadId={`draft:${paneId}`}
         composer={composer}
         collaborationModes={collaborationModes}
-        disabled={
-          selection.kind === "new" && selection.baseBranch.trim().length === 0
-        }
+        disabled={false}
         draft={text}
         effortOptions={effortOptions}
         focusKey={`draft:${paneId}`}
@@ -274,8 +275,8 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         }}
         onChangeMentionBindings={setMentionBindings}
         onInterrupt={() => undefined}
-        onSend={(next, nextImages) => {
-          void handleSend(next, nextImages);
+        onSend={(next, nextImages, nextMentionBindings) => {
+          void handleSend(next, nextImages, nextMentionBindings);
         }}
         onUpdateComposer={(patch) =>
           setComposer((previous) => ({ ...previous, ...patch }))

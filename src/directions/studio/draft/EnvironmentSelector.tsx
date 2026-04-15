@@ -107,8 +107,6 @@ export function EnvironmentSelector({
     setBranchMenuOpen(false);
   }
 
-  const canPickNewWorktree =
-    availableBranches.length > 0 || Boolean(defaultBaseBranch);
 
   return (
     <div className="thread-draft-env" data-disabled={disabled ? "true" : undefined}>
@@ -144,7 +142,7 @@ export function EnvironmentSelector({
               <GitBranchIcon size={11} />
             </span>
             <span className="thread-draft-env__chip-label">
-              {value.baseBranch || (branchesLoading ? "loading…" : "main")}
+              {value.baseBranch || (branchesLoading ? "loading…" : "(default)")}
             </span>
             <ChevronRightIcon
               size={10}
@@ -214,12 +212,7 @@ export function EnvironmentSelector({
                 active={value.kind === "new"}
                 icon={<PlusIcon size={11} />}
                 label="New worktree…"
-                sub={
-                  canPickNewWorktree
-                    ? "Create a fresh worktree from a base branch"
-                    : "No local branches available"
-                }
-                disabled={!canPickNewWorktree}
+                sub="Create a fresh worktree from a base branch"
                 onSelect={pickNewWorktree}
               />
             </div>,
@@ -234,11 +227,21 @@ export function EnvironmentSelector({
               style={resolveMenuStyle(branchButtonRef.current, "up")}
               onPointerDown={(event) => event.stopPropagation()}
             >
+              <MenuOption
+                active={value.kind === "new" && value.baseBranch.length === 0}
+                icon={<span className="thread-draft-env__dot" />}
+                label="Default"
+                sub="Let the repository decide (upstream or current branch)"
+                onSelect={() => pickBaseBranch("")}
+              />
+              {availableBranches.length > 0 ? (
+                <div className="thread-draft-env__separator-line" />
+              ) : null}
               {availableBranches.length === 0 ? (
                 <div className="thread-draft-env__empty">
                   {branchesLoading
                     ? "Loading branches…"
-                    : "No local branches found."}
+                    : "No additional local branches."}
                 </div>
               ) : (
                 availableBranches.map((branch) => (

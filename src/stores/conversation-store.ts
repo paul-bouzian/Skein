@@ -46,6 +46,7 @@ export type ThreadHydrationState = "cold" | "loading" | "ready" | "error";
 export type PendingFirstMessage = {
   text: string;
   images: ConversationImageAttachment[];
+  mentionBindings: ComposerMentionBindingInput[];
   composer: ConversationComposerSettings | null;
 };
 

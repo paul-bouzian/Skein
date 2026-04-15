@@ -438,7 +438,12 @@ describe("studioActions", () => {
         useConversationStore.getState().pendingFirstMessageByThreadId[
           newThread.id
         ],
-      ).toEqual({ text: "Hello", images: [], composer: null });
+      ).toEqual({
+        text: "Hello",
+        images: [],
+        mentionBindings: [],
+        composer: null,
+      });
       expect(useWorkspaceStore.getState().draftBySlot.topLeft).toBeUndefined();
       expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
     });
@@ -482,7 +487,10 @@ describe("studioActions", () => {
       expect(mockedBridge.createThread).not.toHaveBeenCalled();
     });
 
-    it("sendThreadDraft surfaces an error when refreshSnapshot fails", async () => {
+    it("sendThreadDraft still navigates when refreshSnapshot fails", async () => {
+      // The bridge committed to the new thread already; failing the local
+      // workspace refresh must not bubble up as an error or the user would
+      // retry and create a second thread/worktree.
       const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
       mockedBridge.createThread.mockResolvedValue(newThread);
       const refreshSnapshot = vi.fn(async () => false);
@@ -496,11 +504,10 @@ describe("studioActions", () => {
         text: "Hi",
       });
 
-      expect(result).toEqual({
-        ok: false,
-        error: "Thread created, but the workspace failed to refresh.",
-      });
-      expect(mockedBridge.sendThreadMessage).not.toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+      expect(refreshSnapshot).toHaveBeenCalled();
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toBeUndefined();
+      expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
     });
 
     it("sendThreadDraft refuses empty messages", async () => {
