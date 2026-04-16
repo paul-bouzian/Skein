@@ -7,10 +7,8 @@ import type {
   ConversationComposerSettings,
   ConversationImageAttachment,
   EnvironmentRecord,
-  EnvironmentCapabilitiesSnapshot,
   GlobalSettings,
   ModelOption,
-  ProjectRecord,
   ReasoningEffort,
 } from "../../../lib/types";
 import skeinAppIcon from "../../../../src-tauri/icons/icon.png";
@@ -88,18 +86,6 @@ function composerFromSettings(
   };
 }
 
-function pickCapabilitiesForProject(
-  cache: Record<string, EnvironmentCapabilitiesSnapshot>,
-  project: ProjectRecord | undefined,
-  preferredEnvId: string,
-): EnvironmentCapabilitiesSnapshot | null {
-  if (cache[preferredEnvId]) return cache[preferredEnvId];
-  if (!project) return null;
-  return (
-    project.environments.map((env) => cache[env.id]).find(Boolean) ?? null
-  );
-}
-
 function orderBranchesWithDefaults(branches: string[]): string[] {
   const priority = PRIORITY_BRANCHES.filter((name) => branches.includes(name));
   const rest = branches
@@ -137,6 +123,9 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
   const [branchesLoaded, setBranchesLoaded] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tryLoadEnvironmentCapabilities = useConversationStore(
+    (state) => state.tryLoadEnvironmentCapabilities,
+  );
 
   const localEnvironment =
     project?.environments.find((env) => env.kind === "local") ?? null;
@@ -184,6 +173,10 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
     (selection.kind === "existing"
       ? selection.environmentId
       : localEnvironment?.id) ?? "draft";
+  const composerCapabilityEnvironmentId =
+    selection.kind === "existing"
+      ? selection.environmentId
+      : (localEnvironment?.id ?? null);
   const selectedComposerEnvironment =
     selection.kind === "existing"
       ? (worktreeEnvironments.find(
@@ -196,18 +189,21 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
     findLatestActiveThreadId(selectedComposerEnvironment);
 
   const capabilities = useConversationStore((state) =>
-    pickCapabilitiesForProject(
-      state.capabilitiesByEnvironmentId,
-      project,
-      resolvedComposerEnvId,
-    ),
+    composerCapabilityEnvironmentId
+      ? (state.capabilitiesByEnvironmentId[composerCapabilityEnvironmentId] ??
+        null)
+      : null,
   );
+
+  useEffect(() => {
+    if (!composerCapabilityEnvironmentId) {
+      return;
+    }
+    void tryLoadEnvironmentCapabilities(composerCapabilityEnvironmentId);
+  }, [composerCapabilityEnvironmentId, tryLoadEnvironmentCapabilities]);
+
   const cachedModels = capabilities?.models ?? [];
-  // When the user has already hydrated a thread somewhere in this project we
-  // reuse its capabilities verbatim. Otherwise we fall back to a synthetic
-  // gpt-5.4 option so model/effort/fast-mode toggles stay accurate in the
-  // draft composer — the real capabilities will refresh once the thread is
-  // actually created.
+  // Keep the draft composer interactive if the runtime capability read fails.
   const modelOptions: ModelOption[] =
     cachedModels.length > 0 ? cachedModels : FALLBACK_MODEL_OPTIONS;
   const collaborationModes: CollaborationModeOption[] =

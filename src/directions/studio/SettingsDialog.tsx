@@ -6,7 +6,11 @@ import {
 } from "@tauri-apps/plugin-notification";
 
 import { CodexSettingsTab } from "./CodexSettingsTab";
-import type { GlobalSettingsPatch, ProjectSettingsPatch } from "../../lib/types";
+import type {
+  GlobalSettingsPatch,
+  ProjectRecord,
+  ProjectSettingsPatch,
+} from "../../lib/types";
 import { ProjectSettingsTab } from "./ProjectSettingsTab";
 import { OpenInSettingsTab } from "./OpenInSettingsTab";
 import { ShortcutsSettingsTab } from "./ShortcutsSettingsTab";
@@ -16,6 +20,7 @@ import {
   useConversationStore,
 } from "../../stores/conversation-store";
 import {
+  findPrimaryEnvironment,
   selectProjects,
   selectSettings,
   useWorkspaceStore,
@@ -57,8 +62,20 @@ export function SettingsDialog({ open, onClose }: Props) {
   const selectedEnvironmentId = useWorkspaceStore(
     (state) => state.selectedEnvironmentId,
   );
+  const settingsCapabilityEnvironmentId = useMemo(
+    () =>
+      resolveSettingsCapabilityEnvironmentId(
+        projects,
+        selectedProjectId,
+        selectedEnvironmentId,
+      ),
+    [projects, selectedEnvironmentId, selectedProjectId],
+  );
   const capabilities = useConversationStore(
-    selectConversationCapabilities(selectedEnvironmentId),
+    selectConversationCapabilities(settingsCapabilityEnvironmentId),
+  );
+  const tryLoadEnvironmentCapabilities = useConversationStore(
+    (state) => state.tryLoadEnvironmentCapabilities,
   );
   const updateGlobalSettings = useWorkspaceStore((state) => state.updateGlobalSettings);
   const updateProjectSettings = useWorkspaceStore((state) => state.updateProjectSettings);
@@ -107,6 +124,13 @@ export function SettingsDialog({ open, onClose }: Props) {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || !settingsCapabilityEnvironmentId) {
+      return;
+    }
+    void tryLoadEnvironmentCapabilities(settingsCapabilityEnvironmentId);
+  }, [open, settingsCapabilityEnvironmentId, tryLoadEnvironmentCapabilities]);
 
   useEffect(() => {
     if (!open) {
@@ -351,4 +375,33 @@ export function SettingsDialog({ open, onClose }: Props) {
     </div>,
     document.body,
   );
+}
+
+function resolveSettingsCapabilityEnvironmentId(
+  projects: ProjectRecord[],
+  selectedProjectId: string | null,
+  selectedEnvironmentId: string | null,
+): string | null {
+  if (selectedEnvironmentId) {
+    return selectedEnvironmentId;
+  }
+
+  const selectedProject = selectedProjectId
+    ? (projects.find((project) => project.id === selectedProjectId) ?? null)
+    : null;
+  const orderedProjects = selectedProject
+    ? [
+        selectedProject,
+        ...projects.filter((project) => project.id !== selectedProject.id),
+      ]
+    : projects;
+
+  for (const project of orderedProjects) {
+    const environmentId = findPrimaryEnvironment(project)?.id ?? null;
+    if (environmentId) {
+      return environmentId;
+    }
+  }
+
+  return null;
 }

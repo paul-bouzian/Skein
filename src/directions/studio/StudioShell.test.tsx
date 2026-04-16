@@ -9,6 +9,7 @@ import {
   baseComposer,
   capabilitiesFixture,
   makeConversationSnapshot,
+  makeEnvironment,
   makeGlobalSettings,
   makeProject,
   makeWorkspaceSnapshot,
@@ -86,6 +87,7 @@ vi.mock("../../shared/ProjectIcon", () => ({
 }));
 
 vi.mock("../../lib/bridge", () => ({
+  getEnvironmentCapabilities: vi.fn(),
   getShortcutDefaults: vi.fn(),
   updateGlobalSettings: vi.fn(),
   updateProjectSettings: vi.fn(),
@@ -117,6 +119,7 @@ function createDeferred<T>() {
 beforeEach(async () => {
   storageState.clear();
   await resetVoiceSessionStore();
+  mockedBridge.getEnvironmentCapabilities.mockResolvedValue(capabilitiesFixture);
   mockedBridge.updateGlobalSettings.mockReset();
   mockedBridge.updateProjectSettings.mockReset();
   mockedBridge.listenToMenuOpenSettings.mockReset();
@@ -876,7 +879,7 @@ describe("StudioShell", () => {
     });
   });
 
-  it("reuses Codex model ids in settings when runtime capabilities are available", async () => {
+  it("reuses friendly model labels in settings when runtime capabilities are available", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -913,16 +916,129 @@ describe("StudioShell", () => {
     const modelPicker = screen.getByRole("button", {
       name: "Default model picker",
     });
-    expect(modelPicker).toHaveTextContent("gpt-5.4-mini");
+    expect(modelPicker).toHaveTextContent("GPT-5.4 Mini");
 
     await userEvent.click(modelPicker);
 
     expect(
-      screen.getByRole("option", { name: "gpt-5.4-mini" }),
+      screen.getByRole("option", { name: "GPT-5.4 Mini" }),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "GPT-5.4-mini" }),
-    ).toBeNull();
+    expect(screen.queryByRole("option", { name: "gpt-5.4-mini" })).toBeNull();
+  });
+
+  it("uses the selected project's local environment capabilities when no environment is selected", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          defaultModel: "gpt-5.4-mini",
+        },
+        projects: [
+          makeProject({
+            id: "project-1",
+            environments: [
+              {
+                ...makeProject().environments[0]!,
+                id: "env-local",
+                kind: "local",
+              },
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      capabilitiesByEnvironmentId: {
+        "env-local": {
+          environmentId: "env-local",
+          models: [
+            {
+              id: "gpt-5.4-mini",
+              displayName: "GPT-5.4-mini",
+              description: "Mini Codex model",
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: ["low", "medium", "high"],
+              inputModalities: ["text", "image"],
+              isDefault: true,
+            },
+          ],
+          collaborationModes: [],
+        },
+      },
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const modelPicker = screen.getByRole("button", {
+      name: "Default model picker",
+    });
+    expect(modelPicker).toHaveTextContent("GPT-5.4 Mini");
+  });
+
+  it("falls back to the selected project's default environment when no local environment is available", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: {
+          ...makeWorkspaceSnapshot().settings,
+          defaultModel: "gpt-5.4-mini",
+        },
+        projects: [
+          makeProject({
+            id: "project-1",
+            environments: [
+              makeEnvironment({
+                id: "env-secondary",
+                kind: "managedWorktree",
+                isDefault: false,
+              }),
+              makeEnvironment({
+                id: "env-default",
+                kind: "managedWorktree",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useConversationStore.setState((state) => ({
+      ...state,
+      capabilitiesByEnvironmentId: {
+        "env-default": {
+          environmentId: "env-default",
+          models: [
+            {
+              id: "gpt-5.4-mini",
+              displayName: "GPT-5.4-mini",
+              description: "Mini Codex model",
+              defaultReasoningEffort: "medium",
+              supportedReasoningEfforts: ["low", "medium", "high"],
+              inputModalities: ["text", "image"],
+              isDefault: true,
+            },
+          ],
+          collaborationModes: [],
+        },
+      },
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const modelPicker = screen.getByRole("button", {
+      name: "Default model picker",
+    });
+    expect(modelPicker).toHaveTextContent("GPT-5.4 Mini");
   });
 
   it("saves per-project worktree scripts from the Project settings tab", async () => {

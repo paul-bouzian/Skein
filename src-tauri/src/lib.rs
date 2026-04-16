@@ -125,6 +125,7 @@ pub fn run() {
             commands::workspace::stop_environment_runtime,
             commands::workspace::touch_environment_runtime,
             commands::workspace::get_environment_codex_rate_limits,
+            commands::workspace::get_environment_capabilities,
             commands::workspace::open_environment,
         ])
         .build(tauri::generate_context!())

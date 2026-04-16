@@ -12,8 +12,8 @@ use tracing::warn;
 use crate::app_identity::{CODEX_USAGE_EVENT_NAME, WORKSPACE_EVENT_NAME};
 use crate::domain::conversation::{
     ApprovalResponseInput, ComposerMentionBindingInput, ConversationImageAttachment,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    EnvironmentCapabilitiesSnapshot, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{
     CodexCreditsSnapshot, CodexPlanType, CodexRateLimitSnapshot, CodexRateLimitWindow,
@@ -334,6 +334,19 @@ impl RuntimeSupervisor {
             .await?;
 
         read_account_from_target(read_target, refresh_token).await
+    }
+
+    pub async fn read_capabilities(
+        &self,
+        environment_id: &str,
+        environment_path: &str,
+        codex_binary_path: Option<String>,
+    ) -> AppResult<EnvironmentCapabilitiesSnapshot> {
+        let read_target = self
+            .resolve_read_target(environment_id, environment_path, codex_binary_path)
+            .await?;
+
+        read_capabilities_from_target(read_target).await
     }
 
     pub async fn read_auth_status(
@@ -1326,6 +1339,19 @@ async fn read_account_from_target(
     }
 }
 
+async fn read_capabilities_from_target(
+    read_target: RuntimeReadTarget,
+) -> AppResult<EnvironmentCapabilitiesSnapshot> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => session.read_capabilities().await,
+        RuntimeReadTarget::Headless(session) => {
+            let result = session.read_capabilities().await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
 async fn read_auth_status_from_target(
     read_target: RuntimeReadTarget,
     include_token: bool,
@@ -1371,12 +1397,12 @@ mod tests {
         apply_account_usage_patch, apply_account_usage_snapshot, classify_idle_runtime_candidates,
         collect_idle_runtime_candidates, emit_account_usage_event, finish_headless_read,
         latest_running_usage_source, merge_account_usage_snapshot, prime_running_runtime_usage,
-        read_account_from_target, read_auth_status_from_target, resolve_binary_path,
-        should_stop_idle_runtime_candidate, store_account_usage_snapshot_from_read,
-        touch_running_runtime, usage_snapshot_is_empty, usage_snapshot_patch_from_snapshot,
-        AccountUsageState, AppServerAuthStatus, CodexRateLimitSnapshotPatch, RunningRuntime,
-        RuntimeReadTarget, RuntimeRegistry, RuntimeUsageUpdate, UsageConfirmationFallback,
-        UsageUpdateOrigin,
+        read_account_from_target, read_auth_status_from_target, read_capabilities_from_target,
+        resolve_binary_path, should_stop_idle_runtime_candidate,
+        store_account_usage_snapshot_from_read, touch_running_runtime, usage_snapshot_is_empty,
+        usage_snapshot_patch_from_snapshot, AccountUsageState, AppServerAuthStatus,
+        CodexRateLimitSnapshotPatch, RunningRuntime, RuntimeReadTarget, RuntimeRegistry,
+        RuntimeUsageUpdate, UsageConfirmationFallback, UsageUpdateOrigin,
     };
     use crate::app_identity::CODEX_USAGE_EVENT_NAME;
     use crate::domain::conversation::{
@@ -1435,6 +1461,33 @@ mod tests {
             .find(|request| request.method == "account/read")
             .expect("account/read request should be recorded");
         assert_eq!(account_request.params["refreshToken"], false);
+    }
+
+    #[tokio::test]
+    async fn running_read_capabilities_uses_the_active_session() {
+        let (session, harness) = spawn_test_session().await;
+
+        let capabilities =
+            read_capabilities_from_target(RuntimeReadTarget::Running(Arc::new(session)))
+                .await
+                .expect("running capabilities read should load");
+
+        assert_eq!(capabilities.environment_id, "env-1");
+        assert_eq!(capabilities.models.len(), 1);
+        assert_eq!(capabilities.models[0].display_name, "GPT-5.4");
+        assert_eq!(capabilities.collaboration_modes.len(), 1);
+
+        let requests = harness.requests().await;
+        assert!(
+            requests.iter().any(|request| request.method == "model/list"),
+            "model/list request should be recorded"
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.method == "collaborationMode/list"),
+            "collaborationMode/list request should be recorded"
+        );
     }
 
     #[tokio::test]

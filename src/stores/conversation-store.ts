@@ -61,6 +61,9 @@ type ConversationState = {
   listenerReady: boolean;
 
   initializeListener: () => Promise<void>;
+  tryLoadEnvironmentCapabilities: (
+    environmentId: string,
+  ) => Promise<EnvironmentCapabilitiesSnapshot | null>;
   openThread: (threadId: string) => Promise<void>;
   refreshThread: (threadId: string) => Promise<void>;
   updateComposer: (
@@ -125,6 +128,10 @@ let unlistenConversationEvents: null | (() => void) = null;
 let listenerInitialization: Promise<void> | null = null;
 let listenerGeneration = 0;
 const inflightThreadLoads = new Map<string, Promise<boolean>>();
+const inflightEnvironmentCapabilityLoads = new Map<
+  string,
+  Promise<EnvironmentCapabilitiesSnapshot | null>
+>();
 
 function refreshWorkspaceSnapshotNonBlocking() {
   requestWorkspaceRefresh();
@@ -180,6 +187,50 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     } finally {
       if (listenerInitialization === initialization) {
         listenerInitialization = null;
+      }
+    }
+  },
+
+  tryLoadEnvironmentCapabilities: async (environmentId) => {
+    const trimmedEnvironmentId = environmentId.trim();
+    if (!trimmedEnvironmentId) {
+      return null;
+    }
+
+    const cached =
+      get().capabilitiesByEnvironmentId[trimmedEnvironmentId] ?? null;
+    if (cached) {
+      return cached;
+    }
+
+    const inflight =
+      inflightEnvironmentCapabilityLoads.get(trimmedEnvironmentId) ?? null;
+    if (inflight) {
+      return inflight;
+    }
+
+    const loadPromise = bridge
+      .getEnvironmentCapabilities(trimmedEnvironmentId)
+      .then((capabilities) => {
+        set((state) => ({
+          capabilitiesByEnvironmentId: {
+            ...state.capabilitiesByEnvironmentId,
+            [capabilities.environmentId]: capabilities,
+          },
+        }));
+        return capabilities;
+      })
+      .catch(() => null);
+
+    inflightEnvironmentCapabilityLoads.set(trimmedEnvironmentId, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      if (
+        inflightEnvironmentCapabilityLoads.get(trimmedEnvironmentId) ===
+        loadPromise
+      ) {
+        inflightEnvironmentCapabilityLoads.delete(trimmedEnvironmentId);
       }
     }
   },
@@ -506,6 +557,7 @@ export function teardownConversationListener() {
   unlistenConversationEvents = null;
   listenerInitialization = null;
   inflightThreadLoads.clear();
+  inflightEnvironmentCapabilityLoads.clear();
   clearDraftPersistenceControllers();
   useConversationStore.setState({ listenerReady: false });
 }

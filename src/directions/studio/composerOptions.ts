@@ -5,6 +5,7 @@ import type {
   ReasoningEffort,
   ServiceTier,
 } from "../../lib/types";
+import { formatModelLabel, labelForModelOption } from "./modelLabels";
 import type { ComposerPickerOption } from "./ComposerPicker";
 
 const MODEL_FALLBACK_IDS = [
@@ -19,7 +20,7 @@ const MODEL_FALLBACK_IDS = [
 export const MODEL_FALLBACK_OPTIONS: ComposerPickerOption[] =
   MODEL_FALLBACK_IDS.map((modelId) => ({
     value: modelId,
-    label: modelId,
+    label: formatModelLabel(modelId),
   }));
 
 export const REASONING_OPTIONS: ComposerPickerOption<ReasoningEffort>[] = [
@@ -51,7 +52,7 @@ export function composerModelOptions(
   return ensureSelectedOption(
     models.map((model) => ({
       value: model.id,
-      label: model.id,
+      label: labelForModelOption(model, model.id),
     })),
     selectedValue,
   );
@@ -104,7 +105,7 @@ function ensureSelectedOption<T extends string>(
   return [
     {
       value: selectedValue as T,
-      label: selectedValue,
+      label: formatModelLabel(selectedValue),
     },
     ...options,
   ];

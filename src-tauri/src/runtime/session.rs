@@ -537,6 +537,10 @@ impl RuntimeSession {
         })
     }
 
+    pub async fn read_capabilities(&self) -> AppResult<EnvironmentCapabilitiesSnapshot> {
+        self.ensure_capabilities().await
+    }
+
     pub async fn refresh_thread(
         &self,
         context: ThreadRuntimeContext,

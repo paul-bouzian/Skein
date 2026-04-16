@@ -1370,7 +1370,7 @@ function findProject(snapshot: WorkspaceSnapshot, projectId: string | null) {
   return snapshot.projects.find((project) => project.id === projectId) ?? null;
 }
 
-function findPrimaryEnvironment(project: ProjectRecord) {
+export function findPrimaryEnvironment(project: ProjectRecord) {
   return (
     findLocalEnvironment(project) ??
     project.environments.find((environment) => environment.isDefault) ??

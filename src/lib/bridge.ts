@@ -22,6 +22,7 @@ import type {
   CodexUsageEventPayload,
   ConversationEventPayload,
   CreateThreadRequest,
+  EnvironmentCapabilitiesSnapshot,
   GitFileDiff,
   GitFileDiffInput,
   GitFileInput,
@@ -234,6 +235,14 @@ export function getEnvironmentCodexRateLimits(
   environmentId: string,
 ): Promise<CodexRateLimitSnapshot> {
   return invoke<CodexRateLimitSnapshot>("get_environment_codex_rate_limits", {
+    environmentId,
+  });
+}
+
+export function getEnvironmentCapabilities(
+  environmentId: string,
+): Promise<EnvironmentCapabilitiesSnapshot> {
+  return invoke<EnvironmentCapabilitiesSnapshot>("get_environment_capabilities", {
     environmentId,
   });
 }
