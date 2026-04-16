@@ -384,7 +384,12 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     event: ReactKeyboardEvent<HTMLButtonElement>,
     project: ProjectRecord,
   ) {
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    if (
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       void handleProjectKeyboardReorder(event, project.id);
       return;
     }

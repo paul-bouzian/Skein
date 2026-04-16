@@ -1880,6 +1880,126 @@ describe("TreeSidebar", () => {
     });
   });
 
+  it("reorders projects to the first position with Home from the project row", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-c",
+            name: "Third",
+            environments: [
+              makeEnvironment({
+                id: "env-c",
+                projectId: "project-c",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const { container } = renderSidebar();
+
+    const projectRows =
+      container.querySelectorAll<HTMLButtonElement>(".project-group__header");
+    fireEvent.keyDown(projectRows[2], {
+      key: "Home",
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-c", "project-a", "project-b"],
+      });
+    });
+  });
+
+  it("reorders projects to the last position with End from the project row", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-a",
+            name: "First",
+            environments: [
+              makeEnvironment({
+                id: "env-a",
+                projectId: "project-a",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-b",
+            name: "Second",
+            environments: [
+              makeEnvironment({
+                id: "env-b",
+                projectId: "project-b",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-c",
+            name: "Third",
+            environments: [
+              makeEnvironment({
+                id: "env-c",
+                projectId: "project-c",
+                kind: "local",
+                isDefault: true,
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    const { container } = renderSidebar();
+
+    const projectRows =
+      container.querySelectorAll<HTMLButtonElement>(".project-group__header");
+    fireEvent.keyDown(projectRows[0], {
+      key: "End",
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({
+        projectIds: ["project-b", "project-c", "project-a"],
+      });
+    });
+  });
+
   it("renders footer utility actions and forwards clicks", async () => {
     renderSidebar();
 
