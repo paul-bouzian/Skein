@@ -1491,6 +1491,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn running_read_capabilities_refreshes_the_existing_session_cache() {
+        let (session, harness) = spawn_test_session().await;
+        let session = Arc::new(session);
+
+        session
+            .read_capabilities()
+            .await
+            .expect("initial capabilities read should load");
+
+        read_capabilities_from_target(RuntimeReadTarget::Running(session))
+            .await
+            .expect("refreshed capabilities read should load");
+
+        let requests = harness.requests().await;
+        let model_list_count = requests
+            .iter()
+            .filter(|request| request.method == "model/list")
+            .count();
+        let collaboration_mode_count = requests
+            .iter()
+            .filter(|request| request.method == "collaborationMode/list")
+            .count();
+
+        assert_eq!(model_list_count, 2, "read_capabilities should refresh model/list");
+        assert_eq!(
+            collaboration_mode_count,
+            2,
+            "read_capabilities should refresh collaborationMode/list"
+        );
+    }
+
+    #[tokio::test]
     async fn priming_a_running_runtime_reads_usage_updates_state_and_emits_event() {
         let app = mock_app();
         let app_handle = app.handle().clone();
