@@ -835,7 +835,7 @@ describe("TreeSidebar", () => {
     ).toBeNull();
   });
 
-  it.skip("opens the worktree pull request without changing the selected environment", async () => {
+  it("opens the worktree pull request on left-click when a PR is open", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -884,7 +884,7 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Open pull request #17: Add themes",
+        name: "Open PR #17: Add themes",
       }),
     );
 
@@ -896,7 +896,7 @@ describe("TreeSidebar", () => {
     );
   });
 
-  it.skip("keeps the worktree context menu available when right-clicking the pull request icon", () => {
+  it("opens the worktree context menu on right-click regardless of PR state", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -931,16 +931,19 @@ describe("TreeSidebar", () => {
 
     fireEvent.contextMenu(
       screen.getByRole("button", {
-        name: "Open pull request #17: Add themes",
+        name: "Open PR #17: Add themes",
       }),
     );
 
     expect(
       screen.getByRole("button", { name: "Delete worktree" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open pull request" }),
+    ).toBeInTheDocument();
   });
 
-  it.skip("renders merged pull request controls with a merged tooltip label", () => {
+  it("renders merged pull request with a merged aria-label and merged data state", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -973,11 +976,93 @@ describe("TreeSidebar", () => {
 
     renderSidebar();
 
-    expect(
-      screen.getByRole("button", {
-        name: "Merged pull request #29: Release cut",
+    const badge = screen.getByRole("button", {
+      name: "Merged PR #29: Release cut",
+    });
+    expect(badge).toBeInTheDocument();
+    expect(badge.getAttribute("data-pr-state")).toBe("merged");
+  });
+
+  it("renders closed pull request with the closed aria-label and red data state", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "abandoned",
+                gitBranch: "abandoned",
+                pullRequest: {
+                  number: 42,
+                  title: "Abandoned attempt",
+                  url: "https://github.com/acme/skein/pull/42",
+                  state: "closed",
+                },
+              }),
+            ],
+          }),
+        ],
       }),
-    ).toBeInTheDocument();
+    }));
+
+    renderSidebar();
+
+    const badge = screen.getByRole("button", {
+      name: "Closed PR #42: Abandoned attempt",
+    });
+    expect(badge.getAttribute("data-pr-state")).toBe("closed");
+
+    await userEvent.click(badge);
+
+    expect(openUrlMock).toHaveBeenCalledWith(
+      "https://github.com/acme/skein/pull/42",
+    );
+  });
+
+  it("does nothing on left-click when no pull request exists", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "no-pr",
+                gitBranch: "no-pr",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    const badge = screen.getByRole("button", {
+      name: "Worktree: no-pr",
+    });
+    expect(badge.getAttribute("data-pr-state")).toBe("none");
+
+    await userEvent.click(badge);
+
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it("persists project collapse from the dedicated chevron", async () => {

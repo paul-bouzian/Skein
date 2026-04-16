@@ -81,6 +81,25 @@ fn select_display_pull_request_prefers_open_then_latest_merged() {
 }
 
 #[test]
+fn select_display_pull_request_falls_back_to_closed_when_no_open_or_merged() {
+    let selected = select_display_pull_request(vec![ResolvedPullRequest {
+        number: 11,
+        title: "Closed without merge".to_string(),
+        url: "https://github.com/acme/skein/pull/11".to_string(),
+        head_ref_name: "feature".to_string(),
+        state: ResolvedPullRequestState::Closed,
+        updated_at: Some("2026-04-09T09:00:00Z".to_string()),
+        is_cross_repository: Some(false),
+        head_repository_name_with_owner: Some("acme/skein".to_string()),
+        head_repository_owner_login: Some("acme".to_string()),
+    }])
+    .expect("closed pull request should surface when no open or merged exists");
+
+    assert_eq!(selected.number, 11);
+    assert_eq!(selected.state, ResolvedPullRequestState::Closed);
+}
+
+#[test]
 fn resolve_head_context_prioritizes_fork_selector_when_tracking_fork_remote() {
     let harness = PullRequestHarness::new().expect("harness");
     let repo = harness
