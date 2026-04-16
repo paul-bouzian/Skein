@@ -32,6 +32,7 @@ import type {
   ThreadRecord,
 } from "../../lib/types";
 import { SidebarThreadRow } from "./SidebarThreadRow";
+import { branchChipLabel } from "./worktreeLabels";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
 import { SidebarUtilityActions } from "./SidebarUtilityActions";
 import type { Theme } from "./StudioShell";
@@ -231,6 +232,8 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
           };
 
           if (row.kind === "empty") {
+            const pr = env.pullRequest;
+            const chipTooltip = branchChipLabel(branchLabel, pr);
             return (
               <li key={env.id} className="project-group__thread-item">
                 <div className="tree-sidebar__thread-row">
@@ -249,22 +252,34 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       Start thread
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    className="tree-sidebar__thread-branch"
-                    title={`Worktree: ${branchLabel}`}
-                    data-no-reorder-drag="true"
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={openBranchMenu}
-                  >
-                    <GitBranchIcon
-                      size={10}
-                      className="tree-sidebar__thread-branch-icon"
-                    />
-                    <span className="tree-sidebar__thread-branch-label">
-                      {branchLabel}
-                    </span>
-                  </button>
+                  <Tooltip content={chipTooltip} side="bottom">
+                    <button
+                      type="button"
+                      className="tree-sidebar__thread-branch"
+                      data-pr-state={pr?.state ?? "none"}
+                      aria-label={chipTooltip}
+                      data-no-reorder-drag="true"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (pr) {
+                          void Promise.resolve(openUrl(pr.url)).catch(
+                            () => undefined,
+                          );
+                        }
+                      }}
+                      onContextMenu={openBranchMenu}
+                    >
+                      <GitBranchIcon
+                        size={10}
+                        className="tree-sidebar__thread-branch-icon"
+                      />
+                      <span className="tree-sidebar__thread-branch-label">
+                        {branchLabel}
+                      </span>
+                    </button>
+                  </Tooltip>
                 </div>
               </li>
             );
@@ -278,16 +293,20 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                 worktree={{
                   environmentId: env.id,
                   branch: branchLabel,
+                  pullRequest: env.pullRequest,
                 }}
                 onSelect={() => handleThreadSelect(thread.id)}
                 onOpenInOtherPane={() =>
                   handleOpenThreadInOtherPane(thread.id)
                 }
-                onBranchChipClick={(event) => {
+                onBranchChipContextMenu={(event) => {
                   const anchor = resolveContextMenuAnchor(event);
                   setContextMenu(
                     buildBranchContextMenuState(env, anchor.x, anchor.y),
                   );
+                }}
+                onBranchChipOpenPullRequest={(url) => {
+                  void Promise.resolve(openUrl(url)).catch(() => undefined);
                 }}
                 onContextMenu={(event) => {
                   event.preventDefault();

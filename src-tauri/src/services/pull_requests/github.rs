@@ -92,9 +92,7 @@ pub(super) fn resolve_pull_request_for_target(
             state: match pull_request.state {
                 ResolvedPullRequestState::Open => PullRequestState::Open,
                 ResolvedPullRequestState::Merged => PullRequestState::Merged,
-                ResolvedPullRequestState::Closed => {
-                    unreachable!("closed pull requests are filtered")
-                }
+                ResolvedPullRequestState::Closed => PullRequestState::Closed,
             },
         }),
     )
@@ -210,15 +208,22 @@ fn select_display_pull_request(
     mut pull_requests: Vec<ResolvedPullRequest>,
 ) -> Option<ResolvedPullRequest> {
     pull_requests.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-    pull_requests
+    if let Some(open) = pull_requests
         .iter()
         .find(|pull_request| pull_request.state == ResolvedPullRequestState::Open)
         .cloned()
-        .or_else(|| {
-            pull_requests
-                .into_iter()
-                .find(|pull_request| pull_request.state == ResolvedPullRequestState::Merged)
-        })
+    {
+        return Some(open);
+    }
+    // Among non-open PRs, surface the most recently updated one so a freshly
+    // closed rejection wins over an older merge on the same branch (and vice
+    // versa). The list is already sorted by updated_at desc above.
+    pull_requests.into_iter().find(|pull_request| {
+        matches!(
+            pull_request.state,
+            ResolvedPullRequestState::Merged | ResolvedPullRequestState::Closed
+        )
+    })
 }
 
 fn normalize_pull_request(raw: RawPullRequest) -> ResolvedPullRequest {

@@ -534,7 +534,9 @@ describe("TreeSidebar", () => {
       name: "Start thread in add-themes",
     });
     expect(placeholder).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "add-themes" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open PR #17: Add themes" }),
+    ).toBeInTheDocument();
 
     fireEvent.contextMenu(placeholder);
 
@@ -582,7 +584,7 @@ describe("TreeSidebar", () => {
 
     renderSidebar();
 
-    const branchButton = screen.getByRole("button", { name: "say-hello" });
+    const branchButton = screen.getByRole("button", { name: "Worktree: say-hello" });
     vi.spyOn(branchButton, "getBoundingClientRect").mockReturnValue({
       x: 40,
       y: 96,
@@ -595,7 +597,7 @@ describe("TreeSidebar", () => {
       toJSON: vi.fn(),
     });
 
-    fireEvent.click(branchButton, { clientX: 0, clientY: 0 });
+    fireEvent.contextMenu(branchButton);
 
     const menu = document.body.querySelector(".tree-sidebar__context-menu");
     expect(menu).not.toBeNull();
@@ -837,7 +839,7 @@ describe("TreeSidebar", () => {
     ).toBeNull();
   });
 
-  it.skip("opens the worktree pull request without changing the selected environment", async () => {
+  it("opens the worktree pull request on left-click when a PR is open", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -886,7 +888,7 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(
       screen.getByRole("button", {
-        name: "Open pull request #17: Add themes",
+        name: "Open PR #17: Add themes",
       }),
     );
 
@@ -898,7 +900,59 @@ describe("TreeSidebar", () => {
     );
   });
 
-  it.skip("keeps the worktree context menu available when right-clicking the pull request icon", () => {
+  it.each([
+    { state: "open" as const, badgeLabel: "Open PR #17: Add themes" },
+    { state: "merged" as const, badgeLabel: "Merged PR #17: Add themes" },
+    { state: "closed" as const, badgeLabel: "Closed PR #17: Add themes" },
+  ])(
+    "opens the worktree context menu on right-click for $state PR",
+    ({ state, badgeLabel }) => {
+      useWorkspaceStore.setState((workspace) => ({
+        ...workspace,
+        snapshot: makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              environments: [
+                makeEnvironment({
+                  id: "env-local",
+                  kind: "local",
+                  isDefault: true,
+                }),
+                makeEnvironment({
+                  id: "env-worktree",
+                  kind: "managedWorktree",
+                  isDefault: false,
+                  name: "add-themes",
+                  gitBranch: "add-themes",
+                  pullRequest: {
+                    number: 17,
+                    title: "Add themes",
+                    url: "https://github.com/acme/skein/pull/17",
+                    state,
+                  },
+                }),
+              ],
+            }),
+          ],
+        }),
+      }));
+
+      renderSidebar();
+
+      fireEvent.contextMenu(
+        screen.getByRole("button", { name: badgeLabel }),
+      );
+
+      expect(
+        screen.getByRole("button", { name: "Delete worktree" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Open pull request" }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it("opens the worktree context menu on right-click when no PR exists", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -916,12 +970,6 @@ describe("TreeSidebar", () => {
                 isDefault: false,
                 name: "add-themes",
                 gitBranch: "add-themes",
-                pullRequest: {
-                  number: 17,
-                  title: "Add themes",
-                  url: "https://github.com/acme/skein/pull/17",
-                  state: "open",
-                },
               }),
             ],
           }),
@@ -932,17 +980,18 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     fireEvent.contextMenu(
-      screen.getByRole("button", {
-        name: "Open pull request #17: Add themes",
-      }),
+      screen.getByRole("button", { name: "Worktree: add-themes" }),
     );
 
     expect(
       screen.getByRole("button", { name: "Delete worktree" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open pull request" }),
+    ).toBeNull();
   });
 
-  it.skip("renders merged pull request controls with a merged tooltip label", () => {
+  it("renders merged pull request with a merged aria-label and merged data state", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -975,11 +1024,93 @@ describe("TreeSidebar", () => {
 
     renderSidebar();
 
-    expect(
-      screen.getByRole("button", {
-        name: "Merged pull request #29: Release cut",
+    const badge = screen.getByRole("button", {
+      name: "Merged PR #29: Release cut",
+    });
+    expect(badge).toBeInTheDocument();
+    expect(badge.getAttribute("data-pr-state")).toBe("merged");
+  });
+
+  it("renders closed pull request with the closed aria-label and red data state", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "abandoned",
+                gitBranch: "abandoned",
+                pullRequest: {
+                  number: 42,
+                  title: "Abandoned attempt",
+                  url: "https://github.com/acme/skein/pull/42",
+                  state: "closed",
+                },
+              }),
+            ],
+          }),
+        ],
       }),
-    ).toBeInTheDocument();
+    }));
+
+    renderSidebar();
+
+    const badge = screen.getByRole("button", {
+      name: "Closed PR #42: Abandoned attempt",
+    });
+    expect(badge.getAttribute("data-pr-state")).toBe("closed");
+
+    await userEvent.click(badge);
+
+    expect(openUrlMock).toHaveBeenCalledWith(
+      "https://github.com/acme/skein/pull/42",
+    );
+  });
+
+  it("does nothing on left-click when no pull request exists", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "no-pr",
+                gitBranch: "no-pr",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    const badge = screen.getByRole("button", {
+      name: "Worktree: no-pr",
+    });
+    expect(badge.getAttribute("data-pr-state")).toBe("none");
+
+    await userEvent.click(badge);
+
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 
   it("persists project collapse from the dedicated chevron", async () => {
@@ -1037,7 +1168,7 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     expect(
-      screen.getByRole("button", { name: "fuzzy-tiger" }),
+      screen.getByRole("button", { name: "Worktree: fuzzy-tiger" }),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Collapse Skein" }));
 
@@ -1049,7 +1180,7 @@ describe("TreeSidebar", () => {
       expect(refreshSnapshot).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Worktree: fuzzy-tiger" })).toBeNull();
     });
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
@@ -1109,7 +1240,7 @@ describe("TreeSidebar", () => {
     const { container } = renderSidebar();
 
     expect(
-      screen.getByRole("button", { name: "fuzzy-tiger" }),
+      screen.getByRole("button", { name: "Worktree: fuzzy-tiger" }),
     ).toBeInTheDocument();
 
     await userEvent.click(
@@ -1124,7 +1255,7 @@ describe("TreeSidebar", () => {
       expect(refreshSnapshot).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Worktree: fuzzy-tiger" })).toBeNull();
     });
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });

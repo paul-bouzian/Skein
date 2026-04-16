@@ -12,10 +12,15 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { useThreadDrag } from "./useThreadDrag";
+import { branchChipLabel } from "./worktreeLabels";
+import type { WorktreePullRequest } from "./worktreeLabels";
+
+export type ThreadWorktreePullRequest = WorktreePullRequest;
 
 export type ThreadWorktreeBadge = {
   environmentId: string;
   branch: string;
+  pullRequest?: ThreadWorktreePullRequest;
 };
 
 type SharedProps = {
@@ -25,14 +30,19 @@ type SharedProps = {
   onContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
 };
 
-// Keep the worktree chip and its click handler aligned: a chip is only
-// rendered for worktree threads, and when it is the click handler must be
-// provided — otherwise the chip would be a focusable no-op.
+// Keep the worktree chip and its handlers aligned: a chip is only rendered
+// for worktree threads, and when it is the context-menu handler must be
+// provided — otherwise the chip would have no interactive fallback.
 type Props =
-  | (SharedProps & { worktree?: null; onBranchChipClick?: never })
+  | (SharedProps & {
+      worktree?: null;
+      onBranchChipContextMenu?: never;
+      onBranchChipOpenPullRequest?: never;
+    })
   | (SharedProps & {
       worktree: ThreadWorktreeBadge;
-      onBranchChipClick: (event: React.MouseEvent<HTMLElement>) => void;
+      onBranchChipContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
+      onBranchChipOpenPullRequest: (url: string) => void;
     });
 
 function SidebarThreadRowImpl(props: Props) {
@@ -43,7 +53,8 @@ function SidebarThreadRowImpl(props: Props) {
     onContextMenu,
   } = props;
   const worktree = props.worktree ?? null;
-  const onBranchChipClick = props.onBranchChipClick;
+  const onBranchChipContextMenu = props.onBranchChipContextMenu;
+  const onBranchChipOpenPullRequest = props.onBranchChipOpenPullRequest;
   const tone = useConversationStore((state) =>
     indicatorToneForConversationStatus(
       state.snapshotsByThreadId[thread.id]?.status ?? null,
@@ -63,6 +74,9 @@ function SidebarThreadRowImpl(props: Props) {
     .join(" ");
 
   const paneHint = resolvePaneHint(inAnyPane, inFocusedPane);
+  const chipLabel = worktree
+    ? branchChipLabel(worktree.branch, worktree.pullRequest)
+    : "";
 
   return (
     <div className="tree-sidebar__thread-row">
@@ -79,24 +93,35 @@ function SidebarThreadRowImpl(props: Props) {
         </span>
         <span className="tree-sidebar__thread-title">{thread.title}</span>
       </button>
-      {worktree && onBranchChipClick ? (
-        <button
-          type="button"
-          className="tree-sidebar__thread-branch"
-          title={`Worktree: ${worktree.branch}`}
-          data-no-reorder-drag="true"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onBranchChipClick(event);
-          }}
-        >
-          <GitBranchIcon size={10} className="tree-sidebar__thread-branch-icon" />
-          <span className="tree-sidebar__thread-branch-label">
-            {worktree.branch}
-          </span>
-        </button>
+      {worktree && onBranchChipContextMenu && onBranchChipOpenPullRequest ? (
+        <Tooltip content={chipLabel} side="bottom">
+          <button
+            type="button"
+            className="tree-sidebar__thread-branch"
+            data-pr-state={worktree.pullRequest?.state ?? "none"}
+            aria-label={chipLabel}
+            data-no-reorder-drag="true"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const pr = worktree.pullRequest;
+              if (pr) {
+                onBranchChipOpenPullRequest(pr.url);
+              }
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onBranchChipContextMenu(event);
+            }}
+          >
+            <GitBranchIcon size={10} className="tree-sidebar__thread-branch-icon" />
+            <span className="tree-sidebar__thread-branch-label">
+              {worktree.branch}
+            </span>
+          </button>
+        </Tooltip>
       ) : null}
       <Tooltip content="Open in other pane" side="bottom">
         <button
@@ -125,3 +150,5 @@ function resolvePaneHint(
   if (inFocusedPane) return "Open in focused pane";
   return "Open in another pane";
 }
+
+

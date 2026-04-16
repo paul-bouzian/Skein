@@ -29,3 +29,6 @@ docs/project-brief.md
 
 # Local release outputs
 release-artifacts/
+
+# Local Claude Code workspace state (session scheduler locks, personal settings)
+.claude/

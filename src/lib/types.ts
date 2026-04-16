@@ -3,7 +3,7 @@
 export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
-export type PullRequestState = "open" | "merged";
+export type PullRequestState = "open" | "merged" | "closed";
 export type WorktreeScriptTrigger = "setup" | "teardown";
 export type WorkspaceEventKind =
   | "environmentRenamed"

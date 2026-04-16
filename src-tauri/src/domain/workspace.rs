@@ -38,6 +38,7 @@ pub enum RuntimeState {
 pub enum PullRequestState {
     Open,
     Merged,
+    Closed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
