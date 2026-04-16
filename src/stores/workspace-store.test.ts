@@ -1133,6 +1133,37 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
+    it("openThreadDraft leaves the selected environment unset when the project has no local environment", () => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              id: "project-a",
+              environments: [
+                makeEnvironment({
+                  id: "env-worktree",
+                  projectId: "project-a",
+                  kind: "managedWorktree",
+                  isDefault: true,
+                  threads: [],
+                }),
+              ],
+            }),
+          ],
+        }),
+      }));
+
+      const slot = useWorkspaceStore
+        .getState()
+        .openThreadDraft("project-a");
+
+      expect(slot).toBe("topLeft");
+      expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+      expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
+    });
+
     it("openThreadDraft reuses the currently focused slot", () => {
       seedTwoThreadWorkspace();
       useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");

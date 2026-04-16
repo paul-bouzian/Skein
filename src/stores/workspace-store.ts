@@ -883,8 +883,8 @@ function selectedEnvironmentIdForLayout(
   draft: ThreadDraftState | null,
 ) {
   // Compat selectors expose the effective environment for the focused pane.
-  // Draft panes have no explicit environment yet, so they resolve to the
-  // project's primary environment until a real thread/worktree is chosen.
+  // Draft panes have no explicit environment yet, so they only resolve to the
+  // project's local environment until a real thread/worktree is chosen.
   if (selection?.environmentId) {
     return selection.environmentId;
   }
@@ -892,7 +892,7 @@ function selectedEnvironmentIdForLayout(
     return null;
   }
   const project = findProject(snapshot, draft.projectId);
-  return project ? findPrimaryEnvironment(project)?.id ?? null : null;
+  return project ? findLocalEnvironment(project)?.id ?? null : null;
 }
 
 function withLayout(
@@ -1363,9 +1363,16 @@ function findProject(snapshot: WorkspaceSnapshot, projectId: string | null) {
 
 function findPrimaryEnvironment(project: ProjectRecord) {
   return (
-    project.environments.find((environment) => environment.kind === "local") ??
+    findLocalEnvironment(project) ??
     project.environments.find((environment) => environment.isDefault) ??
     project.environments[0] ??
+    null
+  );
+}
+
+function findLocalEnvironment(project: ProjectRecord) {
+  return (
+    project.environments.find((environment) => environment.kind === "local") ??
     null
   );
 }
