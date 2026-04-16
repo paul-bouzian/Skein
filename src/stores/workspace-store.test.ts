@@ -1060,6 +1060,42 @@ describe("workspace store — grid 2x2 panes", () => {
     expect(slots().topRight).toBeNull();
   });
 
+  it("reconcile preserves focus when compaction moves the focused pane", async () => {
+    const snapshot = seedTwoThreadWorkspace();
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-a",
+            environmentId: "env-a",
+            threadId: "thread-a-1",
+          },
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: {
+            projectId: "project-b",
+            environmentId: "env-b",
+            threadId: "thread-b-1",
+          },
+        },
+        focusedSlot: "bottomRight",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      selectedProjectId: "project-b",
+      selectedEnvironmentId: "env-b",
+      selectedThreadId: "thread-b-1",
+    }));
+    mockedBridge.getWorkspaceSnapshot.mockResolvedValue(snapshot);
+
+    await useWorkspaceStore.getState().refreshSnapshot();
+
+    expect(slots().bottomLeft?.threadId).toBe("thread-b-1");
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("bottomLeft");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-b-1");
+  });
+
   it("selectThread routes to the focused slot", () => {
     seedTwoThreadWorkspace();
     useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");

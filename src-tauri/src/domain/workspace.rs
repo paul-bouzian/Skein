@@ -471,6 +471,24 @@ mod tests {
     }
 
     #[test]
+    fn project_settings_validate_allows_reusing_the_retired_new_worktree_shortcut() {
+        let settings = ProjectSettings {
+            manual_actions: vec![ProjectManualAction {
+                id: "dev".to_string(),
+                label: "Dev".to_string(),
+                icon: ProjectActionIcon::Play,
+                script: "bun run dev".to_string(),
+                shortcut: Some("mod+n".to_string()),
+            }],
+            ..ProjectSettings::default()
+        };
+
+        settings
+            .validate(Some(&ShortcutSettings::default()))
+            .expect("retired shortcut should no longer be reserved globally");
+    }
+
+    #[test]
     fn environment_record_omits_absent_pull_request_in_serialized_payload() {
         let payload = serde_json::to_value(EnvironmentRecord {
             id: "env-1".to_string(),

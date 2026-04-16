@@ -144,6 +144,7 @@ function makeProjectWithLocalAndWorktree() {
           makeThread({
             id: "thread-local",
             environmentId: "env-local",
+            title: "Local thread",
           }),
         ],
       }),
@@ -156,6 +157,7 @@ function makeProjectWithLocalAndWorktree() {
           makeThread({
             id: "thread-worktree",
             environmentId: "env-worktree",
+            title: "Worktree thread",
           }),
         ],
       }),
@@ -269,6 +271,63 @@ describe("TreeSidebar", () => {
       expect.any(Object),
     );
     expect(mockedBridge.removeProject).not.toHaveBeenCalled();
+  });
+
+  it("does not change the active studio selection when clicking a project row", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            id: "project-alpha",
+            name: "Alpha",
+            environments: [
+              makeEnvironment({
+                id: "env-alpha",
+                projectId: "project-alpha",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-alpha",
+                    environmentId: "env-alpha",
+                  }),
+                ],
+              }),
+            ],
+          }),
+          makeProject({
+            id: "project-beta",
+            name: "Beta",
+            environments: [
+              makeEnvironment({
+                id: "env-beta",
+                projectId: "project-beta",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-beta",
+                    environmentId: "env-beta",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      selectedProjectId: "project-beta",
+      selectedEnvironmentId: "env-beta",
+      selectedThreadId: "thread-beta",
+    }));
+
+    renderSidebar();
+
+    await userEvent.click(screen.getByText("Alpha").closest("button")!);
+
+    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-beta");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-beta");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-beta");
   });
 
   it("blocks project removal before confirmation when managed worktrees still exist", async () => {
@@ -486,6 +545,74 @@ describe("TreeSidebar", () => {
     expect(
       screen.getByRole("button", { name: "Delete worktree" }),
     ).toBeInTheDocument();
+  });
+
+  it("anchors the branch menu to the trigger button for keyboard activation", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "say-hello",
+                gitBranch: "say-hello",
+                threads: [
+                  makeThread({
+                    id: "thread-worktree",
+                    title: "Say Hello",
+                    environmentId: "env-worktree",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    renderSidebar();
+
+    const branchButton = screen.getByRole("button", { name: "say-hello" });
+    vi.spyOn(branchButton, "getBoundingClientRect").mockReturnValue({
+      x: 40,
+      y: 96,
+      top: 96,
+      left: 40,
+      width: 96,
+      height: 20,
+      right: 136,
+      bottom: 116,
+      toJSON: vi.fn(),
+    });
+
+    fireEvent.click(branchButton, { clientX: 0, clientY: 0 });
+
+    const menu = document.body.querySelector(".tree-sidebar__context-menu");
+    expect(menu).not.toBeNull();
+    expect(menu).toHaveStyle({ left: "40px", top: "120px" });
+  });
+
+  it("marks worktree threads so the branch badge stays inside the thread capsule", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [makeProjectWithLocalAndWorktree()],
+      }),
+    }));
+
+    renderSidebar();
+
+    expect(
+      screen.getByRole("button", { name: "Worktree thread" }),
+    ).toHaveClass("tree-sidebar__thread--with-worktree");
   });
 
   it("sorts flattened worktree threads globally by most recent activity", () => {
@@ -925,12 +1052,13 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
-  it("selects the project's local environment on a simple click", async () => {
+  it("keeps the current studio selection on a simple project click", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [makeProjectWithLocalAndWorktree()],
       }),
+      selectedProjectId: "project-1",
       selectedEnvironmentId: "env-worktree",
       selectedThreadId: "thread-worktree",
     }));
@@ -944,18 +1072,19 @@ describe("TreeSidebar", () => {
 
     expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-1");
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
-      "env-local",
+      "env-worktree",
     );
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-local");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-worktree");
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
-  it("keeps project clicks active when the pointer moves below the drag threshold", () => {
+  it("keeps project clicks inert when the pointer moves below the drag threshold", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [makeProjectWithLocalAndWorktree()],
       }),
+      selectedProjectId: "project-1",
       selectedEnvironmentId: "env-worktree",
       selectedThreadId: "thread-worktree",
     }));
@@ -991,9 +1120,9 @@ describe("TreeSidebar", () => {
     fireEvent.click(projectHeader as HTMLElement);
 
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
-      "env-local",
+      "env-worktree",
     );
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-local");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-worktree");
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
@@ -1247,8 +1376,7 @@ describe("TreeSidebar", () => {
     });
   });
 
-  it("preserves keyboard activation after suppressing a dragged project click", async () => {
-    const user = userEvent.setup();
+  it("keeps reordered project clicks inert after suppressing a drag click", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -1303,10 +1431,6 @@ describe("TreeSidebar", () => {
       Array.from(
         container.querySelectorAll<HTMLElement>(".project-group__header-shell"),
       );
-    const projectButtons = () =>
-      Array.from(
-        container.querySelectorAll<HTMLButtonElement>(".project-group__header"),
-      );
     stubVerticalRects(projectGroups(), { height: 40, gap: 10 });
 
     fireEvent.pointerDown(projectHeaders()[1], {
@@ -1342,17 +1466,6 @@ describe("TreeSidebar", () => {
     expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a");
-
-    const keyboardTarget = projectButtons()[0];
-    if (!keyboardTarget) {
-      throw new Error("Expected a project header button for keyboard activation");
-    }
-    keyboardTarget.focus();
-    await user.keyboard("{Enter}");
-
-    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-b");
-    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-b");
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-b");
 
     await waitFor(() => {
       expect(mockedBridge.reorderProjects).toHaveBeenCalledWith({

@@ -215,6 +215,7 @@ pub(crate) fn resolve_base_reference(repo_root: &Path, preferred: Option<&str>) 
         .into_iter()
         .find(|candidate| reference_exists(repo_root, candidate))
         .map(ToString::to_string)
+        .or_else(|| only_local_branch(repo_root))
 }
 
 pub(crate) fn upstream_branch(repo_root: &Path) -> AppResult<String> {
@@ -262,6 +263,12 @@ pub fn list_local_branches(repo_root: &Path) -> AppResult<Vec<String>> {
     }
 
     Ok(stdout_message_lines(&output.stdout))
+}
+
+fn only_local_branch(repo_root: &Path) -> Option<String> {
+    let mut branches = list_local_branches(repo_root).ok()?;
+    branches.retain(|branch| !branch.trim().is_empty());
+    (branches.len() == 1).then(|| branches.remove(0))
 }
 
 pub fn branch_exists(repo_root: &Path, branch_name: &str) -> AppResult<bool> {

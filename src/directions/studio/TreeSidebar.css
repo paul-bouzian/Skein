@@ -637,6 +637,10 @@
     color var(--tx-transition-fast);
 }
 
+.tree-sidebar__thread--with-worktree {
+  padding-right: 136px;
+}
+
 .tree-sidebar__thread:hover {
   background: var(--tx-bg-hover);
   color: var(--tx-text-secondary);
@@ -681,10 +685,13 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  transform: translateY(-50%);
   flex-shrink: 0;
   max-width: 100px;
   padding: 1px 6px;
-  margin-left: 4px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
   color: color-mix(in srgb, var(--tx-accent) 75%, var(--tx-text-secondary));
@@ -710,8 +717,4 @@
 .tree-sidebar__thread-branch:hover {
   background: color-mix(in srgb, var(--tx-accent) 22%, transparent);
   color: var(--tx-text-primary);
-}
-
-.tree-sidebar__thread-row:hover .tree-sidebar__thread-branch {
-  margin-right: 22px;
 }

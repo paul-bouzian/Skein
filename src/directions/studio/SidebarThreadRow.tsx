@@ -55,6 +55,7 @@ function SidebarThreadRowImpl(props: Props) {
 
   const classes = [
     "tree-sidebar__thread",
+    worktree ? "tree-sidebar__thread--with-worktree" : "",
     inFocusedPane ? "tree-sidebar__thread--active" : "",
     inAnyPane ? "tree-sidebar__thread--in-pane" : "",
   ]

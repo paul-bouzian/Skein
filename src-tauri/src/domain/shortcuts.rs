@@ -41,7 +41,7 @@ impl Default for ShortcutSettings {
             archive_current_thread: Some("mod+w".to_string()),
             next_thread: Some("mod+shift+]".to_string()),
             previous_thread: Some("mod+shift+[".to_string()),
-            new_worktree: Some("mod+n".to_string()),
+            new_worktree: None,
             next_environment: Some("mod+alt+arrowdown".to_string()),
             previous_environment: Some("mod+alt+arrowup".to_string()),
             cycle_collaboration_mode: Some("shift+tab".to_string()),
@@ -171,7 +171,7 @@ impl ShortcutSettings {
             .map(String::as_str)
     }
 
-    pub(crate) fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 20] {
+    pub(crate) fn bindings(&self) -> [(&'static str, &'static str, Option<&String>); 19] {
         [
             ("openSettings", "Open settings", self.open_settings.as_ref()),
             (
@@ -206,7 +206,6 @@ impl ShortcutSettings {
                 "Previous thread",
                 self.previous_thread.as_ref(),
             ),
-            ("newWorktree", "New worktree", self.new_worktree.as_ref()),
             (
                 "nextEnvironment",
                 "Next environment",
@@ -425,6 +424,7 @@ mod tests {
 
         assert_eq!(defaults.toggle_terminal.as_deref(), Some("mod+j"));
         assert_eq!(defaults.open_settings.as_deref(), Some("mod+comma"));
+        assert_eq!(defaults.new_worktree, None);
         assert_eq!(
             defaults.cycle_collaboration_mode.as_deref(),
             Some("shift+tab")

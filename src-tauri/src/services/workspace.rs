@@ -1728,6 +1728,11 @@ impl WorkspaceService {
                 "Worktree name cannot contain whitespace.".to_string(),
             ));
         }
+        if trimmed.starts_with('-') {
+            return Err(AppError::Validation(
+                "Worktree name cannot start with '-'.".to_string(),
+            ));
+        }
         // Reject anything that could escape the per-project managed-worktree
         // directory: path components, separators, traversal segments, or
         // null bytes. Git refnames already forbid some of these, but path
@@ -2834,6 +2839,7 @@ mod tests {
             .expect("project should be added");
 
         for bad_name in [
+            "-leading-option",
             "..",
             ".",
             "../escape",
@@ -2891,6 +2897,30 @@ mod tests {
                 .exists(),
             "managed worktree should be created from the inferred base branch, not the current feature branch"
         );
+    }
+
+    #[test]
+    fn create_managed_worktree_uses_the_only_local_branch_when_no_default_ref_exists() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("trunk-only-repo"))
+            .expect("repo");
+        git::run_git(&repo.path, ["branch", "-m", "trunk"])
+            .expect("default branch should be renamed");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        let result = harness
+            .service
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
+            .expect("worktree should be created from the only local branch");
+
+        assert_eq!(result.environment.base_branch.as_deref(), Some("trunk"));
     }
 
     #[test]

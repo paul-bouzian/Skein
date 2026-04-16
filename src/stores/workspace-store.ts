@@ -1125,16 +1125,17 @@ function reconcileLayout(
   // Always canonicalize: a persisted or legacy layout may contain
   // non-canonical holes (e.g. TR filled without TL) that would leak into
   // slot-identity logic otherwise.
+  const focusedSelection = layout.focusedSlot
+    ? nextSlots[layout.focusedSlot]
+    : null;
   const { slots: compacted, drafts: remappedDrafts } = compactSlotsAndDrafts(
     nextSlots,
     draftBySlot,
   );
-  const focusedStillFilled = layout.focusedSlot
-    ? compacted[layout.focusedSlot] !== null
-    : false;
-  const focusedSlot = focusedStillFilled
-    ? layout.focusedSlot
-    : firstFilledSlot(compacted);
+  const relocatedFocus = focusedSelection
+    ? (SLOT_KEYS.find((key) => compacted[key] === focusedSelection) ?? null)
+    : null;
+  const focusedSlot = relocatedFocus ?? firstFilledSlot(compacted);
   return {
     layout: {
       ...layout,

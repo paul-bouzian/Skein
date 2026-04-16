@@ -84,7 +84,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
   const setProjectSidebarCollapsed = useWorkspaceStore(
     (s) => s.setProjectSidebarCollapsed,
   );
-  const selectProject = useWorkspaceStore((s) => s.selectProject);
   const selectThread = useWorkspaceStore((s) => s.selectThread);
   const latestScriptFailure = useWorktreeScriptStore(
     (state) => state.latestFailure,
@@ -103,7 +102,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     handleProjectPointerDown,
     handleProjectKeyboardReorder,
     projectDragStyle,
-    shouldSuppressClick,
   } = useTreeSidebarReorder({
     projects,
     reorderProjects,
@@ -138,11 +136,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
   function resetMessages() {
     clearError();
     setActionError(null);
-  }
-
-  function handleProjectSelect(projectId: string) {
-    resetMessages();
-    selectProject(projectId);
   }
 
   function handleThreadSelect(threadId: string) {
@@ -231,9 +224,8 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
           const openBranchMenu = (event: React.MouseEvent<HTMLElement>) => {
             event.preventDefault();
             event.stopPropagation();
-            setContextMenu(
-              buildBranchContextMenuState(env, event.clientX, event.clientY),
-            );
+            const anchor = resolveContextMenuAnchor(event);
+            setContextMenu(buildBranchContextMenuState(env, anchor.x, anchor.y));
           };
 
           if (row.kind === "empty") {
@@ -242,7 +234,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                 <div className="tree-sidebar__thread-row">
                   <button
                     type="button"
-                    className="tree-sidebar__thread tree-sidebar__thread--placeholder"
+                    className="tree-sidebar__thread tree-sidebar__thread--placeholder tree-sidebar__thread--with-worktree"
                     aria-label={`Start thread in ${branchLabel}`}
                     title={`Start thread in ${branchLabel}`}
                     onClick={() => void handleCreateThreadInEnvironment(env.id)}
@@ -289,15 +281,12 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                 onOpenInOtherPane={() =>
                   handleOpenThreadInOtherPane(thread.id)
                 }
-                onBranchChipClick={(event) =>
+                onBranchChipClick={(event) => {
+                  const anchor = resolveContextMenuAnchor(event);
                   setContextMenu(
-                    buildBranchContextMenuState(
-                      env,
-                      event.clientX,
-                      event.clientY,
-                    ),
-                  )
-                }
+                    buildBranchContextMenuState(env, anchor.x, anchor.y),
+                  );
+                }}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   setContextMenu({
@@ -476,13 +465,8 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   onPointerDown={(event) =>
                     handleProjectPointerDown(event, project.id)
                   }
-                  onClick={(event) => {
-                    if (event.detail > 0 && shouldSuppressClick()) return;
-                    handleProjectSelect(project.id);
-                  }}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    handleProjectSelect(project.id);
                     setContextMenu(
                       buildProjectContextMenuState(
                         project.id,
@@ -518,6 +502,10 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   <button
                     type="button"
                     className="project-group__header"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
                     onKeyDown={(event) =>
                       void handleProjectKeyboardReorder(event, project.id)
                     }
@@ -804,6 +792,17 @@ function buildProjectContextMenuState(
   y: number,
 ): ContextMenuState {
   return { kind: "project", projectId, projectName, x, y };
+}
+
+function resolveContextMenuAnchor(event: React.MouseEvent<HTMLElement>) {
+  if (event.clientX !== 0 || event.clientY !== 0) {
+    return { x: event.clientX, y: event.clientY };
+  }
+  const rect = event.currentTarget.getBoundingClientRect();
+  return {
+    x: rect.left,
+    y: rect.bottom + 4,
+  };
 }
 
 function buildBranchContextMenuState(
