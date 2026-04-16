@@ -1182,6 +1182,58 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
     });
 
+    it("refreshSnapshot closes a draft pane when its project disappears", async () => {
+      seedTwoThreadWorkspace();
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        layout: {
+          slots: {
+            topLeft: {
+              projectId: "project-a",
+              environmentId: null,
+              threadId: null,
+            },
+            topRight: null,
+            bottomLeft: null,
+            bottomRight: null,
+          },
+          focusedSlot: "topLeft",
+          rowRatio: 0.5,
+          colRatio: 0.5,
+        },
+        draftBySlot: {
+          topLeft: { projectId: "project-a" },
+        },
+        selectedProjectId: "project-a",
+        selectedEnvironmentId: null,
+        selectedThreadId: null,
+      }));
+      mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+        makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              id: "project-b",
+              name: "Project B",
+              environments: [
+                makeEnvironment({
+                  id: "env-b",
+                  projectId: "project-b",
+                  threads: [makeThread({ id: "thread-b-1", environmentId: "env-b" })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+
+      await useWorkspaceStore.getState().refreshSnapshot();
+
+      expect(slots().topLeft).toBeNull();
+      expect(drafts().topLeft).toBeUndefined();
+      expect(useWorkspaceStore.getState().layout.focusedSlot).toBeNull();
+      expect(useWorkspaceStore.getState().selectedProjectId).toBeNull();
+    });
+
     it("selectThread clears the draft for the focused slot", () => {
       seedTwoThreadWorkspace();
       useWorkspaceStore.getState().openThreadDraft("project-a");

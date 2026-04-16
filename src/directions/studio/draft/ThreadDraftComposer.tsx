@@ -6,6 +6,7 @@ import type {
   ComposerMentionBindingInput,
   ConversationComposerSettings,
   ConversationImageAttachment,
+  EnvironmentRecord,
   EnvironmentCapabilitiesSnapshot,
   GlobalSettings,
   ModelOption,
@@ -107,6 +108,17 @@ function orderBranchesWithDefaults(branches: string[]): string[] {
   return [...priority, ...rest];
 }
 
+function findLatestActiveThreadId(environment: EnvironmentRecord | null): string | null {
+  return (
+    [...(environment?.threads ?? [])]
+      .filter((thread) => thread.status === "active")
+      .sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      )[0]?.id ?? null
+  );
+}
+
 export function ThreadDraftComposer({ projectId, paneId }: Props) {
   const project = useWorkspaceStore((state) =>
     selectProjects(state).find((candidate) => candidate.id === projectId),
@@ -172,6 +184,16 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
     (selection.kind === "existing"
       ? selection.environmentId
       : localEnvironment?.id) ?? "draft";
+  const selectedComposerEnvironment =
+    selection.kind === "existing"
+      ? (worktreeEnvironments.find(
+          (environment) => environment.id === selection.environmentId,
+        ) ?? null)
+      : selection.kind === "local"
+        ? localEnvironment
+        : null;
+  const composerTransportThreadId =
+    findLatestActiveThreadId(selectedComposerEnvironment);
 
   const capabilities = useConversationStore((state) =>
     pickCapabilitiesForProject(
@@ -265,7 +287,9 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
         isRefiningPlan={false}
         mentionBindings={mentionBindings}
         modelOptions={modelOptions}
-        transportEnabled={false}
+        transportEnabled={composerTransportThreadId !== null}
+        transportThreadId={composerTransportThreadId}
+        voiceEnabled={resolvedComposerEnvId !== "draft"}
         onChangeImages={setImages}
         tokenUsage={null}
         onCancelRefine={() => undefined}

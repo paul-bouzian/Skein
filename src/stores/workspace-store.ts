@@ -1074,10 +1074,10 @@ function compactSlotsAndDrafts(
   }
 
   const nextDrafts: Partial<Record<SlotKey, ThreadDraftState>> = {};
-  if (dTL !== undefined) nextDrafts.topLeft = dTL;
-  if (dTR !== undefined) nextDrafts.topRight = dTR;
-  if (dBL !== undefined) nextDrafts.bottomLeft = dBL;
-  if (dBR !== undefined) nextDrafts.bottomRight = dBR;
+  if (TL !== null && dTL !== undefined) nextDrafts.topLeft = dTL;
+  if (TR !== null && dTR !== undefined) nextDrafts.topRight = dTR;
+  if (BL !== null && dBL !== undefined) nextDrafts.bottomLeft = dBL;
+  if (BR !== null && dBR !== undefined) nextDrafts.bottomRight = dBR;
 
   return {
     slots: { topLeft: TL, topRight: TR, bottomLeft: BL, bottomRight: BR },
@@ -1117,7 +1117,14 @@ function reconcileLayout(
     // env + latest active thread, causing StudioPane to flip into
     // `ThreadConversation` and wipe the in-progress draft composer.
     if (draftBySlot[key]) {
-      nextSlots[key] = selection;
+      const draft = draftBySlot[key];
+      nextSlots[key] = findProject(snapshot, draft.projectId)
+        ? {
+            projectId: draft.projectId,
+            environmentId: null,
+            threadId: null,
+          }
+        : null;
       continue;
     }
     nextSlots[key] = reconcilePaneSelection(snapshot, selection);

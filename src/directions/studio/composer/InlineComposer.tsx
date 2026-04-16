@@ -89,6 +89,8 @@ type Props = {
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
   transportEnabled?: boolean;
+  transportThreadId?: string | null;
+  voiceEnabled?: boolean;
 };
 
 export function InlineComposer({
@@ -115,6 +117,8 @@ export function InlineComposer({
   onSend,
   onUpdateComposer,
   transportEnabled = true,
+  transportThreadId = null,
+  voiceEnabled = transportEnabled,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -166,6 +170,9 @@ export function InlineComposer({
   const imagesEnabled = modelSupportsImageInput(selectedModel);
   const hasAttachedImages = images.length > 0;
   const hasDraftContent = draft.trim().length > 0;
+  const effectiveTransportThreadId = transportEnabled
+    ? (transportThreadId ?? threadId)
+    : null;
   let imageSupportNotice: string | null = null;
   if (!imagesEnabled && transportEnabled) {
     const base = modelImageSupportMessage(selectedModel);
@@ -187,7 +194,7 @@ export function InlineComposer({
     voiceDurationMs,
   } = useComposerVoiceInput({
     currentDraft: draft,
-    enabled: transportEnabled,
+    enabled: voiceEnabled,
     environmentId,
     inputRef: textareaRef,
     locked: baseControlsDisabled,
@@ -237,13 +244,13 @@ export function InlineComposer({
   });
 
   useEffect(() => {
-    if (!transportEnabled) {
+    if (!effectiveTransportThreadId) {
       setCatalog(null);
       return;
     }
 
     let cancelled = false;
-    void getThreadComposerCatalog(threadId)
+    void getThreadComposerCatalog(effectiveTransportThreadId)
       .then((nextCatalog) => {
         if (!cancelled) {
           setCatalog(nextCatalog);
@@ -257,7 +264,7 @@ export function InlineComposer({
     return () => {
       cancelled = true;
     };
-  }, [threadId, transportEnabled]);
+  }, [effectiveTransportThreadId]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -321,7 +328,7 @@ export function InlineComposer({
   }, [draft, mentionBindings, onChangeMentionBindings]);
 
   useEffect(() => {
-    if (!transportEnabled) {
+    if (!effectiveTransportThreadId) {
       fileSearchRequestRef.current += 1;
       setFileResults([]);
       return;
@@ -335,7 +342,7 @@ export function InlineComposer({
     fileSearchRequestRef.current = requestId;
     const timeout = window.setTimeout(() => {
       void searchThreadFiles({
-        threadId,
+        threadId: effectiveTransportThreadId,
         query: activeToken.query,
         limit: 50,
       })
@@ -351,7 +358,7 @@ export function InlineComposer({
         });
     }, 120);
     return () => window.clearTimeout(timeout);
-  }, [activeToken, threadId, transportEnabled]);
+  }, [activeToken, effectiveTransportThreadId]);
 
   const autocompleteItems = useMemo(
     () =>

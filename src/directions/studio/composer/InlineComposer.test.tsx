@@ -438,6 +438,35 @@ describe("InlineComposer voice dictation", () => {
     });
   });
 
+  it("can keep voice dictation enabled when thread transport is disabled", async () => {
+    renderComposer("", {
+      threadId: "draft:topLeft",
+      transportEnabled: false,
+      voiceEnabled: true,
+    });
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice dictation",
+    });
+    await waitFor(() => {
+      expect(startButton).toBeEnabled();
+    });
+    expect(mockedBridge.getThreadComposerCatalog).not.toHaveBeenCalled();
+  });
+
+  it("uses the provided backing thread for catalog-backed transport", async () => {
+    renderComposer("", {
+      threadId: "draft:topLeft",
+      transportThreadId: "thread-2",
+    });
+
+    await waitFor(() => {
+      expect(mockedBridge.getThreadComposerCatalog).toHaveBeenCalledWith(
+        "thread-2",
+      );
+    });
+  });
+
   it("applies a completed transcript after returning to the owner thread", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
@@ -699,6 +728,10 @@ function renderComposer(
     modelOptions?: typeof capabilitiesFixture.models;
     onSend?: ComponentProps<typeof InlineComposer>["onSend"];
     onUpdateComposer?: ComponentProps<typeof InlineComposer>["onUpdateComposer"];
+    threadId?: string;
+    transportEnabled?: boolean;
+    transportThreadId?: string | null;
+    voiceEnabled?: boolean;
   } = {},
 ) {
   function Harness() {
@@ -715,7 +748,7 @@ function renderComposer(
     return (
       <InlineComposer
         environmentId="env-1"
-        threadId="thread-1"
+        threadId={options.threadId ?? "thread-1"}
         composer={options.composer ?? baseComposer}
         collaborationModes={capabilitiesFixture.collaborationModes}
         disabled={options.disabled ?? false}
@@ -736,6 +769,9 @@ function renderComposer(
         onInterrupt={() => undefined}
         onSend={(...args) => options.onSend?.(...args)}
         onUpdateComposer={(patch) => options.onUpdateComposer?.(patch)}
+        transportEnabled={options.transportEnabled}
+        transportThreadId={options.transportThreadId}
+        voiceEnabled={options.voiceEnabled}
       />
     );
   }
