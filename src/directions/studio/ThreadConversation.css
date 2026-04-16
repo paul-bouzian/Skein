@@ -1,12 +1,21 @@
 .tx-conversation {
+  /* Bottom slot reserved for the draft env selector. Real threads leave
+     it empty so the composer lands at the same Y in both views. */
+  --tx-conversation-bottom-slot: calc(24px + var(--tx-space-sm));
+
+  position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* Only the always-present rows are declared. Optional slots (interaction
+     panel, subagent strip, composer) flow into implicit auto rows so the
+     composer stays pinned to the content-box bottom. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--tx-space-lg);
   height: 100%;
   min-height: 0;
   max-width: 820px;
   margin: 0 auto;
-  padding: var(--tx-space-lg) var(--tx-space-xl) 0;
+  padding: var(--tx-space-lg) var(--tx-space-xl)
+    var(--tx-conversation-bottom-slot);
   width: 100%;
 }
 

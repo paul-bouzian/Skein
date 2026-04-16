@@ -1,10 +1,41 @@
-/* Use the same grid as a real thread so the layout matches exactly, then
-   add an extra row underneath the composer for the env selector. */
+/* Drafts drop the meta header; the welcome area absorbs the slack and the
+   composer stays pinned at the bottom (env selector floats in the slot
+   reserved by --tx-conversation-bottom-slot). */
 
 .thread-draft {
-  /* Override the base 4-row grid to add a 5th row for the env selector bar. */
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  padding-bottom: var(--tx-space-md);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.thread-draft__welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tx-space-sm);
+  text-align: center;
+}
+
+.thread-draft__welcome-logo {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  margin-bottom: var(--tx-space-xs);
+  border-radius: var(--tx-radius-md);
+}
+
+.thread-draft__welcome-heading {
+  font-size: var(--tx-text-2xl);
+  font-weight: var(--tx-weight-bold);
+  color: var(--tx-text-primary);
+  letter-spacing: var(--tx-tracking-tighter);
+}
+
+.thread-draft__welcome-project {
+  font-size: var(--tx-text-sm);
+  font-family: var(--tx-font-mono);
+  color: var(--tx-text-muted);
 }
 
 .thread-draft__empty {
@@ -22,16 +53,33 @@
   font-size: var(--tx-text-xs);
 }
 
-/* ── Env selector row (below the composer) ── */
+/* ── Env selector (floats in the reserved bottom slot) ── */
 
 .thread-draft-env {
+  position: absolute;
+  left: var(--tx-space-xl);
+  right: var(--tx-space-xl);
+  bottom: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* Single-line layout with horizontal scroll keeps the row's height
+     locked to the reserved bottom slot, even in narrow split panes or
+     with the extra chips the "new worktree" mode renders. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: var(--tx-space-sm);
   padding: 0 var(--tx-space-xs);
   font-size: var(--tx-text-xs);
   color: var(--tx-text-muted);
+  scrollbar-width: none;
+}
+
+.thread-draft-env::-webkit-scrollbar {
+  display: none;
+}
+
+.thread-draft-env > * {
+  flex-shrink: 0;
 }
 
 .thread-draft-env[data-disabled="true"] {

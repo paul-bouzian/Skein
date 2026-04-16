@@ -197,9 +197,10 @@
   transform: scale(0.94);
 }
 
-.studio-main__pane--thread .studio-main__pane-scroll {
+.studio-main__pane--thread .studio-main__pane-scroll,
+.studio-main__pane--draft .studio-main__pane-scroll {
   overflow: hidden;
-  padding: 0 0 var(--tx-space-lg);
+  padding: 0 0 var(--tx-space-sm);
 }
 
 .studio-main__pane--split {

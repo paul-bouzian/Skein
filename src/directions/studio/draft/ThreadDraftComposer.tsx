@@ -13,7 +13,7 @@ import type {
   ProjectRecord,
   ReasoningEffort,
 } from "../../../lib/types";
-import { ThreadIcon } from "../../../shared/Icons";
+import skeinAppIcon from "../../../../src-tauri/icons/icon.png";
 import { useConversationStore } from "../../../stores/conversation-store";
 import {
   selectProjects,
@@ -259,17 +259,15 @@ export function ThreadDraftComposer({ projectId, paneId }: Props) {
 
   return (
     <div className="tx-conversation thread-draft">
-      <div className="tx-conversation__meta">
-        <div>
-          <h2 className="tx-conversation__title">New thread</h2>
-          <p className="tx-conversation__subtitle">{project.name}</p>
-        </div>
-      </div>
       <div className="tx-conversation__timeline">
-        <div className="tx-conversation__empty">
-          <ThreadIcon size={20} />
-          <h3>Start a conversation</h3>
-          <p>Type a message below to begin</p>
+        <div className="thread-draft__welcome">
+          <img
+            src={skeinAppIcon}
+            alt=""
+            className="thread-draft__welcome-logo"
+          />
+          <h2 className="thread-draft__welcome-heading">Let's build</h2>
+          <p className="thread-draft__welcome-project">{project.name}</p>
         </div>
       </div>
       <InlineComposer

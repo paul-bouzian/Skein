@@ -38,6 +38,7 @@ export function StudioPane({
 
   let content;
   let isThreadView = false;
+  let isDraftView = false;
   const closeHandler = isSplit ? () => closePane(paneId) : null;
   if (projects.length === 0) {
     content = <StudioWelcome />;
@@ -53,6 +54,7 @@ export function StudioPane({
       />
     );
   } else if (draft) {
+    isDraftView = true;
     content = (
       <ThreadDraftComposer
         key={`${paneId}:${draft.projectId}`}
@@ -67,6 +69,7 @@ export function StudioPane({
   const modifierClasses = [
     "studio-main__pane",
     isThreadView ? "studio-main__pane--thread" : "",
+    isDraftView ? "studio-main__pane--draft" : "",
     isSplit ? "studio-main__pane--split" : "",
     isSplit && isFocused ? "studio-main__pane--focused" : "",
   ]
