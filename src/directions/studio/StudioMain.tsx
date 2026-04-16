@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import {
+  selectEffectiveEnvironment,
   selectHasAnyPane,
   selectLayout,
   selectSelectedEnvironment,
@@ -57,12 +58,13 @@ export function StudioMain({
 }: Props) {
   const selectedProject = useWorkspaceStore(selectSelectedProject);
   const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
+  const effectiveEnvironment = useWorkspaceStore(selectEffectiveEnvironment);
   const settings = useWorkspaceStore(selectSettings);
   const layout = useWorkspaceStore(selectLayout);
   const hasAnyPane = useWorkspaceStore(selectHasAnyPane);
   const setRowRatio = useWorkspaceStore((state) => state.setRowRatio);
   const setColRatio = useWorkspaceStore((state) => state.setColRatio);
-  const selectedEnvironmentId = selectedEnvironment?.id ?? null;
+  const selectedEnvironmentId = effectiveEnvironment?.id ?? null;
   const terminalSlot = useTerminalStore(selectTerminalSlot(selectedEnvironmentId));
   const hasAnyTerminalTabs = useTerminalStore(selectHasAnyTerminalTabs);
 

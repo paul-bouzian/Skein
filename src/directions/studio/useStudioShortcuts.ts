@@ -11,7 +11,11 @@ import type {
 } from "../../lib/types";
 import { useConversationStore } from "../../stores/conversation-store";
 import { useTerminalStore } from "../../stores/terminal-store";
-import { selectSettings, useWorkspaceStore } from "../../stores/workspace-store";
+import {
+  selectEffectiveEnvironmentId,
+  selectSettings,
+  useWorkspaceStore,
+} from "../../stores/workspace-store";
 import {
   archiveThreadWithConfirmation,
   createThreadForSelection,
@@ -68,6 +72,7 @@ export function useStudioShortcuts({
       const {
         capabilities,
         composer,
+        effectiveEnvironmentId,
         manualActions,
         selectedEnvironmentId,
         selectedProjectId,
@@ -186,11 +191,11 @@ export function useStudioShortcuts({
       }
 
       if (matchesShortcut(event, shortcuts.toggleTerminal)) {
-        if (!selectedEnvironmentId) {
+        if (!effectiveEnvironmentId) {
           return;
         }
         event.preventDefault();
-        toggleVisible(selectedEnvironmentId);
+        toggleVisible(effectiveEnvironmentId);
         return;
       }
 
@@ -305,6 +310,7 @@ function readShortcutState() {
   const conversationState = useConversationStore.getState();
   const selectedThreadId = workspaceState.selectedThreadId;
   const selectedEnvironmentId = workspaceState.selectedEnvironmentId;
+  const effectiveEnvironmentId = selectEffectiveEnvironmentId(workspaceState);
   const selectedProjectId = workspaceState.selectedProjectId;
   const snapshot = selectedThreadId
     ? conversationState.snapshotsByThreadId[selectedThreadId] ?? null
@@ -325,6 +331,7 @@ function readShortcutState() {
   return {
     capabilities,
     composer,
+    effectiveEnvironmentId,
     manualActions,
     selectedEnvironmentId,
     selectedProjectId,

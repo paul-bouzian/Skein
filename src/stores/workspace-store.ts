@@ -758,14 +758,21 @@ export function selectSelectedProject(s: WorkspaceState): ProjectRecord | null {
 export function selectSelectedEnvironment(
   s: WorkspaceState,
 ): EnvironmentRecord | null {
-  if (!s.selectedEnvironmentId || !s.snapshot) return null;
-  for (const project of s.snapshot.projects) {
-    const env = project.environments.find(
-      (e) => e.id === s.selectedEnvironmentId,
-    );
-    if (env) return env;
-  }
-  return null;
+  return findEnvironment(s.snapshot, s.selectedEnvironmentId)?.environment ?? null;
+}
+
+export function selectEffectiveEnvironmentId(s: WorkspaceState): string | null {
+  const { selection, draft } = resolveFocusedPaneContext(s.layout, s.draftBySlot);
+  return (
+    effectiveEnvironmentIdForLayout(s.snapshot, selection, draft) ??
+    s.selectedEnvironmentId
+  );
+}
+
+export function selectEffectiveEnvironment(
+  s: WorkspaceState,
+): EnvironmentRecord | null {
+  return findEnvironment(s.snapshot, selectEffectiveEnvironmentId(s))?.environment ?? null;
 }
 
 export function selectSelectedThread(s: WorkspaceState): ThreadRecord | null {
@@ -877,14 +884,21 @@ function resolveFocusedSlot(layout: WorkspaceLayout): SlotKey | null {
     : (firstFilledSlot(layout.slots) ?? null);
 }
 
-function selectedEnvironmentIdForLayout(
+function resolveFocusedPaneContext(
+  layout: WorkspaceLayout,
+  draftBySlot: Partial<Record<SlotKey, ThreadDraftState>>,
+) {
+  const focusedSlot = resolveFocusedSlot(layout);
+  const selection = focusedSlot ? layout.slots[focusedSlot] : null;
+  const draft = focusedSlot ? draftBySlot[focusedSlot] ?? null : null;
+  return { focusedSlot, selection, draft };
+}
+
+function effectiveEnvironmentIdForLayout(
   snapshot: WorkspaceSnapshot | null,
   selection: PaneSelection | null,
   draft: ThreadDraftState | null,
 ) {
-  // Compat selectors expose the effective environment for the focused pane.
-  // Draft panes have no explicit environment yet, so they only resolve to the
-  // project's local environment until a real thread/worktree is chosen.
   if (selection?.environmentId) {
     return selection.environmentId;
   }
@@ -897,22 +911,17 @@ function selectedEnvironmentIdForLayout(
 
 function withLayout(
   layout: WorkspaceLayout,
-  snapshot: WorkspaceSnapshot | null,
+  _snapshot: WorkspaceSnapshot | null,
   draftBySlot: Partial<Record<SlotKey, ThreadDraftState>>,
 ) {
-  const effectiveFocus = resolveFocusedSlot(layout);
-  const selection: PaneSelection | null = effectiveFocus
-    ? layout.slots[effectiveFocus]
-    : null;
-  const draft = effectiveFocus ? draftBySlot[effectiveFocus] ?? null : null;
+  const { focusedSlot, selection } = resolveFocusedPaneContext(
+    layout,
+    draftBySlot,
+  );
   return {
-    layout: { ...layout, focusedSlot: effectiveFocus },
+    layout: { ...layout, focusedSlot },
     selectedProjectId: selection?.projectId ?? null,
-    selectedEnvironmentId: selectedEnvironmentIdForLayout(
-      snapshot,
-      selection,
-      draft,
-    ),
+    selectedEnvironmentId: selection?.environmentId ?? null,
     selectedThreadId: selection?.threadId ?? null,
   };
 }

@@ -5,8 +5,10 @@ import { isMacPlatform } from "../../lib/shortcuts";
 import {
   capabilitiesFixture,
   makeConversationSnapshot,
+  makeEnvironment,
   makeProject,
   makeProposedPlan,
+  makeThread,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import { useConversationStore } from "../../stores/conversation-store";
@@ -78,6 +80,18 @@ describe("useStudioShortcuts", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot(),
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
       selectedProjectId: "project-1",
       selectedEnvironmentId: "env-1",
       selectedThreadId: "thread-1",
@@ -366,5 +380,91 @@ describe("useStudioShortcuts", () => {
         },
       );
     });
+  });
+
+  it("toggles the local terminal while a draft pane is focused", async () => {
+    const toggleVisible = vi.fn();
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot(),
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+    useTerminalStore.setState({ toggleVisible });
+
+    render(<Harness />);
+
+    fireEvent.keyDown(window, {
+      key: "J",
+      ...primaryModifier(),
+    });
+
+    expect(toggleVisible).toHaveBeenCalledWith("env-1");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+  });
+
+  it("does not navigate away from a focused draft pane when cycling threads", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                threads: [
+                  makeThread({ id: "thread-1", environmentId: "env-1" }),
+                  makeThread({ id: "thread-2", environmentId: "env-1" }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+
+    render(<Harness />);
+
+    fireEvent.keyDown(window, {
+      key: "]",
+      shiftKey: true,
+      ...primaryModifier(),
+    });
+
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      projectId: "project-1",
+    });
+    expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
   });
 });

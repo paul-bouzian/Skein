@@ -215,7 +215,7 @@ describe("StudioMain", () => {
       />,
     );
 
-    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-1");
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
     expect(
       screen.getByRole("button", { name: "Show terminal" }),
     ).not.toBeDisabled();

@@ -23,6 +23,18 @@ beforeEach(() => {
         }),
       ],
     }),
+    layout: {
+      slots: {
+        topLeft: null,
+        topRight: null,
+        bottomLeft: null,
+        bottomRight: null,
+      },
+      focusedSlot: null,
+      rowRatio: 0.5,
+      colRatio: 0.5,
+    },
+    draftBySlot: {},
     selectedProjectId: "project-1",
     selectedEnvironmentId: "env-worktree",
     selectedThreadId: null,

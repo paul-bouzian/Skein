@@ -91,6 +91,18 @@ beforeEach(() => {
     bootstrapStatus: null,
     loadingState: "ready",
     error: null,
+    layout: {
+      slots: {
+        topLeft: null,
+        topRight: null,
+        bottomLeft: null,
+        bottomRight: null,
+      },
+      focusedSlot: null,
+      rowRatio: 0.5,
+      colRatio: 0.5,
+    },
+    draftBySlot: {},
     selectedProjectId: "project-1",
     selectedEnvironmentId: ENV_ID,
     selectedThreadId: null,
@@ -368,7 +380,7 @@ describe("TerminalPanel", () => {
         rows: 24,
       });
     });
-    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(ENV_ID);
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
   });
 
   it("does not auto-bootstrap while the panel is hidden", async () => {

@@ -12,6 +12,7 @@ import {
 } from "../test/fixtures/conversation";
 import { useTerminalStore } from "./terminal-store";
 import {
+  selectEffectiveEnvironmentId,
   teardownWorkspaceListener,
   useWorkspaceStore,
 } from "./workspace-store";
@@ -1129,7 +1130,8 @@ describe("workspace store — grid 2x2 panes", () => {
       });
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
       expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
-      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+      expect(selectEffectiveEnvironmentId(useWorkspaceStore.getState())).toBe("env-a");
       expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
@@ -1161,6 +1163,7 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(slot).toBe("topLeft");
       expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
       expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+      expect(selectEffectiveEnvironmentId(useWorkspaceStore.getState())).toBeNull();
       expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
@@ -1214,7 +1217,8 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(drafts().topLeft).toEqual({ projectId: "project-a" });
       expect(drafts().topRight).toBeUndefined();
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
-      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+      expect(selectEffectiveEnvironmentId(useWorkspaceStore.getState())).toBe("env-a");
       expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
@@ -1241,7 +1245,7 @@ describe("workspace store — grid 2x2 panes", () => {
           topLeft: { projectId: "project-a" },
         },
         selectedProjectId: "project-a",
-        selectedEnvironmentId: "env-a",
+        selectedEnvironmentId: null,
         selectedThreadId: null,
       }));
       mockedBridge.getWorkspaceSnapshot.mockResolvedValue(

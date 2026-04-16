@@ -2,13 +2,16 @@ import { useEffect } from "react";
 
 import { buildCodexUsageRows } from "../../lib/codex-usage";
 import type { WorkspaceSnapshot } from "../../lib/types";
-import { selectSelectedEnvironment, useWorkspaceStore } from "../../stores/workspace-store";
+import {
+  selectEffectiveEnvironmentId,
+  useWorkspaceStore,
+} from "../../stores/workspace-store";
 import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import "./SidebarUsagePanel.css";
 
 export function SidebarUsagePanel() {
   const workspaceSnapshot = useWorkspaceStore((state) => state.snapshot);
-  const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
+  const selectedEnvironmentId = useWorkspaceStore(selectEffectiveEnvironmentId);
   const ensureAccountUsage = useCodexUsageStore((state) => state.ensureAccountUsage);
   const snapshot = useCodexUsageStore((state) => state.snapshot);
   const loading = useCodexUsageStore((state) => state.loading);
@@ -19,7 +22,7 @@ export function SidebarUsagePanel() {
     ) ?? false;
   const sourceEnvironmentId = resolveUsageSourceEnvironmentId(
     workspaceSnapshot,
-    selectedEnvironment?.id ?? null,
+    selectedEnvironmentId,
   );
 
   useEffect(() => {

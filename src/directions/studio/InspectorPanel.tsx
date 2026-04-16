@@ -12,16 +12,16 @@ import {
   useGitReviewStore,
 } from "../../stores/git-review-store";
 import {
-  useWorkspaceStore,
-  selectSelectedEnvironment,
+  selectEffectiveEnvironment,
   selectSelectedThread,
+  useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { ChangesSection, CommitSection, ReviewSummarySection } from "./GitReviewSections";
 import { confirmRevertAll, confirmRevertFile } from "./git-review-actions";
 import "./InspectorPanel.css";
 
 export function InspectorPanel({ collapsed = false }: { collapsed?: boolean }) {
-  const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
+  const selectedEnvironment = useWorkspaceStore(selectEffectiveEnvironment);
   const selectedThread = useWorkspaceStore(selectSelectedThread);
   const selectedEnvironmentId = selectedEnvironment?.id ?? null;
   const selectedThreadId = selectedThread?.id ?? null;

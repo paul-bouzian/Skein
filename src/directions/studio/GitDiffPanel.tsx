@@ -1,5 +1,5 @@
 import {
-  selectSelectedEnvironment,
+  selectEffectiveEnvironment,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import {
@@ -16,7 +16,7 @@ import { labelForGitChangeKind } from "./git-change-kind";
 import "./GitDiffPanel.css";
 
 export function GitDiffPanel() {
-  const selectedEnvironment = useWorkspaceStore(selectSelectedEnvironment);
+  const selectedEnvironment = useWorkspaceStore(selectEffectiveEnvironment);
   const selectedEnvironmentId = selectedEnvironment?.id ?? null;
   const scope = useGitReviewStore(selectGitReviewScope(selectedEnvironmentId));
   const snapshot = useGitReviewStore(
