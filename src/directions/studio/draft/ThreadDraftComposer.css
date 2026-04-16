@@ -62,11 +62,24 @@
   bottom: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  /* Single-line layout with horizontal scroll keeps the row's height
+     locked to the reserved bottom slot, even in narrow split panes or
+     with the extra chips the "new worktree" mode renders. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: var(--tx-space-sm);
   padding: 0 var(--tx-space-xs);
   font-size: var(--tx-text-xs);
   color: var(--tx-text-muted);
+  scrollbar-width: none;
+}
+
+.thread-draft-env::-webkit-scrollbar {
+  display: none;
+}
+
+.thread-draft-env > * {
+  flex-shrink: 0;
 }
 
 .thread-draft-env[data-disabled="true"] {

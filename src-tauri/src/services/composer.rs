@@ -809,15 +809,11 @@ fn resolve_dollar_mentions(
         };
 
         match (inferred_skill, inferred_app) {
-            (Some(skill), None) => {
-                if seen_skill_paths.insert(skill.path.clone()) {
-                    resolved_skills.push(skill.clone());
-                }
+            (Some(skill), None) if seen_skill_paths.insert(skill.path.clone()) => {
+                resolved_skills.push(skill.clone());
             }
-            (None, Some(app)) => {
-                if seen_app_paths.insert(app.path.clone()) {
-                    resolved_apps.push(app.clone());
-                }
+            (None, Some(app)) if seen_app_paths.insert(app.path.clone()) => {
+                resolved_apps.push(app.clone());
             }
             _ => {}
         }
