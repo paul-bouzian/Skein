@@ -273,7 +273,7 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.removeProject).not.toHaveBeenCalled();
   });
 
-  it("does not change the active studio selection when clicking a project row", async () => {
+  it("collapses a non-selected project from the project row", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -325,9 +325,11 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(screen.getByText("Alpha").closest("button")!);
 
-    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-beta");
-    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-beta");
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-beta");
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-alpha",
+      collapsed: true,
+    });
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
   it("blocks project removal before confirmation when managed worktrees still exist", async () => {
@@ -1052,7 +1054,82 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
-  it("keeps the current studio selection on a simple project click", async () => {
+  it("persists project collapse from the clickable project row", async () => {
+    const collapsedSnapshot = makeWorkspaceSnapshot({
+      projects: [
+        makeProject({
+          sidebarCollapsed: true,
+          environments: [
+            makeEnvironment({
+              id: "env-local",
+              kind: "local",
+              isDefault: true,
+            }),
+            makeEnvironment({
+              id: "env-worktree",
+              kind: "managedWorktree",
+              name: "fuzzy-tiger",
+              gitBranch: "fuzzy-tiger",
+            }),
+          ],
+        }),
+      ],
+    });
+    const refreshSnapshot = vi.fn(async () => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: collapsedSnapshot,
+      }));
+      return true;
+    });
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "fuzzy-tiger",
+                gitBranch: "fuzzy-tiger",
+              }),
+            ],
+          }),
+        ],
+      }),
+      refreshSnapshot,
+    }));
+
+    const { container } = renderSidebar();
+
+    expect(
+      screen.getByRole("button", { name: "fuzzy-tiger" }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      container.querySelector<HTMLElement>(".project-group__header-shell")!,
+    );
+
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-1",
+      collapsed: true,
+    });
+    await waitFor(() => {
+      expect(refreshSnapshot).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
+    });
+    expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
+  });
+
+  it("collapses the current project on a simple project click", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -1070,15 +1147,14 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(projectHeaders[0]);
 
-    expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-1");
-    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
-      "env-worktree",
-    );
-    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-worktree");
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-1",
+      collapsed: true,
+    });
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
-  it("keeps project clicks inert when the pointer moves below the drag threshold", () => {
+  it("does not collapse the project after a drag gesture", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -1106,24 +1182,84 @@ describe("TreeSidebar", () => {
     });
     fireEvent.pointerMove(window, {
       buttons: 1,
-      clientX: 16,
-      clientY: 19,
+      clientX: 28,
+      clientY: 32,
       isPrimary: true,
       pointerId: 30,
     });
     fireEvent.pointerUp(window, {
-      clientX: 16,
-      clientY: 19,
+      clientX: 28,
+      clientY: 32,
       isPrimary: true,
       pointerId: 30,
     });
     fireEvent.click(projectHeader as HTMLElement);
 
+    expect(mockedBridge.setProjectSidebarCollapsed).not.toHaveBeenCalled();
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
       "env-worktree",
     );
     expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-worktree");
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
+  });
+
+  it("does not collapse the project when opening the project menu", async () => {
+    renderSidebar();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Actions for Skein" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Remove from Skein" }),
+    ).toBeInTheDocument();
+    expect(mockedBridge.setProjectSidebarCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("does not collapse the project when creating a new thread from the project row", async () => {
+    renderSidebar();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "New thread in Skein" }),
+    );
+
+    expect(mockedBridge.setProjectSidebarCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("toggles project collapse from the project button with Enter and Space", async () => {
+    const { container } = renderSidebar();
+    const getProjectHeader = () =>
+      container.querySelector<HTMLButtonElement>(".project-group__header");
+    const getChevronButton = () =>
+      container.querySelector<HTMLButtonElement>(".project-group__collapse");
+
+    expect(getProjectHeader()).not.toBeNull();
+
+    getProjectHeader()!.focus();
+    fireEvent.keyDown(getProjectHeader()!, { key: "Enter" });
+
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-1",
+      collapsed: true,
+    });
+    await waitFor(() => {
+      expect(getProjectHeader()).toHaveAttribute("aria-expanded", "false");
+      expect(getChevronButton()).toHaveAttribute("aria-label", "Expand Skein");
+    });
+
+    mockedBridge.setProjectSidebarCollapsed.mockClear();
+
+    getProjectHeader()!.focus();
+    fireEvent.keyDown(getProjectHeader()!, { key: " " });
+
+    expect(mockedBridge.setProjectSidebarCollapsed).toHaveBeenCalledWith({
+      projectId: "project-1",
+      collapsed: false,
+    });
+    await waitFor(() => {
+      expect(getProjectHeader()).toHaveAttribute("aria-expanded", "true");
+      expect(getChevronButton()).toHaveAttribute("aria-label", "Collapse Skein");
+    });
   });
 
   it("reorders projects in preview before persisting the drop", async () => {

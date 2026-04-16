@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { confirm, message } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { createPortal } from "react-dom";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import {
   deriveEnvironmentConversationStatus,
   indicatorToneForConversationStatus,
@@ -102,6 +103,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     handleProjectPointerDown,
     handleProjectKeyboardReorder,
     projectDragStyle,
+    shouldSuppressClick,
   } = useTreeSidebarReorder({
     projects,
     reorderProjects,
@@ -366,6 +368,36 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     }
   }
 
+  function handleProjectHeaderClick(
+    event: ReactMouseEvent<HTMLElement>,
+    project: ProjectRecord,
+  ) {
+    if (shouldSuppressClick()) {
+      event.preventDefault();
+      return;
+    }
+
+    void handleProjectCollapseToggle(project);
+  }
+
+  function handleProjectHeaderKeyDown(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    project: ProjectRecord,
+  ) {
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      void handleProjectKeyboardReorder(event, project.id);
+      return;
+    }
+
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    void handleProjectCollapseToggle(project);
+  }
+
   async function handleDeleteWorktree(menu: ContextMenuState) {
     if (menu.kind !== "branch" || !menu.environmentId || !menu.environmentName) {
       return;
@@ -465,6 +497,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   onPointerDown={(event) =>
                     handleProjectPointerDown(event, project.id)
                   }
+                  onClick={(event) => handleProjectHeaderClick(event, project)}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     setContextMenu(
@@ -482,7 +515,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                     className="project-group__collapse"
                     data-no-reorder-drag="true"
                     aria-label={`${project.sidebarCollapsed ? "Expand" : "Collapse"} ${project.name}`}
-                    aria-expanded={!project.sidebarCollapsed}
                     title={`${project.sidebarCollapsed ? "Expand" : "Collapse"} ${project.name}`}
                     onClick={(event) => {
                       event.preventDefault();
@@ -502,12 +534,9 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                   <button
                     type="button"
                     className="project-group__header"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
+                    aria-expanded={!project.sidebarCollapsed}
                     onKeyDown={(event) =>
-                      void handleProjectKeyboardReorder(event, project.id)
+                      handleProjectHeaderKeyDown(event, project)
                     }
                   >
                     <ProjectIcon
