@@ -5,6 +5,7 @@ use serde::Serialize;
 use tauri::State;
 use tracing::warn;
 
+use crate::domain::conversation::EnvironmentCapabilitiesSnapshot;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
@@ -297,6 +298,26 @@ pub async fn get_environment_codex_rate_limits(
     Ok(state
         .runtime
         .read_account_rate_limits(
+            environment_id,
+            &runtime_target.environment_path,
+            runtime_target.codex_binary_path,
+        )
+        .await?)
+}
+
+#[tauri::command]
+pub async fn get_environment_capabilities(
+    environment_id: String,
+    state: State<'_, AppState>,
+) -> Result<EnvironmentCapabilitiesSnapshot, CommandError> {
+    let environment_id = environment_id.trim();
+    if environment_id.is_empty() {
+        return Err(AppError::Validation("Environment id is required.".to_string()).into());
+    }
+    let runtime_target = state.workspace.environment_runtime_target(environment_id)?;
+    Ok(state
+        .runtime
+        .read_capabilities(
             environment_id,
             &runtime_target.environment_path,
             runtime_target.codex_binary_path,

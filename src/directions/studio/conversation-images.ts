@@ -2,6 +2,7 @@ import type {
   ConversationImageAttachment,
   ModelOption,
 } from "../../lib/types";
+import { labelForModelOption } from "./modelLabels";
 
 export const IMAGE_FILE_EXTENSIONS = [
   "png",
@@ -43,7 +44,7 @@ export function modelSupportsFastMode(model?: ModelOption | null) {
 }
 
 export function modelImageSupportMessage(model?: ModelOption | null) {
-  const label = model?.displayName ?? "the selected model";
+  const label = labelForModelOption(model);
   return `Image attachments are unavailable for ${label}.`;
 }
 

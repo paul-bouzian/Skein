@@ -38,6 +38,7 @@ import {
   labelForCollaborationMode,
   reasoningOptionsFor,
 } from "../composerOptions";
+import { labelForModelOption } from "../modelLabels";
 import { ComposerAutocompleteMenu } from "./ComposerAutocompleteMenu";
 import { ComposerImageStrip } from "./ComposerImageStrip";
 import {
@@ -159,9 +160,10 @@ export function InlineComposer({
   );
   const fastModeSupported = modelSupportsFastMode(selectedModel);
   const fastModeEnabled = fastModeSupported && composer.serviceTier === "fast";
+  const selectedModelLabel = labelForModelOption(selectedModel, composer.model);
   let fastModeLabel: string;
   if (!fastModeSupported) {
-    fastModeLabel = `Fast mode is unavailable for ${selectedModel?.displayName ?? composer.model}.`;
+    fastModeLabel = `Fast mode is unavailable for ${selectedModelLabel}.`;
   } else if (fastModeEnabled) {
     fastModeLabel = "Fast mode is on. Faster responses use more quota.";
   } else {

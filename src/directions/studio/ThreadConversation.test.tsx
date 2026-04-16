@@ -3127,7 +3127,7 @@ describe("ThreadConversation", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders canonical model ids in the composer even when Codex returns display names", async () => {
+  it("renders friendly model labels in the composer even when Codex returns display names", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         composer: { ...baseComposer, model: "gpt-5.4-mini" },
@@ -3167,14 +3167,14 @@ describe("ThreadConversation", () => {
     const modelPicker = await screen.findByRole("button", {
       name: "Model picker",
     });
-    expect(modelPicker).toHaveTextContent("gpt-5.4-mini");
+    expect(modelPicker).toHaveTextContent("GPT-5.4 Mini");
 
     await userEvent.click(modelPicker);
 
     expect(
-      screen.getByRole("option", { name: "gpt-5.4-mini" }),
+      screen.getByRole("option", { name: "GPT-5.4 Mini" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "GPT-5.4-mini" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "gpt-5.4-mini" })).toBeNull();
     expect(screen.getByRole("listbox", { name: "Model options" })).toHaveStyle({
       zIndex: "50",
     });
