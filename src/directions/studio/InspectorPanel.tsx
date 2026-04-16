@@ -128,7 +128,7 @@ export function InspectorPanel({ collapsed = false }: { collapsed?: boolean }) {
         </div>
         <div className="inspector__content">
           <p className="inspector__empty">
-            Select a project or worktree to inspect its Git state.
+            Select an environment to inspect its Git state.
           </p>
         </div>
       </aside>

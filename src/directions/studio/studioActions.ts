@@ -111,9 +111,8 @@ export async function sendThreadDraft(
     composer: composer ?? null,
   });
 
-  // Close the draft and switch the pane — ThreadConversation mounts and
-  // takes over from here.
-  useWorkspaceStore.getState().closeThreadDraft(paneId);
+  // Switch the pane in one store update. setPaneSelection also clears the
+  // draft slot, which avoids a transient "no environment selected" step.
   useWorkspaceStore.getState().setPaneSelection(paneId, {
     projectId,
     environmentId: thread.environmentId,

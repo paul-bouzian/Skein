@@ -114,7 +114,7 @@ export function StudioMain({
           <Tooltip
             content={
               !selectedEnvironmentId
-                ? "Select a worktree first"
+                ? "Select an environment first"
                 : terminalVisible
                   ? "Hide terminal"
                   : "Show terminal"
@@ -125,7 +125,7 @@ export function StudioMain({
               type="button"
               aria-label={
                 !selectedEnvironmentId
-                  ? "Select a worktree first"
+                  ? "Select an environment first"
                   : terminalVisible
                     ? "Hide terminal"
                     : "Show terminal"

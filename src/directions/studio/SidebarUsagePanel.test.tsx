@@ -117,6 +117,57 @@ describe("SidebarUsagePanel", () => {
     expect(screen.queryByText("Start a Codex runtime to inspect usage.")).toBeNull();
   });
 
+  it("requests usage for the local environment while a draft pane is focused", () => {
+    const ensureAccountUsage = vi.fn(async () => {});
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                name: "Local",
+                isDefault: true,
+              }),
+              makeEnvironment({
+                id: "env-worktree",
+                kind: "managedWorktree",
+                name: "slate-hawk",
+                isDefault: false,
+              }),
+            ],
+          }),
+        ],
+      }),
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+    useCodexUsageStore.setState((state) => ({
+      ...state,
+      ensureAccountUsage,
+    }));
+
+    render(<SidebarUsagePanel />);
+
+    expect(ensureAccountUsage).toHaveBeenCalledWith("env-local");
+  });
+
   it("does not fall back to another environment when nothing is selected", () => {
     const ensureAccountUsage = vi.fn(async () => {});
     useWorkspaceStore.setState((state) => ({

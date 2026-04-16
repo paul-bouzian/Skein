@@ -89,6 +89,37 @@ describe("InspectorPanel", () => {
     expect(screen.queryByText("+const answer = 2;")).not.toBeInTheDocument();
   });
 
+  it("loads Git review for the local environment while the focused pane is a draft", async () => {
+    mockedBridge.getGitReviewSnapshot.mockResolvedValue(makeGitReviewSnapshot());
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+
+    render(<InspectorPanel />);
+
+    await screen.findByRole("group", { name: "Review scope" });
+    expect(mockedBridge.getGitReviewSnapshot).toHaveBeenCalledWith({
+      environmentId: "env-1",
+      scope: "uncommitted",
+    });
+  });
+
   it("confirms before reverting all tracked changes", async () => {
     confirmMock.mockResolvedValue(false);
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(makeGitReviewSnapshot());

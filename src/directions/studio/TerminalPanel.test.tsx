@@ -287,7 +287,7 @@ describe("TerminalPanel", () => {
     expect(readSlot("env-2").visible).toBe(true);
     expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
     expect(
-      screen.getByText("No terminals are open in this worktree."),
+      screen.getByText("No terminals are open in this environment."),
     ).toBeInTheDocument();
   });
 
@@ -325,9 +325,50 @@ describe("TerminalPanel", () => {
     renderPanel();
 
     expect(
-      screen.getByText("Select a worktree to open a terminal."),
+      screen.getByText("Select an environment to open a terminal."),
     ).toBeInTheDocument();
     expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
+  });
+
+  it("uses the project's local environment while the focused pane is a draft", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot(),
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+    useTerminalStore.setState({
+      knownEnvironmentIds: [ENV_ID],
+      byEnv: {
+        [ENV_ID]: makeSlot({ visible: true }),
+      },
+    });
+    mockedBridge.spawnTerminal.mockClear();
+
+    renderPanel();
+
+    await waitFor(() => {
+      expect(mockedBridge.spawnTerminal).toHaveBeenCalledWith({
+        environmentId: ENV_ID,
+        cols: 80,
+        rows: 24,
+      });
+    });
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(ENV_ID);
   });
 
   it("does not auto-bootstrap while the panel is hidden", async () => {

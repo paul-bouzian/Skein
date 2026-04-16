@@ -1128,6 +1128,9 @@ describe("workspace store — grid 2x2 panes", () => {
         threadId: null,
       });
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+      expect(useWorkspaceStore.getState().selectedProjectId).toBe("project-a");
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+      expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
     it("openThreadDraft reuses the currently focused slot", () => {
@@ -1180,6 +1183,8 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(drafts().topLeft).toEqual({ projectId: "project-a" });
       expect(drafts().topRight).toBeUndefined();
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-a");
+      expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
     it("refreshSnapshot closes a draft pane when its project disappears", async () => {
@@ -1205,7 +1210,7 @@ describe("workspace store — grid 2x2 panes", () => {
           topLeft: { projectId: "project-a" },
         },
         selectedProjectId: "project-a",
-        selectedEnvironmentId: null,
+        selectedEnvironmentId: "env-a",
         selectedThreadId: null,
       }));
       mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
@@ -1232,6 +1237,8 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(drafts().topLeft).toBeUndefined();
       expect(useWorkspaceStore.getState().layout.focusedSlot).toBeNull();
       expect(useWorkspaceStore.getState().selectedProjectId).toBeNull();
+      expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
+      expect(useWorkspaceStore.getState().selectedThreadId).toBeNull();
     });
 
     it("selectThread clears the draft for the focused slot", () => {

@@ -41,6 +41,10 @@ vi.mock("./ThreadConversation", () => ({
   ThreadConversation: () => <div data-testid="thread-conversation" />,
 }));
 
+vi.mock("./draft/ThreadDraftComposer", () => ({
+  ThreadDraftComposer: () => <div data-testid="thread-draft-composer" />,
+}));
+
 vi.mock("./StudioWelcome", () => ({
   StudioWelcome: () => <div data-testid="studio-welcome" />,
 }));
@@ -87,6 +91,18 @@ beforeEach(() => {
     bootstrapStatus: null,
     loadingState: "ready",
     error: null,
+    layout: {
+      slots: {
+        topLeft: null,
+        topRight: null,
+        bottomLeft: null,
+        bottomRight: null,
+      },
+      focusedSlot: null,
+      rowRatio: 0.5,
+      colRatio: 0.5,
+    },
+    draftBySlot: {},
     selectedProjectId: "project-1",
     selectedEnvironmentId: "env-1",
     selectedThreadId: null,
@@ -154,6 +170,55 @@ describe("StudioMain", () => {
     expect(
       screen.queryByText("Start a new thread to begin working"),
     ).toBeNull();
+  });
+
+  it("treats the local environment as selected while a draft pane is focused", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      layout: {
+        slots: {
+          topLeft: null,
+          topRight: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: null,
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      draftBySlot: {},
+      selectedProjectId: null,
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+    useWorkspaceStore.getState().openThreadDraft("project-1");
+    useTerminalStore.setState((state) => ({
+      ...state,
+      byEnv: {
+        ...state.byEnv,
+        "env-1": {
+          ...state.byEnv["env-1"],
+          visible: false,
+        },
+      },
+    }));
+
+    render(
+      <StudioMain
+        theme="dark"
+        projectsSidebarOpen={false}
+        inspectorOpen={false}
+        composerFocusKey={0}
+        approveOrSubmitKey={0}
+        onToggleProjectsSidebar={() => {}}
+        onToggleInspector={() => {}}
+      />,
+    );
+
+    expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe("env-1");
+    expect(
+      screen.getByRole("button", { name: "Show terminal" }),
+    ).not.toBeDisabled();
   });
 
   it("keeps TerminalPanel mounted when another environment still has tabs", () => {
