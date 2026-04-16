@@ -1,14 +1,11 @@
-import { EnvironmentKindBadge } from "../../shared/EnvironmentKindBadge";
-import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
-import { CloseIcon, ThreadIcon } from "../../shared/Icons";
+import { CloseIcon } from "../../shared/Icons";
 import { Tooltip } from "../../shared/Tooltip";
-import type { EnvironmentRecord, ProjectRecord } from "../../lib/types";
+import type { ProjectRecord } from "../../lib/types";
 import {
   selectFocusedSlot,
   selectIsSplitOpen,
   selectPaneDraft,
   selectPaneEnvironment,
-  selectPaneProject,
   selectPaneThread,
   selectProjects,
   useWorkspaceStore,
@@ -30,7 +27,6 @@ export function StudioPane({
   approveOrSubmitKey,
 }: Props) {
   const projects = useWorkspaceStore(selectProjects);
-  const project = useWorkspaceStore(selectPaneProject(paneId));
   const environment = useWorkspaceStore(selectPaneEnvironment(paneId));
   const thread = useWorkspaceStore(selectPaneThread(paneId));
   const draft = useWorkspaceStore(selectPaneDraft(paneId));
@@ -64,10 +60,6 @@ export function StudioPane({
         paneId={paneId}
       />
     );
-  } else if (environment) {
-    content = <EnvironmentView environment={environment} />;
-  } else if (project) {
-    content = <ProjectView project={project} />;
   } else {
     content = <OverviewView projects={projects} />;
   }
@@ -181,77 +173,6 @@ function OverviewView({ projects }: { projects: ProjectRecord[] }) {
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-function ProjectView({ project }: { project: ProjectRecord }) {
-  const selectEnvironment = useWorkspaceStore((s) => s.selectEnvironment);
-  const worktrees = project.environments.filter(
-    (environment) => environment.kind !== "local",
-  );
-
-  return (
-    <div className="studio-project-view">
-      <div className="studio-project-view__header">
-        <h2>{project.name}</h2>
-        <span className="studio-project-view__path">{project.rootPath}</span>
-      </div>
-      <div className="studio-project-view__envs">
-        <h3 className="studio-section-label">Worktrees</h3>
-        {worktrees.length === 0 ? (
-          <p className="studio-env-view__hint">
-            No worktrees yet for this project.
-          </p>
-        ) : null}
-        {worktrees.map((env) => (
-          <button
-            key={env.id}
-            className="studio-env-row"
-            onClick={() => selectEnvironment(env.id)}
-          >
-            <div className="studio-env-row__left">
-              <EnvironmentKindBadge kind={env.kind} />
-              <span className="studio-env-row__name">{env.name}</span>
-              {env.gitBranch && (
-                <span className="studio-env-row__branch">{env.gitBranch}</span>
-              )}
-            </div>
-            <div className="studio-env-row__right">
-              <span className="studio-env-row__threads">
-                {env.threads.filter((t) => t.status === "active").length}{" "}
-                threads
-              </span>
-              <RuntimeIndicator state={env.runtime.state} label />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EnvironmentView({ environment }: { environment: EnvironmentRecord }) {
-  return (
-    <div className="studio-env-view">
-      <div className="studio-env-view__center">
-        <div className="studio-env-view__icon-ring">
-          <ThreadIcon size={24} />
-        </div>
-        <h2 className="studio-env-view__name">{environment.name}</h2>
-        <div className="studio-env-view__meta">
-          <EnvironmentKindBadge kind={environment.kind} />
-          <RuntimeIndicator state={environment.runtime.state} label />
-          {environment.gitBranch && (
-            <span className="studio-env-view__branch-pill">
-              {environment.gitBranch}
-            </span>
-          )}
-        </div>
-        <p className="studio-env-view__hint">
-          Start a new thread to begin working
-        </p>
       </div>
     </div>
   );

@@ -112,6 +112,50 @@ beforeEach(() => {
 });
 
 describe("StudioMain", () => {
+  it("wraps the default workspace overview in the canonical pane scroll container", () => {
+    const { container } = render(
+      <StudioMain
+        theme="dark"
+        projectsSidebarOpen={false}
+        inspectorOpen={false}
+        composerFocusKey={0}
+        approveOrSubmitKey={0}
+        onToggleProjectsSidebar={() => {}}
+        onToggleInspector={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Workspace" }),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".studio-main__pane-scroll")).not.toBeNull();
+  });
+
+  it("falls back to the workspace overview when a selected environment has no active thread", () => {
+    act(() => {
+      useWorkspaceStore.getState().selectEnvironment("env-1");
+    });
+
+    render(
+      <StudioMain
+        theme="dark"
+        projectsSidebarOpen={false}
+        inspectorOpen={false}
+        composerFocusKey={0}
+        approveOrSubmitKey={0}
+        onToggleProjectsSidebar={() => {}}
+        onToggleInspector={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Workspace" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Start a new thread to begin working"),
+    ).toBeNull();
+  });
+
   it("keeps TerminalPanel mounted when another environment still has tabs", () => {
     const { container } = render(
       <StudioMain

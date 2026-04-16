@@ -169,7 +169,9 @@ export function StudioMain({
           />
         ) : (
           <div className="studio-main__pane studio-main__pane--default">
-            <DefaultStudioView />
+            <div className="studio-main__pane-scroll">
+              <DefaultStudioView />
+            </div>
           </div>
         )}
         <PaneDropOverlay />
