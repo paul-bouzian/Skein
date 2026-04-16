@@ -12,13 +12,10 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { useThreadDrag } from "./useThreadDrag";
+import { branchChipLabel } from "./worktreeLabels";
+import type { WorktreePullRequest } from "./worktreeLabels";
 
-export type ThreadWorktreePullRequest = {
-  number: number;
-  title: string;
-  url: string;
-  state: "open" | "merged" | "closed";
-};
+export type ThreadWorktreePullRequest = WorktreePullRequest;
 
 export type ThreadWorktreeBadge = {
   environmentId: string;
@@ -154,26 +151,4 @@ function resolvePaneHint(
   return "Open in another pane";
 }
 
-export function branchChipLabel(
-  branch: string,
-  pullRequest?: ThreadWorktreePullRequest,
-): string {
-  if (!pullRequest) {
-    return `Worktree: ${branch}`;
-  }
-  return `${pullRequestStatePrefix(pullRequest.state)} PR #${pullRequest.number}: ${pullRequest.title}`;
-}
-
-function pullRequestStatePrefix(
-  state: ThreadWorktreePullRequest["state"],
-): string {
-  switch (state) {
-    case "merged":
-      return "Merged";
-    case "closed":
-      return "Closed";
-    case "open":
-      return "Open";
-  }
-}
 

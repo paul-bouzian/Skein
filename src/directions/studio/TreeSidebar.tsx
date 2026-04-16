@@ -30,7 +30,8 @@ import type {
   ThreadConversationSnapshot,
   ThreadRecord,
 } from "../../lib/types";
-import { branchChipLabel, SidebarThreadRow } from "./SidebarThreadRow";
+import { SidebarThreadRow } from "./SidebarThreadRow";
+import { branchChipLabel } from "./worktreeLabels";
 import { SidebarUsagePanel } from "./SidebarUsagePanel";
 import { SidebarUtilityActions } from "./SidebarUtilityActions";
 import type { Theme } from "./StudioShell";

@@ -532,7 +532,7 @@ describe("TreeSidebar", () => {
       name: "Start thread in add-themes",
     });
     expect(placeholder).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "add-themes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Worktree: add-themes" })).toBeInTheDocument();
 
     fireEvent.contextMenu(placeholder);
 
@@ -580,7 +580,7 @@ describe("TreeSidebar", () => {
 
     renderSidebar();
 
-    const branchButton = screen.getByRole("button", { name: "say-hello" });
+    const branchButton = screen.getByRole("button", { name: "Worktree: say-hello" });
     vi.spyOn(branchButton, "getBoundingClientRect").mockReturnValue({
       x: 40,
       y: 96,
@@ -593,7 +593,7 @@ describe("TreeSidebar", () => {
       toJSON: vi.fn(),
     });
 
-    fireEvent.click(branchButton, { clientX: 0, clientY: 0 });
+    fireEvent.contextMenu(branchButton);
 
     const menu = document.body.querySelector(".tree-sidebar__context-menu");
     expect(menu).not.toBeNull();
@@ -1120,7 +1120,7 @@ describe("TreeSidebar", () => {
     renderSidebar();
 
     expect(
-      screen.getByRole("button", { name: "fuzzy-tiger" }),
+      screen.getByRole("button", { name: "Worktree: fuzzy-tiger" }),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Collapse Skein" }));
 
@@ -1132,7 +1132,7 @@ describe("TreeSidebar", () => {
       expect(refreshSnapshot).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "fuzzy-tiger" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Worktree: fuzzy-tiger" })).toBeNull();
     });
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
