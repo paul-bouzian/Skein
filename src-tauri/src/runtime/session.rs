@@ -537,6 +537,10 @@ impl RuntimeSession {
         })
     }
 
+    pub async fn read_capabilities(&self) -> AppResult<EnvironmentCapabilitiesSnapshot> {
+        self.load_capabilities(true).await
+    }
+
     pub async fn refresh_thread(
         &self,
         context: ThreadRuntimeContext,
@@ -888,8 +892,17 @@ impl RuntimeSession {
     }
 
     async fn ensure_capabilities(&self) -> AppResult<EnvironmentCapabilitiesSnapshot> {
-        if let Some(capabilities) = self.state.lock().await.capabilities.clone() {
-            return Ok(capabilities);
+        self.load_capabilities(false).await
+    }
+
+    async fn load_capabilities(
+        &self,
+        force_refresh: bool,
+    ) -> AppResult<EnvironmentCapabilitiesSnapshot> {
+        if !force_refresh {
+            if let Some(capabilities) = self.state.lock().await.capabilities.clone() {
+                return Ok(capabilities);
+            }
         }
 
         let models = self

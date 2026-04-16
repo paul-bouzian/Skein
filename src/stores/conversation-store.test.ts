@@ -21,6 +21,7 @@ vi.mock("../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   saveThreadComposerDraft: vi.fn(),
   refreshThreadConversation: vi.fn(),
+  getEnvironmentCapabilities: vi.fn(),
   getThreadComposerCatalog: vi.fn(),
   searchThreadFiles: vi.fn(),
   sendThreadMessage: vi.fn(),
@@ -92,6 +93,39 @@ describe("conversation store", () => {
     expect(state.capabilitiesByEnvironmentId["env-1"]).toEqual(capabilitiesFixture);
     expect(state.composerByThreadId["thread-1"]).toEqual(snapshot.composer);
     expect(state.hydrationByThreadId["thread-1"]).toBe("ready");
+  });
+
+  it("loads environment capabilities without opening a thread", async () => {
+    mockedBridge.getEnvironmentCapabilities.mockResolvedValue(capabilitiesFixture);
+
+    const result = await useConversationStore
+      .getState()
+      .tryLoadEnvironmentCapabilities("env-1");
+
+    expect(result).toEqual(capabilitiesFixture);
+    expect(mockedBridge.getEnvironmentCapabilities).toHaveBeenCalledWith("env-1");
+    expect(useConversationStore.getState().capabilitiesByEnvironmentId["env-1"]).toEqual(
+      capabilitiesFixture,
+    );
+  });
+
+  it("deduplicates concurrent environment capability loads", async () => {
+    const deferred = deferredPromise<typeof capabilitiesFixture>();
+    mockedBridge.getEnvironmentCapabilities.mockReturnValue(deferred.promise);
+
+    const first = useConversationStore
+      .getState()
+      .tryLoadEnvironmentCapabilities("env-1");
+    const second = useConversationStore
+      .getState()
+      .tryLoadEnvironmentCapabilities("env-1");
+
+    expect(mockedBridge.getEnvironmentCapabilities).toHaveBeenCalledTimes(1);
+
+    deferred.resolve(capabilitiesFixture);
+
+    await expect(first).resolves.toEqual(capabilitiesFixture);
+    await expect(second).resolves.toEqual(capabilitiesFixture);
   });
 
   it("does not reopen a thread that is already warm", async () => {
