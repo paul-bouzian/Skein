@@ -4,6 +4,13 @@ export type EnvironmentKind = "local" | "managedWorktree" | "permanentWorktree";
 export type ThreadStatus = "active" | "archived";
 export type RuntimeState = "running" | "stopped" | "exited";
 export type PullRequestState = "open" | "merged" | "closed";
+export type ChecksRollupState = "success" | "failure" | "pending" | "neutral";
+export type ChecksItemState =
+  | "success"
+  | "failure"
+  | "pending"
+  | "skipped"
+  | "neutral";
 export type WorktreeScriptTrigger = "setup" | "teardown";
 export type WorkspaceEventKind =
   | "environmentRenamed"
@@ -101,11 +108,27 @@ export type ThreadRecord = {
   archivedAt?: string;
 };
 
+export type PullRequestCheckItem = {
+  name: string;
+  state: ChecksItemState;
+  url?: string;
+};
+
+export type PullRequestChecksSnapshot = {
+  rollup: ChecksRollupState;
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  items: PullRequestCheckItem[];
+};
+
 export type EnvironmentPullRequestSnapshot = {
   number: number;
   title: string;
   url: string;
   state: PullRequestState;
+  checks?: PullRequestChecksSnapshot;
 };
 
 export type EnvironmentRecord = {

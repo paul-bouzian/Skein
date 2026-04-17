@@ -5,7 +5,10 @@ use std::process::{Command, Output};
 use serde::Deserialize;
 use tracing::debug;
 
-use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
+use crate::domain::workspace::{
+    ChecksItemState, ChecksRollupState, EnvironmentPullRequestSnapshot, PullRequestCheckItem,
+    PullRequestChecksSnapshot, PullRequestState,
+};
 use crate::error::{AppError, AppResult};
 use crate::services::git;
 use crate::services::workspace::PullRequestWatchTarget;
@@ -36,6 +39,7 @@ struct ResolvedPullRequest {
     is_cross_repository: Option<bool>,
     head_repository_name_with_owner: Option<String>,
     head_repository_owner_login: Option<String>,
+    checks: Option<PullRequestChecksSnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +62,29 @@ struct RawPullRequest {
     is_cross_repository: Option<bool>,
     head_repository: Option<RawRepository>,
     head_repository_owner: Option<RawRepositoryOwner>,
+    #[serde(default)]
+    status_check_rollup: Option<Vec<RawStatusCheck>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawStatusCheck {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    workflow_name: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    details_url: Option<String>,
+    #[serde(default)]
+    target_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,6 +121,7 @@ pub(super) fn resolve_pull_request_for_target(
                 ResolvedPullRequestState::Merged => PullRequestState::Merged,
                 ResolvedPullRequestState::Closed => PullRequestState::Closed,
             },
+            checks: pull_request.checks,
         }),
     )
 }
@@ -161,37 +189,32 @@ fn resolve_head_context(repo_root: &Path, local_branch: &str) -> AppResult<PullR
     })
 }
 
+const PULL_REQUEST_JSON_FIELDS_WITH_CHECKS: &str = "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner,statusCheckRollup";
+const PULL_REQUEST_JSON_FIELDS_BASE: &str = "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner";
+
 fn list_matching_pull_requests(
     repo_root: &Path,
     head_context: &PullRequestHeadContext,
 ) -> AppResult<Vec<ResolvedPullRequest>> {
     let mut pull_requests_by_number = HashMap::new();
+    // Some gh versions or GHES hosts don't expose statusCheckRollup. Probe with it
+    // first and, if that ever fails on this host, skip the field for the rest of
+    // this refresh so we still surface PR metadata without checks.
+    let mut include_checks = true;
 
     for head_selector in &head_context.head_selectors {
-        let output = gh_command_output(
-            repo_root,
-            [
-                "pr",
-                "list",
-                "--head",
-                head_selector,
-                "--state",
-                "all",
-                "--limit",
-                "20",
-                "--json",
-                "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-            ],
-        )?;
-        let raw_stdout = git::stdout_message(&output.stdout);
-        if raw_stdout.is_empty() {
-            continue;
-        }
-
-        let raw_pull_requests =
-            serde_json::from_str::<Vec<RawPullRequest>>(&raw_stdout).map_err(|error| {
-                AppError::Runtime(format!("Invalid GitHub pull request JSON: {error}"))
-            })?;
+        let raw_pull_requests = match query_pull_requests(repo_root, head_selector, include_checks)
+        {
+            Ok(prs) => prs,
+            Err(error) if include_checks => {
+                debug!(
+                    "statusCheckRollup query failed ({error}); retrying without check data"
+                );
+                include_checks = false;
+                query_pull_requests(repo_root, head_selector, false)?
+            }
+            Err(error) => return Err(error),
+        };
 
         for raw_pull_request in raw_pull_requests {
             let pull_request = normalize_pull_request(raw_pull_request);
@@ -202,6 +225,39 @@ fn list_matching_pull_requests(
     }
 
     Ok(pull_requests_by_number.into_values().collect())
+}
+
+fn query_pull_requests(
+    repo_root: &Path,
+    head_selector: &str,
+    include_checks: bool,
+) -> AppResult<Vec<RawPullRequest>> {
+    let fields = if include_checks {
+        PULL_REQUEST_JSON_FIELDS_WITH_CHECKS
+    } else {
+        PULL_REQUEST_JSON_FIELDS_BASE
+    };
+    let output = gh_command_output(
+        repo_root,
+        [
+            "pr",
+            "list",
+            "--head",
+            head_selector,
+            "--state",
+            "all",
+            "--limit",
+            "20",
+            "--json",
+            fields,
+        ],
+    )?;
+    let raw_stdout = git::stdout_message(&output.stdout);
+    if raw_stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str::<Vec<RawPullRequest>>(&raw_stdout)
+        .map_err(|error| AppError::Runtime(format!("Invalid GitHub pull request JSON: {error}")))
 }
 
 fn select_display_pull_request(
@@ -235,6 +291,9 @@ fn normalize_pull_request(raw: RawPullRequest) -> ResolvedPullRequest {
         .head_repository_owner
         .map(|owner| owner.login)
         .filter(|value| !value.trim().is_empty());
+    let checks = raw
+        .status_check_rollup
+        .and_then(build_checks_snapshot);
 
     ResolvedPullRequest {
         number: raw.number,
@@ -246,7 +305,118 @@ fn normalize_pull_request(raw: RawPullRequest) -> ResolvedPullRequest {
         is_cross_repository: raw.is_cross_repository,
         head_repository_name_with_owner,
         head_repository_owner_login,
+        checks,
     }
+}
+
+const CHECK_ITEMS_LIMIT: usize = 20;
+
+fn build_checks_snapshot(entries: Vec<RawStatusCheck>) -> Option<PullRequestChecksSnapshot> {
+    if entries.is_empty() {
+        return None;
+    }
+
+    let mut items: Vec<PullRequestCheckItem> = Vec::with_capacity(entries.len());
+    let mut passed: u32 = 0;
+    let mut failed: u32 = 0;
+    let mut pending: u32 = 0;
+
+    for entry in entries {
+        let state = classify_check_state(&entry);
+        let name = check_item_name(&entry);
+        let url = entry
+            .details_url
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| entry.target_url.filter(|value| !value.trim().is_empty()));
+
+        match state {
+            ChecksItemState::Success => passed += 1,
+            ChecksItemState::Failure => failed += 1,
+            ChecksItemState::Pending => pending += 1,
+            _ => {}
+        }
+
+        items.push(PullRequestCheckItem { name, state, url });
+    }
+
+    let total = items.len() as u32;
+    let rollup = if failed > 0 {
+        ChecksRollupState::Failure
+    } else if pending > 0 {
+        ChecksRollupState::Pending
+    } else if passed > 0 {
+        ChecksRollupState::Success
+    } else {
+        ChecksRollupState::Neutral
+    };
+
+    // Prioritize failures, then pending, then the rest, then truncate.
+    items.sort_by_key(|item| match item.state {
+        ChecksItemState::Failure => 0,
+        ChecksItemState::Pending => 1,
+        ChecksItemState::Success => 2,
+        ChecksItemState::Neutral => 3,
+        ChecksItemState::Skipped => 4,
+    });
+    items.truncate(CHECK_ITEMS_LIMIT);
+
+    Some(PullRequestChecksSnapshot {
+        rollup,
+        total,
+        passed,
+        failed,
+        pending,
+        items,
+    })
+}
+
+fn classify_check_state(entry: &RawStatusCheck) -> ChecksItemState {
+    if let Some(status) = entry.status.as_deref() {
+        return match status.trim().to_ascii_uppercase().as_str() {
+            "COMPLETED" => entry
+                .conclusion
+                .as_deref()
+                .map(classify_check_conclusion)
+                .unwrap_or(ChecksItemState::Neutral),
+            "QUEUED" | "IN_PROGRESS" | "PENDING" | "WAITING" | "REQUESTED" => {
+                ChecksItemState::Pending
+            }
+            _ => ChecksItemState::Neutral,
+        };
+    }
+    match entry.state.as_deref() {
+        Some(state) => match state.trim().to_ascii_uppercase().as_str() {
+            "SUCCESS" => ChecksItemState::Success,
+            "FAILURE" | "ERROR" => ChecksItemState::Failure,
+            "PENDING" | "EXPECTED" => ChecksItemState::Pending,
+            _ => ChecksItemState::Neutral,
+        },
+        None => ChecksItemState::Neutral,
+    }
+}
+
+fn classify_check_conclusion(conclusion: &str) -> ChecksItemState {
+    // Mirrors gh CLI's parseCheckStatusFromCheckConclusionState in
+    // cli/cli/api/queries_pr.go so our rollup matches what users see on GitHub:
+    // cancelled/action_required/timed_out count as failing, and stale/startup_failure
+    // remain pending (they're typically re-runnable).
+    match conclusion.trim().to_ascii_uppercase().as_str() {
+        "SUCCESS" => ChecksItemState::Success,
+        "FAILURE" | "TIMED_OUT" | "ACTION_REQUIRED" | "CANCELLED" => ChecksItemState::Failure,
+        "STALE" | "STARTUP_FAILURE" => ChecksItemState::Pending,
+        "SKIPPED" => ChecksItemState::Skipped,
+        _ => ChecksItemState::Neutral,
+    }
+}
+
+fn check_item_name(entry: &RawStatusCheck) -> String {
+    [&entry.name, &entry.context, &entry.workflow_name]
+        .into_iter()
+        .flatten()
+        .map(|value| value.trim())
+        .find(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "check".to_string())
 }
 
 fn normalize_pull_request_state(

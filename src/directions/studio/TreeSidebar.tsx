@@ -271,6 +271,13 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       }}
                       onContextMenu={openBranchMenu}
                     >
+                      {pr?.checks ? (
+                        <span
+                          className="tree-sidebar__thread-checks-dot"
+                          data-checks-state={pr.checks.rollup}
+                          aria-hidden="true"
+                        />
+                      ) : null}
                       <GitBranchIcon
                         size={10}
                         className="tree-sidebar__thread-branch-icon"

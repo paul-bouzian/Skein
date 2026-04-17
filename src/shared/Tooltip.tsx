@@ -6,7 +6,7 @@ import { useTooltipPosition } from "./useTooltipPosition";
 import "./Tooltip.css";
 
 type Props = {
-  content: string;
+  content: ReactNode;
   children: ReactNode;
   side?: "top" | "bottom";
   delay?: number;
@@ -30,7 +30,8 @@ export function Tooltip({
     open: visible,
     preferredSide: side,
     gapPx: 6,
-    repositionKey: repositionKey ?? content,
+    repositionKey:
+      repositionKey ?? (typeof content === "string" ? content : undefined),
   });
 
   useEffect(() => {

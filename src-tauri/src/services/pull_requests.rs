@@ -15,7 +15,8 @@ use crate::domain::workspace::{
 use crate::error::AppResult;
 use crate::services::workspace::{PullRequestWatchTarget, WorkspaceService};
 
-const PULL_REQUEST_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+const PULL_REQUEST_REFRESH_INTERVAL_IDLE: Duration = Duration::from_secs(30);
+const PULL_REQUEST_REFRESH_INTERVAL_ACTIVE: Duration = Duration::from_secs(10);
 const PULL_REQUEST_REFRESH_CONCURRENCY: usize = 4;
 
 #[derive(Debug, Clone)]
@@ -85,10 +86,31 @@ impl PullRequestMonitorService {
                 warn!("failed to refresh pull request state: {error}");
             }
 
+            let next_interval = self.next_refresh_interval();
             tokio::select! {
-                _ = tokio::time::sleep(PULL_REQUEST_REFRESH_INTERVAL) => {}
+                _ = tokio::time::sleep(next_interval) => {}
                 _ = self.state.refresh_notify.notified() => {}
             }
+        }
+    }
+
+    fn next_refresh_interval(&self) -> Duration {
+        let has_pending = self
+            .state
+            .snapshots
+            .read()
+            .expect("pull request snapshots lock should not be poisoned")
+            .values()
+            .any(|snapshot| {
+                snapshot
+                    .checks
+                    .as_ref()
+                    .is_some_and(|checks| checks.pending > 0)
+            });
+        if has_pending {
+            PULL_REQUEST_REFRESH_INTERVAL_ACTIVE
+        } else {
+            PULL_REQUEST_REFRESH_INTERVAL_IDLE
         }
     }
 
@@ -282,8 +304,14 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use super::PullRequestMonitorService;
-    use crate::domain::workspace::{EnvironmentPullRequestSnapshot, PullRequestState};
+    use super::{
+        PullRequestMonitorService, PULL_REQUEST_REFRESH_INTERVAL_ACTIVE,
+        PULL_REQUEST_REFRESH_INTERVAL_IDLE,
+    };
+    use crate::domain::workspace::{
+        ChecksRollupState, EnvironmentPullRequestSnapshot, PullRequestChecksSnapshot,
+        PullRequestState,
+    };
     use crate::services::git;
     use crate::services::workspace::{
         AddProjectRequest, CreateManagedWorktreeRequest, PullRequestWatchTarget, WorkspaceService,
@@ -302,6 +330,7 @@ mod tests {
                 title: "Initial".to_string(),
                 url: "https://github.com/acme/skein/pull/3".to_string(),
                 state: PullRequestState::Open,
+                checks: None,
             }),
         );
 
@@ -312,6 +341,7 @@ mod tests {
                 title: "Updated".to_string(),
                 url: "https://github.com/acme/skein/pull/4".to_string(),
                 state: PullRequestState::Merged,
+                checks: None,
             }),
         );
 
@@ -336,12 +366,76 @@ mod tests {
                 title: "Initial".to_string(),
                 url: "https://github.com/acme/skein/pull/3".to_string(),
                 state: PullRequestState::Open,
+                checks: None,
             }),
         );
 
         monitor.clear_snapshot(&environment_id);
 
         assert!(!monitor.snapshot().contains_key(&environment_id));
+    }
+
+    #[test]
+    fn refresh_interval_accelerates_while_any_check_is_pending() {
+        let harness = MonitorHarness::new();
+        let target = harness.create_watch_target();
+        let monitor = PullRequestMonitorService::for_test(harness.workspace.clone());
+
+        assert_eq!(
+            monitor.next_refresh_interval(),
+            PULL_REQUEST_REFRESH_INTERVAL_IDLE,
+            "empty snapshots should use the idle cadence"
+        );
+
+        // Mixed failure + pending must still count as pending so the cadence stays
+        // at 10s—this is the regression that initially shipped.
+        monitor.finish_target_refresh(
+            target.clone(),
+            Some(EnvironmentPullRequestSnapshot {
+                number: 7,
+                title: "Mixed".to_string(),
+                url: "https://github.com/acme/skein/pull/7".to_string(),
+                state: PullRequestState::Open,
+                checks: Some(PullRequestChecksSnapshot {
+                    rollup: ChecksRollupState::Failure,
+                    total: 2,
+                    passed: 0,
+                    failed: 1,
+                    pending: 1,
+                    items: Vec::new(),
+                }),
+            }),
+        );
+
+        assert_eq!(
+            monitor.next_refresh_interval(),
+            PULL_REQUEST_REFRESH_INTERVAL_ACTIVE,
+            "pending>0 should always drive the active cadence"
+        );
+
+        // When nothing is pending any more we should relax back to the idle cadence.
+        monitor.finish_target_refresh(
+            target,
+            Some(EnvironmentPullRequestSnapshot {
+                number: 7,
+                title: "Finished".to_string(),
+                url: "https://github.com/acme/skein/pull/7".to_string(),
+                state: PullRequestState::Open,
+                checks: Some(PullRequestChecksSnapshot {
+                    rollup: ChecksRollupState::Failure,
+                    total: 2,
+                    passed: 1,
+                    failed: 1,
+                    pending: 0,
+                    items: Vec::new(),
+                }),
+            }),
+        );
+
+        assert_eq!(
+            monitor.next_refresh_interval(),
+            PULL_REQUEST_REFRESH_INTERVAL_IDLE
+        );
     }
 
     struct MonitorHarness {

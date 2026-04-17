@@ -1,7 +1,10 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 
 import { indicatorToneForConversationStatus } from "../../lib/conversation-status";
-import type { ThreadRecord } from "../../lib/types";
+import type {
+  PullRequestChecksSnapshot,
+  ThreadRecord,
+} from "../../lib/types";
 import { GitBranchIcon, PanelRightIcon } from "../../shared/Icons";
 import { RuntimeIndicator } from "../../shared/RuntimeIndicator";
 import { Tooltip } from "../../shared/Tooltip";
@@ -12,7 +15,10 @@ import {
   useWorkspaceStore,
 } from "../../stores/workspace-store";
 import { useThreadDrag } from "./useThreadDrag";
-import { branchChipLabel } from "./worktreeLabels";
+import {
+  branchChipHeaderLabel,
+  branchChipLabel,
+} from "./worktreeLabels";
 import type { WorktreePullRequest } from "./worktreeLabels";
 
 export type ThreadWorktreePullRequest = WorktreePullRequest;
@@ -77,6 +83,16 @@ function SidebarThreadRowImpl(props: Props) {
   const chipLabel = worktree
     ? branchChipLabel(worktree.branch, worktree.pullRequest)
     : "";
+  const checks = worktree?.pullRequest?.checks ?? null;
+  const tooltipHeader = worktree
+    ? branchChipHeaderLabel(worktree.branch, worktree.pullRequest)
+    : "";
+  const tooltipContent: ReactNode = checks
+    ? renderBranchChipTooltip(tooltipHeader, checks)
+    : chipLabel;
+  const tooltipRepositionKey = checks
+    ? buildChecksRepositionKey(checks)
+    : chipLabel;
 
   return (
     <div className="tree-sidebar__thread-row">
@@ -94,7 +110,11 @@ function SidebarThreadRowImpl(props: Props) {
         <span className="tree-sidebar__thread-title">{thread.title}</span>
       </button>
       {worktree && onBranchChipContextMenu && onBranchChipOpenPullRequest ? (
-        <Tooltip content={chipLabel} side="bottom">
+        <Tooltip
+          content={tooltipContent}
+          side="bottom"
+          repositionKey={tooltipRepositionKey}
+        >
           <button
             type="button"
             className="tree-sidebar__thread-branch"
@@ -116,6 +136,13 @@ function SidebarThreadRowImpl(props: Props) {
               onBranchChipContextMenu(event);
             }}
           >
+            {checks ? (
+              <span
+                className="tree-sidebar__thread-checks-dot"
+                data-checks-state={checks.rollup}
+                aria-hidden="true"
+              />
+            ) : null}
             <GitBranchIcon size={10} className="tree-sidebar__thread-branch-icon" />
             <span className="tree-sidebar__thread-branch-label">
               {worktree.branch}
@@ -151,4 +178,45 @@ function resolvePaneHint(
   return "Open in another pane";
 }
 
+const CHECK_ITEMS_IN_TOOLTIP = 8;
+
+function buildChecksRepositionKey(checks: PullRequestChecksSnapshot): string {
+  const displayed = checks.items.slice(0, CHECK_ITEMS_IN_TOOLTIP);
+  const itemsKey = displayed
+    .map((item) => `${item.name}:${item.state}`)
+    .join("|");
+  return `${checks.rollup}:${checks.total}:${itemsKey}`;
+}
+
+function renderBranchChipTooltip(
+  headerLabel: string,
+  checks: PullRequestChecksSnapshot,
+): ReactNode {
+  const displayed = checks.items.slice(0, CHECK_ITEMS_IN_TOOLTIP);
+  const overflow = checks.total - displayed.length;
+  return (
+    <span className="branch-chip-tooltip">
+      <span className="branch-chip-tooltip__header">{headerLabel}</span>
+      {displayed.length > 0 ? (
+        <span className="branch-chip-tooltip__items">
+          {displayed.map((item, index) => (
+            <span key={`${item.name}-${index}`} className="branch-chip-tooltip__item">
+              <span
+                className="branch-chip-tooltip__item-dot"
+                data-checks-state={item.state}
+                aria-hidden="true"
+              />
+              <span className="branch-chip-tooltip__item-name">{item.name}</span>
+            </span>
+          ))}
+          {overflow > 0 ? (
+            <span className="branch-chip-tooltip__item branch-chip-tooltip__item--more">
+              +{overflow} more
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 

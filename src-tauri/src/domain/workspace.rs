@@ -41,6 +41,45 @@ pub enum PullRequestState {
     Closed,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ChecksRollupState {
+    Success,
+    Failure,
+    Pending,
+    Neutral,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ChecksItemState {
+    Success,
+    Failure,
+    Pending,
+    Skipped,
+    Neutral,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestCheckItem {
+    pub name: String,
+    pub state: ChecksItemState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestChecksSnapshot {
+    pub rollup: ChecksRollupState,
+    pub total: u32,
+    pub passed: u32,
+    pub failed: u32,
+    pub pending: u32,
+    pub items: Vec<PullRequestCheckItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentPullRequestSnapshot {
@@ -48,6 +87,8 @@ pub struct EnvironmentPullRequestSnapshot {
     pub title: String,
     pub url: String,
     pub state: PullRequestState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks: Option<PullRequestChecksSnapshot>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

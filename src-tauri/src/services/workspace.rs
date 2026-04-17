@@ -3746,6 +3746,7 @@ mod tests {
                         title: "Add PR sync".to_string(),
                         url: "https://github.com/acme/skein/pull/42".to_string(),
                         state: PullRequestState::Open,
+                        checks: None,
                     },
                 )]),
             )
