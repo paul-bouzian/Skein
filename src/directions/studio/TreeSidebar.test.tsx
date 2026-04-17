@@ -332,6 +332,79 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.reorderProjects).not.toHaveBeenCalled();
   });
 
+  it("focuses an already visible split thread from the sidebar without replacing the left pane", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-left",
+                kind: "local",
+                isDefault: true,
+                threads: [
+                  makeThread({
+                    id: "thread-left",
+                    environmentId: "env-left",
+                    title: "Left thread",
+                  }),
+                ],
+              }),
+              makeEnvironment({
+                id: "env-right",
+                kind: "managedWorktree",
+                isDefault: false,
+                name: "focus-me",
+                gitBranch: "focus-me",
+                threads: [
+                  makeThread({
+                    id: "thread-right",
+                    environmentId: "env-right",
+                    title: "Right thread",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      layout: {
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: "env-left",
+            threadId: "thread-left",
+          },
+          topRight: {
+            projectId: "project-1",
+            environmentId: "env-right",
+            threadId: "thread-right",
+          },
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topLeft",
+        rowRatio: 0.5,
+        colRatio: 0.5,
+      },
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-left",
+      selectedThreadId: "thread-left",
+    }));
+
+    renderSidebar();
+
+    fireEvent.click(screen.getByText("Right thread").closest("button")!);
+
+    const workspace = useWorkspaceStore.getState();
+    expect(workspace.layout.slots.topLeft?.threadId).toBe("thread-left");
+    expect(workspace.layout.slots.topRight?.threadId).toBe("thread-right");
+    expect(workspace.layout.focusedSlot).toBe("topRight");
+    expect(workspace.selectedEnvironmentId).toBe("env-right");
+    expect(workspace.selectedThreadId).toBe("thread-right");
+  });
+
   it("blocks project removal before confirmation when managed worktrees still exist", async () => {
     mockedBridge.ensureProjectCanBeRemoved.mockRejectedValue({
       code: "validation_error",

@@ -143,7 +143,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
 
   function handleThreadSelect(threadId: string) {
     resetMessages();
-    selectThread(threadId);
+    selectThread(threadId, { strategy: "preferVisiblePane" });
   }
 
   function handleOpenThreadInOtherPane(threadId: string) {
