@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from "react";
 
 import {
   SIDE_PANEL_MAX_WIDTH,
@@ -49,6 +49,20 @@ export function SidePanelResizer({
   onDraggingChange,
 }: Props) {
   const sessionRef = useRef<DragSession | null>(null);
+
+  // If the panel is hidden mid-drag the handle unmounts without firing
+  // pointerup, leaving `--tx-side-panel-width` at the preview value and
+  // the shell's `sidePanelDragging` stuck true. Commit whatever width
+  // the session reached on unmount.
+  useEffect(() => {
+    return () => {
+      const session = sessionRef.current;
+      if (!session) return;
+      sessionRef.current = null;
+      onResize(session.lastWidth);
+      onDraggingChange?.(false);
+    };
+  }, [onResize, onDraggingChange]);
 
   function endDrag(event: PointerEvent<HTMLDivElement>): void {
     const session = sessionRef.current;

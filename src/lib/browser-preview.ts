@@ -13,20 +13,50 @@
 
 export const PREVIEW_SCHEME = "skein-preview";
 const HOST_DELIMITER = "_";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
+const LOOPBACK_PATTERN =
+  /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(\/|$)/i;
 
+export function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname);
+}
+
+// Converts the text typed in the address bar into a navigable URL, or
+// returns `null` for values that don't parse as one. We auto-prefix bare
+// loopback with `http://`, auto-prefix anything dotted with `https://`,
+// then validate the result via `new URL()`.
 export function normalizeBrowserUrl(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (
-    /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?(\/|$)/i.test(trimmed)
-  ) {
-    return `http://${trimmed}`;
+
+  const candidate = buildCandidate(trimmed);
+  if (candidate === null) return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
   }
+}
+
+const DISALLOWED_SCHEMES = /^(file|javascript|data|about|vbscript|ftp):/i;
+
+function buildCandidate(trimmed: string): string | null {
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (DISALLOWED_SCHEMES.test(trimmed)) return null;
+  if (LOOPBACK_PATTERN.test(trimmed)) return `http://${trimmed}`;
   if (!trimmed.includes(".") && !trimmed.includes(":")) return null;
   return `https://${trimmed}`;
 }
 
+// Rewrite a loopback http(s) URL so the iframe loads it through the Rust
+// `skein-preview://` proxy, which strips frame-blocking response headers.
+// Non-loopback URLs are returned unchanged: they load directly and are
+// subject to the browser's normal iframe policies (X-Frame-Options, CSP),
+// so for sites like github.com / youtube.com users should use the
+// "Open externally" button instead of forcing an embed.
 export function toPreviewUrl(httpUrl: string): string {
   if (!httpUrl) return httpUrl;
   let parsed: URL;
@@ -38,10 +68,12 @@ export function toPreviewUrl(httpUrl: string): string {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return httpUrl;
   }
+  if (!isLoopbackHost(parsed.hostname)) {
+    return httpUrl;
+  }
   const scheme = parsed.protocol.slice(0, -1);
-  const host = parsed.hostname;
   const port = parsed.port ? `:${parsed.port}` : "";
-  return `${PREVIEW_SCHEME}://${scheme}${HOST_DELIMITER}${host}${port}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return `${PREVIEW_SCHEME}://${scheme}${HOST_DELIMITER}${parsed.hostname}${port}${parsed.pathname}${parsed.search}${parsed.hash}`;
 }
 
 export function fromPreviewUrl(previewUrl: string): string | null {
@@ -59,6 +91,7 @@ export function fromPreviewUrl(previewUrl: string): string | null {
   const scheme = host.slice(0, separator);
   const targetHost = host.slice(separator + 1);
   if (scheme !== "http" && scheme !== "https") return null;
+  if (!isLoopbackHost(targetHost)) return null;
   const port = parsed.port ? `:${parsed.port}` : "";
   return `${scheme}://${targetHost}${port}${parsed.pathname}${parsed.search}${parsed.hash}`;
 }

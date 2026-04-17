@@ -8,13 +8,15 @@ describe("scanForLocalhostUrls", () => {
     expect(urls).toEqual(["http://localhost:5173/"]);
   });
 
-  it("matches 127.0.0.1 and IPv6 loopback", () => {
-    const chunk = "API: http://127.0.0.1:3000 socket: http://[::1]:8080/ws";
+  it("matches 127.0.0.1 and 0.0.0.0", () => {
+    const chunk = "API: http://127.0.0.1:3000 bound on http://0.0.0.0:8080";
     const { urls } = scanForLocalhostUrls(chunk);
-    expect(urls).toEqual([
-      "http://127.0.0.1:3000",
-      "http://[::1]:8080/ws",
-    ]);
+    expect(urls).toEqual(["http://127.0.0.1:3000", "http://0.0.0.0:8080"]);
+  });
+
+  it("ignores IPv6 loopback (unsupported by preview proxy)", () => {
+    const { urls } = scanForLocalhostUrls("socket: http://[::1]:8080/ws");
+    expect(urls).toEqual([]);
   });
 
   it("strips ANSI color escapes before matching", () => {

@@ -18,22 +18,32 @@ export type DetectedUrl = {
   firstSeenAt: number;
 };
 
-type BrowserState = {
+export type BrowserEnvSlot = {
   tabs: BrowserTab[];
   activeTabId: string | null;
   detectedUrls: DetectedUrl[];
+};
 
-  openTab: (url?: string) => string | null;
-  closeTab: (id: string) => void;
-  activateTab: (id: string) => void;
+export const EMPTY_BROWSER_SLOT: BrowserEnvSlot = Object.freeze({
+  tabs: [],
+  activeTabId: null,
+  detectedUrls: [],
+}) as BrowserEnvSlot;
 
-  navigate: (url: string) => void;
-  back: () => void;
-  forward: () => void;
-  reload: () => void;
-  markLoaded: (tabId: string) => void;
+type BrowserState = {
+  byEnv: Record<string, BrowserEnvSlot>;
 
-  reportDetectedUrl: (url: string) => void;
+  openTab: (environmentId: string, url?: string) => string | null;
+  closeTab: (environmentId: string, id: string) => void;
+  activateTab: (environmentId: string, id: string) => void;
+
+  navigate: (environmentId: string, url: string) => void;
+  back: (environmentId: string) => void;
+  forward: (environmentId: string) => void;
+  reload: (environmentId: string) => void;
+  markLoaded: (environmentId: string, tabId: string) => void;
+
+  reportDetectedUrl: (environmentId: string, url: string) => void;
 };
 
 export function hostFromUrl(url: string): string {
@@ -57,151 +67,197 @@ function buildTab(initialUrl: string): BrowserTab {
   };
 }
 
-export const useBrowserStore = create<BrowserState>((set, get) => ({
-  tabs: [],
-  activeTabId: null,
-  detectedUrls: [],
+function emptySlot(): BrowserEnvSlot {
+  return { tabs: [], activeTabId: null, detectedUrls: [] };
+}
 
-  openTab: (url) => {
-    const state = get();
-    if (state.tabs.length >= MAX_BROWSER_TABS) {
+function updateSlot(
+  state: BrowserState,
+  environmentId: string,
+  update: (slot: BrowserEnvSlot) => BrowserEnvSlot | null,
+): Partial<BrowserState> | null {
+  const current = state.byEnv[environmentId] ?? emptySlot();
+  const next = update(current);
+  if (next === null || next === current) return null;
+  return { byEnv: { ...state.byEnv, [environmentId]: next } };
+}
+
+export const useBrowserStore = create<BrowserState>((set, get) => ({
+  byEnv: {},
+
+  openTab: (environmentId, url) => {
+    const slot = get().byEnv[environmentId] ?? emptySlot();
+    if (slot.tabs.length >= MAX_BROWSER_TABS) {
       return null;
     }
-    // If no URL is provided, auto-seed with the most-recently-detected
-    // localhost URL so fresh tabs land on the dev server without a click.
     const resolvedUrl =
-      url ?? state.detectedUrls[0]?.url ?? BROWSER_HOME_URL;
+      url ?? slot.detectedUrls[0]?.url ?? BROWSER_HOME_URL;
     const tab = buildTab(resolvedUrl);
-    set({ tabs: [...state.tabs, tab], activeTabId: tab.id });
+    const nextSlot: BrowserEnvSlot = {
+      ...slot,
+      tabs: [...slot.tabs, tab],
+      activeTabId: tab.id,
+    };
+    set((state) => ({
+      byEnv: { ...state.byEnv, [environmentId]: nextSlot },
+    }));
     return tab.id;
   },
 
-  closeTab: (id) => {
-    const state = get();
-    const index = state.tabs.findIndex((tab) => tab.id === id);
-    if (index === -1) return;
-    const nextTabs = state.tabs.filter((tab) => tab.id !== id);
-    let nextActive = state.activeTabId;
-    if (state.activeTabId === id) {
-      const fallback = nextTabs[index] ?? nextTabs[index - 1] ?? null;
-      nextActive = fallback ? fallback.id : null;
-    }
-    set({ tabs: nextTabs, activeTabId: nextActive });
-  },
-
-  activateTab: (id) => {
-    const state = get();
-    if (state.activeTabId === id) return;
-    if (!state.tabs.some((tab) => tab.id === id)) return;
-    set({ activeTabId: id });
-  },
-
-  navigate: (url) => {
-    const state = get();
-    const activeId = state.activeTabId;
-    if (!activeId) return;
-    const nextTabs = state.tabs.map((tab) => {
-      if (tab.id !== activeId) return tab;
-      const trimmedHistory = tab.history.slice(0, tab.cursor + 1);
-      const nextHistory = [...trimmedHistory, url];
-      return {
-        ...tab,
-        history: nextHistory,
-        cursor: nextHistory.length - 1,
-        pending: true,
-        title: hostFromUrl(url),
-      };
-    });
-    set({ tabs: nextTabs });
-  },
-
-  back: () => {
-    const state = get();
-    const activeId = state.activeTabId;
-    if (!activeId) return;
-    const nextTabs = state.tabs.map((tab) => {
-      if (tab.id !== activeId || tab.cursor <= 0) return tab;
-      const nextCursor = tab.cursor - 1;
-      return {
-        ...tab,
-        cursor: nextCursor,
-        pending: true,
-        title: hostFromUrl(tab.history[nextCursor] ?? ""),
-      };
-    });
-    set({ tabs: nextTabs });
-  },
-
-  forward: () => {
-    const state = get();
-    const activeId = state.activeTabId;
-    if (!activeId) return;
-    const nextTabs = state.tabs.map((tab) => {
-      if (tab.id !== activeId || tab.cursor >= tab.history.length - 1) {
-        return tab;
+  closeTab: (environmentId, id) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const index = slot.tabs.findIndex((tab) => tab.id === id);
+      if (index === -1) return null;
+      const nextTabs = slot.tabs.filter((tab) => tab.id !== id);
+      let nextActive = slot.activeTabId;
+      if (slot.activeTabId === id) {
+        const fallback = nextTabs[index] ?? nextTabs[index - 1] ?? null;
+        nextActive = fallback ? fallback.id : null;
       }
-      const nextCursor = tab.cursor + 1;
+      return { ...slot, tabs: nextTabs, activeTabId: nextActive };
+    });
+    if (patch) set(patch);
+  },
+
+  activateTab: (environmentId, id) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      if (slot.activeTabId === id) return null;
+      if (!slot.tabs.some((tab) => tab.id === id)) return null;
+      return { ...slot, activeTabId: id };
+    });
+    if (patch) set(patch);
+  },
+
+  navigate: (environmentId, url) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const activeId = slot.activeTabId;
+      if (!activeId) return null;
+      const nextTabs = slot.tabs.map((tab) => {
+        if (tab.id !== activeId) return tab;
+        const trimmed = tab.history.slice(0, tab.cursor + 1);
+        const nextHistory = [...trimmed, url];
+        return {
+          ...tab,
+          history: nextHistory,
+          cursor: nextHistory.length - 1,
+          pending: true,
+          title: hostFromUrl(url),
+        };
+      });
+      return { ...slot, tabs: nextTabs };
+    });
+    if (patch) set(patch);
+  },
+
+  back: (environmentId) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const activeId = slot.activeTabId;
+      if (!activeId) return null;
+      const nextTabs = slot.tabs.map((tab) => {
+        if (tab.id !== activeId || tab.cursor <= 0) return tab;
+        const nextCursor = tab.cursor - 1;
+        return {
+          ...tab,
+          cursor: nextCursor,
+          pending: true,
+          title: hostFromUrl(tab.history[nextCursor] ?? ""),
+        };
+      });
+      return { ...slot, tabs: nextTabs };
+    });
+    if (patch) set(patch);
+  },
+
+  forward: (environmentId) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const activeId = slot.activeTabId;
+      if (!activeId) return null;
+      const nextTabs = slot.tabs.map((tab) => {
+        if (tab.id !== activeId || tab.cursor >= tab.history.length - 1) {
+          return tab;
+        }
+        const nextCursor = tab.cursor + 1;
+        return {
+          ...tab,
+          cursor: nextCursor,
+          pending: true,
+          title: hostFromUrl(tab.history[nextCursor] ?? ""),
+        };
+      });
+      return { ...slot, tabs: nextTabs };
+    });
+    if (patch) set(patch);
+  },
+
+  reload: (environmentId) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const activeId = slot.activeTabId;
+      if (!activeId) return null;
       return {
-        ...tab,
-        cursor: nextCursor,
-        pending: true,
-        title: hostFromUrl(tab.history[nextCursor] ?? ""),
+        ...slot,
+        tabs: slot.tabs.map((tab) =>
+          tab.id === activeId
+            ? { ...tab, reloadNonce: tab.reloadNonce + 1, pending: true }
+            : tab,
+        ),
       };
     });
-    set({ tabs: nextTabs });
+    if (patch) set(patch);
   },
 
-  reload: () => {
-    const state = get();
-    const activeId = state.activeTabId;
-    if (!activeId) return;
-    const nextTabs = state.tabs.map((tab) =>
-      tab.id === activeId
-        ? { ...tab, reloadNonce: tab.reloadNonce + 1, pending: true }
-        : tab,
-    );
-    set({ tabs: nextTabs });
-  },
-
-  markLoaded: (tabId) => {
-    const state = get();
-    if (!state.tabs.some((tab) => tab.id === tabId && tab.pending)) return;
-    set({
-      tabs: state.tabs.map((tab) =>
-        tab.id === tabId ? { ...tab, pending: false } : tab,
-      ),
+  markLoaded: (environmentId, tabId) => {
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      if (!slot.tabs.some((tab) => tab.id === tabId && tab.pending)) {
+        return null;
+      }
+      return {
+        ...slot,
+        tabs: slot.tabs.map((tab) =>
+          tab.id === tabId ? { ...tab, pending: false } : tab,
+        ),
+      };
     });
+    if (patch) set(patch);
   },
 
-  reportDetectedUrl: (url) => {
+  reportDetectedUrl: (environmentId, url) => {
     if (!url) return;
-    const state = get();
-    const existing = state.detectedUrls.filter((entry) => entry.url !== url);
-    const next: DetectedUrl[] = [
-      { url, firstSeenAt: Date.now() },
-      ...existing,
-    ].slice(0, DETECTED_URLS_LIMIT);
-    set({ detectedUrls: next });
+    const patch = updateSlot(get(), environmentId, (slot) => {
+      const existing = slot.detectedUrls.filter((entry) => entry.url !== url);
+      const next: DetectedUrl[] = [
+        { url, firstSeenAt: Date.now() },
+        ...existing,
+      ].slice(0, DETECTED_URLS_LIMIT);
+      return { ...slot, detectedUrls: next };
+    });
+    if (patch) set(patch);
   },
 }));
 
-export function selectActiveTab(state: BrowserState): BrowserTab | null {
-  if (!state.activeTabId) return null;
-  return state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
+export function selectBrowserSlot(environmentId: string | null) {
+  return (state: BrowserState): BrowserEnvSlot => {
+    if (!environmentId) return EMPTY_BROWSER_SLOT;
+    return state.byEnv[environmentId] ?? EMPTY_BROWSER_SLOT;
+  };
 }
 
-export function selectCurrentUrl(state: BrowserState): string | null {
-  const tab = selectActiveTab(state);
+export function selectActiveTab(slot: BrowserEnvSlot): BrowserTab | null {
+  if (!slot.activeTabId) return null;
+  return slot.tabs.find((tab) => tab.id === slot.activeTabId) ?? null;
+}
+
+export function selectCurrentUrl(slot: BrowserEnvSlot): string | null {
+  const tab = selectActiveTab(slot);
   if (!tab) return null;
   return tab.history[tab.cursor] ?? null;
 }
 
-export function selectCanGoBack(state: BrowserState): boolean {
-  const tab = selectActiveTab(state);
+export function selectCanGoBack(slot: BrowserEnvSlot): boolean {
+  const tab = selectActiveTab(slot);
   return tab ? tab.cursor > 0 : false;
 }
 
-export function selectCanGoForward(state: BrowserState): boolean {
-  const tab = selectActiveTab(state);
+export function selectCanGoForward(slot: BrowserEnvSlot): boolean {
+  const tab = selectActiveTab(slot);
   return tab ? tab.cursor < tab.history.length - 1 : false;
 }

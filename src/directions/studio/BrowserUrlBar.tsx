@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import { normalizeBrowserUrl } from "../../lib/browser-preview";
 import {
@@ -36,13 +36,18 @@ export function BrowserUrlBar({
   onOpenExternal,
 }: Props) {
   const datalistId = useId();
-  const [draft, setDraft] = useState(currentUrl);
+  const [draftState, setDraftState] = useState<{
+    sourceUrl: string;
+    value: string;
+  }>(() => ({ sourceUrl: currentUrl, value: currentUrl }));
 
-  useEffect(() => {
-    setDraft(currentUrl);
-  }, [currentUrl]);
+  // Derive the displayed value without a mirroring useEffect: if the
+  // parent pushed a new URL since the user last typed, show that URL;
+  // otherwise show the in-progress draft.
+  const draft =
+    draftState.sourceUrl === currentUrl ? draftState.value : currentUrl;
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const normalized = normalizeBrowserUrl(draft);
     if (!normalized) return;
@@ -96,7 +101,9 @@ export function BrowserUrlBar({
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) =>
+          setDraftState({ sourceUrl: currentUrl, value: event.target.value })
+        }
       />
       <datalist id={datalistId}>
         {detectedUrls.map((entry) => (

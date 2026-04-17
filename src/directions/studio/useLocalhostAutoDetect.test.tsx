@@ -62,11 +62,7 @@ beforeEach(() => {
   listeners.clear();
   vi.clearAllMocks();
   useTerminalStore.setState({ byEnv: {}, knownEnvironmentIds: [] });
-  useBrowserStore.setState({
-    tabs: [],
-    activeTabId: null,
-    detectedUrls: [],
-  });
+  useBrowserStore.setState({ byEnv: {} });
 });
 
 afterEach(() => {
@@ -94,11 +90,14 @@ describe("useLocalhostAutoDetect", () => {
       emit("pty-2", "server listening at http://127.0.0.1:3000\n");
     });
 
-    const detected = useBrowserStore
-      .getState()
-      .detectedUrls.map((entry) => entry.url);
-    expect(detected).toContain("http://localhost:5173/");
-    expect(detected).toContain("http://127.0.0.1:3000");
+    const envA = useBrowserStore.getState().byEnv["env-a"];
+    const envB = useBrowserStore.getState().byEnv["env-b"];
+    expect(envA.detectedUrls.map((d) => d.url)).toEqual([
+      "http://localhost:5173/",
+    ]);
+    expect(envB.detectedUrls.map((d) => d.url)).toEqual([
+      "http://127.0.0.1:3000",
+    ]);
   });
 
   it("unsubscribes when a tab is removed", () => {
@@ -120,5 +119,61 @@ describe("useLocalhostAutoDetect", () => {
       });
     });
     expect(listeners.get("pty-1")).toBeUndefined();
+  });
+
+  it("does not re-subscribe existing PTYs when a new one is added", () => {
+    useTerminalStore.setState({
+      byEnv: {
+        "env-a": buildSlot([{ id: "tab-1", ptyId: "pty-1" }]),
+      },
+      knownEnvironmentIds: ["env-a"],
+    });
+    render(<Host />);
+    expect(terminalOutputBus.subscribeToTerminalOutput).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useTerminalStore.setState({
+        byEnv: {
+          "env-a": buildSlot([
+            { id: "tab-1", ptyId: "pty-1" },
+            { id: "tab-2", ptyId: "pty-2" },
+          ]),
+        },
+      });
+    });
+    // One new subscribe for pty-2, the existing pty-1 subscription is reused.
+    expect(terminalOutputBus.subscribeToTerminalOutput).toHaveBeenCalledTimes(2);
+    expect(listeners.get("pty-1")?.length ?? 0).toBe(1);
+    expect(listeners.get("pty-2")?.length ?? 0).toBe(1);
+  });
+
+  it("keeps per-PTY decoders so interleaved multi-byte output does not corrupt", () => {
+    useTerminalStore.setState({
+      byEnv: {
+        "env-a": buildSlot([
+          { id: "tab-1", ptyId: "pty-1" },
+          { id: "tab-2", ptyId: "pty-2" },
+        ]),
+      },
+      knownEnvironmentIds: ["env-a"],
+    });
+    render(<Host />);
+
+    // Send the first 2 bytes of a 3-byte UTF-8 character to pty-1, then a
+    // whole chunk to pty-2, then the final byte to pty-1. With separate
+    // decoders this produces clean output; with a shared decoder the third
+    // byte would be interpreted as part of pty-2's trailing state.
+    const euroBytes = new TextEncoder().encode("€"); // 3 bytes
+    const pty1Head = euroBytes.slice(0, 2);
+    const pty1Tail = euroBytes.slice(2);
+    act(() => {
+      listeners.get("pty-1")?.[0](pty1Head);
+      emit("pty-2", "http://localhost:3000/ok\n");
+      listeners.get("pty-1")?.[0](pty1Tail);
+    });
+    const detected = useBrowserStore
+      .getState()
+      .byEnv["env-a"].detectedUrls.map((entry) => entry.url);
+    expect(detected).toContain("http://localhost:3000/ok");
   });
 });

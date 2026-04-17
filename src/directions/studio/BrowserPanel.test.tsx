@@ -1,12 +1,34 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useBrowserStore } from "../../stores/browser-store";
+import {
+  makeEnvironment,
+  makeProject,
+  makeWorkspaceSnapshot,
+} from "../../test/fixtures/conversation";
+import {
+  selectBrowserSlot,
+  useBrowserStore,
+} from "../../stores/browser-store";
+import { useWorkspaceStore } from "../../stores/workspace-store";
 import { BrowserPanel } from "./BrowserPanel";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn().mockResolvedValue(undefined),
 }));
+
+const ENV = "env-a";
+
+function slot() {
+  return selectBrowserSlot(ENV)(useBrowserStore.getState());
+}
+
+function selectEnvironment(): void {
+  useWorkspaceStore.setState({
+    selectedEnvironmentId: ENV,
+    selectedProjectId: "project-a",
+  } as Partial<ReturnType<typeof useWorkspaceStore.getState>>);
+}
 
 const storageState = new Map<string, string>();
 
@@ -27,11 +49,19 @@ beforeEach(() => {
       },
     },
   });
-  useBrowserStore.setState({
-    tabs: [],
-    activeTabId: null,
-    detectedUrls: [],
+  useBrowserStore.setState({ byEnv: {} });
+  const snapshot = makeWorkspaceSnapshot({
+    projects: [
+      makeProject({
+        id: "project-a",
+        environments: [makeEnvironment({ id: ENV, projectId: "project-a" })],
+      }),
+    ],
   });
+  useWorkspaceStore.setState({
+    snapshot,
+  } as Partial<ReturnType<typeof useWorkspaceStore.getState>>);
+  selectEnvironment();
 });
 
 afterEach(() => {
@@ -41,22 +71,18 @@ afterEach(() => {
 describe("BrowserPanel", () => {
   it("auto-creates a tab when opened empty", () => {
     render(<BrowserPanel />);
-    expect(useBrowserStore.getState().tabs.length).toBe(1);
+    expect(slot().tabs.length).toBe(1);
   });
 
   it("does not auto-create a tab when collapsed", () => {
     render(<BrowserPanel collapsed />);
-    expect(useBrowserStore.getState().tabs.length).toBe(0);
+    expect(slot().tabs.length).toBe(0);
   });
 
   it("renders back/forward/reload buttons with correct disabled state", () => {
     render(<BrowserPanel />);
-    expect(
-      screen.getByRole("button", { name: "Back" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Forward" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Forward" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Reload" })).toBeEnabled();
   });
 
@@ -69,72 +95,78 @@ describe("BrowserPanel", () => {
     const form = input.closest("form");
     expect(form).not.toBeNull();
     fireEvent.submit(form!);
-    const tab = useBrowserStore.getState().tabs[0];
-    expect(tab.history[tab.cursor]).toBe("http://localhost:5173");
+    const tab = slot().tabs[0];
+    expect(tab.history[tab.cursor]).toBe("http://localhost:5173/");
   });
 
   it("back becomes enabled after navigating once", () => {
     render(<BrowserPanel />);
     act(() => {
-      useBrowserStore.getState().navigate("http://localhost:5173");
+      useBrowserStore.getState().navigate(ENV, "http://localhost:5173");
     });
-    expect(
-      screen.getByRole("button", { name: "Back" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Back" })).toBeEnabled();
   });
 
   it("rendering more tabs keeps inactive iframes hidden", () => {
     const { container } = render(<BrowserPanel />);
     act(() => {
-      useBrowserStore.getState().openTab("http://a");
-      useBrowserStore.getState().openTab("http://b");
+      useBrowserStore.getState().openTab(ENV, "http://a");
+      useBrowserStore.getState().openTab(ENV, "http://b");
     });
     const frames = container.querySelectorAll("[data-testid='browser-frame']");
-    // 1 auto + 2 manually added = 3 frames, all kept alive.
     expect(frames.length).toBe(3);
     const hidden = container.querySelectorAll(".browser-frame--hidden");
-    // Only the active frame is non-hidden, so N-1 hidden.
     expect(hidden.length).toBe(2);
   });
 
   it("auto-navigates a pristine blank tab to the most recent detected URL", () => {
     act(() => {
-      useBrowserStore.getState().reportDetectedUrl("http://localhost:5173");
+      useBrowserStore
+        .getState()
+        .reportDetectedUrl(ENV, "http://localhost:5173");
     });
     render(<BrowserPanel />);
-    const tab = useBrowserStore.getState().tabs[0];
+    const tab = slot().tabs[0];
     expect(tab.history[tab.cursor]).toBe("http://localhost:5173");
   });
 
   it("does not hijack a tab that has already been navigated", () => {
     render(<BrowserPanel />);
     act(() => {
-      useBrowserStore.getState().navigate("http://localhost:3000");
+      useBrowserStore.getState().navigate(ENV, "http://localhost:3000");
     });
     act(() => {
-      useBrowserStore.getState().reportDetectedUrl("http://localhost:5173");
+      useBrowserStore
+        .getState()
+        .reportDetectedUrl(ENV, "http://localhost:5173");
     });
-    const tab = useBrowserStore.getState().tabs[0];
+    const tab = slot().tabs[0];
     expect(tab.history[tab.cursor]).toBe("http://localhost:3000");
   });
 
   it("new tab opened after a URL was detected lands on that URL", () => {
     act(() => {
-      useBrowserStore.getState().reportDetectedUrl("http://localhost:5173");
+      useBrowserStore
+        .getState()
+        .reportDetectedUrl(ENV, "http://localhost:5173");
     });
     render(<BrowserPanel />);
     act(() => {
-      useBrowserStore.getState().openTab();
+      useBrowserStore.getState().openTab(ENV);
     });
-    const tabs = useBrowserStore.getState().tabs;
+    const tabs = slot().tabs;
     const newTab = tabs[tabs.length - 1];
     expect(newTab.history[0]).toBe("http://localhost:5173");
   });
 
   it("surfaces detectedUrls as datalist options", () => {
     act(() => {
-      useBrowserStore.getState().reportDetectedUrl("http://localhost:5173");
-      useBrowserStore.getState().reportDetectedUrl("http://localhost:3000");
+      useBrowserStore
+        .getState()
+        .reportDetectedUrl(ENV, "http://localhost:5173");
+      useBrowserStore
+        .getState()
+        .reportDetectedUrl(ENV, "http://localhost:3000");
     });
     const { container } = render(<BrowserPanel />);
     const options = container.querySelectorAll("datalist option");

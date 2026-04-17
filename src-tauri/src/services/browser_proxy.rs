@@ -8,6 +8,11 @@
 // forwards the body back to the webview. Relative sub-resources resolve
 // against the preview host and flow through the proxy too; absolute URLs
 // baked into the page bypass it and may fail — a documented v1 limit.
+//
+// Targets are locked to loopback (`localhost`, `127.0.0.1`, `0.0.0.0`) so
+// the proxy cannot be repurposed into a general-purpose header-stripping
+// fetcher against arbitrary remote hosts. Non-loopback URIs are rejected
+// with 403.
 
 use std::time::Duration;
 
@@ -20,19 +25,25 @@ pub const PREVIEW_SCHEME: &str = "skein-preview";
 const HOST_DELIMITER: char = '_';
 const PROXY_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "0.0.0.0")
+}
+
 pub fn build_client() -> Client {
     Client::builder()
         .timeout(PROXY_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(10))
-        // This is a trust-the-user local dev tool — self-signed certs on
-        // dev servers are common and expected.
+        // Cert validation is disabled only because the proxy is restricted to
+        // loopback targets (see `decode_preview_url`). Self-signed certs on
+        // local dev servers are common there.
         .danger_accept_invalid_certs(true)
         .build()
         .expect("reqwest client can be built with valid defaults")
 }
 
 /// Decode a `skein-preview://…` URL into the real `http(s)://…` target.
-/// Returns `None` for malformed URIs.
+/// Returns `None` for malformed URIs or for non-loopback hosts — the proxy
+/// is intentionally limited to local dev servers.
 pub fn decode_preview_url(preview_url: &str) -> Option<Url> {
     let parsed = Url::parse(preview_url).ok()?;
     if parsed.scheme() != PREVIEW_SCHEME {
@@ -40,6 +51,9 @@ pub fn decode_preview_url(preview_url: &str) -> Option<Url> {
     }
     let (scheme, target_host) = parsed.host_str()?.split_once(HOST_DELIMITER)?;
     if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    if !is_loopback_host(target_host) {
         return None;
     }
     let mut rebuilt = format!("{scheme}://{target_host}");
@@ -129,7 +143,10 @@ pub async fn handle_request(
     client: &Client,
 ) -> Response<Vec<u8>> {
     let Some(target) = decode_preview_url(&request.uri().to_string()) else {
-        return error_response(StatusCode::BAD_REQUEST, "Invalid preview URL.");
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "The integrated browser only proxies loopback URLs.",
+        );
     };
 
     let mut forwarded = HeaderMap::new();
@@ -196,9 +213,9 @@ mod tests {
     }
 
     #[test]
-    fn decodes_https_scheme() {
-        let decoded = decode_preview_url("skein-preview://https_api.example.com/v1").unwrap();
-        assert_eq!(decoded.as_str(), "https://api.example.com/v1");
+    fn decodes_https_loopback() {
+        let decoded = decode_preview_url("skein-preview://https_localhost:8443/v1").unwrap();
+        assert_eq!(decoded.as_str(), "https://localhost:8443/v1");
     }
 
     #[test]
@@ -209,6 +226,20 @@ mod tests {
     #[test]
     fn rejects_wrong_outer_scheme() {
         assert!(decode_preview_url("http://localhost:3000/").is_none());
+    }
+
+    #[test]
+    fn rejects_non_loopback_host() {
+        assert!(decode_preview_url("skein-preview://http_example.com/path").is_none());
+        assert!(decode_preview_url("skein-preview://https_api.github.com/v3").is_none());
+        assert!(decode_preview_url("skein-preview://http_192.168.1.1/").is_none());
+    }
+
+    #[test]
+    fn accepts_loopback_variants() {
+        assert!(decode_preview_url("skein-preview://http_localhost:3000/").is_some());
+        assert!(decode_preview_url("skein-preview://http_127.0.0.1:3000/").is_some());
+        assert!(decode_preview_url("skein-preview://http_0.0.0.0:3000/").is_some());
     }
 
     #[test]
