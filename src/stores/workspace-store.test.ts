@@ -1109,6 +1109,70 @@ describe("workspace store — grid 2x2 panes", () => {
     expect(slots().topRight?.threadId).toBe("thread-a-2");
   });
 
+  it("selectThread with preferVisiblePane focuses an already visible thread instead of replacing the focused pane", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+    useWorkspaceStore.getState().focusPane("topLeft");
+
+    useWorkspaceStore
+      .getState()
+      .selectThread("thread-b-1", { strategy: "preferVisiblePane" });
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-b-1");
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topRight");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-b-1");
+  });
+
+  it("selectThread with preferVisiblePane replaces the focused pane when the thread is not visible", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-b-1");
+    useWorkspaceStore.getState().focusPane("topLeft");
+
+    useWorkspaceStore
+      .getState()
+      .selectThread("thread-a-2", { strategy: "preferVisiblePane" });
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-2");
+    expect(slots().topRight?.threadId).toBe("thread-b-1");
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a-2");
+  });
+
+  it("selectThread with preferVisiblePane keeps a focused duplicate pane in place", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().openThreadInOtherPane("thread-a-1");
+
+    useWorkspaceStore
+      .getState()
+      .selectThread("thread-a-1", { strategy: "preferVisiblePane" });
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-a-1");
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topRight");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a-1");
+  });
+
+  it("selectThread with preferVisiblePane focuses the first visible duplicate when another pane is focused", () => {
+    seedTwoThreadWorkspace();
+    useWorkspaceStore.getState().dropThreadInDirection("right", "thread-a-1");
+    useWorkspaceStore.getState().openThreadInOtherPane("thread-a-1");
+    useWorkspaceStore.getState().dropThreadInDirection("bottom", "thread-b-1");
+
+    useWorkspaceStore
+      .getState()
+      .selectThread("thread-a-1", { strategy: "preferVisiblePane" });
+
+    expect(slots().topLeft?.threadId).toBe("thread-a-1");
+    expect(slots().topRight?.threadId).toBe("thread-a-1");
+    expect(slots().bottomLeft?.threadId).toBe("thread-b-1");
+    expect(useWorkspaceStore.getState().layout.focusedSlot).toBe("topLeft");
+    expect(useWorkspaceStore.getState().selectedThreadId).toBe("thread-a-1");
+  });
+
   describe("thread draft state", () => {
     function drafts() {
       return useWorkspaceStore.getState().draftBySlot;
