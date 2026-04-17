@@ -297,8 +297,6 @@ function SettingsRange({
           onChange={(event) => updateDraft(Number(event.target.value))}
           onBlur={() => persistDraft()}
           onPointerUp={() => persistDraft()}
-          onMouseUp={() => persistDraft()}
-          onTouchEnd={() => persistDraft()}
           onKeyUp={handleKeyUp}
         />
       </div>

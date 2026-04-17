@@ -1044,12 +1044,18 @@ impl RuntimeSession {
             return;
         }
 
+        let hidden_start = input.text.len();
         if !input.text.is_empty() {
             input.text.push_str("\n\n");
         }
         input.text.push_str(&multi_agent_nudge_text(
             context.multi_agent_nudge_max_subagents,
         ));
+        input.text_elements.push(OutgoingTextElement {
+            start: hidden_start,
+            end: input.text.len(),
+            placeholder: Some(String::new()),
+        });
     }
 
     async fn send_message_with_visibility(

@@ -83,4 +83,30 @@ describe("CodexSettingsTab", () => {
 
     expect(onChange).toHaveBeenLastCalledWith({ multiAgentNudgeMaxSubagents: 6 });
   });
+
+  it("does not save the slider twice when pointer and mouse release both fire", () => {
+    const onChange = vi.fn();
+
+    render(
+      <CodexSettingsTab
+        disabled={false}
+        menuZIndex={1310}
+        modelOptions={[...MODEL_OPTIONS]}
+        rangeDisabled={false}
+        settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
+        onChange={onChange}
+      />,
+    );
+
+    const slider = screen.getByRole("slider", { name: "Max subagents" });
+    fireEvent.change(slider, {
+      target: { value: "6" },
+    });
+
+    fireEvent.pointerUp(slider);
+    fireEvent.mouseUp(slider);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ multiAgentNudgeMaxSubagents: 6 });
+  });
 });

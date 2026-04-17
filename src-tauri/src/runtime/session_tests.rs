@@ -730,6 +730,7 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
 #[tokio::test]
 async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapshot_text() {
     let (session, harness) = FakeCodexHarness::new().await;
+    let visible_text = "Parallelize this";
     let mut runtime_context = context(
         "thread-local-multi-agent",
         None,
@@ -740,7 +741,7 @@ async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapsho
     runtime_context.multi_agent_nudge_max_subagents = 6;
 
     let result = session
-        .send_message(runtime_context, "Parallelize this".to_string(), Vec::new())
+        .send_message(runtime_context, visible_text.to_string(), Vec::new())
         .await
         .expect("message should send");
 
@@ -751,7 +752,15 @@ async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapsho
         .expect("turn/start should be issued");
     assert_eq!(
         turn_start.params["input"][0]["text"],
-        format!("Parallelize this\n\n{}", expected_multi_agent_nudge_text(6))
+        format!("{visible_text}\n\n{}", expected_multi_agent_nudge_text(6))
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["byteRange"]["start"],
+        visible_text.len()
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["placeholder"],
+        ""
     );
 
     let user_message = result
@@ -766,7 +775,7 @@ async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapsho
             _ => None,
         })
         .expect("visible user message should exist");
-    assert_eq!(user_message.text, "Parallelize this");
+    assert_eq!(user_message.text, visible_text);
 }
 
 #[tokio::test]
@@ -800,6 +809,14 @@ async fn send_message_appends_multi_agent_nudge_for_visible_image_only_messages(
     assert_eq!(
         turn_start.params["input"][0]["text"],
         expected_multi_agent_nudge_text(4)
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["byteRange"]["start"],
+        0
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["placeholder"],
+        ""
     );
     assert_eq!(turn_start.params["input"][1]["type"], "localImage");
     assert_eq!(turn_start.params["input"][1]["path"], "/tmp/mock-image.png");
