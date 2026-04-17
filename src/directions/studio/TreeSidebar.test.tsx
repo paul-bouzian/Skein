@@ -785,7 +785,7 @@ describe("TreeSidebar", () => {
     ).not.toBeNull();
   });
 
-  it.skip("shows neutral indicators when local and worktree environments have no active threads", () => {
+  it.skip("keeps worktree indicators neutral when local and worktree environments have no active threads", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -828,8 +828,8 @@ describe("TreeSidebar", () => {
     const { container } = renderSidebar();
 
     expect(
-      container.querySelector(".project-group__header .runtime-indicator__dot--neutral"),
-    ).not.toBeNull();
+      container.querySelector(".project-group__header .runtime-indicator"),
+    ).toBeNull();
     const row = screen.getByRole("button", { name: /slate-hawk/i });
     expect(row.querySelector(".runtime-indicator__dot--neutral")).not.toBeNull();
     expect(
@@ -1355,6 +1355,22 @@ describe("TreeSidebar", () => {
     );
 
     expect(mockedBridge.setProjectSidebarCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("renders the project row without the local branch label or project indicator", () => {
+    const { container } = renderSidebar();
+    const projectHeader =
+      container.querySelector<HTMLElement>(".project-group__header");
+
+    expect(projectHeader).not.toBeNull();
+    if (!projectHeader) {
+      throw new Error("Expected the project header to render");
+    }
+
+    expect(projectHeader.querySelector(".project-group__branch")).toBeNull();
+    expect(projectHeader.querySelector(".runtime-indicator")).toBeNull();
+    expect(projectHeader).toHaveTextContent("Skein");
+    expect(projectHeader).not.toHaveTextContent("main");
   });
 
   it("toggles project collapse from the project button with Enter and Space", async () => {

@@ -577,7 +577,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                     />
                     <span className="project-group__meta">
                       <span className="project-group__name">{project.name}</span>
-                      <ProjectLocalSummary project={project} />
                     </span>
                   </button>
                   <Tooltip content="Project menu" side="bottom">
@@ -761,31 +760,6 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
           document.body,
         )}
     </aside>
-  );
-}
-
-function ProjectLocalSummary({
-  project,
-}: {
-  project: {
-    environments: EnvironmentRecord[];
-  };
-}) {
-  const environment =
-    project.environments.find((candidate) => candidate.kind === "local") ??
-    project.environments.find((candidate) => candidate.isDefault) ??
-    project.environments[0];
-  if (!environment) return null;
-
-  return (
-    <span className="project-group__summary">
-      {environment.gitBranch ? (
-        <span className="project-group__branch" title={environment.gitBranch}>
-          {environment.gitBranch}
-        </span>
-      ) : null}
-      <EnvironmentConversationIndicator environment={environment} />
-    </span>
   );
 }
 
