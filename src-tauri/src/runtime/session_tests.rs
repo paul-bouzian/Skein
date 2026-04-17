@@ -7,12 +7,11 @@ use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream}
 use tokio::sync::Mutex;
 
 use crate::domain::conversation::{
-    ConversationComposerSettings, ConversationItem, ConversationRole,
+    ConversationComposerSettings, ConversationImageAttachment, ConversationItem, ConversationRole,
 };
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
 use crate::runtime::protocol::AGENT_MESSAGE_DELTA_METHOD;
-use crate::runtime::session::multi_agent_nudge_text;
 use crate::services::workspace::ThreadRuntimeContext;
 
 use super::session::RuntimeSession;
@@ -135,6 +134,12 @@ fn inter_agent_control_message(agent_path: &str) -> String {
     )
 }
 
+fn expected_multi_agent_nudge_text(max_subagents: u8) -> String {
+    format!(
+        "Additional instruction: if it would improve quality or speed, proactively use sub-agents instead of waiting to be asked. You may spawn up to {max_subagents} sub-agents for parallelizable or well-scoped work, but only when they add clear value."
+    )
+}
+
 fn spawn_fake_codex(
     reader: DuplexStream,
     writer: Arc<Mutex<DuplexStream>>,
@@ -180,6 +185,7 @@ fn spawn_fake_codex(
                             {"reasoningEffort": "xhigh"}
                         ],
                         "defaultReasoningEffort": "high",
+                        "inputModalities": ["text", "image"],
                         "additionalSpeedTiers": ["fast"],
                         "isDefault": true,
                         "hidden": false
@@ -745,7 +751,7 @@ async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapsho
         .expect("turn/start should be issued");
     assert_eq!(
         turn_start.params["input"][0]["text"],
-        format!("Parallelize this\n\n{}", multi_agent_nudge_text(6))
+        format!("Parallelize this\n\n{}", expected_multi_agent_nudge_text(6))
     );
 
     let user_message = result
@@ -761,6 +767,62 @@ async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapsho
         })
         .expect("visible user message should exist");
     assert_eq!(user_message.text, "Parallelize this");
+}
+
+#[tokio::test]
+async fn send_message_appends_multi_agent_nudge_for_visible_image_only_messages() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let mut runtime_context = context(
+        "thread-local-multi-agent-image-only",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.multi_agent_nudge_enabled = true;
+    runtime_context.multi_agent_nudge_max_subagents = 4;
+
+    let result = session
+        .send_message(
+            runtime_context,
+            String::new(),
+            vec![ConversationImageAttachment::LocalImage {
+                path: "/tmp/mock-image.png".to_string(),
+            }],
+        )
+        .await
+        .expect("image-only message should send");
+
+    let requests = harness.requests().await;
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+    assert_eq!(
+        turn_start.params["input"][0]["text"],
+        expected_multi_agent_nudge_text(4)
+    );
+    assert_eq!(turn_start.params["input"][1]["type"], "localImage");
+    assert_eq!(turn_start.params["input"][1]["path"], "/tmp/mock-image.png");
+
+    let user_message = result
+        .snapshot
+        .items
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            ConversationItem::Message(message) if message.role == ConversationRole::User => {
+                Some(message)
+            }
+            _ => None,
+        })
+        .expect("visible user message should exist");
+    assert_eq!(user_message.text, "");
+    assert_eq!(
+        user_message.images,
+        Some(vec![ConversationImageAttachment::LocalImage {
+            path: "/tmp/mock-image.png".to_string(),
+        }])
+    );
 }
 
 #[tokio::test]

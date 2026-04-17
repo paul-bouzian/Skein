@@ -14,6 +14,7 @@ describe("CodexSettingsTab", () => {
         disabled={false}
         menuZIndex={1310}
         modelOptions={[...MODEL_OPTIONS]}
+        rangeDisabled={false}
         settings={makeGlobalSettings()}
         onChange={() => undefined}
       />,
@@ -29,6 +30,7 @@ describe("CodexSettingsTab", () => {
         disabled={true}
         menuZIndex={1310}
         modelOptions={[...MODEL_OPTIONS]}
+        rangeDisabled={false}
         settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
         onChange={() => undefined}
       />,
@@ -46,6 +48,7 @@ describe("CodexSettingsTab", () => {
         disabled={false}
         menuZIndex={1310}
         modelOptions={[...MODEL_OPTIONS]}
+        rangeDisabled={false}
         settings={makeGlobalSettings()}
         onChange={onChange}
       />,
@@ -64,6 +67,7 @@ describe("CodexSettingsTab", () => {
         disabled={false}
         menuZIndex={1310}
         modelOptions={[...MODEL_OPTIONS]}
+        rangeDisabled={false}
         settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
         onChange={onChange}
       />,

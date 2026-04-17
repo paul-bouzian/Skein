@@ -1040,11 +1040,13 @@ impl RuntimeSession {
         context: &ThreadRuntimeContext,
         visible_to_user: bool,
     ) {
-        if !visible_to_user || !context.multi_agent_nudge_enabled || input.text.trim().is_empty() {
+        if !visible_to_user || !context.multi_agent_nudge_enabled {
             return;
         }
 
-        input.text.push_str("\n\n");
+        if !input.text.is_empty() {
+            input.text.push_str("\n\n");
+        }
         input.text.push_str(&multi_agent_nudge_text(
             context.multi_agent_nudge_max_subagents,
         ));

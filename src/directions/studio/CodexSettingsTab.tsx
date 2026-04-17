@@ -30,6 +30,7 @@ type Props = {
   disabled: boolean;
   menuZIndex: number;
   modelOptions: ComposerPickerOption[];
+  rangeDisabled?: boolean;
   settings: GlobalSettings;
   onChange: (patch: GlobalSettingsPatch) => Promise<void> | void;
 };
@@ -38,6 +39,7 @@ export function CodexSettingsTab({
   disabled,
   menuZIndex,
   modelOptions,
+  rangeDisabled = false,
   settings,
   onChange,
 }: Props) {
@@ -112,7 +114,7 @@ export function CodexSettingsTab({
         onChange={(value) => onChange({ multiAgentNudgeEnabled: value })}
       />
       <SettingsRange
-        disabled={!settings.multiAgentNudgeEnabled}
+        disabled={rangeDisabled || !settings.multiAgentNudgeEnabled}
         label="Max subagents"
         description="Choose how many sub-agents Skein may suggest in that invisible instruction. This is a soft hint, not a hard runtime cap."
         min={MIN_MULTI_AGENT_NUDGE_MAX_SUBAGENTS}

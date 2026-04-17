@@ -364,6 +364,11 @@
   background: color-mix(in srgb, var(--tx-border-muted) 120%, transparent);
 }
 
+.settings-slider--disabled .settings-slider__input::-moz-range-track,
+.settings-slider--disabled .settings-slider__input::-moz-range-progress {
+  background: color-mix(in srgb, var(--tx-border-muted) 120%, transparent);
+}
+
 .settings-slider__scale {
   display: flex;
   justify-content: space-between;

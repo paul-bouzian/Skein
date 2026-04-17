@@ -2151,11 +2151,12 @@ impl WorkspaceService {
                     return Ok(GlobalSettings::default());
                 }
             };
-            let mut repaired = settings.normalize_for_read();
+            let repaired = settings.normalize_for_read();
             if let Err(error) = settings.validate() {
-                warn!("stored global settings remained invalid after repair, restoring defaults: {error}");
-                settings = GlobalSettings::default();
-                repaired = true;
+                warn!("stored global settings remained invalid after repair: {error}");
+                return Err(AppError::Validation(format!(
+                    "Stored global settings remained invalid after repair: {error}"
+                )));
             }
             if repaired {
                 let payload = serde_json::to_string(&settings)

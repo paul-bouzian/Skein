@@ -912,6 +912,62 @@ describe("StudioShell", () => {
     });
   });
 
+  it("queues the latest multi-agent slider save while a previous one is still in flight", async () => {
+    const firstSave = createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();
+    mockedBridge.updateGlobalSettings
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValueOnce(
+        makeGlobalSettings({
+          multiAgentNudgeEnabled: true,
+          multiAgentNudgeMaxSubagents: 6,
+        }),
+      );
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: makeGlobalSettings({
+          multiAgentNudgeEnabled: true,
+          multiAgentNudgeMaxSubagents: 4,
+        }),
+      }),
+    }));
+
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const slider = screen.getByRole("slider", { name: "Max subagents" });
+
+    fireEvent.change(slider, { target: { value: "5" } });
+    fireEvent.pointerUp(slider);
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        multiAgentNudgeMaxSubagents: 5,
+      });
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(slider, { target: { value: "6" } });
+    fireEvent.pointerUp(slider);
+
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
+
+    firstSave.resolve(
+      makeGlobalSettings({
+        multiAgentNudgeEnabled: true,
+        multiAgentNudgeMaxSubagents: 5,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(2);
+    });
+    expect(mockedBridge.updateGlobalSettings).toHaveBeenLastCalledWith({
+      multiAgentNudgeMaxSubagents: 6,
+    });
+  });
+
   it("disables update controls while a global settings save is in flight", async () => {
     const saveRequest =
       createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();

@@ -87,6 +87,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [desktopNotificationsBusy, setDesktopNotificationsBusy] = useState(false);
   const savingGlobalSettingsRef = useRef(false);
+  const pendingGlobalSettingsPatchRef = useRef<GlobalSettingsPatch | null>(null);
   const desktopNotificationsBusyRef = useRef(false);
   const modelOptions = useMemo(
     () =>
@@ -157,19 +158,32 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
   }
 
-  async function handleGlobalChange(patch: GlobalSettingsPatch) {
-    if (savingGlobalSettingsRef.current) {
-      return;
-    }
-
+  async function flushGlobalSettingsChanges(initialPatch: GlobalSettingsPatch) {
+    let nextPatch: GlobalSettingsPatch | null = initialPatch;
     savingGlobalSettingsRef.current = true;
     setSavingGlobalSettings(true);
     try {
-      await applyGlobalSettingsChange(patch);
+      while (nextPatch) {
+        pendingGlobalSettingsPatchRef.current = null;
+        await applyGlobalSettingsChange(nextPatch);
+        nextPatch = pendingGlobalSettingsPatchRef.current;
+      }
     } finally {
       savingGlobalSettingsRef.current = false;
       setSavingGlobalSettings(false);
     }
+  }
+
+  async function handleGlobalChange(patch: GlobalSettingsPatch) {
+    if (savingGlobalSettingsRef.current) {
+      pendingGlobalSettingsPatchRef.current = {
+        ...pendingGlobalSettingsPatchRef.current,
+        ...patch,
+      };
+      return;
+    }
+
+    await flushGlobalSettingsChanges(patch);
   }
 
   async function handleDesktopNotificationsChange(nextValue: boolean) {
@@ -179,6 +193,7 @@ export function SettingsDialog({ open, onClose }: Props) {
 
     desktopNotificationsBusyRef.current = true;
     savingGlobalSettingsRef.current = true;
+    pendingGlobalSettingsPatchRef.current = null;
     setDesktopNotificationsBusy(true);
     setSavingGlobalSettings(true);
     setActionError(null);
@@ -317,6 +332,7 @@ export function SettingsDialog({ open, onClose }: Props) {
             {activeTab === "codex" && settings ? (
               <CodexSettingsTab
                 disabled={savingGlobalSettings}
+                rangeDisabled={desktopNotificationsBusy}
                 menuZIndex={SETTINGS_PICKER_Z_INDEX}
                 modelOptions={modelOptions}
                 settings={settings}
