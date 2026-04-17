@@ -247,6 +247,8 @@ export type GlobalSettings = {
   collapseWorkActivity: boolean;
   desktopNotificationsEnabled: boolean;
   streamAssistantResponses: boolean;
+  multiAgentNudgeEnabled: boolean;
+  multiAgentNudgeMaxSubagents: number;
   notificationSounds: NotificationSoundSettings;
   shortcuts: ShortcutSettings;
   openTargets: OpenTarget[];
@@ -924,6 +926,8 @@ export type GlobalSettingsPatch = {
   collapseWorkActivity?: boolean;
   desktopNotificationsEnabled?: boolean;
   streamAssistantResponses?: boolean;
+  multiAgentNudgeEnabled?: boolean;
+  multiAgentNudgeMaxSubagents?: number;
   notificationSounds?: NotificationSoundSettingsPatch;
   shortcuts?: ShortcutSettingsPatch;
   openTargets?: OpenTarget[];

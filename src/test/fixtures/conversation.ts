@@ -57,6 +57,8 @@ export function makeGlobalSettings(
     collapseWorkActivity: true,
     desktopNotificationsEnabled: false,
     streamAssistantResponses: true,
+    multiAgentNudgeEnabled: false,
+    multiAgentNudgeMaxSubagents: 4,
     notificationSounds: {
       attention: {
         enabled: false,

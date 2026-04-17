@@ -25,6 +25,17 @@ fn default_stream_assistant_responses() -> bool {
     true
 }
 
+const MIN_MULTI_AGENT_NUDGE_MAX_SUBAGENTS: u8 = 1;
+const MAX_MULTI_AGENT_NUDGE_MAX_SUBAGENTS: u8 = 6;
+
+fn default_multi_agent_nudge_enabled() -> bool {
+    false
+}
+
+fn default_multi_agent_nudge_max_subagents() -> u8 {
+    4
+}
+
 fn default_attention_notification_sound() -> NotificationSoundId {
     NotificationSoundId::Glass
 }
@@ -138,6 +149,10 @@ pub struct GlobalSettings {
     pub desktop_notifications_enabled: bool,
     #[serde(default = "default_stream_assistant_responses")]
     pub stream_assistant_responses: bool,
+    #[serde(default = "default_multi_agent_nudge_enabled")]
+    pub multi_agent_nudge_enabled: bool,
+    #[serde(default = "default_multi_agent_nudge_max_subagents")]
+    pub multi_agent_nudge_max_subagents: u8,
     #[serde(default = "default_notification_sounds")]
     pub notification_sounds: NotificationSoundSettings,
     #[serde(default)]
@@ -160,6 +175,8 @@ impl Default for GlobalSettings {
             collapse_work_activity: true,
             desktop_notifications_enabled: false,
             stream_assistant_responses: true,
+            multi_agent_nudge_enabled: false,
+            multi_agent_nudge_max_subagents: default_multi_agent_nudge_max_subagents(),
             notification_sounds: NotificationSoundSettings::default(),
             shortcuts: ShortcutSettings::default(),
             open_targets: default_open_targets(),
@@ -181,6 +198,8 @@ pub struct GlobalSettingsPatch {
     pub collapse_work_activity: Option<bool>,
     pub desktop_notifications_enabled: Option<bool>,
     pub stream_assistant_responses: Option<bool>,
+    pub multi_agent_nudge_enabled: Option<bool>,
+    pub multi_agent_nudge_max_subagents: Option<u8>,
     pub notification_sounds: Option<NotificationSoundSettingsPatch>,
     pub shortcuts: Option<ShortcutSettingsPatch>,
     pub open_targets: Option<Vec<OpenTarget>>,
@@ -229,6 +248,12 @@ impl GlobalSettings {
         if let Some(stream_assistant_responses) = patch.stream_assistant_responses {
             self.stream_assistant_responses = stream_assistant_responses;
         }
+        if let Some(multi_agent_nudge_enabled) = patch.multi_agent_nudge_enabled {
+            self.multi_agent_nudge_enabled = multi_agent_nudge_enabled;
+        }
+        if let Some(multi_agent_nudge_max_subagents) = patch.multi_agent_nudge_max_subagents {
+            self.multi_agent_nudge_max_subagents = multi_agent_nudge_max_subagents;
+        }
         if let Some(notification_sounds) = patch.notification_sounds {
             self.notification_sounds.apply_patch(notification_sounds);
         }
@@ -247,7 +272,17 @@ impl GlobalSettings {
     }
 
     pub fn normalize_for_read(&mut self) -> bool {
-        repair_stored_open_targets(&mut self.open_targets, &mut self.default_open_target_id)
+        let mut repaired =
+            repair_stored_open_targets(&mut self.open_targets, &mut self.default_open_target_id);
+        if self.shortcuts.validate().is_err() {
+            self.shortcuts = ShortcutSettings::default();
+            repaired = true;
+        }
+        if !multi_agent_nudge_max_subagents_is_valid(self.multi_agent_nudge_max_subagents) {
+            self.multi_agent_nudge_max_subagents = default_multi_agent_nudge_max_subagents();
+            repaired = true;
+        }
+        repaired
     }
 
     pub fn normalize_for_update(&mut self) -> Result<(), String> {
@@ -288,8 +323,23 @@ impl GlobalSettings {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        validate_multi_agent_nudge_max_subagents(self.multi_agent_nudge_max_subagents)?;
         self.shortcuts.validate().map_err(|error| error.to_string())
     }
+}
+
+fn multi_agent_nudge_max_subagents_is_valid(value: u8) -> bool {
+    (MIN_MULTI_AGENT_NUDGE_MAX_SUBAGENTS..=MAX_MULTI_AGENT_NUDGE_MAX_SUBAGENTS).contains(&value)
+}
+
+fn validate_multi_agent_nudge_max_subagents(value: u8) -> Result<(), String> {
+    if multi_agent_nudge_max_subagents_is_valid(value) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Multi-agent max subagents must be between {MIN_MULTI_AGENT_NUDGE_MAX_SUBAGENTS} and {MAX_MULTI_AGENT_NUDGE_MAX_SUBAGENTS}."
+    ))
 }
 
 impl NotificationSoundChannelSettings {
@@ -640,6 +690,8 @@ mod tests {
             collapse_work_activity: Some(true),
             desktop_notifications_enabled: Some(true),
             stream_assistant_responses: Some(false),
+            multi_agent_nudge_enabled: Some(true),
+            multi_agent_nudge_max_subagents: Some(6),
             notification_sounds: Some(NotificationSoundSettingsPatch {
                 attention: Some(super::NotificationSoundChannelSettingsPatch {
                     enabled: Some(true),
@@ -682,6 +734,8 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(settings.desktop_notifications_enabled);
         assert!(!settings.stream_assistant_responses);
+        assert!(settings.multi_agent_nudge_enabled);
+        assert_eq!(settings.multi_agent_nudge_max_subagents, 6);
         assert!(settings.notification_sounds.attention.enabled);
         assert_eq!(
             settings.notification_sounds.attention.sound,
@@ -757,6 +811,8 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
         assert!(settings.stream_assistant_responses);
+        assert!(!settings.multi_agent_nudge_enabled);
+        assert_eq!(settings.multi_agent_nudge_max_subagents, 4);
         assert_eq!(
             settings.notification_sounds.attention.sound,
             NotificationSoundId::Glass
@@ -785,6 +841,8 @@ mod tests {
         assert!(settings.collapse_work_activity);
         assert!(!settings.desktop_notifications_enabled);
         assert!(settings.stream_assistant_responses);
+        assert!(!settings.multi_agent_nudge_enabled);
+        assert_eq!(settings.multi_agent_nudge_max_subagents, 4);
         assert!(!settings.notification_sounds.attention.enabled);
         assert_eq!(
             settings.notification_sounds.attention.sound,
@@ -877,6 +935,21 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_out_of_range_multi_agent_nudge_limit() {
+        let settings = GlobalSettings {
+            multi_agent_nudge_max_subagents: 0,
+            ..GlobalSettings::default()
+        };
+
+        assert_eq!(
+            settings
+                .validate()
+                .expect_err("out-of-range nudge limit should fail"),
+            "Multi-agent max subagents must be between 1 and 6."
+        );
+    }
+
+    #[test]
     fn normalize_for_update_trims_targets_and_repairs_default_id() {
         let mut settings = GlobalSettings {
             open_targets: vec![
@@ -952,6 +1025,19 @@ mod tests {
             .open_targets
             .iter()
             .any(|target| target.id == settings.default_open_target_id));
+    }
+
+    #[test]
+    fn normalize_for_read_repairs_invalid_multi_agent_nudge_limit() {
+        let mut settings = GlobalSettings {
+            multi_agent_nudge_enabled: true,
+            multi_agent_nudge_max_subagents: 9,
+            ..GlobalSettings::default()
+        };
+
+        assert!(settings.normalize_for_read());
+        assert!(settings.multi_agent_nudge_enabled);
+        assert_eq!(settings.multi_agent_nudge_max_subagents, 4);
     }
 
     #[test]

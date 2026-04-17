@@ -61,6 +61,12 @@ use crate::services::workspace::ThreadRuntimeContext;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const SNAPSHOT_EMIT_DEBOUNCE: Duration = Duration::from_millis(120);
 
+pub(crate) fn multi_agent_nudge_text(max_subagents: u8) -> String {
+    format!(
+        "Additional instruction: if it would improve quality or speed, proactively use sub-agents instead of waiting to be asked. You may spawn up to {max_subagents} sub-agents for parallelizable or well-scoped work, but only when they add clear value."
+    )
+}
+
 type PendingRequestMap = Arc<Mutex<HashMap<u64, oneshot::Sender<AppResult<serde_json::Value>>>>>;
 type SharedWriter = Arc<Mutex<Box<dyn AsyncWrite + Send + Unpin>>>;
 
@@ -1029,6 +1035,29 @@ impl RuntimeSession {
         })
     }
 
+    fn maybe_append_multi_agent_nudge(
+        input: &mut OutgoingUserInputPayload,
+        context: &ThreadRuntimeContext,
+        visible_to_user: bool,
+    ) {
+        if !visible_to_user || !context.multi_agent_nudge_enabled {
+            return;
+        }
+
+        let hidden_start = input.text.len();
+        if !input.text.is_empty() {
+            input.text.push_str("\n\n");
+        }
+        input.text.push_str(&multi_agent_nudge_text(
+            context.multi_agent_nudge_max_subagents,
+        ));
+        input.text_elements.push(OutgoingTextElement {
+            start: hidden_start,
+            end: input.text.len(),
+            placeholder: Some(String::new()),
+        });
+    }
+
     async fn send_message_with_visibility(
         &self,
         context: ThreadRuntimeContext,
@@ -1048,9 +1077,10 @@ impl RuntimeSession {
         let requested_service_tier = self
             .resolve_service_tier(&context.composer.model, context.composer.service_tier)
             .await?;
-        let outgoing_input = self
+        let mut outgoing_input = self
             .resolve_outgoing_user_input(&context, trimmed, &images, &mention_bindings)
             .await?;
+        Self::maybe_append_multi_agent_nudge(&mut outgoing_input, &context, visible_to_user);
 
         let mut open = self.open_thread(context.clone()).await?;
         let mut rollback_snapshot = open.snapshot.clone();

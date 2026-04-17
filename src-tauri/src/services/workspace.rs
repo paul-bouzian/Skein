@@ -152,6 +152,8 @@ pub struct ThreadRuntimeContext {
     pub composer: ConversationComposerSettings,
     pub codex_binary_path: Option<String>,
     pub stream_assistant_responses: bool,
+    pub multi_agent_nudge_enabled: bool,
+    pub multi_agent_nudge_max_subagents: u8,
 }
 
 impl ThreadRuntimeContext {
@@ -1260,6 +1262,8 @@ impl WorkspaceService {
                         },
                         codex_binary_path: settings.codex_binary_path.clone(),
                         stream_assistant_responses: settings.stream_assistant_responses,
+                        multi_agent_nudge_enabled: settings.multi_agent_nudge_enabled,
+                        multi_agent_nudge_max_subagents: settings.multi_agent_nudge_max_subagents,
                     })
                 },
             )
@@ -1745,8 +1749,7 @@ impl WorkspaceService {
             || trimmed.contains('\0')
         {
             return Err(AppError::Validation(
-                "Worktree name cannot contain path separators or start with '.'."
-                    .to_string(),
+                "Worktree name cannot contain path separators or start with '.'.".to_string(),
             ));
         }
 
@@ -1792,8 +1795,7 @@ impl WorkspaceService {
         // pathological inputs that slipped past the character check.
         if destination.parent() != Some(expected_parent.as_path()) {
             return Err(AppError::Validation(
-                "Worktree name would escape the managed worktree directory."
-                    .to_string(),
+                "Worktree name would escape the managed worktree directory.".to_string(),
             ));
         }
         if destination.exists() {
@@ -2149,11 +2151,12 @@ impl WorkspaceService {
                     return Ok(GlobalSettings::default());
                 }
             };
-            let mut repaired = settings.normalize_for_read();
+            let repaired = settings.normalize_for_read();
             if let Err(error) = settings.validate() {
-                warn!("stored global settings had invalid shortcuts, restoring defaults: {error}");
-                settings.shortcuts = ShortcutSettings::default();
-                repaired = true;
+                warn!("stored global settings remained invalid after repair: {error}");
+                return Err(AppError::Validation(format!(
+                    "Stored global settings remained invalid after repair: {error}"
+                )));
             }
             if repaired {
                 let payload = serde_json::to_string(&settings)
@@ -2464,8 +2467,8 @@ mod tests {
     use super::{
         AddProjectRequest, ArchiveThreadRequest, AutoRenameFirstPromptRequest,
         CreateManagedWorktreeRequest, CreateThreadRequest, ReorderProjectsRequest,
-        RunProjectActionRequest,
-        SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest, WorkspaceService,
+        RunProjectActionRequest, SetProjectSidebarCollapsedRequest, UpdateProjectSettingsRequest,
+        WorkspaceService,
     };
     use crate::domain::conversation::{
         ComposerDraftMentionBinding, ComposerMentionBindingKind, ConversationComposerDraft,
@@ -2854,9 +2857,7 @@ mod tests {
                     base_branch: None,
                     name: Some(bad_name.to_string()),
                 })
-                .expect_err(
-                    "path-like worktree names must be rejected before git sees them",
-                );
+                .expect_err("path-like worktree names must be rejected before git sees them");
             assert!(
                 matches!(error, crate::error::AppError::Validation(_)),
                 "expected Validation error for name {bad_name:?}, got {error:?}"
@@ -2872,8 +2873,11 @@ mod tests {
             .expect("repo");
         git::run_git(&repo.path, ["checkout", "-b", "feature-stack"])
             .expect("feature branch should be created");
-        fs::write(repo.path.join("feature-only.txt"), "feature branch commit\n")
-            .expect("feature-only marker should be written");
+        fs::write(
+            repo.path.join("feature-only.txt"),
+            "feature branch commit\n",
+        )
+        .expect("feature-only marker should be written");
         git::run_git(&repo.path, ["add", "feature-only.txt"]).expect("file should be staged");
         git::run_git(&repo.path, ["commit", "-m", "Feature branch commit"])
             .expect("feature commit should succeed");
@@ -3219,6 +3223,52 @@ mod tests {
             .expect("thread context should load");
 
         assert!(!context.stream_assistant_responses);
+    }
+
+    #[test]
+    fn thread_runtime_context_inherits_multi_agent_nudge_settings() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("multi-agent-default"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let environment_id = project
+            .environments
+            .first()
+            .expect("local environment should exist")
+            .id
+            .clone();
+        let thread = harness
+            .service
+            .create_thread(CreateThreadRequest {
+                environment_id,
+                title: Some("Multi-agent default".to_string()),
+                overrides: None,
+            })
+            .expect("thread should be created");
+
+        harness
+            .service
+            .update_settings(GlobalSettingsPatch {
+                multi_agent_nudge_enabled: Some(true),
+                multi_agent_nudge_max_subagents: Some(6),
+                ..GlobalSettingsPatch::default()
+            })
+            .expect("settings should update");
+
+        let context = harness
+            .service
+            .thread_runtime_context(&thread.id)
+            .expect("thread context should load");
+
+        assert!(context.multi_agent_nudge_enabled);
+        assert_eq!(context.multi_agent_nudge_max_subagents, 6);
     }
 
     #[test]
@@ -3987,6 +4037,49 @@ mod tests {
 
         assert_eq!(snapshot.settings.default_model, "gpt-5.4-mini");
         assert_eq!(snapshot.settings.shortcuts, ShortcutSettings::default());
+    }
+
+    #[test]
+    fn snapshot_repairs_invalid_multi_agent_nudge_settings_without_losing_other_values() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let settings = GlobalSettings {
+            default_model: "gpt-5.4-mini".to_string(),
+            multi_agent_nudge_enabled: true,
+            multi_agent_nudge_max_subagents: 0,
+            ..GlobalSettings::default()
+        };
+
+        harness
+            .open_connection()
+            .execute(
+                "
+                INSERT INTO global_settings (singleton_key, payload_json, updated_at)
+                VALUES ('global', ?1, ?2)
+                ON CONFLICT(singleton_key) DO UPDATE SET
+                  payload_json = excluded.payload_json,
+                  updated_at = excluded.updated_at
+                ",
+                params![
+                    serde_json::to_string(&settings).expect("settings payload"),
+                    Utc::now(),
+                ],
+            )
+            .expect("settings should be persisted");
+
+        let snapshot = harness.service.snapshot(Vec::new()).expect("snapshot");
+        let stored_payload: String = harness
+            .open_connection()
+            .query_row(
+                "SELECT payload_json FROM global_settings WHERE singleton_key = 'global'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("stored settings payload");
+
+        assert_eq!(snapshot.settings.default_model, "gpt-5.4-mini");
+        assert!(snapshot.settings.multi_agent_nudge_enabled);
+        assert_eq!(snapshot.settings.multi_agent_nudge_max_subagents, 4);
+        assert!(stored_payload.contains("\"multiAgentNudgeMaxSubagents\":4"));
     }
 
     #[test]

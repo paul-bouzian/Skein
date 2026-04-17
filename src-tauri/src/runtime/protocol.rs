@@ -2403,6 +2403,36 @@ mod tests {
     }
 
     #[test]
+    fn normalize_user_message_hides_appended_multi_agent_nudge_ranges() {
+        let visible_text = "Parallelize this";
+        let hidden_text = "\n\nAdditional instruction: use sub-agents.";
+        let combined = format!("{visible_text}{hidden_text}");
+        let item = normalize_item(
+            Some("turn-4"),
+            &json!({
+                "id": "user-hidden-nudge",
+                "type": "userMessage",
+                "content": [{
+                    "type": "text",
+                    "text": combined,
+                    "text_elements": [{
+                        "byteRange": { "start": visible_text.len(), "end": visible_text.len() + hidden_text.len() },
+                        "placeholder": ""
+                    }]
+                }]
+            }),
+        )
+        .expect("item should normalize");
+
+        match item {
+            ConversationItem::Message(message) => {
+                assert_eq!(message.text, visible_text);
+            }
+            _ => panic!("expected a message item"),
+        }
+    }
+
+    #[test]
     fn local_image_paths_preserve_leading_and_trailing_spaces() {
         let image = user_content_to_image_attachment(&json!({
             "type": "localImage",
@@ -2541,6 +2571,49 @@ mod tests {
                         url: "https://example.com/capture.png".to_string(),
                     }])
                 );
+            }
+            _ => panic!("expected a message item"),
+        }
+    }
+
+    #[test]
+    fn canonical_user_message_with_hidden_suffix_replaces_matching_optimistic_entry() {
+        let visible_text = "Parallelize this";
+        let hidden_text = "\n\nAdditional instruction: use sub-agents.";
+        let combined = format!("{visible_text}{hidden_text}");
+        let mut items = vec![ConversationItem::Message(ConversationMessageItem {
+            id: "local-user-1".to_string(),
+            turn_id: None,
+            role: ConversationRole::User,
+            text: visible_text.to_string(),
+            images: None,
+            is_streaming: false,
+        })];
+
+        let canonical = normalize_item(
+            Some("turn-1"),
+            &json!({
+                "id": "user-1",
+                "type": "userMessage",
+                "content": [{
+                    "type": "text",
+                    "text": combined,
+                    "text_elements": [{
+                        "byteRange": { "start": visible_text.len(), "end": visible_text.len() + hidden_text.len() },
+                        "placeholder": ""
+                    }]
+                }]
+            }),
+        )
+        .expect("item should normalize");
+
+        upsert_item(&mut items, canonical);
+
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            ConversationItem::Message(message) => {
+                assert_eq!(message.id, "user-1");
+                assert_eq!(message.text, visible_text);
             }
             _ => panic!("expected a message item"),
         }

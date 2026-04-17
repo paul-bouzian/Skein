@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::sync::Mutex;
 
-use crate::domain::conversation::ConversationComposerSettings;
+use crate::domain::conversation::{
+    ConversationComposerSettings, ConversationImageAttachment, ConversationItem, ConversationRole,
+};
 use crate::domain::settings::{ApprovalPolicy, CollaborationMode, ReasoningEffort, ServiceTier};
 use crate::domain::voice::VoiceAuthMode;
 use crate::runtime::protocol::AGENT_MESSAGE_DELTA_METHOD;
@@ -132,6 +134,12 @@ fn inter_agent_control_message(agent_path: &str) -> String {
     )
 }
 
+fn expected_multi_agent_nudge_text(max_subagents: u8) -> String {
+    format!(
+        "Additional instruction: if it would improve quality or speed, proactively use sub-agents instead of waiting to be asked. You may spawn up to {max_subagents} sub-agents for parallelizable or well-scoped work, but only when they add clear value."
+    )
+}
+
 fn spawn_fake_codex(
     reader: DuplexStream,
     writer: Arc<Mutex<DuplexStream>>,
@@ -177,6 +185,7 @@ fn spawn_fake_codex(
                             {"reasoningEffort": "xhigh"}
                         ],
                         "defaultReasoningEffort": "high",
+                        "inputModalities": ["text", "image"],
                         "additionalSpeedTiers": ["fast"],
                         "isDefault": true,
                         "hidden": false
@@ -447,6 +456,8 @@ fn context_with_environment(
         },
         codex_binary_path: Some("/opt/homebrew/bin/codex".to_string()),
         stream_assistant_responses: true,
+        multi_agent_nudge_enabled: false,
+        multi_agent_nudge_max_subagents: 4,
     }
 }
 
@@ -714,6 +725,121 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         .iter()
         .any(|request| request.method == "skills/list"));
     assert!(!requests.iter().any(|request| request.method == "app/list"));
+}
+
+#[tokio::test]
+async fn send_message_appends_multi_agent_nudge_without_changing_visible_snapshot_text() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let visible_text = "Parallelize this";
+    let mut runtime_context = context(
+        "thread-local-multi-agent",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.multi_agent_nudge_enabled = true;
+    runtime_context.multi_agent_nudge_max_subagents = 6;
+
+    let result = session
+        .send_message(runtime_context, visible_text.to_string(), Vec::new())
+        .await
+        .expect("message should send");
+
+    let requests = harness.requests().await;
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+    assert_eq!(
+        turn_start.params["input"][0]["text"],
+        format!("{visible_text}\n\n{}", expected_multi_agent_nudge_text(6))
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["byteRange"]["start"],
+        visible_text.len()
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["placeholder"],
+        ""
+    );
+
+    let user_message = result
+        .snapshot
+        .items
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            ConversationItem::Message(message) if message.role == ConversationRole::User => {
+                Some(message)
+            }
+            _ => None,
+        })
+        .expect("visible user message should exist");
+    assert_eq!(user_message.text, visible_text);
+}
+
+#[tokio::test]
+async fn send_message_appends_multi_agent_nudge_for_visible_image_only_messages() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let mut runtime_context = context(
+        "thread-local-multi-agent-image-only",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+    runtime_context.multi_agent_nudge_enabled = true;
+    runtime_context.multi_agent_nudge_max_subagents = 4;
+
+    let result = session
+        .send_message(
+            runtime_context,
+            String::new(),
+            vec![ConversationImageAttachment::LocalImage {
+                path: "/tmp/mock-image.png".to_string(),
+            }],
+        )
+        .await
+        .expect("image-only message should send");
+
+    let requests = harness.requests().await;
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+    assert_eq!(
+        turn_start.params["input"][0]["text"],
+        expected_multi_agent_nudge_text(4)
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["byteRange"]["start"],
+        0
+    );
+    assert_eq!(
+        turn_start.params["input"][0]["text_elements"][0]["placeholder"],
+        ""
+    );
+    assert_eq!(turn_start.params["input"][1]["type"], "localImage");
+    assert_eq!(turn_start.params["input"][1]["path"], "/tmp/mock-image.png");
+
+    let user_message = result
+        .snapshot
+        .items
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            ConversationItem::Message(message) if message.role == ConversationRole::User => {
+                Some(message)
+            }
+            _ => None,
+        })
+        .expect("visible user message should exist");
+    assert_eq!(user_message.text, "");
+    assert_eq!(
+        user_message.images,
+        Some(vec![ConversationImageAttachment::LocalImage {
+            path: "/tmp/mock-image.png".to_string(),
+        }])
+    );
 }
 
 #[tokio::test]

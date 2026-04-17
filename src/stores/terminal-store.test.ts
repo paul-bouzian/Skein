@@ -469,6 +469,8 @@ describe("terminal-store", () => {
         streamAssistantResponses: true,
         collapseWorkActivity: true,
         desktopNotificationsEnabled: false,
+        multiAgentNudgeEnabled: false,
+        multiAgentNudgeMaxSubagents: 4,
         notificationSounds: {
           attention: { enabled: true, sound: "glass" },
           completion: { enabled: true, sound: "glass" },
