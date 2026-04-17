@@ -3317,20 +3317,22 @@ describe("ThreadConversation", () => {
     }
 
     function restoreTimelineMetrics() {
-      if (originalScrollHeight) {
-        Object.defineProperty(
-          HTMLDivElement.prototype,
-          "scrollHeight",
-          originalScrollHeight,
-        );
+      restoreDescriptor("scrollHeight", originalScrollHeight);
+      restoreDescriptor("clientHeight", originalClientHeight);
+    }
+
+    function restoreDescriptor(
+      property: "scrollHeight" | "clientHeight",
+      descriptor: PropertyDescriptor | undefined,
+    ) {
+      if (descriptor) {
+        Object.defineProperty(HTMLDivElement.prototype, property, descriptor);
+        return;
       }
-      if (originalClientHeight) {
-        Object.defineProperty(
-          HTMLDivElement.prototype,
-          "clientHeight",
-          originalClientHeight,
-        );
-      }
+      // When the original descriptor is undefined the property was inherited
+      // rather than owned. Deleting our own property restores prototype-chain
+      // lookup and prevents leakage into other test files.
+      Reflect.deleteProperty(HTMLDivElement.prototype, property);
     }
 
     function getTimeline(): HTMLDivElement {

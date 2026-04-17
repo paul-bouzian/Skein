@@ -238,7 +238,15 @@ function ConversationMessageRow({
         <ConversationMarkdown markdown={item.text} className={bodyClassName} />
       ) : null}
       {!shouldRenderMarkdown && hasText ? (
-        <div ref={bodyWrapRef} className={bodyWrapClassName}>
+        <div
+          ref={bodyWrapRef}
+          className={bodyWrapClassName}
+          // When collapsed we visually clip content past the fold, but the
+          // DOM stays intact — `inert` keeps hidden links from catching
+          // keyboard focus. The "Show more" button sits outside the wrapper,
+          // so it remains reachable.
+          inert={isCollapsed}
+        >
           <ConversationLinkedText as="div" className={bodyClassName} text={item.text} />
         </div>
       ) : null}
