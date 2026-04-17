@@ -123,6 +123,40 @@ export function ThreadConversation({
     setIsSubmitting(false);
   }, [thread.id]);
 
+  // Streaming updates (tool outputDelta, reasoning deltas, assistant text)
+  // append to existing items without changing coarse snapshot fields like
+  // items.length, so the next effect alone would never fire on live growth.
+  // A MutationObserver on the timeline covers the in-place growth case:
+  // whenever children/text change and the user is still sitting near the
+  // bottom, we realign. The rAF throttle collapses bursts of mutations
+  // into one scroll write per frame.
+  useEffect(() => {
+    const element = timelineRef.current;
+    if (!element) return;
+    if (typeof MutationObserver === "undefined") return;
+
+    let frame: number | null = null;
+    const followBottom = () => {
+      frame = null;
+      if (!timelineFollowBottomRef.current) return;
+      element.scrollTop = element.scrollHeight;
+    };
+
+    const observer = new MutationObserver(() => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(followBottom);
+    });
+    observer.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
   useEffect(() => {
     const element = timelineRef.current;
     if (!element) return;

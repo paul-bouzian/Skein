@@ -3409,6 +3409,77 @@ describe("ThreadConversation", () => {
       }
     });
 
+    it("follows streaming content that grows in place without changing items.length", async () => {
+      installTimelineMetrics(1200, 400);
+      try {
+        mockedBridge.openThreadConversation.mockResolvedValue({
+          snapshot: makeConversationSnapshot({
+            items: [
+              {
+                kind: "message",
+                id: "msg-stream-prefix",
+                turnId: "turn-stream",
+                role: "user",
+                text: "Run the thing",
+                images: null,
+                isStreaming: false,
+              },
+              {
+                kind: "message",
+                id: "msg-stream-live",
+                turnId: "turn-stream",
+                role: "assistant",
+                text: "partial",
+                images: null,
+                isStreaming: true,
+              },
+            ],
+          }),
+          capabilities: capabilitiesFixture,
+        });
+
+        render(
+          <ThreadConversation
+            environment={makeEnvironment()}
+            thread={makeThread()}
+          />,
+        );
+
+        await screen.findByText("partial");
+        const timeline = getTimeline();
+        expect(timeline.scrollTop).toBe(1200);
+
+        // Grow the streaming item's content in place — items.length stays
+        // the same, so only a DOM mutation (not the snapshot-shape effect)
+        // can drive the follow-bottom behavior.
+        useConversationStore.setState((state) => ({
+          ...state,
+          snapshotsByThreadId: {
+            ...state.snapshotsByThreadId,
+            "thread-1": {
+              ...state.snapshotsByThreadId["thread-1"]!,
+              items: state.snapshotsByThreadId["thread-1"]!.items.map((existing) =>
+                existing.id === "msg-stream-live"
+                  ? { ...existing, text: "partial and more streaming output" }
+                  : existing,
+              ),
+            },
+          },
+        }));
+
+        await waitFor(() => {
+          expect(
+            screen.getByText("partial and more streaming output"),
+          ).toBeInTheDocument();
+        });
+        await waitFor(() => {
+          expect(timeline.scrollTop).toBe(1200);
+        });
+      } finally {
+        restoreTimelineMetrics();
+      }
+    });
+
     it("does not force the timeline to the bottom after the user scrolls up", async () => {
       installTimelineMetrics(1200, 400);
       try {
