@@ -1,112 +1,70 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConversationItem } from "../../lib/types";
 import { ConversationWorkActivityGroup } from "./ConversationWorkActivityGroup";
 import type { ConversationWorkActivityGroup as ConversationWorkActivityGroupData } from "./conversation-work-activity";
 
-const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLDivElement.prototype,
-  "scrollHeight",
-);
-const originalClientHeightDescriptor = Object.getOwnPropertyDescriptor(
-  HTMLDivElement.prototype,
-  "clientHeight",
-);
+const originalScrollIntoView = Element.prototype.scrollIntoView;
+const originalRaf = globalThis.requestAnimationFrame;
 
-let workActivityScrollHeight = 1200;
-let workActivityClientHeight = 300;
+let scrollIntoViewSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
-  workActivityScrollHeight = 1200;
-  workActivityClientHeight = 300;
-
-  Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
-    configurable: true,
-    get() {
-      return this.classList.contains("tx-work-activity__body")
-        ? workActivityScrollHeight
-        : 0;
-    },
-  });
-
-  Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
-    configurable: true,
-    get() {
-      return this.classList.contains("tx-work-activity__body")
-        ? workActivityClientHeight
-        : 0;
-    },
-  });
+  scrollIntoViewSpy = vi.fn();
+  Element.prototype.scrollIntoView =
+    scrollIntoViewSpy as unknown as typeof Element.prototype.scrollIntoView;
+  // Run rAF callbacks synchronously so the scroll effect fires during the test.
+  globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    callback(performance.now());
+    return 0;
+  }) as typeof requestAnimationFrame;
 });
 
 afterEach(() => {
-  restoreDescriptor(
-    HTMLDivElement.prototype,
-    "scrollHeight",
-    originalScrollHeightDescriptor,
-  );
-  restoreDescriptor(
-    HTMLDivElement.prototype,
-    "clientHeight",
-    originalClientHeightDescriptor,
-  );
+  Element.prototype.scrollIntoView = originalScrollIntoView;
+  globalThis.requestAnimationFrame = originalRaf;
 });
 
 describe("ConversationWorkActivityGroup", () => {
-  it("opens work activity details at the bottom of the internal scroll area", async () => {
+  it("hides the body until the toggle is pressed", () => {
     const { container } = render(
-      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 6 })} />,
+      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 3 })} />,
     );
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Show work activity details" }),
-    );
-
-    expect(getWorkActivityBody(container).scrollTop).toBe(workActivityScrollHeight);
+    expect(container.querySelector(".tx-work-activity__body")).toBeNull();
   });
 
-  it("keeps following new work activity while the user stays near the bottom", async () => {
-    const { container, rerender } = render(
-      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 6 })} />,
+  it("reveals the body and scrolls the section into view on expand", async () => {
+    const { container } = render(
+      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 3 })} />,
     );
+
     await userEvent.click(
       screen.getByRole("button", { name: "Show work activity details" }),
     );
 
-    workActivityScrollHeight = 1600;
-    rerender(<ConversationWorkActivityGroup group={makeGroup({ itemCount: 8 })} />);
-
-    expect(getWorkActivityBody(container).scrollTop).toBe(workActivityScrollHeight);
+    expect(container.querySelector(".tx-work-activity__body")).not.toBeNull();
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: "smooth", block: "nearest" }),
+    );
   });
 
-  it("does not force the bottom after the user scrolls up", async () => {
-    const { container, rerender } = render(
-      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 6 })} />,
+  it("collapses the body when toggled again", async () => {
+    const { container } = render(
+      <ConversationWorkActivityGroup group={makeGroup({ itemCount: 3 })} />,
     );
+
+    const toggle = screen.getByRole("button", { name: "Show work activity details" });
+    await userEvent.click(toggle);
     await userEvent.click(
-      screen.getByRole("button", { name: "Show work activity details" }),
+      screen.getByRole("button", { name: "Hide work activity details" }),
     );
 
-    const body = getWorkActivityBody(container);
-    body.scrollTop = 100;
-    fireEvent.scroll(body);
-
-    workActivityScrollHeight = 1600;
-    rerender(<ConversationWorkActivityGroup group={makeGroup({ itemCount: 8 })} />);
-
-    expect(body.scrollTop).toBe(100);
+    expect(container.querySelector(".tx-work-activity__body")).toBeNull();
   });
 });
-
-function getWorkActivityBody(container: HTMLElement) {
-  const body = container.querySelector(".tx-work-activity__body");
-  if (!(body instanceof HTMLDivElement)) {
-    throw new Error("Expected the work activity body to render.");
-  }
-  return body;
-}
 
 function makeGroup({
   itemCount,
@@ -138,17 +96,4 @@ function makeGroup({
     },
     status: "running",
   };
-}
-
-function restoreDescriptor<T extends object, K extends keyof T>(
-  target: T,
-  property: K,
-  descriptor: PropertyDescriptor | undefined,
-) {
-  if (descriptor) {
-    Object.defineProperty(target, property, descriptor);
-    return;
-  }
-
-  delete target[property];
 }

@@ -239,6 +239,48 @@
   white-space: pre-wrap;
 }
 
+.tx-item__body-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.tx-item__body-wrap--collapsed {
+  max-height: 280px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black 0,
+    black 70%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(to bottom, black 0, black 70%, transparent 100%);
+}
+
+.tx-item__expand {
+  justify-self: start;
+  margin-top: calc(var(--tx-space-xs) * -1);
+  padding: var(--tx-space-xs) var(--tx-space-sm);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-sm);
+  background: color-mix(in srgb, var(--tx-bg-raised) 60%, transparent);
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-medium);
+  cursor: pointer;
+  transition:
+    background var(--tx-transition-fast),
+    border-color var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.tx-item__expand:hover,
+.tx-item__expand:focus-visible {
+  background: var(--tx-bg-hover);
+  border-color: var(--tx-border-muted);
+  color: var(--tx-text-primary);
+  outline: none;
+}
+
 /* ── Copy button ── */
 
 .tx-item__copy-button {
@@ -904,10 +946,6 @@ ol.tx-markdown__list {
 .tx-work-activity__body {
   display: grid;
   gap: var(--tx-space-xs);
-  max-height: min(20rem, 40vh);
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 0 var(--tx-space-sm) var(--tx-space-sm);
 }
 

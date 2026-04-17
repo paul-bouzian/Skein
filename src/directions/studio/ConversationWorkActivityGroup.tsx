@@ -1,4 +1,4 @@
-import { type UIEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SubagentThreadSnapshot } from "../../lib/types";
 import { ChevronRightIcon } from "../../shared/Icons";
@@ -13,49 +13,36 @@ type Props = {
   group: ConversationWorkActivityGroupData;
 };
 
-const WORK_ACTIVITY_BOTTOM_THRESHOLD_PX = 24;
-
 export function ConversationWorkActivityGroup({ group }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const shouldFollowBottomRef = useRef(true);
+  const sectionRef = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => buildSummary(group), [group]);
 
-  useLayoutEffect(() => {
-    if (!expanded || !shouldFollowBottomRef.current) {
+  // When the user opens the panel, make sure the expanded body is visible
+  // above the composer. scrollIntoView only scrolls the nearest scrollable
+  // ancestor, so it targets the timeline without disturbing the window.
+  useEffect(() => {
+    if (!expanded) {
       return;
     }
-
-    const body = bodyRef.current;
-    if (!body) {
+    const section = sectionRef.current;
+    if (!section) {
       return;
     }
-
-    scrollToBottom(body);
-  }, [expanded, group]);
-
-  function toggleExpanded() {
-    setExpanded((value) => {
-      const nextExpanded = !value;
-      if (nextExpanded) {
-        shouldFollowBottomRef.current = true;
-      }
-      return nextExpanded;
+    const frame = window.requestAnimationFrame(() => {
+      section.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
     });
-  }
-
-  function handleBodyScroll(event: UIEvent<HTMLDivElement>) {
-    shouldFollowBottomRef.current = isNearBottom(event.currentTarget);
-  }
+    return () => window.cancelAnimationFrame(frame);
+  }, [expanded]);
 
   return (
-    <section className="tx-work-activity">
+    <section ref={sectionRef} className="tx-work-activity">
       <button
         type="button"
         className="tx-work-activity__toggle"
         aria-expanded={expanded}
         aria-label={expanded ? "Hide work activity details" : "Show work activity details"}
-        onClick={toggleExpanded}
+        onClick={() => setExpanded((value) => !value)}
       >
         <div className="tx-work-activity__header">
           <span className="tx-item__header-main">
@@ -72,11 +59,7 @@ export function ConversationWorkActivityGroup({ group }: Props) {
         {summary ? <p className="tx-work-activity__summary">{summary}</p> : null}
       </button>
       {expanded ? (
-        <div
-          ref={bodyRef}
-          className="tx-work-activity__body"
-          onScroll={handleBodyScroll}
-        >
+        <div className="tx-work-activity__body">
           {group.taskPlan ? <ConversationTaskCard taskPlan={group.taskPlan} compact /> : null}
           {group.subagents.length > 0 ? (
             <div className="tx-work-activity__subagents">
@@ -107,17 +90,6 @@ export function ConversationWorkActivityGroup({ group }: Props) {
       ) : null}
     </section>
   );
-}
-
-function isNearBottom(element: HTMLElement) {
-  return (
-    element.scrollHeight - element.scrollTop - element.clientHeight <=
-    WORK_ACTIVITY_BOTTOM_THRESHOLD_PX
-  );
-}
-
-function scrollToBottom(element: HTMLElement) {
-  element.scrollTop = element.scrollHeight;
 }
 
 function buildSummary(group: ConversationWorkActivityGroupData) {
