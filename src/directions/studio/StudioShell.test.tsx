@@ -500,6 +500,11 @@ describe("StudioShell", () => {
       runtime: undefined,
     });
     const baseSnapshot = makeWorkspaceSnapshot();
+    const projectEnvironment = baseSnapshot.projects[0]?.environments[0];
+    const projectThread = projectEnvironment?.threads[0];
+
+    expect(projectEnvironment).toBeDefined();
+    expect(projectThread).toBeDefined();
 
     render(<StudioShell />);
 
@@ -536,6 +541,23 @@ describe("StudioShell", () => {
         selectedProjectId: "skein-chat-workspace",
         selectedEnvironmentId: chatEnvironment.id,
         selectedThreadId: chatThread.id,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+        "data-collapsed",
+        "true",
+      );
+    });
+
+    act(() => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: baseSnapshot,
+        selectedProjectId: projectEnvironment?.projectId ?? null,
+        selectedEnvironmentId: projectEnvironment?.id ?? null,
+        selectedThreadId: projectThread?.id ?? null,
       }));
     });
 

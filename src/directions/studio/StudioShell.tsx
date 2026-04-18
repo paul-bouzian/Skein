@@ -88,6 +88,12 @@ export function StudioShell() {
   const inspectorOpen = effectiveRightPanel === "inspector";
   const browserOpen = effectiveRightPanel === "browser";
 
+  useEffect(() => {
+    if (rightPanel === "inspector" && !reviewEnvironment) {
+      setRightPanel("none");
+    }
+  }, [reviewEnvironment, rightPanel]);
+
   const openSettingsDialog = useCallback(() => {
     setActionCreateProjectId(null);
     setSettingsOpen(true);
