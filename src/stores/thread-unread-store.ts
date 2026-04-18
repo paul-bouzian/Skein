@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { useConversationStore } from "./conversation-store";
 import {
-  selectThreadInFocusedPane,
+  selectThreadInAnyPane,
   useWorkspaceStore,
 } from "./workspace-store";
 
@@ -37,7 +37,11 @@ for (const [threadId, snapshot] of Object.entries(
   previousStatuses.set(threadId, snapshot?.status ?? null);
 }
 
-useConversationStore.subscribe((state) => {
+useConversationStore.subscribe((state, previousState) => {
+  // conversation-store mutates on every keystroke (drafts, composer settings);
+  // only scan snapshots when the status map actually changed.
+  if (state.snapshotsByThreadId === previousState.snapshotsByThreadId) return;
+
   const seen = new Set<string>();
   for (const [threadId, snapshot] of Object.entries(state.snapshotsByThreadId)) {
     seen.add(threadId);
@@ -47,10 +51,10 @@ useConversationStore.subscribe((state) => {
     const justCompleted =
       nextStatus === "completed" && prevStatus !== "completed";
     if (!justCompleted) continue;
-    const focused = selectThreadInFocusedPane(threadId)(
+    const visible = selectThreadInAnyPane(threadId)(
       useWorkspaceStore.getState(),
     );
-    if (focused) continue;
+    if (visible) continue;
     useThreadUnreadStore.setState((current) => {
       if (current.unreadByThreadId[threadId]) return current;
       return {
@@ -63,23 +67,27 @@ useConversationStore.subscribe((state) => {
   }
 });
 
-// Clear the unread flag as soon as the focused thread changes.
-let previousFocusedThreadId = resolveFocusedThreadId(
+// Clear the unread flag for any thread that becomes visible in any pane.
+let previousVisibleThreadIds = resolveVisibleThreadIds(
   useWorkspaceStore.getState(),
 );
 useWorkspaceStore.subscribe((state) => {
-  const focusedThreadId = resolveFocusedThreadId(state);
-  if (focusedThreadId === previousFocusedThreadId) return;
-  previousFocusedThreadId = focusedThreadId;
-  if (focusedThreadId) {
-    useThreadUnreadStore.getState().markRead(focusedThreadId);
+  const nextVisibleThreadIds = resolveVisibleThreadIds(state);
+  for (const threadId of nextVisibleThreadIds) {
+    if (!previousVisibleThreadIds.has(threadId)) {
+      useThreadUnreadStore.getState().markRead(threadId);
+    }
   }
+  previousVisibleThreadIds = nextVisibleThreadIds;
 });
 
-function resolveFocusedThreadId(
+function resolveVisibleThreadIds(
   state: ReturnType<typeof useWorkspaceStore.getState>,
-): string | null {
-  const focused = state.layout.focusedSlot;
-  if (!focused) return null;
-  return state.layout.slots[focused]?.threadId ?? null;
+): Set<string> {
+  const ids = new Set<string>();
+  for (const pane of Object.values(state.layout.slots)) {
+    const threadId = pane?.threadId;
+    if (threadId) ids.add(threadId);
+  }
+  return ids;
 }

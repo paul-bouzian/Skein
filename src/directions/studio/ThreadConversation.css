@@ -71,6 +71,12 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .tx-conversation__status-icon--running {
+    animation: none;
+  }
+}
+
 .tx-conversation__status-icon--waiting {
   color: var(--tx-info);
 }

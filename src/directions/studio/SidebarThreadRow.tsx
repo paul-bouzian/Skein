@@ -116,9 +116,17 @@ function SidebarThreadRowImpl(props: Props) {
         onContextMenu={onContextMenu}
         {...dragHandlers}
       >
-        <span className="tree-sidebar__thread-indicator">
+        <span
+          className="tree-sidebar__thread-indicator"
+          aria-hidden="true"
+        >
           {renderThreadIndicator(tone, unread)}
         </span>
+        {indicatorAccessibleLabel(tone, unread) ? (
+          <span className="tree-sidebar__sr-only">
+            {indicatorAccessibleLabel(tone, unread)}
+          </span>
+        ) : null}
         <span className="tree-sidebar__thread-title">{thread.title}</span>
       </button>
       {worktree && onBranchChipContextMenu && onBranchChipOpenPullRequest ? (
@@ -195,6 +203,16 @@ function renderThreadIndicator(
       <span className="tree-sidebar__thread-unread-dot" aria-hidden="true" />
     );
   }
+  return null;
+}
+
+function indicatorAccessibleLabel(
+  tone: ConversationIndicatorTone,
+  unread: boolean,
+): string | null {
+  if (tone === "progress") return "Running";
+  if (tone === "waiting") return "Awaiting action";
+  if (unread) return "Unread";
   return null;
 }
 

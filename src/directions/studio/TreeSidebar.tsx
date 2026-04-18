@@ -884,8 +884,8 @@ function buildWorktreeGroups(
 
   return groups.sort((left, right) => {
     const activityOrder =
-      latestEnvironmentActivityTimestamp(right.environment) -
-      latestEnvironmentActivityTimestamp(left.environment);
+      latestActiveThreadTimestamp(right.threads) -
+      latestActiveThreadTimestamp(left.threads);
     if (activityOrder !== 0) {
       return activityOrder;
     }
@@ -895,15 +895,13 @@ function buildWorktreeGroups(
   });
 }
 
-function sortThreadsByUpdatedAtDesc(left: ThreadRecord, right: ThreadRecord) {
-  return timestampOf(right.updatedAt) - timestampOf(left.updatedAt);
+function latestActiveThreadTimestamp(threads: ThreadRecord[]) {
+  // Threads are pre-sorted by updatedAt desc, so the first entry is the newest.
+  return threads.length > 0 ? timestampOf(threads[0].updatedAt) : 0;
 }
 
-function latestEnvironmentActivityTimestamp(environment: EnvironmentRecord) {
-  return environment.threads.reduce(
-    (latest, thread) => Math.max(latest, timestampOf(thread.updatedAt)),
-    timestampOf(environment.updatedAt),
-  );
+function sortThreadsByUpdatedAtDesc(left: ThreadRecord, right: ThreadRecord) {
+  return timestampOf(right.updatedAt) - timestampOf(left.updatedAt);
 }
 
 function resolveWorktreeBranchLabel(environment: EnvironmentRecord) {
