@@ -28,12 +28,15 @@ afterEach(() => {
 });
 
 describe("ConversationWorkActivityGroup", () => {
-  it("hides the body until the toggle is pressed", () => {
+  it("keeps the body inert until the toggle is pressed", () => {
     const { container } = render(
       <ConversationWorkActivityGroup group={makeGroup({ itemCount: 3 })} />,
     );
 
-    expect(container.querySelector(".tx-work-activity__body")).toBeNull();
+    const wrap = container.querySelector(".tx-work-activity__body-wrap");
+    expect(wrap).not.toBeNull();
+    expect(wrap?.classList.contains("tx-work-activity__body-wrap--open")).toBe(false);
+    expect(wrap?.hasAttribute("inert")).toBe(true);
   });
 
   it("reveals the body and scrolls the section into view on expand", async () => {
@@ -45,7 +48,9 @@ describe("ConversationWorkActivityGroup", () => {
       screen.getByRole("button", { name: "Show work activity details" }),
     );
 
-    expect(container.querySelector(".tx-work-activity__body")).not.toBeNull();
+    const wrap = container.querySelector(".tx-work-activity__body-wrap");
+    expect(wrap?.classList.contains("tx-work-activity__body-wrap--open")).toBe(true);
+    expect(wrap?.hasAttribute("inert")).toBe(false);
     expect(scrollIntoViewSpy).toHaveBeenCalledWith(
       expect.objectContaining({ behavior: "smooth", block: "nearest" }),
     );
@@ -62,7 +67,9 @@ describe("ConversationWorkActivityGroup", () => {
       screen.getByRole("button", { name: "Hide work activity details" }),
     );
 
-    expect(container.querySelector(".tx-work-activity__body")).toBeNull();
+    const wrap = container.querySelector(".tx-work-activity__body-wrap");
+    expect(wrap?.classList.contains("tx-work-activity__body-wrap--open")).toBe(false);
+    expect(wrap?.hasAttribute("inert")).toBe(true);
   });
 });
 

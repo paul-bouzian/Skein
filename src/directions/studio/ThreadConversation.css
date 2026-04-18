@@ -953,6 +953,12 @@ ol.tx-markdown__list {
   border: none;
   background: transparent;
   text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tx-work-activity__toggle > * {
+  pointer-events: none;
 }
 
 .tx-work-activity__toggle:hover {
@@ -970,16 +976,41 @@ ol.tx-markdown__list {
 }
 
 .tx-work-activity__summary {
+  display: block;
   margin: 0;
   color: var(--tx-text-secondary);
   font-size: var(--tx-text-xs);
   line-height: 1.5;
 }
 
+.tx-work-activity__body-wrap {
+  display: grid;
+  grid-template-rows: minmax(0, 0fr);
+  overflow: hidden;
+  transition: grid-template-rows var(--tx-transition-normal);
+}
+
+.tx-work-activity__body-wrap--open {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .tx-work-activity__body {
   display: grid;
   gap: var(--tx-space-xs);
   padding: 0 var(--tx-space-sm) var(--tx-space-sm);
+  min-height: 0;
+  max-height: 360px;
+  overflow: hidden;
+}
+
+.tx-work-activity__body-wrap--open .tx-work-activity__body {
+  overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-work-activity__body-wrap {
+    transition: none;
+  }
 }
 
 .tx-work-activity__subagents {

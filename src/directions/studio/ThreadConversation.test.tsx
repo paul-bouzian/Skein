@@ -388,13 +388,17 @@ describe("ThreadConversation", () => {
 
     expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
     expect(screen.getByText("1 update")).toBeInTheDocument();
-    expect(screen.queryByText("I am checking the runtime flow now.")).toBeNull();
+    expect(
+      screen.getByText("I am checking the runtime flow now.").closest("[inert]"),
+    ).not.toBeNull();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show work activity details" }),
     );
 
-    expect(screen.getByText("I am checking the runtime flow now.")).toBeInTheDocument();
+    expect(
+      screen.getByText("I am checking the runtime flow now.").closest("[inert]"),
+    ).toBeNull();
   });
 
   it("groups turnless live updates under the active compact work activity", async () => {
@@ -444,15 +448,17 @@ describe("ThreadConversation", () => {
 
     expect(await screen.findByText("Inspect the repository")).toBeInTheDocument();
     expect(screen.getByText("1 update")).toBeInTheDocument();
-    expect(screen.queryByText("Indexing the workspace before answering.")).toBeNull();
+    expect(
+      screen.getByText("Indexing the workspace before answering.").closest("[inert]"),
+    ).not.toBeNull();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show work activity details" }),
     );
 
     expect(
-      screen.getByText("Indexing the workspace before answering."),
-    ).toBeInTheDocument();
+      screen.getByText("Indexing the workspace before answering.").closest("[inert]"),
+    ).toBeNull();
   });
 
   it("renders a fresh compact work activity block as soon as a new turn starts", async () => {
@@ -714,7 +720,7 @@ describe("ThreadConversation", () => {
       });
       const group = toggle.closest("section");
       expect(group).not.toBeNull();
-      expect(within(group!).getByText(label)).toBeInTheDocument();
+      expect(within(toggle).getByText(label)).toBeInTheDocument();
     },
   );
 
@@ -1630,13 +1636,17 @@ describe("ThreadConversation", () => {
     );
 
     expect(await screen.findByText("The workspace looks healthy.")).toBeInTheDocument();
-    expect(screen.queryByText("Codex compacted the conversation history.")).toBeNull();
+    expect(
+      screen.getByText("Codex compacted the conversation history.").closest("[inert]"),
+    ).not.toBeNull();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show work activity details" }),
     );
 
-    expect(screen.getByText("Codex compacted the conversation history.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Codex compacted the conversation history.").closest("[inert]"),
+    ).toBeNull();
   });
 
   it("renders the interaction panel and paginates request-user-input questions", async () => {

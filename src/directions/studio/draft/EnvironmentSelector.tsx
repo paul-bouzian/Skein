@@ -398,14 +398,20 @@ function resolveMenuStyle(
   const rect = anchor.getBoundingClientRect();
   const menuWidth = Math.max(rect.width, 260);
   const margin = 8;
+  const gap = 6;
+  const minHeight = 120;
   const left = Math.min(
     rect.left,
     Math.max(margin, window.innerWidth - menuWidth - margin),
   );
-  const estimatedHeight = 220;
-  const top =
-    direction === "up"
-      ? Math.max(margin, rect.top - estimatedHeight - 6)
-      : Math.min(rect.bottom + 6, window.innerHeight - margin - 40);
-  return { left, top, minWidth: `${menuWidth}px` };
+  const spaceAbove = rect.top - gap - margin;
+  const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+  // Flip direction when the preferred side lacks room for a usable menu.
+  const opensUp = direction === "up" ? spaceAbove >= minHeight || spaceAbove >= spaceBelow : spaceBelow < minHeight && spaceAbove > spaceBelow;
+  if (opensUp) {
+    const bottom = window.innerHeight - rect.top + gap;
+    return { left, bottom, minWidth: `${menuWidth}px`, maxHeight: Math.max(0, spaceAbove) };
+  }
+  const top = rect.bottom + gap;
+  return { left, top, minWidth: `${menuWidth}px`, maxHeight: Math.max(0, spaceBelow) };
 }
