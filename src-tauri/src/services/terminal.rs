@@ -333,7 +333,7 @@ fn project_action_wrapper(
             env_lines = fish_env_lines(env_overrides),
         ),
         ShellFamily::Nu => format!(
-            "with-env {env_record} {{\ndo {{\n{script}\n}}\n}}\nlet __skein_action_status = (if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }})\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\n",
+            "let __skein_action_error = (try {{\n  with-env {env_record} {{\n    do {{\n{script}\n    }}\n  }}\n  null\n}} catch {{ |err| $err }})\nlet __skein_action_status = if $__skein_action_error == null {{\n  if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }}\n}} else {{\n  $__skein_action_error.exit_code? | default 1\n}}\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\nif $__skein_action_error != null {{\n  error make $__skein_action_error\n}}\n",
             env_record = nushell_env_record(env_overrides),
         ),
         ShellFamily::PowerShell => format!(
@@ -1145,7 +1145,9 @@ mod tests {
         assert!(fish.contains("set -lx SKEIN_ACTION_LABEL 'dev server'"));
 
         let nu = project_action_wrapper(ShellFamily::Nu, &env, "bun run dev");
-        assert!(nu.contains("LAST_EXIT_CODE"));
+        assert!(nu.contains("let __skein_action_error = (try {"));
+        assert!(nu.contains("catch { |err| $err }"));
+        assert!(nu.contains("error make $__skein_action_error"));
         assert!(nu.contains("with-env"));
         assert!(nu.contains("char --integer 30"));
         assert!(nu.contains(ACTION_DONE_PREFIX));
