@@ -598,59 +598,110 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
         return null;
       }
 
-      const openPromise = (async () => {
-        await Promise.all([
-          ensureTerminalOutputBusReady(),
-          ensureTerminalEventSubscriptionsReady(),
-        ]);
-        const { ptyId, cwd, actionId, actionLabel, actionIcon } =
-          await bridge.runProjectAction({
-            environmentId,
-            actionId: action.id,
-            ptyId: reusableTab?.ptyId ?? null,
-          });
-        const slotAfter = slotForEnvironment(get().byEnv, environmentId);
-        const replacementTabStillPresent =
-          replacementTab != null &&
-          slotAfter.tabs.some((tab) => tab.id === replacementTab.id);
-        const nextTabCount = replacementTabStillPresent
-          ? slotAfter.tabs.length
-          : slotAfter.tabs.length + 1;
-        if (
-          !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
-          nextTabCount > MAX_TABS
-        ) {
-          await killTerminalSession(ptyId);
-          return null;
-        }
-
-        const nextTabId =
-          replacementTabStillPresent && replacementTab
-            ? replacementTab.id
-            : crypto.randomUUID();
-        const pendingState = consumePendingProjectActionState(ptyId, actionId);
-        const nextTab: TerminalTab = {
-          id: nextTabId,
-          ptyId,
-          cwd,
-          title: actionLabel,
-          exited: pendingState?.state === "exited",
-          kind: "manualAction",
-          actionId,
-          actionLabel,
-          actionIcon,
-          actionRunState: pendingState?.state ?? "running",
-        };
-
+      if (reusableTab) {
         updateSlot(environmentId, (existing) => ({
           ...existing,
           visible: true,
-          tabs: replacementTabStillPresent && replacementTab
-            ? existing.tabs.map((tab) => (tab.id === replacementTab.id ? nextTab : tab))
-            : [...existing.tabs, nextTab],
-          activeTabId: nextTabId,
+          tabs: existing.tabs.map((tab) =>
+            tab.id === reusableTab.id
+              ? {
+                  ...tab,
+                  exited: false,
+                  actionRunState: "running",
+                }
+              : tab,
+          ),
+          activeTabId: reusableTab.id,
         }));
-        return nextTabId;
+      }
+
+      const openPromise = (async () => {
+        try {
+          await Promise.all([
+            ensureTerminalOutputBusReady(),
+            ensureTerminalEventSubscriptionsReady(),
+          ]);
+          const { ptyId, cwd, actionId, actionLabel, actionIcon } =
+            await bridge.runProjectAction({
+              environmentId,
+              actionId: action.id,
+              ptyId: reusableTab?.ptyId ?? null,
+            });
+          const slotAfter = slotForEnvironment(get().byEnv, environmentId);
+          const replacementTabStillPresent =
+            replacementTab != null &&
+            slotAfter.tabs.some((tab) => tab.id === replacementTab.id);
+          const latestReplacementTab =
+            replacementTabStillPresent && replacementTab
+              ? slotAfter.tabs.find((tab) => tab.id === replacementTab.id) ?? null
+              : null;
+          const nextTabCount = replacementTabStillPresent
+            ? slotAfter.tabs.length
+            : slotAfter.tabs.length + 1;
+          if (
+            !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
+            nextTabCount > MAX_TABS
+          ) {
+            await killTerminalSession(ptyId);
+            return null;
+          }
+
+          const nextTabId =
+            replacementTabStillPresent && replacementTab
+              ? replacementTab.id
+              : crypto.randomUUID();
+          const pendingState = consumePendingProjectActionState(ptyId, actionId);
+          const latestActionRunState =
+            latestReplacementTab?.kind === "manualAction" &&
+            latestReplacementTab.ptyId === ptyId
+              ? actionRunStateFor(latestReplacementTab)
+              : null;
+          const actionRunState =
+            pendingState?.state ?? latestActionRunState ?? "running";
+          const nextTab: TerminalTab = {
+            id: nextTabId,
+            ptyId,
+            cwd,
+            title: actionLabel,
+            exited: actionRunState === "exited",
+            kind: "manualAction",
+            actionId,
+            actionLabel,
+            actionIcon,
+            actionRunState,
+          };
+
+          updateSlot(environmentId, (existing) => ({
+            ...existing,
+            visible: true,
+            tabs:
+              replacementTabStillPresent && replacementTab
+                ? existing.tabs.map((tab) =>
+                    tab.id === replacementTab.id ? nextTab : tab,
+                  )
+                : [...existing.tabs, nextTab],
+            activeTabId: nextTabId,
+          }));
+          return nextTabId;
+        } catch (error) {
+          if (reusableTab) {
+            updateSlot(environmentId, (existing) => ({
+              ...existing,
+              tabs: existing.tabs.map((tab) =>
+                tab.id === reusableTab.id &&
+                tab.kind === "manualAction" &&
+                tab.ptyId === reusableTab.ptyId
+                  ? {
+                      ...tab,
+                      exited: false,
+                      actionRunState: "idle",
+                    }
+                  : tab,
+              ),
+            }));
+          }
+          throw error;
+        }
       })();
 
       pendingActionTabOpens.set(operationKey, openPromise);

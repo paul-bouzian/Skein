@@ -437,6 +437,63 @@ describe("terminal-store", () => {
     });
   });
 
+  it("preserves a newer idle state when an in-place rerun finishes before launch resolves", async () => {
+    const first = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!first) {
+      throw new Error("expected first action tab");
+    }
+
+    emitProjectActionState({
+      ptyId: "pty-1",
+      actionId: "dev",
+      state: "idle",
+      exitCode: 0,
+    });
+
+    let resolveRun: (
+      value: Awaited<ReturnType<typeof bridge.runProjectAction>>,
+    ) => void = () => {};
+    const pendingRun = new Promise<Awaited<ReturnType<typeof bridge.runProjectAction>>>(
+      (resolve) => {
+        resolveRun = resolve;
+      },
+    );
+    mockedBridge.runProjectAction.mockImplementationOnce(() => pendingRun);
+
+    const rerun = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    emitProjectActionState({
+      ptyId: "pty-1",
+      actionId: "dev",
+      state: "idle",
+      exitCode: 0,
+    });
+
+    resolveRun({
+      ptyId: "pty-1",
+      cwd: `/path/to/${ENV_A}`,
+      actionId: "dev",
+      actionLabel: "Dev",
+      actionIcon: "play",
+    });
+
+    await expect(rerun).resolves.toBe(first);
+    expect(slotForA().tabs[0]).toMatchObject({
+      id: first,
+      ptyId: "pty-1",
+      exited: false,
+      actionRunState: "idle",
+    });
+  });
+
   it("preserves an idle action state emitted before the tab is created", async () => {
     let resolveRun: (
       value: Awaited<ReturnType<typeof bridge.runProjectAction>>,
