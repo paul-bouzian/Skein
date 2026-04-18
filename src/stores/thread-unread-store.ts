@@ -63,7 +63,10 @@ useConversationStore.subscribe((state, previousState) => {
     });
   }
   for (const threadId of previousStatuses.keys()) {
-    if (!seen.has(threadId)) previousStatuses.delete(threadId);
+    if (!seen.has(threadId)) {
+      previousStatuses.delete(threadId);
+      useThreadUnreadStore.getState().markRead(threadId);
+    }
   }
 });
 
