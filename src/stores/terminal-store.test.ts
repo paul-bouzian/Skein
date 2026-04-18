@@ -494,6 +494,49 @@ describe("terminal-store", () => {
     });
   });
 
+  it("preserves an exited state when an idle rerun fails after the PTY dies", async () => {
+    const first = await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    if (!first) {
+      throw new Error("expected first action tab");
+    }
+
+    emitProjectActionState({
+      ptyId: "pty-1",
+      actionId: "dev",
+      state: "idle",
+      exitCode: 0,
+    });
+
+    let rejectRun: (reason?: unknown) => void = () => {};
+    const pendingRun = new Promise<Awaited<ReturnType<typeof bridge.runProjectAction>>>(
+      (_, reject) => {
+        rejectRun = reject;
+      },
+    );
+    mockedBridge.runProjectAction.mockImplementationOnce(() => pendingRun);
+
+    const rerun = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+
+    useTerminalStore.getState().markExited("pty-1");
+    rejectRun(new Error("terminal session not found"));
+
+    await expect(rerun).rejects.toThrow("terminal session not found");
+    expect(slotForA().tabs[0]).toMatchObject({
+      id: first,
+      ptyId: "pty-1",
+      exited: true,
+      actionRunState: "exited",
+    });
+  });
+
   it("preserves an idle action state emitted before the tab is created", async () => {
     let resolveRun: (
       value: Awaited<ReturnType<typeof bridge.runProjectAction>>,

@@ -690,7 +690,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
               tabs: existing.tabs.map((tab) =>
                 tab.id === reusableTab.id &&
                 tab.kind === "manualAction" &&
-                tab.ptyId === reusableTab.ptyId
+                tab.ptyId === reusableTab.ptyId &&
+                actionRunStateFor(tab) === "running"
                   ? {
                       ...tab,
                       exited: false,
