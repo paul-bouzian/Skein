@@ -7,6 +7,7 @@ import {
   FIRST_PROMPT_RENAME_FAILURE_EVENT_NAMES,
   MENU_CHECK_FOR_UPDATES_EVENT_NAMES,
   MENU_OPEN_SETTINGS_EVENT_NAMES,
+  PROJECT_ACTION_STATE_EVENT_NAMES,
   TERMINAL_EXIT_EVENT_NAMES,
   TERMINAL_OUTPUT_EVENT_NAMES,
   WORKSPACE_EVENT_NAMES,
@@ -37,6 +38,7 @@ import type {
   FirstPromptRenameFailureEventPayload,
   OpenEnvironmentInput,
   PersistThreadComposerDraftInput,
+  ProjectActionStateEventPayload,
   ProjectRecord,
   ReorderProjectsRequest,
   RunProjectActionRequest,
@@ -485,6 +487,12 @@ export function listenToTerminalExit(
   callback: (payload: TerminalExitPayload) => void,
 ): Promise<UnlistenFn> {
   return listenToPayloadEvents(TERMINAL_EXIT_EVENT_NAMES, callback);
+}
+
+export function listenToProjectActionState(
+  callback: (payload: ProjectActionStateEventPayload) => void,
+): Promise<UnlistenFn> {
+  return listenToPayloadEvents(PROJECT_ACTION_STATE_EVENT_NAMES, callback);
 }
 
 async function listenToPayloadEvents<T>(

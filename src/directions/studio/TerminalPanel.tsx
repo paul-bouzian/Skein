@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
-import * as bridge from "../../lib/bridge";
 import { CloseIcon, PlusIcon } from "../../shared/Icons";
 import {
   MAX_TABS,
@@ -42,7 +41,6 @@ export function TerminalPanel({ theme }: Props) {
   const openTab = useTerminalStore((s) => s.openTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const activateTab = useTerminalStore((s) => s.activateTab);
-  const markExited = useTerminalStore((s) => s.markExited);
   const setVisible = useTerminalStore((s) => s.setVisible);
 
   const env = useWorkspaceStore(selectEffectiveNonChatEnvironment);
@@ -102,28 +100,6 @@ export function TerminalPanel({ theme }: Props) {
     bootstrapInFlight,
     bootstrapFailedEnvId,
   ]);
-
-  // Subscribe once to terminal-exit events at the panel level.
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    bridge
-      .listenToTerminalExit((payload) => markExited(payload.ptyId))
-      .then((un) => {
-        if (cancelled) {
-          un();
-        } else {
-          unlisten = un;
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to subscribe to terminal exit events:", error);
-      });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [markExited]);
 
   const atCap = tabs.length >= MAX_TABS;
 

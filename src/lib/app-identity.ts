@@ -94,6 +94,17 @@ export const TERMINAL_EXIT_EVENT_NAMES = [
   ...LEGACY_TERMINAL_EXIT_EVENT_NAMES,
 ] as const;
 
+export const PROJECT_ACTION_STATE_EVENT_NAME = buildEventName(
+  APP_SLUG,
+  "project-action-state",
+);
+export const LEGACY_PROJECT_ACTION_STATE_EVENT_NAMES =
+  buildLegacyEventNames("project-action-state");
+export const PROJECT_ACTION_STATE_EVENT_NAMES = [
+  PROJECT_ACTION_STATE_EVENT_NAME,
+  ...LEGACY_PROJECT_ACTION_STATE_EVENT_NAMES,
+] as const;
+
 export const MENU_OPEN_SETTINGS_EVENT_NAME = buildEventName(
   APP_SLUG,
   "menu-open-settings",

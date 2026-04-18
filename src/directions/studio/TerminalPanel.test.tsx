@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
 import {
+  __resetTerminalEventSubscriptions,
   selectTerminalSlot,
   useTerminalStore,
   type EnvironmentTerminalSlot,
@@ -28,6 +29,7 @@ vi.mock("../../lib/bridge", () => ({
   runProjectAction: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
   listenToTerminalExit: vi.fn().mockResolvedValue(() => {}),
+  listenToProjectActionState: vi.fn().mockResolvedValue(() => {}),
 }));
 
 vi.mock("../../lib/terminal-output-bus", () => ({
@@ -66,6 +68,7 @@ function readSlot(environmentId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetTerminalEventSubscriptions();
   storageState.clear();
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,

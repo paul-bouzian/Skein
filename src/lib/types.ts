@@ -47,6 +47,7 @@ export type ProjectActionIcon =
   | "configure"
   | "build"
   | "debug";
+export type ProjectActionRunState = "running" | "idle" | "exited";
 export type NotificationSoundId = "glass" | "chord" | "polite";
 export type ConversationStatus =
   | "idle"
@@ -817,6 +818,7 @@ export type UpdateProjectSettingsRequest = {
 export type RunProjectActionRequest = {
   environmentId: string;
   actionId: string;
+  ptyId?: string | null;
 };
 
 export type RunProjectActionResult = {
@@ -825,6 +827,13 @@ export type RunProjectActionResult = {
   actionId: string;
   actionLabel: string;
   actionIcon: ProjectActionIcon;
+};
+
+export type ProjectActionStateEventPayload = {
+  ptyId: string;
+  actionId: string;
+  state: ProjectActionRunState;
+  exitCode?: number | null;
 };
 
 export type CreateThreadRequest = {
