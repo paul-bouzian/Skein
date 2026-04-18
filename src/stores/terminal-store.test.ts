@@ -145,6 +145,21 @@ describe("terminal-store", () => {
     });
   });
 
+  it("cleans up partial terminal event subscriptions when one listener registration fails", async () => {
+    const unlistenExit = vi.fn();
+    mockedBridge.listenToTerminalExit.mockResolvedValueOnce(unlistenExit);
+    mockedBridge.listenToProjectActionState.mockRejectedValueOnce(
+      new Error("listener registration failed"),
+    );
+
+    await expect(useTerminalStore.getState().openTab(ENV_A)).rejects.toThrow(
+      "listener registration failed",
+    );
+
+    expect(unlistenExit).toHaveBeenCalledTimes(1);
+    expect(mockedBridge.spawnTerminal).not.toHaveBeenCalled();
+  });
+
   it("uses the default height when no persisted value exists", async () => {
     vi.resetModules();
     const {

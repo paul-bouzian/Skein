@@ -363,22 +363,30 @@ function ensureTerminalEventSubscriptionsReady(): Promise<void> {
     return terminalEventSubscriptionsPromise;
   }
 
-  terminalEventSubscriptionsPromise = Promise.all([
-    bridge.listenToTerminalExit((payload) => {
-      useTerminalStore.getState().markExited(payload.ptyId);
-    }),
-    bridge.listenToProjectActionState((payload) => {
-      useTerminalStore.getState().syncProjectActionState(payload);
-    }),
-  ])
-    .then((unlisteners) => {
-      terminalEventUnlisteners = unlisteners;
-    })
-    .catch((error) => {
+  const exitPromise = bridge.listenToTerminalExit((payload) => {
+    useTerminalStore.getState().markExited(payload.ptyId);
+  });
+  const statePromise = bridge.listenToProjectActionState((payload) => {
+    useTerminalStore.getState().syncProjectActionState(payload);
+  });
+
+  terminalEventSubscriptionsPromise = Promise.allSettled([
+    exitPromise,
+    statePromise,
+  ]).then((results) => {
+    terminalEventUnlisteners = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+
+    const rejected = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (rejected) {
       clearTerminalEventSubscriptions();
       terminalEventSubscriptionsPromise = null;
-      throw error;
-    });
+      throw rejected.reason;
+    }
+  });
 
   return terminalEventSubscriptionsPromise;
 }

@@ -219,21 +219,23 @@ fn parse_action_done_marker(marker: &[u8]) -> Option<i32> {
         .ok()
 }
 
+fn is_manual_action_interrupt_input(bytes: &[u8]) -> bool {
+    bytes == [3]
+}
+
 fn project_action_wrapper(shell_family: ShellFamily, script: &str) -> String {
-    let marker_start = ACTION_MARKER_START as char;
-    let marker_end = ACTION_MARKER_END as char;
     match shell_family {
         ShellFamily::Posix => format!(
-            "{{\n{script}\n__skein_action_status=$?\nprintf '{marker_start}{ACTION_DONE_PREFIX}%s{marker_end}\\n' \"$__skein_action_status\"\nunset __skein_action_status\n}}\n"
+            "{{\n{script}\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\nunset __skein_action_status\n}}\n"
         ),
         ShellFamily::Fish => format!(
-            "begin\n{script}\nset -l __skein_action_status $status\nprintf '{marker_start}{ACTION_DONE_PREFIX}%s{marker_end}\\n' $__skein_action_status\nend\n"
+            "begin\n{script}\nset -l __skein_action_status $status\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' $__skein_action_status\nend\n"
         ),
         ShellFamily::Nu => format!(
-            "do {{\n{script}\n}}\nlet __skein_action_status = (if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }})\nprint -n $\"{marker_start}{ACTION_DONE_PREFIX}($__skein_action_status){marker_end}\\n\"\n"
+            "do {{\n{script}\n}}\nlet __skein_action_status = (if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }})\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\n"
         ),
         ShellFamily::PowerShell => format!(
-            "& {{\n{script}\n}}\n$__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n[Console]::Out.Write(\"{marker_start}{ACTION_DONE_PREFIX}$($__skeinActionStatus){marker_end}`n\")\nRemove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n"
+            "& {{\n{script}\n}}\n$__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n[Console]::Out.Write(\"$([char]30){ACTION_DONE_PREFIX}$($__skeinActionStatus)$([char]31)`n\")\nRemove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n"
         ),
     }
 }
@@ -312,7 +314,7 @@ impl TerminalService {
 
         let wrapped_script = project_action_wrapper(shell_family, script);
         let encoded = B64.encode(wrapped_script);
-        if let Err(error) = self.write(pty_id, &encoded) {
+        if let Err(error) = self.write(app, pty_id, &encoded) {
             if let Some(manual_action) = session.manual_action.as_ref() {
                 let mut manual_action = manual_action.lock().unwrap();
                 Self::set_manual_action_state(
@@ -667,16 +669,32 @@ impl TerminalService {
         Ok(pty_id)
     }
 
-    pub fn write(&self, pty_id: &str, data_base64: &str) -> AppResult<()> {
+    pub fn write(&self, app: &AppHandle, pty_id: &str, data_base64: &str) -> AppResult<()> {
         let bytes = B64
             .decode(data_base64)
             .map_err(|e| AppError::Runtime(format!("base64 decode: {e}")))?;
-        self.get_session(pty_id)?
+        let session = self.get_session(pty_id)?;
+        session
             .writer
             .lock()
             .unwrap()
             .write_all(&bytes)
             .map_err(|e| AppError::Runtime(format!("pty write: {e}")))?;
+        if is_manual_action_interrupt_input(&bytes) {
+            if let Some(manual_action) = session.manual_action.as_ref() {
+                let mut manual_action = manual_action.lock().unwrap();
+                if manual_action.state == ProjectActionRunState::Running {
+                    manual_action.output_filter = ManualActionOutputFilter::default();
+                    Self::set_manual_action_state(
+                        app,
+                        pty_id,
+                        &mut manual_action,
+                        ProjectActionRunState::Idle,
+                        Some(130),
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -956,6 +974,14 @@ mod tests {
     }
 
     #[test]
+    fn manual_action_interrupt_input_only_matches_ctrl_c() {
+        assert!(is_manual_action_interrupt_input(&[3]));
+        assert!(!is_manual_action_interrupt_input(&[]));
+        assert!(!is_manual_action_interrupt_input(&[3, b'\n']));
+        assert!(!is_manual_action_interrupt_input(b"abc"));
+    }
+
+    #[test]
     fn manual_action_output_filter_strips_markers_and_collects_exit_codes() {
         let mut filter = ManualActionOutputFilter::default();
         let marker = format!(
@@ -1009,19 +1035,35 @@ mod tests {
     #[test]
     fn project_action_wrappers_emit_completion_markers_for_supported_shells() {
         let posix = project_action_wrapper(ShellFamily::Posix, "bun run dev");
-        assert!(posix.contains("SKEIN_ACTION_DONE:%s"));
+        assert!(posix.contains("\\036SKEIN_ACTION_DONE:%s\\037\\n"));
         assert!(posix.contains("__skein_action_status=$?"));
 
         let fish = project_action_wrapper(ShellFamily::Fish, "bun run dev");
         assert!(fish.contains("set -l __skein_action_status $status"));
-        assert!(fish.contains("SKEIN_ACTION_DONE:%s"));
+        assert!(fish.contains("\\036SKEIN_ACTION_DONE:%s\\037\\n"));
 
         let nu = project_action_wrapper(ShellFamily::Nu, "bun run dev");
         assert!(nu.contains("LAST_EXIT_CODE"));
-        assert!(nu.contains("SKEIN_ACTION_DONE:($__skein_action_status)"));
+        assert!(nu.contains("char --integer 30"));
+        assert!(nu.contains(ACTION_DONE_PREFIX));
 
         let powershell = project_action_wrapper(ShellFamily::PowerShell, "bun run dev");
         assert!(powershell.contains("Test-Path variable:LASTEXITCODE"));
-        assert!(powershell.contains("SKEIN_ACTION_DONE:$($__skeinActionStatus)"));
+        assert!(powershell.contains("$([char]30)"));
+        assert!(powershell.contains(ACTION_DONE_PREFIX));
+    }
+
+    #[test]
+    fn project_action_wrappers_do_not_embed_raw_marker_bytes() {
+        for shell_family in [
+            ShellFamily::Posix,
+            ShellFamily::Fish,
+            ShellFamily::Nu,
+            ShellFamily::PowerShell,
+        ] {
+            let wrapper = project_action_wrapper(shell_family, "bun run dev");
+            assert!(!wrapper.as_bytes().contains(&ACTION_MARKER_START));
+            assert!(!wrapper.as_bytes().contains(&ACTION_MARKER_END));
+        }
     }
 }
