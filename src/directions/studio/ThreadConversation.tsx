@@ -449,6 +449,7 @@ export function ThreadConversation({
     text: string,
     images: ConversationImageAttachment[],
     sendMentionBindings: ComposerMentionBindingInput[],
+    draftMentionBindings: ComposerDraftMentionBinding[],
   ) {
     if (sendDisabled || submitInFlightRef.current) return;
     const message = text.trim();
@@ -471,7 +472,7 @@ export function ThreadConversation({
         return;
       }
       const nextImages = [...images];
-      const nextMentionBindings = [...mentionBindings];
+      const nextMentionBindings = [...draftMentionBindings];
       const shouldPrepareWorktreeName = shouldShowFirstPromptNamingNotice(
         environment,
         thread,
@@ -607,8 +608,8 @@ export function ThreadConversation({
           updateDraft(thread.id, { mentionBindings: bindings })
         }
         onInterrupt={() => void interruptThread(thread.id)}
-        onSend={(text, images, mentionBindings) =>
-          void handleSend(text, images, mentionBindings)
+        onSend={(text, images, mentionBindings, draftMentionBindings) =>
+          void handleSend(text, images, mentionBindings, draftMentionBindings)
         }
         onUpdateComposer={(patch) => {
           if (patch.collaborationMode === "build") {

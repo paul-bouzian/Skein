@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::conversation::{ConversationComposerDraft, ConversationComposerSettings};
 use super::settings::{GlobalSettings, ServiceTier};
 use super::shortcuts::{normalize_shortcut_option, shortcut_signature, ShortcutSettings};
 
@@ -302,6 +303,30 @@ pub struct ChatThreadCreateResult {
     pub thread: ThreadRecord,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DraftThreadTarget {
+    Project { project_id: String },
+    Chat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DraftProjectSelection {
+    Local,
+    Existing { environment_id: String },
+    New { base_branch: String, name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDraftThreadState {
+    pub composer_draft: ConversationComposerDraft,
+    pub composer: ConversationComposerSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_selection: Option<DraftProjectSelection>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum WorktreeScriptTrigger {
@@ -424,9 +449,10 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        EnvironmentKind, EnvironmentRecord, FirstPromptRenameFailureEvent, ProjectActionIcon,
-        ProjectManualAction, ProjectRecord, ProjectSettings, ProjectSettingsPatch,
-        PullRequestState, RuntimeState, RuntimeStatusSnapshot, WorkspaceEventKind,
+        DraftProjectSelection, DraftThreadTarget, EnvironmentKind, EnvironmentRecord,
+        FirstPromptRenameFailureEvent, ProjectActionIcon, ProjectManualAction, ProjectRecord,
+        ProjectSettings, ProjectSettingsPatch, PullRequestState, RuntimeState,
+        RuntimeStatusSnapshot, WorkspaceEventKind,
     };
     use crate::domain::shortcuts::ShortcutSettings;
 
@@ -452,6 +478,52 @@ mod tests {
         });
 
         assert_eq!(settings.worktree_setup_script, None);
+    }
+
+    #[test]
+    fn draft_thread_target_uses_camel_case_variant_fields() {
+        let payload = serde_json::to_value(DraftThreadTarget::Project {
+            project_id: "project-1".to_string(),
+        })
+        .expect("draft target should serialize");
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "kind": "project",
+                "projectId": "project-1",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<DraftThreadTarget>(payload)
+                .expect("draft target should deserialize"),
+            DraftThreadTarget::Project {
+                project_id: "project-1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn draft_project_selection_uses_camel_case_variant_fields() {
+        let payload = serde_json::to_value(DraftProjectSelection::Existing {
+            environment_id: "env-1".to_string(),
+        })
+        .expect("project selection should serialize");
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "kind": "existing",
+                "environmentId": "env-1",
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<DraftProjectSelection>(payload)
+                .expect("project selection should deserialize"),
+            DraftProjectSelection::Existing {
+                environment_id: "env-1".to_string(),
+            }
+        );
     }
 
     #[test]

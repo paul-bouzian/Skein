@@ -11,11 +11,12 @@ use crate::domain::conversation::{ConversationComposerDraft, ConversationCompose
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch, OpenTarget};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
-    ChatThreadCreateResult, ChatWorkspaceSnapshot, EnvironmentKind, EnvironmentPullRequestSnapshot,
-    EnvironmentRecord, FirstPromptRenameFailureEvent, ManagedWorktreeCreateResult,
-    ProjectManualAction, ProjectRecord, ProjectSettings, ProjectSettingsPatch, RuntimeState,
-    RuntimeStatusSnapshot, ThreadOverrides, ThreadRecord, ThreadStatus, WorkspaceSnapshot,
-    WorktreeScriptTrigger,
+    ChatThreadCreateResult, ChatWorkspaceSnapshot, DraftProjectSelection, DraftThreadTarget,
+    EnvironmentKind, EnvironmentPullRequestSnapshot, EnvironmentRecord,
+    FirstPromptRenameFailureEvent, ManagedWorktreeCreateResult, ProjectManualAction,
+    ProjectRecord, ProjectSettings, ProjectSettingsPatch, RuntimeState,
+    RuntimeStatusSnapshot, SavedDraftThreadState, ThreadOverrides, ThreadRecord, ThreadStatus,
+    WorkspaceSnapshot, WorktreeScriptTrigger,
 };
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
@@ -62,6 +63,8 @@ pub struct CreateManagedWorktreeRequest {
     pub base_branch: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub overrides: Option<ThreadOverrides>,
 }
 
 impl CreateManagedWorktreeRequest {
@@ -71,6 +74,7 @@ impl CreateManagedWorktreeRequest {
             project_id: project_id.to_string(),
             base_branch: None,
             name: None,
+            overrides: None,
         }
     }
 }
@@ -683,6 +687,14 @@ impl WorkspaceService {
             return Err(AppError::NotFound("Project not found.".to_string()));
         }
 
+        connection.execute(
+            "
+            DELETE FROM draft_thread_states
+            WHERE scope_kind = 'project' AND scope_id = ?1
+            ",
+            params![project_id],
+        )?;
+
         if let Some(directory) = managed_worktree_dir {
             if let Err(error) = self.remove_empty_managed_worktree_directory(&directory) {
                 warn!(
@@ -749,6 +761,7 @@ impl WorkspaceService {
         let now = Utc::now();
         let environment_id = Uuid::now_v7().to_string();
         let thread_id = Uuid::now_v7().to_string();
+        let overrides = input.overrides.unwrap_or_default();
         let mut connection = self.database.open()?;
         let transaction_result = (|| -> AppResult<()> {
             let transaction = connection.transaction()?;
@@ -774,7 +787,7 @@ impl WorkspaceService {
             )?;
             debug_assert_eq!(environment_insert, 1);
 
-            let overrides_json = serde_json::to_string(&ThreadOverrides::default())
+            let overrides_json = serde_json::to_string(&overrides)
                 .map_err(|error| AppError::Validation(error.to_string()))?;
             let thread_insert = transaction.execute(
                 "
@@ -823,7 +836,17 @@ impl WorkspaceService {
                 last_exit_code: None,
             },
         )?;
-        let thread = self.thread_by_id(&thread_id)?;
+        let thread = ThreadRecord {
+            id: thread_id,
+            environment_id: environment_id.clone(),
+            title: "Thread 1".to_string(),
+            status: ThreadStatus::Active,
+            codex_thread_id: None,
+            overrides,
+            created_at: now,
+            updated_at: now,
+            archived_at: None,
+        };
 
         if let Some(script) = project.settings.worktree_setup_script.clone() {
             self.worktree_scripts.run(WorktreeScriptRequest {
@@ -984,6 +1007,12 @@ impl WorkspaceService {
         if affected == 0 {
             return Err(AppError::NotFound("Environment not found.".to_string()));
         }
+
+        self.normalize_deleted_worktree_project_draft_thread_state(
+            &connection,
+            &metadata.project_id,
+            environment_id,
+        )?;
 
         if let Some(script) = metadata.project_settings.worktree_teardown_script.clone() {
             self.worktree_scripts.run(WorktreeScriptRequest {
@@ -1652,6 +1681,123 @@ impl WorkspaceService {
         self.persist_thread_composer_draft(thread_id, None)
     }
 
+    pub fn draft_thread_state(
+        &self,
+        target: &DraftThreadTarget,
+    ) -> AppResult<Option<SavedDraftThreadState>> {
+        let connection = self.database.open()?;
+        self.validate_draft_thread_target_with_connection(&connection, target)?;
+        let (scope_kind, scope_id) = draft_thread_scope(target);
+        let state = connection
+            .query_row(
+                "
+                SELECT payload_json
+                FROM draft_thread_states
+                WHERE scope_kind = ?1 AND scope_id = ?2
+                ",
+                params![scope_kind, scope_id],
+                |row| {
+                    let payload_json = row.get::<_, String>(0)?;
+                    serde_json::from_str::<SavedDraftThreadState>(&payload_json).map_err(
+                        |error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                payload_json.len(),
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        },
+                    )
+                },
+            )
+            .optional()?;
+        Ok(state)
+    }
+
+    pub fn persist_draft_thread_state(
+        &self,
+        target: &DraftThreadTarget,
+        state: Option<&SavedDraftThreadState>,
+    ) -> AppResult<()> {
+        let connection = self.database.open()?;
+        self.validate_draft_thread_state_with_connection(&connection, target, state)?;
+        let (scope_kind, scope_id) = draft_thread_scope(target);
+
+        match state {
+            Some(state) => {
+                let payload_json = serde_json::to_string(state)
+                    .map_err(|error| AppError::Validation(error.to_string()))?;
+                connection.execute(
+                    "
+                    INSERT INTO draft_thread_states (scope_kind, scope_id, payload_json, updated_at)
+                    VALUES (?1, ?2, ?3, ?4)
+                    ON CONFLICT(scope_kind, scope_id) DO UPDATE SET
+                      payload_json = excluded.payload_json,
+                      updated_at = excluded.updated_at
+                    ",
+                    params![scope_kind, scope_id, payload_json, Utc::now()],
+                )?;
+            }
+            None => {
+                connection.execute(
+                    "
+                    DELETE FROM draft_thread_states
+                    WHERE scope_kind = ?1 AND scope_id = ?2
+                    ",
+                    params![scope_kind, scope_id],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn normalize_deleted_worktree_project_draft_thread_state(
+        &self,
+        connection: &rusqlite::Connection,
+        project_id: &str,
+        deleted_environment_id: &str,
+    ) -> AppResult<()> {
+        let payload_json = connection
+            .query_row(
+                "
+                SELECT payload_json
+                FROM draft_thread_states
+                WHERE scope_kind = 'project' AND scope_id = ?1
+                ",
+                params![project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(payload_json) = payload_json else {
+            return Ok(());
+        };
+
+        let mut state = serde_json::from_str::<SavedDraftThreadState>(&payload_json)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
+        let should_normalize = matches!(
+            state.project_selection.as_ref(),
+            Some(DraftProjectSelection::Existing { environment_id })
+                if environment_id == deleted_environment_id
+        );
+        if !should_normalize {
+            return Ok(());
+        }
+
+        state.project_selection = Some(DraftProjectSelection::Local);
+        let payload_json =
+            serde_json::to_string(&state).map_err(|error| AppError::Validation(error.to_string()))?;
+        connection.execute(
+            "
+            UPDATE draft_thread_states
+            SET payload_json = ?1, updated_at = ?2
+            WHERE scope_kind = 'project' AND scope_id = ?3
+            ",
+            params![payload_json, Utc::now(), project_id],
+        )?;
+
+        Ok(())
+    }
+
     fn project_by_id(
         &self,
         project_id: &str,
@@ -1922,6 +2068,70 @@ impl WorkspaceService {
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))
+    }
+
+    fn validate_draft_thread_target_with_connection(
+        &self,
+        connection: &rusqlite::Connection,
+        target: &DraftThreadTarget,
+    ) -> AppResult<()> {
+        match target {
+            DraftThreadTarget::Project { project_id } => {
+                self.ensure_repository_project_with_connection(connection, project_id)
+            }
+            DraftThreadTarget::Chat => Ok(()),
+        }
+    }
+
+    fn validate_draft_thread_state_with_connection(
+        &self,
+        connection: &rusqlite::Connection,
+        target: &DraftThreadTarget,
+        state: Option<&SavedDraftThreadState>,
+    ) -> AppResult<()> {
+        self.validate_draft_thread_target_with_connection(connection, target)?;
+        let Some(state) = state else {
+            return Ok(());
+        };
+
+        if state.composer.model.trim().is_empty() {
+            return Err(AppError::Validation("Model is required.".to_string()));
+        }
+
+        match (target, state.project_selection.as_ref()) {
+            (DraftThreadTarget::Chat, Some(_)) => Err(AppError::Validation(
+                "Chat drafts cannot persist a project selection.".to_string(),
+            )),
+            (DraftThreadTarget::Project { .. }, None) => Err(AppError::Validation(
+                "Project drafts must persist a project selection.".to_string(),
+            )),
+            (
+                DraftThreadTarget::Project { project_id },
+                Some(DraftProjectSelection::Existing { environment_id }),
+            ) => {
+                let belongs_to_project = connection
+                    .query_row(
+                        "
+                        SELECT COUNT(*)
+                        FROM environments
+                        JOIN projects ON projects.id = environments.project_id
+                        WHERE environments.id = ?1
+                          AND environments.project_id = ?2
+                          AND projects.archived_at IS NULL
+                        ",
+                        params![environment_id, project_id],
+                        |row| row.get::<_, i64>(0),
+                    )?
+                    > 0;
+                if !belongs_to_project {
+                    return Err(AppError::Validation(
+                        "The selected worktree no longer belongs to this project.".to_string(),
+                    ));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     fn next_managed_worktree_candidate(
@@ -2706,6 +2916,13 @@ fn thread_status_from_str(value: &str) -> Result<ThreadStatus, rusqlite::Error> 
     }
 }
 
+fn draft_thread_scope(target: &DraftThreadTarget) -> (&'static str, &str) {
+    match target {
+        DraftThreadTarget::Project { project_id } => ("project", project_id.as_str()),
+        DraftThreadTarget::Chat => ("chat", "chat"),
+    }
+}
+
 fn project_settings_from_json(
     value: &str,
     column_index: usize,
@@ -2777,8 +2994,10 @@ mod tests {
     };
     use crate::domain::shortcuts::{ShortcutSettings, ShortcutSettingsPatch};
     use crate::domain::workspace::{
-        EnvironmentKind, EnvironmentPullRequestSnapshot, ProjectActionIcon, ProjectManualAction,
-        ProjectSettingsPatch, PullRequestState, ThreadStatus,
+        DraftProjectSelection, DraftThreadTarget, EnvironmentKind,
+        EnvironmentPullRequestSnapshot, ProjectActionIcon, ProjectManualAction,
+        ProjectSettingsPatch, PullRequestState, SavedDraftThreadState, ThreadOverrides,
+        ThreadStatus,
     };
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
@@ -3152,6 +3371,7 @@ mod tests {
                     project_id: project.id.clone(),
                     base_branch: None,
                     name: Some(bad_name.to_string()),
+                    overrides: None,
                 })
                 .expect_err("path-like worktree names must be rejected before git sees them");
             assert!(
@@ -3327,6 +3547,53 @@ mod tests {
 
         assert!(!managed_path.exists());
         assert!(repo.path.exists());
+    }
+
+    #[test]
+    fn delete_worktree_environment_normalizes_project_draft_selection_back_to_local() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("draft-delete-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let result = harness
+            .service
+            .create_managed_worktree(CreateManagedWorktreeRequest::for_project(&project.id))
+            .expect("worktree should be created");
+        let target = DraftThreadTarget::Project {
+            project_id: project.id.clone(),
+        };
+        harness
+            .service
+            .persist_draft_thread_state(
+                &target,
+                Some(&saved_draft_thread_state(Some(
+                    DraftProjectSelection::Existing {
+                        environment_id: result.environment.id.clone(),
+                    },
+                ))),
+            )
+            .expect("draft should persist");
+
+        harness
+            .service
+            .delete_worktree_environment(&result.environment.id)
+            .expect("worktree should be deleted");
+
+        assert_eq!(
+            harness
+                .service
+                .draft_thread_state(&target)
+                .expect("draft should load")
+                .and_then(|state| state.project_selection),
+            Some(DraftProjectSelection::Local)
+        );
     }
 
     #[test]
@@ -4920,6 +5187,210 @@ mod tests {
                 .expect("cleared draft should load"),
             None
         );
+    }
+
+    #[test]
+    fn draft_thread_states_round_trip_for_project_and_chat_and_clear() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("draft-thread-state-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        let project_target = DraftThreadTarget::Project {
+            project_id: project.id.clone(),
+        };
+        let project_state = saved_draft_thread_state(Some(DraftProjectSelection::Local));
+        harness
+            .service
+            .persist_draft_thread_state(&project_target, Some(&project_state))
+            .expect("project draft should persist");
+        assert_eq!(
+            harness
+                .service
+                .draft_thread_state(&project_target)
+                .expect("project draft should load"),
+            Some(project_state)
+        );
+
+        let chat_target = DraftThreadTarget::Chat;
+        let chat_state = saved_draft_thread_state(None);
+        harness
+            .service
+            .persist_draft_thread_state(&chat_target, Some(&chat_state))
+            .expect("chat draft should persist");
+        assert_eq!(
+            harness
+                .service
+                .draft_thread_state(&chat_target)
+                .expect("chat draft should load"),
+            Some(chat_state)
+        );
+
+        harness
+            .service
+            .persist_draft_thread_state(&project_target, None)
+            .expect("project draft should clear");
+        harness
+            .service
+            .persist_draft_thread_state(&chat_target, None)
+            .expect("chat draft should clear");
+
+        assert_eq!(
+            harness
+                .service
+                .draft_thread_state(&project_target)
+                .expect("cleared project draft should load"),
+            None
+        );
+        assert_eq!(
+            harness
+                .service
+                .draft_thread_state(&chat_target)
+                .expect("cleared chat draft should load"),
+            None
+        );
+    }
+
+    #[test]
+    fn remove_project_clears_persisted_project_draft_thread_state() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("draft-cleanup-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let project_target = DraftThreadTarget::Project {
+            project_id: project.id.clone(),
+        };
+        let chat_target = DraftThreadTarget::Chat;
+
+        harness
+            .service
+            .persist_draft_thread_state(
+                &project_target,
+                Some(&saved_draft_thread_state(Some(DraftProjectSelection::Local))),
+            )
+            .expect("project draft should persist");
+        harness
+            .service
+            .persist_draft_thread_state(&chat_target, Some(&saved_draft_thread_state(None)))
+            .expect("chat draft should persist");
+
+        harness
+            .service
+            .remove_project(&project.id)
+            .expect("project should be removed");
+
+        let connection = harness.open_connection();
+        let project_rows: i64 = connection
+            .query_row(
+                "
+                SELECT COUNT(*)
+                FROM draft_thread_states
+                WHERE scope_kind = 'project' AND scope_id = ?1
+                ",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("project draft count should read");
+        let chat_rows: i64 = connection
+            .query_row(
+                "
+                SELECT COUNT(*)
+                FROM draft_thread_states
+                WHERE scope_kind = 'chat' AND scope_id = 'chat'
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .expect("chat draft count should read");
+
+        assert_eq!(project_rows, 0);
+        assert_eq!(chat_rows, 1);
+    }
+
+    #[test]
+    fn create_managed_worktree_persists_requested_thread_overrides() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("worktree-overrides-repo"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let overrides = ThreadOverrides {
+            model: Some("gpt-5.4-mini".to_string()),
+            service_tier: Some(ServiceTier::Fast),
+            service_tier_overridden: true,
+            ..ThreadOverrides::default()
+        };
+
+        let result = harness
+            .service
+            .create_managed_worktree(CreateManagedWorktreeRequest {
+                project_id: project.id.clone(),
+                base_branch: None,
+                name: Some("feature-overrides".to_string()),
+                overrides: Some(overrides.clone()),
+            })
+            .expect("worktree should be created");
+
+        assert_eq!(result.thread.overrides.model, overrides.model);
+        assert_eq!(result.thread.overrides.service_tier, overrides.service_tier);
+        assert_eq!(
+            result.thread.overrides.service_tier_overridden,
+            overrides.service_tier_overridden
+        );
+    }
+
+    fn saved_draft_thread_state(
+        project_selection: Option<DraftProjectSelection>,
+    ) -> SavedDraftThreadState {
+        SavedDraftThreadState {
+            composer_draft: ConversationComposerDraft {
+                text: "Persist me".to_string(),
+                images: vec![ConversationImageAttachment::LocalImage {
+                    path: "/tmp/draft-thread-state.png".to_string(),
+                }],
+                mention_bindings: vec![ComposerDraftMentionBinding {
+                    mention: "skill".to_string(),
+                    kind: ComposerMentionBindingKind::Skill,
+                    path: "/tmp/skill.md".to_string(),
+                    start: 0,
+                    end: 5,
+                }],
+                is_refining_plan: true,
+            },
+            composer: default_composer_settings(),
+            project_selection,
+        }
+    }
+
+    fn default_composer_settings() -> ConversationComposerSettings {
+        let settings = GlobalSettings::default();
+        ConversationComposerSettings {
+            model: settings.default_model,
+            reasoning_effort: settings.default_reasoning_effort,
+            collaboration_mode: settings.default_collaboration_mode,
+            approval_policy: settings.default_approval_policy,
+            service_tier: settings.default_service_tier,
+        }
     }
 
     struct WorkspaceHarness {

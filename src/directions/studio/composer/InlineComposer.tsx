@@ -87,6 +87,7 @@ type Props = {
     text: string,
     images: ConversationImageAttachment[],
     mentionBindings: ComposerMentionBindingInput[],
+    draftMentionBindings: ComposerDraftMentionBinding[],
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
   transportEnabled?: boolean;
@@ -447,6 +448,7 @@ export function InlineComposer({
       draft,
       images,
       prepareComposerMentionBindingsForSend(draft, mentionBindings),
+      mentionBindings,
     );
   }
 

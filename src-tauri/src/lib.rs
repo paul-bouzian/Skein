@@ -119,6 +119,8 @@ pub fn run() {
             commands::voice::get_environment_voice_status,
             commands::voice::transcribe_environment_voice,
             commands::workspace::get_workspace_snapshot,
+            commands::workspace::get_draft_thread_state,
+            commands::workspace::save_draft_thread_state,
             commands::workspace::get_shortcut_defaults,
             commands::workspace::update_global_settings,
             commands::workspace::add_project,

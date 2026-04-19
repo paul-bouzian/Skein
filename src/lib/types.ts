@@ -281,6 +281,15 @@ export type WorkspaceSnapshot = {
   projects: ProjectRecord[];
 };
 
+export type DraftThreadTarget =
+  | { kind: "project"; projectId: string }
+  | { kind: "chat" };
+
+export type DraftProjectSelection =
+  | { kind: "local" }
+  | { kind: "existing"; environmentId: string }
+  | { kind: "new"; baseBranch: string; name: string };
+
 export type ManagedWorktreeCreateResult = {
   environment: EnvironmentRecord;
   thread: ThreadRecord;
@@ -719,6 +728,12 @@ export type ConversationComposerDraft = {
   isRefiningPlan: boolean;
 };
 
+export type SavedDraftThreadState = {
+  composerDraft: ConversationComposerDraft;
+  composer: ConversationComposerSettings;
+  projectSelection?: DraftProjectSelection | null;
+};
+
 export type ConversationMessageItem = {
   kind: "message";
   id: string;
@@ -892,6 +907,11 @@ export type SendThreadMessageInput = {
 export type PersistThreadComposerDraftInput = {
   threadId: string;
   draft?: ConversationComposerDraft | null;
+};
+
+export type SaveDraftThreadStateInput = {
+  target: DraftThreadTarget;
+  state?: SavedDraftThreadState | null;
 };
 
 export type ApprovalResponseInput =

@@ -2,7 +2,11 @@ import { act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
-import type { ProjectManualAction, WorkspaceEventPayload } from "../lib/types";
+import type {
+  ProjectManualAction,
+  SavedDraftThreadState,
+  WorkspaceEventPayload,
+} from "../lib/types";
 import {
   makeEnvironment,
   makeGlobalSettings,
@@ -19,9 +23,11 @@ import {
 
 vi.mock("../lib/bridge", () => ({
   getBootstrapStatus: vi.fn(),
+  getDraftThreadState: vi.fn(),
   getWorkspaceSnapshot: vi.fn(),
   listenToWorkspaceEvents: vi.fn(),
   killTerminal: vi.fn().mockResolvedValue(undefined),
+  saveDraftThreadState: vi.fn(),
   updateGlobalSettings: vi.fn(),
   updateProjectSettings: vi.fn(),
   reorderProjects: vi.fn(),
@@ -46,6 +52,8 @@ beforeEach(() => {
     byEnv: {},
     knownEnvironmentIds: [],
   });
+  mockedBridge.getDraftThreadState.mockResolvedValue(null);
+  mockedBridge.saveDraftThreadState.mockResolvedValue(undefined);
   mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
   mockedBridge.updateProjectSettings.mockResolvedValue(makeProject());
   useWorkspaceStore.setState(initialWorkspaceState, true);
@@ -1178,6 +1186,25 @@ describe("workspace store — grid 2x2 panes", () => {
       return useWorkspaceStore.getState().draftBySlot;
     }
 
+    function makeSavedDraftState(text: string): SavedDraftThreadState {
+      return {
+        composerDraft: {
+          text,
+          images: [],
+          mentionBindings: [],
+          isRefiningPlan: false,
+        },
+        composer: {
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          collaborationMode: "build",
+          approvalPolicy: "askToEdit",
+          serviceTier: null,
+        },
+        projectSelection: { kind: "local" },
+      };
+    }
+
     it("openThreadDraft seeds topLeft when the layout is empty", () => {
       seedTwoThreadWorkspace();
 
@@ -1391,6 +1418,196 @@ describe("workspace store — grid 2x2 panes", () => {
         kind: "project",
         projectId: "project-a",
       });
+    });
+
+    it("hydrates and reuses persisted draft thread state per target", async () => {
+      seedTwoThreadWorkspace();
+      mockedBridge.getDraftThreadState.mockResolvedValueOnce(
+        makeSavedDraftState("Persisted draft"),
+      );
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toEqual(makeSavedDraftState("Persisted draft"));
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topRight");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.getDraftThreadState).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps newer local draft edits when hydration resolves late", async () => {
+      seedTwoThreadWorkspace();
+      let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =
+        null;
+      mockedBridge.getDraftThreadState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePersisted = resolve;
+          }),
+      );
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      useWorkspaceStore.getState().updateDraftThreadState(
+        { kind: "project", projectId: "project-a" },
+        (current) => ({
+          ...current,
+          composerDraft: {
+            ...current.composerDraft,
+            text: "Local draft wins",
+          },
+        }),
+      );
+
+      await act(async () => {
+        resolvePersisted?.(makeSavedDraftState("Persisted draft"));
+        await Promise.resolve();
+      });
+
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toEqual(
+        expect.objectContaining({
+          composerDraft: expect.objectContaining({
+            text: "Local draft wins",
+          }),
+        }),
+      );
+    });
+
+    it("ignores late hydration results after clearing an uncached draft target", async () => {
+      seedTwoThreadWorkspace();
+      let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =
+        null;
+      mockedBridge.getDraftThreadState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePersisted = resolve;
+          }),
+      );
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      useWorkspaceStore
+        .getState()
+        .clearDraftThreadState({ kind: "project", projectId: "project-a" });
+
+      await act(async () => {
+        resolvePersisted?.(makeSavedDraftState("Persisted draft"));
+        await Promise.resolve();
+      });
+
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toBeUndefined();
+    });
+
+    it("ignores late hydration results after the target project disappears", async () => {
+      seedTwoThreadWorkspace();
+      let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =
+        null;
+      mockedBridge.getDraftThreadState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePersisted = resolve;
+          }),
+      );
+      mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+        makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              id: "project-b",
+              environments: [
+                makeEnvironment({
+                  id: "env-b",
+                  projectId: "project-b",
+                  threads: [makeThread({ id: "thread-b-1", environmentId: "env-b" })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await useWorkspaceStore.getState().refreshSnapshot();
+
+      await act(async () => {
+        resolvePersisted?.(makeSavedDraftState("Persisted draft"));
+        await Promise.resolve();
+      });
+
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toBeUndefined();
+      expect(
+        useWorkspaceStore.getState().draftHydrationByTargetKey["project:project-a"],
+      ).toBeUndefined();
+    });
+
+    it("stops retrying draft persistence when a project target disappears", async () => {
+      vi.useFakeTimers();
+      seedTwoThreadWorkspace();
+      mockedBridge.saveDraftThreadState.mockRejectedValueOnce(
+        new Error("target missing"),
+      );
+      mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+        makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              id: "project-b",
+              environments: [
+                makeEnvironment({
+                  id: "env-b",
+                  projectId: "project-b",
+                  threads: [makeThread({ id: "thread-b-1", environmentId: "env-b" })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+
+      useWorkspaceStore.getState().updateDraftThreadState(
+        { kind: "project", projectId: "project-a" },
+        (current) => ({
+          ...current,
+          composer: {
+            ...current.composer,
+            model: "gpt-5.4-mini",
+          },
+        }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await useWorkspaceStore.getState().refreshSnapshot();
+      await act(async () => {
+        vi.advanceTimersByTime(1_500);
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
     });
   });
 });

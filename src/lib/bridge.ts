@@ -24,6 +24,7 @@ import type {
   CodexUsageEventPayload,
   ConversationEventPayload,
   CreateThreadRequest,
+  DraftThreadTarget,
   EnvironmentCapabilitiesSnapshot,
   GitFileDiff,
   GitFileDiffInput,
@@ -50,7 +51,9 @@ import type {
   RenameProjectRequest,
   RenameThreadRequest,
   RuntimeStatusSnapshot,
+  SaveDraftThreadStateInput,
   SendThreadMessageInput,
+  SavedDraftThreadState,
   SetProjectSidebarCollapsedRequest,
   SubmitPlanDecisionInput,
   TranscribeEnvironmentVoiceInput,
@@ -70,6 +73,20 @@ export function getBootstrapStatus(): Promise<BootstrapStatus> {
 
 export function getWorkspaceSnapshot(): Promise<WorkspaceSnapshot> {
   return invoke<WorkspaceSnapshot>("get_workspace_snapshot");
+}
+
+export function getDraftThreadState(
+  target: DraftThreadTarget,
+): Promise<SavedDraftThreadState | null> {
+  return invoke<SavedDraftThreadState | null>("get_draft_thread_state", {
+    target,
+  });
+}
+
+export function saveDraftThreadState(
+  input: SaveDraftThreadStateInput,
+): Promise<void> {
+  return invoke<void>("save_draft_thread_state", { input });
 }
 
 export function getShortcutDefaults(): Promise<ShortcutSettings> {
@@ -362,6 +379,7 @@ export function removeProject(projectId: string): Promise<void> {
 export type CreateManagedWorktreeOptions = {
   baseBranch?: string;
   name?: string;
+  overrides?: ThreadRecord["overrides"];
 };
 
 export function createManagedWorktree(
@@ -371,6 +389,7 @@ export function createManagedWorktree(
   const input: Record<string, unknown> = { projectId };
   if (options?.baseBranch !== undefined) input.baseBranch = options.baseBranch;
   if (options?.name !== undefined) input.name = options.name;
+  if (options?.overrides !== undefined) input.overrides = options.overrides;
   return invoke<ManagedWorktreeCreateResult>("create_managed_worktree", {
     input,
   });

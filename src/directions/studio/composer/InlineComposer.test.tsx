@@ -521,7 +521,7 @@ describe("InlineComposer image attachments", () => {
 
     expect(onSend).toHaveBeenCalledWith("", [
       { type: "localImage", path: "/tmp/screenshot.png" },
-    ], []);
+    ], [], []);
   });
 
   it("ignores picker failures and keeps the composer usable", async () => {
@@ -535,7 +535,12 @@ describe("InlineComposer image attachments", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("Retry after picker failure", [], []);
+    expect(onSend).toHaveBeenCalledWith(
+      "Retry after picker failure",
+      [],
+      [],
+      [],
+    );
     expect(screen.queryByLabelText("Attached images")).toBeNull();
   });
 

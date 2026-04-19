@@ -9,13 +9,26 @@ import * as bridge from "../lib/bridge";
 import type {
   BootstrapStatus,
   ChatWorkspaceSnapshot,
+  DraftThreadTarget,
   EnvironmentRecord,
   GlobalSettings,
   ProjectSettingsPatch,
   ProjectRecord,
+  SavedDraftThreadState,
   ThreadRecord,
   WorkspaceSnapshot,
 } from "../lib/types";
+import {
+  clearInvalidDraftThreadPersistenceControllers,
+  clearDraftThreadPersistenceControllers,
+  defaultDraftThreadState,
+  draftThreadTargetKey,
+  normalizeDraftThreadState,
+  persistedDraftThreadState,
+  persistenceModeForDraftThreadChange,
+  scheduleDraftThreadPersistence,
+  sameDraftThreadState,
+} from "./draft-threads";
 import { useTerminalStore } from "./terminal-store";
 
 type LoadingState = "idle" | "loading" | "ready" | "error";
@@ -59,9 +72,8 @@ export type PaneSelection = {
 
 type ThreadSelectionStrategy = "focusedSlot" | "preferVisiblePane";
 
-export type ThreadDraftState =
-  | { kind: "project"; projectId: string }
-  | { kind: "chat" };
+export type ThreadDraftState = DraftThreadTarget;
+export type DraftThreadHydrationState = "cold" | "loading" | "ready" | "error";
 
 export type WorkspaceLayout = {
   slots: Record<SlotKey, PaneSelection | null>;
@@ -106,6 +118,9 @@ type WorkspaceState = {
 
   // Ephemeral draft composer state per pane (not persisted).
   draftBySlot: Partial<Record<SlotKey, ThreadDraftState>>;
+  draftStateByTargetKey: Record<string, SavedDraftThreadState>;
+  draftHydrationByTargetKey: Record<string, DraftThreadHydrationState>;
+  draftRevisionByTargetKey: Record<string, number>;
 
   // Compat fields derived from the focused slot.
   selectedProjectId: string | null;
@@ -165,6 +180,16 @@ type WorkspaceState = {
   openChatDraft: (slot?: SlotKey) => SlotKey | null;
   updateThreadDraftTarget: (slot: SlotKey, target: ThreadDraftState) => void;
   closeThreadDraft: (slot: SlotKey) => void;
+  hydrateDraftThreadState: (
+    target: DraftThreadTarget,
+  ) => Promise<SavedDraftThreadState | null>;
+  updateDraftThreadState: (
+    target: DraftThreadTarget,
+    updater:
+      | SavedDraftThreadState
+      | ((state: SavedDraftThreadState) => SavedDraftThreadState),
+  ) => void;
+  clearDraftThreadState: (target: DraftThreadTarget) => void;
 };
 
 let unlistenWorkspaceEvents: null | (() => void) = null;
@@ -173,6 +198,10 @@ let listenerGeneration = 0;
 let refreshTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 let inflightRefresh: Promise<boolean> | null = null;
 let queuedRefresh = false;
+const inflightDraftThreadLoads = new Map<
+  string,
+  Promise<SavedDraftThreadState | null>
+>();
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   snapshot: null,
@@ -184,6 +213,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   layout: INITIAL_LAYOUT,
 
   draftBySlot: {},
+  draftStateByTargetKey: {},
+  draftHydrationByTargetKey: {},
+  draftRevisionByTargetKey: {},
 
   selectedProjectId: null,
   selectedEnvironmentId: null,
@@ -202,13 +234,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set((state) => {
         const base = persistedLayout ?? state.layout;
         const reconciled = reconcileLayout(snapshot, base, state.draftBySlot);
+        const draftThreadCaches = reconcileDraftThreadCaches(snapshot, state);
         return {
           bootstrapStatus,
           snapshot,
           loadingState: "ready",
           ...withReconciledLayout(snapshot, reconciled),
+          ...draftThreadCaches,
         };
       });
+      clearInvalidDraftThreadPersistenceControllers(
+        validDraftThreadTargetKeys(snapshot),
+      );
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to load workspace";
@@ -254,11 +291,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       useTerminalStore.getState().syncWorkspaceSnapshot(snapshot);
       set((state) => {
         const reconciled = reconcileLayout(snapshot, state.layout, state.draftBySlot);
+        const draftThreadCaches = reconcileDraftThreadCaches(snapshot, state);
         return {
           snapshot,
           ...withReconciledLayout(snapshot, reconciled),
+          ...draftThreadCaches,
         };
       });
+      clearInvalidDraftThreadPersistenceControllers(
+        validDraftThreadTargetKeys(snapshot),
+      );
       return true;
     } catch (cause: unknown) {
       const message =
@@ -575,8 +617,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   openThreadDraft: (targetInput, requestedSlot) => {
     let opened: SlotKey | null = null;
+    let draftTarget: ThreadDraftState | null = null;
     set((state) => {
-      const draftTarget = normalizeDraftTarget(targetInput);
+      draftTarget = normalizeDraftTarget(targetInput);
       const slot: SlotKey =
         requestedSlot ??
         state.layout.focusedSlot ??
@@ -599,12 +642,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         nextDrafts,
       );
     });
+    if (draftTarget) {
+      void get().hydrateDraftThreadState(draftTarget);
+    }
     return opened;
   },
 
   openChatDraft: (slot) => get().openThreadDraft({ kind: "chat" }, slot),
 
-  updateThreadDraftTarget: (slot, target) =>
+  updateThreadDraftTarget: (slot, target) => {
     set((state) => {
       if (!state.draftBySlot[slot]) {
         return state;
@@ -628,13 +674,154 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         state.snapshot,
         nextDrafts,
       );
-    }),
+    });
+    void get().hydrateDraftThreadState(target);
+  },
 
   closeThreadDraft: (slot) =>
     set((state) => {
       const nextDrafts = omitSlot(state.draftBySlot, slot);
       return withLayoutAndDrafts(state.layout, state.snapshot, nextDrafts);
     }),
+
+  hydrateDraftThreadState: async (target) => {
+    const key = draftThreadTargetKey(target);
+    const currentState = get();
+    if (currentState.draftHydrationByTargetKey[key] === "ready") {
+      return currentState.draftStateByTargetKey[key] ?? null;
+    }
+
+    const inflight = inflightDraftThreadLoads.get(key);
+    if (inflight) {
+      return inflight;
+    }
+
+    const loadPromise = (async () => {
+      const snapshot = get().snapshot;
+      if (!snapshot) {
+        return null;
+      }
+      const revision = get().draftRevisionByTargetKey[key] ?? 0;
+      set((state) => ({
+        draftHydrationByTargetKey: {
+          ...state.draftHydrationByTargetKey,
+          [key]: "loading",
+        },
+      }));
+
+      try {
+        const persisted = await bridge.getDraftThreadState(target);
+        const normalized =
+          persisted == null ? null : normalizeDraftThreadState(target, persisted);
+        set((state) => {
+          if (!state.snapshot || !validDraftThreadTargetKeys(state.snapshot).has(key)) {
+            return state;
+          }
+          const hydrationByTargetKey = {
+            ...state.draftHydrationByTargetKey,
+            [key]: "ready" as const,
+          };
+          if ((state.draftRevisionByTargetKey[key] ?? 0) !== revision) {
+            return { draftHydrationByTargetKey: hydrationByTargetKey };
+          }
+          if (normalized == null) {
+            return {
+              draftHydrationByTargetKey: hydrationByTargetKey,
+            };
+          }
+          return {
+            draftStateByTargetKey: {
+              ...state.draftStateByTargetKey,
+              [key]: normalized,
+            },
+            draftHydrationByTargetKey: hydrationByTargetKey,
+          };
+        });
+        return normalized;
+      } catch {
+        set((state) => ({
+          draftHydrationByTargetKey: {
+            ...state.draftHydrationByTargetKey,
+            [key]: "error",
+          },
+        }));
+        return null;
+      }
+    })();
+
+    inflightDraftThreadLoads.set(key, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      if (inflightDraftThreadLoads.get(key) === loadPromise) {
+        inflightDraftThreadLoads.delete(key);
+      }
+    }
+  },
+
+  updateDraftThreadState: (target, updater) => {
+    let nextState: SavedDraftThreadState | null = null;
+    let persistedState: SavedDraftThreadState | null = null;
+    let persistenceMode: "debounced" | "immediate" = "immediate";
+
+    set((state) => {
+      const settings = state.snapshot?.settings ?? null;
+      if (!settings) {
+        return state;
+      }
+      const key = draftThreadTargetKey(target);
+      const current =
+        state.draftStateByTargetKey[key] ?? defaultDraftThreadState(target, settings);
+      const updated =
+        typeof updater === "function" ? updater(current) : updater;
+      const normalized = normalizeDraftThreadState(target, updated);
+      if (sameDraftThreadState(current, normalized)) {
+        return state;
+      }
+
+      nextState = normalized;
+      persistedState = persistedDraftThreadState(target, normalized, settings);
+      persistenceMode = persistenceModeForDraftThreadChange(current, normalized);
+      return {
+        draftStateByTargetKey: {
+          ...state.draftStateByTargetKey,
+          [key]: normalized,
+        },
+        draftHydrationByTargetKey: {
+          ...state.draftHydrationByTargetKey,
+          [key]: "ready",
+        },
+        draftRevisionByTargetKey: {
+          ...state.draftRevisionByTargetKey,
+          [key]: (state.draftRevisionByTargetKey[key] ?? 0) + 1,
+        },
+      };
+    });
+
+    if (nextState) {
+      scheduleDraftThreadPersistence(target, persistedState, persistenceMode);
+    }
+  },
+
+  clearDraftThreadState: (target) => {
+    const key = draftThreadTargetKey(target);
+    set((state) => {
+      const draftStateByTargetKey = { ...state.draftStateByTargetKey };
+      delete draftStateByTargetKey[key];
+      return {
+        draftStateByTargetKey,
+        draftHydrationByTargetKey: {
+          ...state.draftHydrationByTargetKey,
+          [key]: "ready",
+        },
+        draftRevisionByTargetKey: {
+          ...state.draftRevisionByTargetKey,
+          [key]: (state.draftRevisionByTargetKey[key] ?? 0) + 1,
+        },
+      };
+    });
+    scheduleDraftThreadPersistence(target, null, "immediate");
+  },
 }));
 
 export function teardownWorkspaceListener() {
@@ -648,6 +835,8 @@ export function teardownWorkspaceListener() {
   }
   inflightRefresh = null;
   queuedRefresh = false;
+  inflightDraftThreadLoads.clear();
+  clearDraftThreadPersistenceControllers();
   useWorkspaceStore.setState({ listenerReady: false });
 }
 
@@ -859,6 +1048,16 @@ export function selectPaneDraft(slot: SlotKey | null) {
   };
 }
 
+export function selectDraftThreadState(target: DraftThreadTarget | null) {
+  return (s: WorkspaceState) => {
+    if (!target) {
+      return null;
+    }
+    const key = draftThreadTargetKey(target);
+    return s.draftStateByTargetKey[key] ?? null;
+  };
+}
+
 function omitSlot(
   drafts: Partial<Record<SlotKey, ThreadDraftState>>,
   slot: SlotKey,
@@ -1062,6 +1261,52 @@ function seedTopLeftSelection(
     state.snapshot,
     nextDrafts,
   );
+}
+
+function reconcileDraftThreadCaches(
+  snapshot: WorkspaceSnapshot,
+  state: WorkspaceState,
+) {
+  const validKeys = validDraftThreadTargetKeys(snapshot);
+
+  return {
+    draftStateByTargetKey: filterDraftThreadEntries(
+      state.draftStateByTargetKey,
+      validKeys,
+    ),
+    draftHydrationByTargetKey: filterDraftThreadEntries(
+      state.draftHydrationByTargetKey,
+      validKeys,
+    ),
+    draftRevisionByTargetKey: filterDraftThreadEntries(
+      state.draftRevisionByTargetKey,
+      validKeys,
+    ),
+  };
+}
+
+function validDraftThreadTargetKeys(snapshot: WorkspaceSnapshot) {
+  return new Set<string>([
+    "chat",
+    ...snapshot.projects.map((project) => `project:${project.id}`),
+  ]);
+}
+
+function filterDraftThreadEntries<Value>(
+  entries: Record<string, Value>,
+  validKeys: ReadonlySet<string>,
+) {
+  let changed = false;
+  const nextEntries: Record<string, Value> = {};
+  for (const [key, value] of Object.entries(entries)) {
+    if (!validKeys.has(key)) {
+      changed = true;
+      continue;
+    }
+    nextEntries[key] = value;
+  }
+
+  return changed ? nextEntries : entries;
 }
 
 export function countPanes(
