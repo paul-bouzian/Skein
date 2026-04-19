@@ -862,19 +862,19 @@ impl RuntimeSession {
 
     pub async fn composer_catalog(
         &self,
-        context: ThreadRuntimeContext,
+        environment_path: &str,
+        codex_thread_id: Option<&str>,
     ) -> AppResult<ThreadComposerCatalog> {
-        let prompts = load_prompt_definitions(&context.environment_path)?;
-        let skills = self.load_skill_bindings(&context.environment_path).await?;
-        let apps = self
-            .load_app_bindings(context.codex_thread_id.as_deref())
-            .await?;
+        let prompts = load_prompt_definitions(environment_path)?;
+        let skills = self.load_skill_bindings(environment_path).await?;
+        let apps = self.load_app_bindings(codex_thread_id).await?;
         Ok(build_thread_catalog(&prompts, &skills, &apps))
     }
 
-    pub async fn search_thread_files(
+    pub async fn search_files(
         &self,
-        context: ThreadRuntimeContext,
+        environment_path: &str,
+        cancellation_token: &str,
         query: String,
         limit: usize,
     ) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
@@ -883,8 +883,8 @@ impl RuntimeSession {
                 "fuzzyFileSearch",
                 serde_json::json!({
                     "query": query,
-                    "roots": [context.environment_path],
-                    "cancellationToken": context.thread_id,
+                    "roots": [environment_path],
+                    "cancellationToken": cancellation_token,
                 }),
             )
             .await?;

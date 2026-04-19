@@ -24,7 +24,9 @@ use crate::runtime::codex_paths::resolve_codex_binary_path;
 use crate::runtime::protocol::AccountReadResponse;
 use crate::runtime::session::{AppServerAuthStatus, RuntimeSession, SendMessageResult};
 use crate::serde_helpers::deserialize_explicit_optional;
-use crate::services::workspace::{EnvironmentRuntimeTarget, ThreadRuntimeContext};
+use crate::services::workspace::{
+    ComposerTargetContext, EnvironmentRuntimeTarget, ThreadRuntimeContext,
+};
 
 struct RunningRuntime {
     session: Arc<RuntimeSession>,
@@ -554,22 +556,46 @@ impl RuntimeSupervisor {
         session.open_thread(context).await
     }
 
-    pub async fn get_thread_composer_catalog(
+    pub async fn get_composer_catalog(
         &self,
-        context: ThreadRuntimeContext,
+        context: ComposerTargetContext,
     ) -> AppResult<ThreadComposerCatalog> {
-        let session = self.ensure_runtime(&context).await?;
-        session.composer_catalog(context).await
+        let read_target = self
+            .resolve_read_target(
+                &context.environment_id,
+                &context.environment_path,
+                context.codex_binary_path.clone(),
+            )
+            .await?;
+        read_composer_catalog_from_target(
+            read_target,
+            &context.environment_path,
+            context.codex_thread_id.as_deref(),
+        )
+        .await
     }
 
-    pub async fn search_thread_files(
+    pub async fn search_composer_files(
         &self,
-        context: ThreadRuntimeContext,
+        context: ComposerTargetContext,
         query: String,
         limit: usize,
     ) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
-        let session = self.ensure_runtime(&context).await?;
-        session.search_thread_files(context, query, limit).await
+        let read_target = self
+            .resolve_read_target(
+                &context.environment_id,
+                &context.environment_path,
+                context.codex_binary_path.clone(),
+            )
+            .await?;
+        search_files_from_target(
+            read_target,
+            &context.environment_path,
+            &context.request_key,
+            query,
+            limit,
+        )
+        .await
     }
 
     pub async fn send_thread_message(
@@ -1352,6 +1378,46 @@ async fn read_capabilities_from_target(
     }
 }
 
+async fn read_composer_catalog_from_target(
+    read_target: RuntimeReadTarget,
+    environment_path: &str,
+    codex_thread_id: Option<&str>,
+) -> AppResult<ThreadComposerCatalog> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => {
+            session.composer_catalog(environment_path, codex_thread_id).await
+        }
+        RuntimeReadTarget::Headless(session) => {
+            let result = session.composer_catalog(environment_path, codex_thread_id).await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
+async fn search_files_from_target(
+    read_target: RuntimeReadTarget,
+    environment_path: &str,
+    cancellation_token: &str,
+    query: String,
+    limit: usize,
+) -> AppResult<Vec<crate::domain::conversation::ComposerFileSearchResult>> {
+    match read_target {
+        RuntimeReadTarget::Running(session) => {
+            session
+                .search_files(environment_path, cancellation_token, query, limit)
+                .await
+        }
+        RuntimeReadTarget::Headless(session) => {
+            let result = session
+                .search_files(environment_path, cancellation_token, query, limit)
+                .await;
+            let stop_result = session.stop().await;
+            finish_headless_read(result, stop_result)
+        }
+    }
+}
+
 async fn read_auth_status_from_target(
     read_target: RuntimeReadTarget,
     include_token: bool,
@@ -1397,8 +1463,9 @@ mod tests {
         apply_account_usage_patch, apply_account_usage_snapshot, classify_idle_runtime_candidates,
         collect_idle_runtime_candidates, emit_account_usage_event, finish_headless_read,
         latest_running_usage_source, merge_account_usage_snapshot, prime_running_runtime_usage,
-        read_account_from_target, read_auth_status_from_target, read_capabilities_from_target,
-        resolve_binary_path, should_stop_idle_runtime_candidate,
+        read_account_from_target, read_auth_status_from_target,
+        read_capabilities_from_target, read_composer_catalog_from_target, resolve_binary_path,
+        search_files_from_target, should_stop_idle_runtime_candidate,
         store_account_usage_snapshot_from_read, touch_running_runtime, usage_snapshot_is_empty,
         usage_snapshot_patch_from_snapshot, AccountUsageState, AppServerAuthStatus,
         CodexRateLimitSnapshotPatch, RunningRuntime, RuntimeReadTarget, RuntimeRegistry,
@@ -1524,6 +1591,57 @@ mod tests {
             collaboration_mode_count, 2,
             "read_capabilities should refresh collaborationMode/list"
         );
+    }
+
+    #[tokio::test]
+    async fn running_read_composer_catalog_uses_the_active_session() {
+        let (session, harness) = spawn_test_session().await;
+
+        let catalog = read_composer_catalog_from_target(
+            RuntimeReadTarget::Running(Arc::new(session)),
+            "/tmp/skein",
+            Some("thr-123"),
+        )
+        .await
+        .expect("running composer catalog should load");
+        assert!(catalog.skills.is_empty());
+        assert!(catalog.apps.is_empty());
+
+        let requests = harness.requests().await;
+        let skills_request = requests
+            .iter()
+            .find(|request| request.method == "skills/list")
+            .expect("skills/list request should be recorded");
+        assert_eq!(skills_request.params["cwds"][0], "/tmp/skein");
+        let app_request = requests
+            .iter()
+            .find(|request| request.method == "app/list")
+            .expect("app/list request should be recorded");
+        assert_eq!(app_request.params["threadId"], "thr-123");
+    }
+
+    #[tokio::test]
+    async fn running_search_files_uses_the_active_session() {
+        let (session, harness) = spawn_test_session().await;
+
+        let results = search_files_from_target(
+            RuntimeReadTarget::Running(Arc::new(session)),
+            "/tmp/skein",
+            "draft:topLeft",
+            "main".to_string(),
+            50,
+        )
+        .await
+        .expect("running file search should load");
+
+        assert_eq!(results.len(), 2);
+        let requests = harness.requests().await;
+        let search_request = requests
+            .iter()
+            .find(|request| request.method == "fuzzyFileSearch")
+            .expect("fuzzyFileSearch request should be recorded");
+        assert_eq!(search_request.params["roots"][0], "/tmp/skein");
+        assert_eq!(search_request.params["cancellationToken"], "draft:topLeft");
     }
 
     #[tokio::test]
@@ -2693,6 +2811,28 @@ mod tests {
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": { "data": [], "nextCursor": null }
+                    }),
+                    "fuzzyFileSearch" => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "files": [
+                                {
+                                    "root": "/tmp/skein",
+                                    "path": "src/main.ts",
+                                    "matchType": "file",
+                                    "fileName": "main.ts",
+                                    "score": 100
+                                },
+                                {
+                                    "root": "/tmp/skein",
+                                    "path": "src/lib.rs",
+                                    "matchType": "file",
+                                    "fileName": "lib.rs",
+                                    "score": 90
+                                }
+                            ]
+                        }
                     }),
                     "account/read" => json!({
                         "jsonrpc": "2.0",

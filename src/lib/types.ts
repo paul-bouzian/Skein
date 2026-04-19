@@ -520,6 +520,11 @@ export type ComposerAppOption = {
   path: string;
 };
 
+export type ComposerTarget =
+  | { kind: "thread"; threadId: string }
+  | { kind: "environment"; environmentId: string }
+  | { kind: "chatWorkspace" };
+
 export type ThreadComposerCatalog = {
   prompts: ComposerPromptOption[];
   skills: ComposerSkillOption[];

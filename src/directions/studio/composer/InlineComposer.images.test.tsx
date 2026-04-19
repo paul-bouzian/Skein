@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -18,8 +18,8 @@ import {
 import { InlineComposer } from "./InlineComposer";
 
 vi.mock("../../../lib/bridge", () => ({
-  getThreadComposerCatalog: vi.fn(),
-  searchThreadFiles: vi.fn(),
+  getComposerCatalog: vi.fn(),
+  searchComposerFiles: vi.fn(),
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
 }));
@@ -57,12 +57,12 @@ beforeEach(async () => {
     lastFetchedAtByEnvironmentId: {},
     lastRequestedAtByEnvironmentId: {},
   }));
-  mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+  mockedBridge.getComposerCatalog.mockResolvedValue({
     prompts: [],
     skills: [],
     apps: [],
   });
-  mockedBridge.searchThreadFiles.mockResolvedValue([]);
+  mockedBridge.searchComposerFiles.mockResolvedValue([]);
   mockedBridge.getEnvironmentVoiceStatus.mockResolvedValue({
     environmentId: "env-1",
     available: true,
@@ -232,6 +232,10 @@ function renderComposer(options: {
     const [mentionBindings, setMentionBindings] = useState<
       ComposerDraftMentionBinding[]
     >([]);
+    const composerTarget = useMemo(
+      () => ({ kind: "thread" as const, threadId: "thread-1" }),
+      [],
+    );
 
     return (
       <InlineComposer
@@ -257,6 +261,8 @@ function renderComposer(options: {
         onInterrupt={() => undefined}
         onSend={() => undefined}
         onUpdateComposer={() => undefined}
+        catalogTarget={composerTarget}
+        fileSearchTarget={composerTarget}
       />
     );
   }
@@ -276,6 +282,10 @@ function renderComposerWithDynamicThreadState() {
       ComposerDraftMentionBinding[]
     >([]);
     const [threadId, setThreadId] = useState("thread-1");
+    const composerTarget = useMemo(
+      () => ({ kind: "thread" as const, threadId }),
+      [threadId],
+    );
 
     useEffect(() => {
       setImages([]);
@@ -309,6 +319,8 @@ function renderComposerWithDynamicThreadState() {
           onInterrupt={() => undefined}
           onSend={() => undefined}
           onUpdateComposer={() => undefined}
+          catalogTarget={composerTarget}
+          fileSearchTarget={composerTarget}
         />
       </>
     );

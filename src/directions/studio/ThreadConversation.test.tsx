@@ -35,8 +35,8 @@ vi.mock("../../lib/bridge", () => ({
   openThreadConversation: vi.fn(),
   saveThreadComposerDraft: vi.fn(),
   refreshThreadConversation: vi.fn(),
-  getThreadComposerCatalog: vi.fn(),
-  searchThreadFiles: vi.fn(),
+  getComposerCatalog: vi.fn(),
+  searchComposerFiles: vi.fn(),
   readImageAsDataUrl: vi.fn(),
   sendThreadMessage: vi.fn(),
   interruptThreadTurn: vi.fn(),
@@ -126,12 +126,12 @@ beforeEach(async () => {
   await resetVoiceSessionStore();
   resetStores();
   mockedBridge.saveThreadComposerDraft.mockResolvedValue(undefined);
-  mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+  mockedBridge.getComposerCatalog.mockResolvedValue({
     prompts: [],
     skills: [],
     apps: [],
   });
-  mockedBridge.searchThreadFiles.mockResolvedValue([]);
+  mockedBridge.searchComposerFiles.mockResolvedValue([]);
   mockedBridge.readImageAsDataUrl.mockResolvedValue(
     "data:image/png;base64,aGVsbG8=",
   );
@@ -2429,7 +2429,7 @@ describe("ThreadConversation", () => {
       snapshot: makeConversationSnapshot({ status: "idle" }),
       capabilities: capabilitiesFixture,
     });
-    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+    mockedBridge.getComposerCatalog.mockResolvedValue({
       prompts: [
         {
           name: "review",
@@ -2487,7 +2487,7 @@ describe("ThreadConversation", () => {
       snapshot: makeConversationSnapshot({ status: "idle" }),
       capabilities: capabilitiesFixture,
     });
-    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+    mockedBridge.getComposerCatalog.mockResolvedValue({
       prompts: [],
       skills: [
         {
@@ -2528,7 +2528,7 @@ describe("ThreadConversation", () => {
       snapshot: makeConversationSnapshot({ status: "idle" }),
       capabilities: capabilitiesFixture,
     });
-    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+    mockedBridge.getComposerCatalog.mockResolvedValue({
       prompts: [],
       skills: [
         {
@@ -2592,7 +2592,7 @@ describe("ThreadConversation", () => {
       snapshot: makeConversationSnapshot({ status: "idle" }),
       capabilities: capabilitiesFixture,
     });
-    mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+    mockedBridge.getComposerCatalog.mockResolvedValue({
       prompts: [],
       skills: [
         {

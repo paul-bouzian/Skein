@@ -6,9 +6,9 @@ import type {
   CollaborationModeOption,
   ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
+  ComposerTarget,
   ConversationComposerSettings,
   ConversationImageAttachment,
-  EnvironmentRecord,
   GlobalSettings,
   ModelOption,
   ReasoningEffort,
@@ -72,6 +72,7 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
 
 const PRIORITY_BRANCHES = ["main", "master"] as const;
 const PRIORITY_SET: ReadonlySet<string> = new Set(PRIORITY_BRANCHES);
+const CHAT_WORKSPACE_CATALOG_TARGET: ComposerTarget = { kind: "chatWorkspace" };
 
 function composerFromSettings(
   settings: GlobalSettings,
@@ -91,17 +92,6 @@ function orderBranchesWithDefaults(branches: string[]): string[] {
     .filter((name) => !PRIORITY_SET.has(name))
     .sort((left, right) => left.localeCompare(right));
   return [...priority, ...rest];
-}
-
-function findLatestActiveThreadId(environment: EnvironmentRecord | null): string | null {
-  return (
-    [...(environment?.threads ?? [])]
-      .filter((thread) => thread.status === "active")
-      .sort(
-        (left, right) =>
-          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
-      )[0]?.id ?? null
-  );
 }
 
 export function ThreadDraftComposer({ draft, paneId }: Props) {
@@ -232,8 +222,26 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
           ? localEnvironment
           : null
       : null;
-  const composerTransportThreadId =
-    findLatestActiveThreadId(selectedComposerEnvironment);
+  const transportEnabled =
+    selectedComposerEnvironment?.threads.some(
+      (thread) => thread.status === "active",
+    ) ?? false;
+  const environmentCatalogTarget = useMemo(
+    () =>
+      resolvedComposerEnvId === "draft"
+        ? null
+        : {
+            kind: "environment" as const,
+            environmentId: resolvedComposerEnvId,
+          },
+    [resolvedComposerEnvId],
+  );
+  const catalogTarget =
+    draft.kind === "chat"
+      ? CHAT_WORKSPACE_CATALOG_TARGET
+      : environmentCatalogTarget;
+  const fileSearchTarget =
+    draft.kind === "chat" ? null : environmentCatalogTarget;
 
   const capabilities = useConversationStore((state) =>
     composerCapabilityEnvironmentId
@@ -353,8 +361,9 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         isRefiningPlan={false}
         mentionBindings={mentionBindings}
         modelOptions={modelOptions}
-        transportEnabled={composerTransportThreadId !== null}
-        transportThreadId={composerTransportThreadId}
+        catalogTarget={catalogTarget}
+        fileSearchTarget={fileSearchTarget}
+        transportEnabled={transportEnabled}
         voiceEnabled={draft.kind === "project" && resolvedComposerEnvId !== "draft"}
         onChangeImages={setImages}
         tokenUsage={null}

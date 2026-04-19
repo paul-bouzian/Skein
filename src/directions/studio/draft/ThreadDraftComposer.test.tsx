@@ -20,6 +20,12 @@ let latestEnvironmentSelectorProps: {
   value: unknown;
   onChange: (value: unknown) => void;
 } | null = null;
+let latestInlineComposerProps: {
+  modelOptions: Array<{ id: string; displayName: string }>;
+  catalogTarget?: unknown;
+  fileSearchTarget?: unknown;
+  transportEnabled?: boolean;
+} | null = null;
 
 vi.mock("../../../lib/bridge", () => ({
   getEnvironmentCapabilities: vi.fn(),
@@ -27,15 +33,19 @@ vi.mock("../../../lib/bridge", () => ({
 }));
 
 vi.mock("../composer/InlineComposer", () => ({
-  InlineComposer: ({
-    modelOptions,
-  }: {
+  InlineComposer: (props: {
     modelOptions: Array<{ id: string; displayName: string }>;
-  }) => (
-    <div data-testid="inline-composer">
-      {modelOptions.map((model) => model.id).join(",")}
-    </div>
-  ),
+    catalogTarget?: unknown;
+    fileSearchTarget?: unknown;
+    transportEnabled?: boolean;
+  }) => {
+    latestInlineComposerProps = props;
+    return (
+      <div data-testid="inline-composer">
+        {props.modelOptions.map((model) => model.id).join(",")}
+      </div>
+    );
+  },
 }));
 
 vi.mock("./EnvironmentSelector", () => ({
@@ -67,6 +77,7 @@ describe("ThreadDraftComposer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     latestEnvironmentSelectorProps = null;
+    latestInlineComposerProps = null;
     resetConversationState();
     mockedBridge.listProjectBranches.mockResolvedValue(["main"]);
     mockedBridge.getEnvironmentCapabilities.mockResolvedValue({
@@ -170,5 +181,47 @@ describe("ThreadDraftComposer", () => {
       projectId: "project-1",
       target: { kind: "new", baseBranch: "main", name: "feature-chat" },
     });
+  });
+
+  it("uses the chat workspace catalog target for standalone chat drafts", async () => {
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps).not.toBeNull();
+    });
+
+    expect(latestInlineComposerProps?.catalogTarget).toEqual({
+      kind: "chatWorkspace",
+    });
+    expect(latestInlineComposerProps?.fileSearchTarget).toBeNull();
+  });
+
+  it("keeps environment-backed autocomplete available for new worktree drafts", async () => {
+    render(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "new", baseBranch: "main", name: "feature-chat" },
+      });
+    });
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.catalogTarget).toEqual({
+        kind: "environment",
+        environmentId: "env-local",
+      });
+    });
+    expect(latestInlineComposerProps?.fileSearchTarget).toEqual({
+      kind: "environment",
+      environmentId: "env-local",
+    });
+    expect(latestInlineComposerProps?.transportEnabled).toBe(false);
   });
 });

@@ -4,10 +4,10 @@ use tracing::warn;
 
 use crate::app_identity::{FIRST_PROMPT_RENAME_FAILURE_EVENT_NAME, WORKSPACE_EVENT_NAME};
 use crate::domain::conversation::{
-    ComposerFileSearchResult, ComposerMentionBindingInput, ConversationComposerDraft,
-    ConversationComposerSettings, ConversationImageAttachment, RespondToApprovalRequestInput,
-    RespondToUserInputRequestInput, SubmitPlanDecisionInput, ThreadComposerCatalog,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot,
+    ComposerFileSearchResult, ComposerMentionBindingInput, ComposerTarget,
+    ConversationComposerDraft, ConversationComposerSettings, ConversationImageAttachment,
+    RespondToApprovalRequestInput, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
+    ThreadComposerCatalog, ThreadConversationOpenResponse, ThreadConversationSnapshot,
 };
 use crate::domain::workspace::{WorkspaceEvent, WorkspaceEventKind};
 use crate::error::{AppError, CommandError};
@@ -26,8 +26,8 @@ pub struct SendThreadMessageInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchThreadFilesInput {
-    pub thread_id: String,
+pub struct SearchComposerFilesInput {
+    pub target: ComposerTarget,
     pub query: String,
     pub limit: Option<usize>,
 }
@@ -74,24 +74,26 @@ pub async fn refresh_thread_conversation(
 }
 
 #[tauri::command]
-pub async fn get_thread_composer_catalog(
-    thread_id: String,
+pub async fn get_composer_catalog(
+    target: ComposerTarget,
     state: State<'_, AppState>,
 ) -> Result<ThreadComposerCatalog, CommandError> {
-    let context = state.workspace.thread_runtime_context(&thread_id)?;
-    Ok(state.runtime.get_thread_composer_catalog(context).await?)
+    validate_composer_target(&target)?;
+    let context = state.workspace.composer_target_context(&target)?;
+    Ok(state.runtime.get_composer_catalog(context).await?)
 }
 
 #[tauri::command]
-pub async fn search_thread_files(
-    input: SearchThreadFilesInput,
+pub async fn search_composer_files(
+    input: SearchComposerFilesInput,
     state: State<'_, AppState>,
 ) -> Result<Vec<ComposerFileSearchResult>, CommandError> {
-    let context = state.workspace.thread_runtime_context(&input.thread_id)?;
+    validate_composer_target(&input.target)?;
+    let context = state.workspace.composer_target_context(&input.target)?;
     let limit = input.limit.unwrap_or(50).min(200);
     Ok(state
         .runtime
-        .search_thread_files(context, input.query, limit)
+        .search_composer_files(context, input.query, limit)
         .await?)
 }
 
@@ -342,6 +344,26 @@ fn validate_thread_composer_draft(
     Ok(())
 }
 
+fn validate_composer_target(target: &ComposerTarget) -> Result<(), CommandError> {
+    match target {
+        ComposerTarget::Thread { thread_id } => {
+            if thread_id.trim().is_empty() {
+                return Err(AppError::Validation("Thread id cannot be empty.".to_string()).into());
+            }
+        }
+        ComposerTarget::Environment { environment_id } => {
+            if environment_id.trim().is_empty() {
+                return Err(
+                    AppError::Validation("Environment id cannot be empty.".to_string()).into(),
+                );
+            }
+        }
+        ComposerTarget::ChatWorkspace {} => {}
+    }
+
+    Ok(())
+}
+
 fn emit_workspace_event(app: &AppHandle, payload: WorkspaceEvent) {
     if let Err(error) = app.emit(WORKSPACE_EVENT_NAME, payload) {
         warn!("failed to emit workspace event: {error}");
@@ -382,10 +404,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_non_blank_thread_id, validate_thread_composer_draft};
+    use super::{
+        validate_composer_target, validate_non_blank_thread_id, validate_thread_composer_draft,
+    };
     use crate::domain::conversation::{
-        ComposerDraftMentionBinding, ComposerMentionBindingKind, ConversationComposerDraft,
-        ConversationImageAttachment,
+        ComposerDraftMentionBinding, ComposerMentionBindingKind, ComposerTarget,
+        ConversationComposerDraft, ConversationImageAttachment,
     };
 
     #[test]
@@ -416,5 +440,16 @@ mod tests {
 
         assert_eq!(error.code, "validation_error");
         assert!(error.message.contains("start before end"));
+    }
+
+    #[test]
+    fn composer_target_rejects_blank_environment_ids() {
+        let error = validate_composer_target(&ComposerTarget::Environment {
+            environment_id: "   ".to_string(),
+        })
+        .expect_err("blank environment id should fail");
+
+        assert_eq!(error.code, "validation_error");
+        assert!(error.message.contains("Environment id cannot be empty"));
     }
 }

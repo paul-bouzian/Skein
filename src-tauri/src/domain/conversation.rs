@@ -58,6 +58,20 @@ pub enum ComposerPromptArgumentMode {
     Positional,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ComposerTarget {
+    Thread {
+        #[serde(rename = "threadId")]
+        thread_id: String,
+    },
+    Environment {
+        #[serde(rename = "environmentId")]
+        environment_id: String,
+    },
+    ChatWorkspace {},
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ComposerPromptOption {
@@ -605,4 +619,42 @@ pub struct ConversationEventPayload {
     pub thread_id: String,
     pub environment_id: String,
     pub snapshot: ThreadConversationSnapshot,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ComposerTarget;
+
+    #[test]
+    fn composer_target_deserializes_camel_case_variant_fields() {
+        let thread_target = serde_json::from_value::<ComposerTarget>(serde_json::json!({
+            "kind": "thread",
+            "threadId": "thread-123",
+        }))
+        .expect("thread target should deserialize");
+        assert_eq!(
+            thread_target,
+            ComposerTarget::Thread {
+                thread_id: "thread-123".to_string(),
+            }
+        );
+
+        let environment_target = serde_json::from_value::<ComposerTarget>(serde_json::json!({
+            "kind": "environment",
+            "environmentId": "env-123",
+        }))
+        .expect("environment target should deserialize");
+        assert_eq!(
+            environment_target,
+            ComposerTarget::Environment {
+                environment_id: "env-123".to_string(),
+            }
+        );
+
+        let chat_workspace_target = serde_json::from_value::<ComposerTarget>(serde_json::json!({
+            "kind": "chatWorkspace",
+        }))
+        .expect("chat workspace target should deserialize");
+        assert_eq!(chat_workspace_target, ComposerTarget::ChatWorkspace {});
+    }
 }

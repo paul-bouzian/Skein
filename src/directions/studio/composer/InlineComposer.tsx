@@ -9,14 +9,15 @@ import {
 } from "react";
 
 import {
-  getThreadComposerCatalog,
-  searchThreadFiles,
+  getComposerCatalog,
+  searchComposerFiles,
 } from "../../../lib/bridge";
 import { APP_NAME } from "../../../lib/app-identity";
 import type {
   ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
   ComposerFileSearchResult,
+  ComposerTarget,
   ConversationComposerSettings,
   ConversationImageAttachment,
   ModelOption,
@@ -89,8 +90,9 @@ type Props = {
     mentionBindings: ComposerMentionBindingInput[],
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
+  catalogTarget?: ComposerTarget | null;
+  fileSearchTarget?: ComposerTarget | null;
   transportEnabled?: boolean;
-  transportThreadId?: string | null;
   voiceEnabled?: boolean;
 };
 
@@ -117,8 +119,9 @@ export function InlineComposer({
   onInterrupt,
   onSend,
   onUpdateComposer,
+  catalogTarget = null,
+  fileSearchTarget = null,
   transportEnabled = true,
-  transportThreadId = null,
   voiceEnabled = transportEnabled,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -172,9 +175,6 @@ export function InlineComposer({
   const imagesEnabled = modelSupportsImageInput(selectedModel);
   const hasAttachedImages = images.length > 0;
   const hasDraftContent = draft.trim().length > 0;
-  const effectiveTransportThreadId = transportEnabled
-    ? (transportThreadId ?? threadId)
-    : null;
   let imageSupportNotice: string | null = null;
   if (!imagesEnabled && transportEnabled) {
     const base = modelImageSupportMessage(selectedModel);
@@ -246,13 +246,13 @@ export function InlineComposer({
   });
 
   useEffect(() => {
-    if (!effectiveTransportThreadId) {
+    if (!catalogTarget) {
       setCatalog(null);
       return;
     }
 
     let cancelled = false;
-    void getThreadComposerCatalog(effectiveTransportThreadId)
+    void getComposerCatalog(catalogTarget)
       .then((nextCatalog) => {
         if (!cancelled) {
           setCatalog(nextCatalog);
@@ -266,7 +266,7 @@ export function InlineComposer({
     return () => {
       cancelled = true;
     };
-  }, [effectiveTransportThreadId]);
+  }, [catalogTarget]);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -330,7 +330,7 @@ export function InlineComposer({
   }, [draft, mentionBindings, onChangeMentionBindings]);
 
   useEffect(() => {
-    if (!effectiveTransportThreadId) {
+    if (!fileSearchTarget) {
       fileSearchRequestRef.current += 1;
       setFileResults([]);
       return;
@@ -343,8 +343,8 @@ export function InlineComposer({
     const requestId = fileSearchRequestRef.current + 1;
     fileSearchRequestRef.current = requestId;
     const timeout = window.setTimeout(() => {
-      void searchThreadFiles({
-        threadId: effectiveTransportThreadId,
+      void searchComposerFiles({
+        target: fileSearchTarget,
         query: activeToken.query,
         limit: 50,
       })
@@ -360,7 +360,7 @@ export function InlineComposer({
         });
     }, 120);
     return () => window.clearTimeout(timeout);
-  }, [activeToken, effectiveTransportThreadId]);
+  }, [activeToken, fileSearchTarget]);
 
   const autocompleteItems = useMemo(
     () =>

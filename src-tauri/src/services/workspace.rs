@@ -7,7 +7,9 @@ use serde::Deserialize;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::domain::conversation::{ConversationComposerDraft, ConversationComposerSettings};
+use crate::domain::conversation::{
+    ComposerTarget, ConversationComposerDraft, ConversationComposerSettings,
+};
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch, OpenTarget};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
@@ -182,6 +184,15 @@ impl ThreadRuntimeContext {
             stream_assistant_responses: self.stream_assistant_responses,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ComposerTargetContext {
+    pub environment_id: String,
+    pub environment_path: String,
+    pub codex_thread_id: Option<String>,
+    pub codex_binary_path: Option<String>,
+    pub request_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1537,6 +1548,54 @@ impl WorkspaceService {
             .ok_or_else(|| AppError::NotFound("Thread not found.".to_string()))
     }
 
+    pub fn composer_target_context(
+        &self,
+        target: &ComposerTarget,
+    ) -> AppResult<ComposerTargetContext> {
+        match target {
+            ComposerTarget::Thread { thread_id } => {
+                validate_non_blank_id(thread_id, "Thread")?;
+                let context = self.thread_runtime_context(thread_id)?;
+                Ok(ComposerTargetContext {
+                    environment_id: context.environment_id,
+                    environment_path: context.environment_path,
+                    codex_thread_id: context.codex_thread_id,
+                    codex_binary_path: context.codex_binary_path,
+                    request_key: context.thread_id,
+                })
+            }
+            ComposerTarget::Environment { environment_id } => {
+                validate_non_blank_id(environment_id, "Environment")?;
+                let runtime_target = self.environment_runtime_target(environment_id)?;
+                let connection = self.database.open()?;
+                let codex_thread_id =
+                    self.latest_active_codex_thread_id_for_environment(&connection, environment_id)?;
+
+                Ok(ComposerTargetContext {
+                    environment_id: environment_id.to_string(),
+                    environment_path: runtime_target.environment_path,
+                    codex_thread_id,
+                    codex_binary_path: runtime_target.codex_binary_path,
+                    request_key: environment_id.to_string(),
+                })
+            }
+            ComposerTarget::ChatWorkspace {} => {
+                std::fs::create_dir_all(&self.chats_root)?;
+                let connection = self.database.open()?;
+                let settings = self.read_or_seed_settings(&connection)?;
+                let environment_id = CHAT_WORKSPACE_PROJECT_ID.to_string();
+
+                Ok(ComposerTargetContext {
+                    environment_id: environment_id.clone(),
+                    environment_path: self.chats_root.to_string_lossy().to_string(),
+                    codex_thread_id: None,
+                    codex_binary_path: settings.codex_binary_path,
+                    request_key: environment_id,
+                })
+            }
+        }
+    }
+
     pub fn persist_codex_thread_id(&self, thread_id: &str, codex_thread_id: &str) -> AppResult<()> {
         let affected = self.database.open()?.execute(
             "
@@ -2228,6 +2287,30 @@ impl WorkspaceService {
         )?;
 
         Ok(metadata)
+    }
+
+    fn latest_active_codex_thread_id_for_environment(
+        &self,
+        connection: &rusqlite::Connection,
+        environment_id: &str,
+    ) -> AppResult<Option<String>> {
+        connection
+            .query_row(
+                "
+                SELECT codex_thread_id
+                FROM threads
+                WHERE environment_id = ?1
+                  AND archived_at IS NULL
+                  AND status = ?2
+                  AND codex_thread_id IS NOT NULL
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                ",
+                params![environment_id, thread_status_value(ThreadStatus::Active)],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(AppError::from)
     }
 
     fn ensure_local_environment(

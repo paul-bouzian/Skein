@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState, type ComponentProps } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { open } from "@tauri-apps/plugin-dialog";
 
@@ -20,8 +20,8 @@ import { InlineComposer } from "./InlineComposer";
 import { startVoiceCapture } from "./composer-voice-audio";
 
 vi.mock("../../../lib/bridge", () => ({
-  getThreadComposerCatalog: vi.fn(),
-  searchThreadFiles: vi.fn(),
+  getComposerCatalog: vi.fn(),
+  searchComposerFiles: vi.fn(),
   readImageAsDataUrl: vi.fn(),
   getEnvironmentVoiceStatus: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
@@ -76,12 +76,12 @@ beforeEach(async () => {
     lastFetchedAtByEnvironmentId: {},
     lastRequestedAtByEnvironmentId: {},
   }));
-  mockedBridge.getThreadComposerCatalog.mockResolvedValue({
+  mockedBridge.getComposerCatalog.mockResolvedValue({
     prompts: [],
     skills: [],
     apps: [],
   });
-  mockedBridge.searchThreadFiles.mockResolvedValue([]);
+  mockedBridge.searchComposerFiles.mockResolvedValue([]);
   mockedBridge.readImageAsDataUrl.mockResolvedValue(
     "data:image/png;base64,aGVsbG8=",
   );
@@ -438,10 +438,12 @@ describe("InlineComposer voice dictation", () => {
     });
   });
 
-  it("can keep voice dictation enabled when thread transport is disabled", async () => {
+  it("can keep voice dictation enabled when catalog-backed autocomplete is disabled", async () => {
     renderComposer("", {
       threadId: "draft:topLeft",
       transportEnabled: false,
+      catalogTarget: null,
+      fileSearchTarget: null,
       voiceEnabled: true,
     });
 
@@ -451,19 +453,21 @@ describe("InlineComposer voice dictation", () => {
     await waitFor(() => {
       expect(startButton).toBeEnabled();
     });
-    expect(mockedBridge.getThreadComposerCatalog).not.toHaveBeenCalled();
+    expect(mockedBridge.getComposerCatalog).not.toHaveBeenCalled();
   });
 
-  it("uses the provided backing thread for catalog-backed transport", async () => {
+  it("uses the provided catalog target even when transport is disabled", async () => {
     renderComposer("", {
       threadId: "draft:topLeft",
-      transportThreadId: "thread-2",
+      transportEnabled: false,
+      catalogTarget: { kind: "thread", threadId: "thread-2" },
     });
 
     await waitFor(() => {
-      expect(mockedBridge.getThreadComposerCatalog).toHaveBeenCalledWith(
-        "thread-2",
-      );
+      expect(mockedBridge.getComposerCatalog).toHaveBeenCalledWith({
+        kind: "thread",
+        threadId: "thread-2",
+      });
     });
   });
 
@@ -729,8 +733,9 @@ function renderComposer(
     onSend?: ComponentProps<typeof InlineComposer>["onSend"];
     onUpdateComposer?: ComponentProps<typeof InlineComposer>["onUpdateComposer"];
     threadId?: string;
+    catalogTarget?: ComponentProps<typeof InlineComposer>["catalogTarget"];
+    fileSearchTarget?: ComponentProps<typeof InlineComposer>["fileSearchTarget"];
     transportEnabled?: boolean;
-    transportThreadId?: string | null;
     voiceEnabled?: boolean;
   } = {},
 ) {
@@ -744,11 +749,16 @@ function renderComposer(
     const [mentionBindings, setMentionBindings] = useState<
       ComposerDraftMentionBinding[]
     >([]);
+    const threadId = options.threadId ?? "thread-1";
+    const defaultTarget = useMemo(
+      () => ({ kind: "thread" as const, threadId }),
+      [threadId],
+    );
 
     return (
       <InlineComposer
         environmentId="env-1"
-        threadId={options.threadId ?? "thread-1"}
+        threadId={threadId}
         composer={options.composer ?? baseComposer}
         collaborationModes={capabilitiesFixture.collaborationModes}
         disabled={options.disabled ?? false}
@@ -769,8 +779,13 @@ function renderComposer(
         onInterrupt={() => undefined}
         onSend={(...args) => options.onSend?.(...args)}
         onUpdateComposer={(patch) => options.onUpdateComposer?.(patch)}
+        catalogTarget={
+          options.catalogTarget === undefined ? defaultTarget : options.catalogTarget
+        }
+        fileSearchTarget={
+          options.fileSearchTarget === undefined ? defaultTarget : options.fileSearchTarget
+        }
         transportEnabled={options.transportEnabled}
-        transportThreadId={options.transportThreadId}
         voiceEnabled={options.voiceEnabled}
       />
     );

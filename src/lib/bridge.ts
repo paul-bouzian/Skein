@@ -24,6 +24,7 @@ import type {
   CodexUsageEventPayload,
   ConversationEventPayload,
   CreateThreadRequest,
+  ComposerTarget,
   EnvironmentCapabilitiesSnapshot,
   GitFileDiff,
   GitFileDiffInput,
@@ -176,20 +177,20 @@ export function refreshThreadConversation(
   });
 }
 
-export function getThreadComposerCatalog(
-  threadId: string,
+export function getComposerCatalog(
+  target: ComposerTarget,
 ): Promise<ThreadComposerCatalog> {
-  return invoke<ThreadComposerCatalog>("get_thread_composer_catalog", {
-    threadId,
+  return invoke<ThreadComposerCatalog>("get_composer_catalog", {
+    target,
   });
 }
 
-export function searchThreadFiles(input: {
-  threadId: string;
+export function searchComposerFiles(input: {
+  target: ComposerTarget;
   query: string;
   limit?: number;
 }): Promise<ComposerFileSearchResult[]> {
-  return invoke<ComposerFileSearchResult[]>("search_thread_files", { input });
+  return invoke<ComposerFileSearchResult[]>("search_composer_files", { input });
 }
 
 export function sendThreadMessage(
