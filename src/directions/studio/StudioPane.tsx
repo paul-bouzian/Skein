@@ -11,6 +11,7 @@ import {
   useWorkspaceStore,
   type SlotKey,
 } from "../../stores/workspace-store";
+import { StudioWelcome } from "./StudioWelcome";
 import { ThreadDraftComposer } from "./draft/ThreadDraftComposer";
 import { ThreadConversation } from "./ThreadConversation";
 
@@ -25,7 +26,6 @@ export function StudioPane({
   composerFocusKey,
   approveOrSubmitKey,
 }: Props) {
-  const projects = useWorkspaceStore(selectProjects);
   const environment = useWorkspaceStore(selectPaneEnvironment(paneId));
   const thread = useWorkspaceStore(selectPaneThread(paneId));
   const draft = useWorkspaceStore(selectPaneDraft(paneId));
@@ -59,7 +59,7 @@ export function StudioPane({
       />
     );
   } else {
-    content = <OverviewView projects={projects} />;
+    content = <WorkspaceHomeView />;
   }
 
   const modifierClasses = [
@@ -107,8 +107,7 @@ export function StudioPane({
 }
 
 export function DefaultStudioView() {
-  const projects = useWorkspaceStore(selectProjects);
-  return <OverviewView projects={projects} />;
+  return <WorkspaceHomeView />;
 }
 
 // Skip focus capture when the event targets a close affordance — otherwise
@@ -171,5 +170,15 @@ function OverviewView({ projects }: { projects: ProjectRecord[] }) {
         })}
       </div>
     </div>
+  );
+}
+
+function WorkspaceHomeView() {
+  const projects = useWorkspaceStore(selectProjects);
+
+  return projects.length === 0 ? (
+    <StudioWelcome />
+  ) : (
+    <OverviewView projects={projects} />
   );
 }
