@@ -295,8 +295,13 @@ fn manual_action_startup_command(
     script: &str,
 ) -> String {
     match shell_family {
-        ShellFamily::Posix | ShellFamily::Zsh => format!(
+        ShellFamily::Posix => format!(
             "__skein_action_script={script}\n(\neval \"$__skein_action_script\"\n)\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\nunset __skein_action_script\n{reentry}",
+            script = posix_shell_quote(script),
+            reentry = posix_shell_reentry(shell),
+        ),
+        ShellFamily::Zsh => format!(
+            "__skein_action_script={script}\n{{\n(\neval \"$__skein_action_script\"\n)\n}} always {{\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\nunset __skein_action_script\n{reentry}}}\n",
             script = posix_shell_quote(script),
             reentry = posix_shell_reentry(shell),
         ),
@@ -1095,7 +1100,7 @@ mod tests {
         assert!(zsh.contains("eval \"$__skein_action_script\""));
         assert!(zsh.contains("printf '\\036SKEIN_ACTION_DONE:%s\\037\\n' \"$__skein_action_status\""));
         assert!(zsh.contains("exec '/bin/zsh' -l"));
-        assert!(!zsh.contains("always"));
+        assert!(zsh.contains("} always {"));
 
         let fish = manual_action_startup_command(
             "/opt/homebrew/bin/fish",
