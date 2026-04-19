@@ -3,9 +3,11 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
 import type {
   ComposerMentionBindingInput,
+  ConversationComposerDraft,
   ConversationComposerSettings,
   ConversationImageAttachment,
   EnvironmentRecord,
+  SavedDraftThreadState,
   ThreadRecord,
   WorkspaceSnapshot,
 } from "../../lib/types";
@@ -55,11 +57,11 @@ export function openChatDraft(slot?: SlotKey): SlotKey | null {
 export type SendThreadDraftInput = {
   paneId: SlotKey;
   draft: ThreadDraftState;
+  persistedState: SavedDraftThreadState;
   projectSelection: EnvSelection;
   text: string;
   images?: ConversationImageAttachment[];
   mentionBindings?: ComposerMentionBindingInput[];
-  composer?: ConversationComposerSettings | null;
 };
 
 export type SendThreadDraftResult =
@@ -69,16 +71,23 @@ export type SendThreadDraftResult =
 export async function sendThreadDraft(
   input: SendThreadDraftInput,
 ): Promise<SendThreadDraftResult> {
-  const { paneId, draft, projectSelection, text, composer } = input;
+  const { paneId, draft, persistedState, projectSelection, text } = input;
   const images = input.images ?? [];
   const mentionBindings = input.mentionBindings ?? [];
+  const composer = persistedState.composer;
+  const defaultServiceTier =
+    useWorkspaceStore.getState().snapshot?.settings.defaultServiceTier ?? null;
   if (text.trim().length === 0 && images.length === 0) {
     return { ok: false, error: "Message is empty" };
   }
 
   let resolved: ResolvedDraftThread;
   try {
-    resolved = await resolveDraftThread(draft, projectSelection);
+    resolved = await resolveDraftThread(
+      draft,
+      projectSelection,
+      threadOverridesFromComposer(composer, defaultServiceTier),
+    );
   } catch (cause: unknown) {
     return {
       ok: false,
@@ -95,6 +104,23 @@ export async function sendThreadDraft(
     return { ok: false, error: "Failed to resolve the draft destination." };
   }
 
+  const transferredDraft = normalizeTransferredComposerDraft(
+    persistedState.composerDraft,
+    {
+      text,
+      images,
+    },
+  );
+  let transferredDraftPersisted = true;
+  try {
+    await bridge.saveThreadComposerDraft({
+      threadId: thread.id,
+      draft: transferredDraft,
+    });
+  } catch {
+    transferredDraftPersisted = false;
+  }
+
   // Stage the new thread in the local snapshot so pane resolution works
   // before `refreshSnapshot` completes. Without this, a slow refresh would
   // leave the pane rendering the project overview instead of the thread.
@@ -109,14 +135,20 @@ export async function sendThreadDraft(
   // Seed the conversation store's composer with the draft picks so the
   // first send carries the user's chosen model / effort / mode and the
   // thread view stays consistent with what they configured in the draft.
-  if (composer) {
-    useConversationStore.setState((state) => ({
-      composerByThreadId: {
-        ...state.composerByThreadId,
-        [thread.id]: composer,
-      },
-    }));
-  }
+  useConversationStore.setState((state) => ({
+    composerByThreadId: {
+      ...state.composerByThreadId,
+      [thread.id]: composer,
+    },
+    ...(transferredDraftPersisted
+      ? {}
+      : {
+          draftByThreadId: {
+            ...state.draftByThreadId,
+            [thread.id]: transferredDraft,
+          },
+        }),
+  }));
 
   // Hand the message off to ThreadConversation: it consumes the pending
   // first message on mount and runs its own handleSend, which already wires
@@ -125,8 +157,10 @@ export async function sendThreadDraft(
     text: text.trim(),
     images,
     mentionBindings,
-    composer: composer ?? null,
+    composer,
   });
+
+  useWorkspaceStore.getState().clearDraftThreadState(draft);
 
   // Switch the pane in one store update. setPaneSelection also clears the
   // draft slot, which avoids a transient "no environment selected" step.
@@ -149,9 +183,10 @@ type ResolvedDraftThread = {
 async function resolveDraftThread(
   draft: ThreadDraftState,
   projectSelection: EnvSelection,
+  overrides: ThreadRecord["overrides"],
 ): Promise<ResolvedDraftThread> {
   if (draft.kind === "chat") {
-    const result = await bridge.createChatThread({});
+    const result = await bridge.createChatThread({ overrides });
     return { thread: result.thread, environment: result.environment };
   }
 
@@ -164,6 +199,7 @@ async function resolveDraftThread(
       // standalone flow worked and matters for detached-HEAD repos.
       ...(baseBranch.length > 0 ? { baseBranch } : {}),
       ...(trimmedName.length > 0 ? { name: trimmedName } : {}),
+      overrides,
     });
     return { thread: result.thread, environment: result.environment };
   }
@@ -171,6 +207,7 @@ async function resolveDraftThread(
   if (projectSelection.kind === "existing") {
     const thread = await bridge.createThread({
       environmentId: projectSelection.environmentId,
+      overrides,
     });
     return { thread };
   }
@@ -179,8 +216,40 @@ async function resolveDraftThread(
   if (!localEnv) {
     throw new Error("No local environment found for this project.");
   }
-  const thread = await bridge.createThread({ environmentId: localEnv.id });
+  const thread = await bridge.createThread({
+    environmentId: localEnv.id,
+    overrides,
+  });
   return { thread };
+}
+
+function threadOverridesFromComposer(
+  composer: ConversationComposerSettings,
+  defaultServiceTier: ConversationComposerSettings["serviceTier"],
+): ThreadRecord["overrides"] {
+  return {
+    model: composer.model,
+    reasoningEffort: composer.reasoningEffort,
+    collaborationMode: composer.collaborationMode,
+    approvalPolicy: composer.approvalPolicy,
+    serviceTier: composer.serviceTier,
+    serviceTierOverridden: composer.serviceTier !== defaultServiceTier,
+  };
+}
+
+function normalizeTransferredComposerDraft(
+  composerDraft: ConversationComposerDraft,
+  overrides?: {
+    text: string;
+    images: ConversationImageAttachment[];
+  },
+): ConversationComposerDraft {
+  return {
+    text: overrides?.text ?? composerDraft.text,
+    images: [...(overrides?.images ?? composerDraft.images)],
+    mentionBindings: [...composerDraft.mentionBindings],
+    isRefiningPlan: composerDraft.isRefiningPlan,
+  };
 }
 
 // Merges a freshly-created thread (and optionally its new worktree

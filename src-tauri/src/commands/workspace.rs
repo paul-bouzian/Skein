@@ -7,8 +7,9 @@ use crate::domain::conversation::EnvironmentCapabilitiesSnapshot;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
-    ChatThreadCreateResult, CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectActionIcon,
-    ProjectRecord, RuntimeStatusSnapshot, ThreadRecord, WorkspaceSnapshot,
+    ChatThreadCreateResult, CodexRateLimitSnapshot, DraftThreadTarget,
+    ManagedWorktreeCreateResult, ProjectActionIcon, ProjectRecord, RuntimeStatusSnapshot,
+    SavedDraftThreadState, ThreadRecord, WorkspaceSnapshot,
 };
 use crate::error::{AppError, CommandError};
 use crate::services::terminal::ManualActionLaunch;
@@ -46,6 +47,13 @@ pub struct RunProjectActionInput {
     pub pty_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDraftThreadStateInput {
+    pub target: DraftThreadTarget,
+    pub state: Option<SavedDraftThreadState>,
+}
+
 #[tauri::command]
 pub async fn get_workspace_snapshot(
     state: State<'_, AppState>,
@@ -55,6 +63,24 @@ pub async fn get_workspace_snapshot(
     Ok(state
         .workspace
         .snapshot_with_pull_requests(runtime_statuses, &pull_requests)?)
+}
+
+#[tauri::command]
+pub fn get_draft_thread_state(
+    target: DraftThreadTarget,
+    state: State<'_, AppState>,
+) -> Result<Option<SavedDraftThreadState>, CommandError> {
+    Ok(state.workspace.draft_thread_state(&target)?)
+}
+
+#[tauri::command]
+pub fn save_draft_thread_state(
+    input: SaveDraftThreadStateInput,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state
+        .workspace
+        .persist_draft_thread_state(&input.target, input.state.as_ref())?)
 }
 
 #[tauri::command]

@@ -20,22 +20,38 @@ let latestEnvironmentSelectorProps: {
   value: unknown;
   onChange: (value: unknown) => void;
 } | null = null;
+let latestInlineComposerProps: {
+  draft: string;
+  images: Array<{ type: string }>;
+  composer: { model: string };
+} | null = null;
 
 vi.mock("../../../lib/bridge", () => ({
+  getDraftThreadState: vi.fn(),
   getEnvironmentCapabilities: vi.fn(),
   listProjectBranches: vi.fn(),
+  saveDraftThreadState: vi.fn(),
 }));
 
 vi.mock("../composer/InlineComposer", () => ({
   InlineComposer: ({
+    composer,
+    draft,
+    images,
     modelOptions,
   }: {
+    composer: { model: string };
+    draft: string;
+    images: Array<{ type: string }>;
     modelOptions: Array<{ id: string; displayName: string }>;
-  }) => (
-    <div data-testid="inline-composer">
-      {modelOptions.map((model) => model.id).join(",")}
-    </div>
-  ),
+  }) => {
+    latestInlineComposerProps = { composer, draft, images };
+    return (
+      <div data-testid="inline-composer">
+        {modelOptions.map((model) => model.id).join(",")}
+      </div>
+    );
+  },
 }));
 
 vi.mock("./EnvironmentSelector", () => ({
@@ -67,8 +83,12 @@ describe("ThreadDraftComposer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     latestEnvironmentSelectorProps = null;
+    latestInlineComposerProps = null;
     resetConversationState();
+    useWorkspaceStore.setState(useWorkspaceStore.getInitialState(), true);
+    mockedBridge.getDraftThreadState.mockResolvedValue(null);
     mockedBridge.listProjectBranches.mockResolvedValue(["main"]);
+    mockedBridge.saveDraftThreadState.mockResolvedValue(undefined);
     mockedBridge.getEnvironmentCapabilities.mockResolvedValue({
       ...capabilitiesFixture,
       environmentId: "env-local",
@@ -169,6 +189,50 @@ describe("ThreadDraftComposer", () => {
       kind: "project",
       projectId: "project-1",
       target: { kind: "new", baseBranch: "main", name: "feature-chat" },
+    });
+  });
+
+  it("hydrates persisted draft content and project selection", async () => {
+    mockedBridge.getDraftThreadState.mockResolvedValueOnce({
+      composerDraft: {
+        text: "Persisted text",
+        images: [{ type: "image", url: "https://example.com/image.png" }],
+        mentionBindings: [],
+        isRefiningPlan: false,
+      },
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+        approvalPolicy: "askToEdit",
+        serviceTier: null,
+      },
+      projectSelection: {
+        kind: "new",
+        baseBranch: "main",
+        name: "persisted-worktree",
+      },
+    });
+
+    render(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps).toMatchObject({
+        draft: "Persisted text",
+        composer: { model: "gpt-5.4-mini" },
+        images: [{ type: "image" }],
+      });
+    });
+
+    expect(latestEnvironmentSelectorProps?.value).toEqual({
+      kind: "project",
+      projectId: "project-1",
+      target: { kind: "new", baseBranch: "main", name: "persisted-worktree" },
     });
   });
 });

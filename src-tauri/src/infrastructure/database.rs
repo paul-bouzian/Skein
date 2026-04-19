@@ -8,9 +8,10 @@ use crate::app_identity::{
 use crate::domain::conversation::{
     ComposerDraftMentionBinding, ConversationComposerDraft, ConversationImageAttachment,
 };
+use crate::domain::workspace::SavedDraftThreadState;
 use crate::error::{AppError, AppResult};
 
-const CURRENT_SCHEMA_VERSION: i32 = 6;
+const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 #[derive(Debug, Clone)]
 pub struct AppDatabase {
@@ -103,12 +104,19 @@ impl AppDatabase {
                       payload_json TEXT NOT NULL,
                       updated_at TEXT NOT NULL
                     );
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
                     CREATE INDEX idx_environments_project_id ON environments(project_id);
                     CREATE INDEX idx_threads_environment_id ON threads(environment_id);
                     CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
                     ON projects(managed_worktree_dir)
                     WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
-                    PRAGMA user_version = 6;
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -131,6 +139,13 @@ impl AppDatabase {
                     ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
                     ALTER TABLE threads
                     ADD COLUMN composer_draft_json TEXT;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
                     CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
                     ON projects(managed_worktree_dir)
                     WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
@@ -163,7 +178,7 @@ impl AppDatabase {
                       FROM ranked_environments
                       WHERE ranked_environments.id = environments.id
                     );
-                    PRAGMA user_version = 6;
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -184,6 +199,13 @@ impl AppDatabase {
                     ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
                     ALTER TABLE threads
                     ADD COLUMN composer_draft_json TEXT;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
                     CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
                     ON projects(managed_worktree_dir)
                     WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
@@ -216,7 +238,7 @@ impl AppDatabase {
                       FROM ranked_environments
                       WHERE ranked_environments.id = environments.id
                     );
-                    PRAGMA user_version = 6;
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -235,6 +257,13 @@ impl AppDatabase {
                     ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
                     ALTER TABLE threads
                     ADD COLUMN composer_draft_json TEXT;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
 	                    WITH ranked_projects AS (
 	                      SELECT
 	                        id,
@@ -264,7 +293,7 @@ impl AppDatabase {
                       FROM ranked_environments
                       WHERE ranked_environments.id = environments.id
                     );
-                    PRAGMA user_version = 6;
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -277,7 +306,14 @@ impl AppDatabase {
                     ADD COLUMN kind TEXT NOT NULL DEFAULT 'repository';
                     ALTER TABLE threads
                     ADD COLUMN composer_draft_json TEXT;
-                    PRAGMA user_version = 6;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -288,7 +324,30 @@ impl AppDatabase {
                     BEGIN;
                     ALTER TABLE projects
                     ADD COLUMN kind TEXT NOT NULL DEFAULT 'repository';
-                    PRAGMA user_version = 6;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
+                    PRAGMA user_version = 7;
+                    COMMIT;
+                    ",
+                )?;
+            }
+            6 => {
+                connection.execute_batch(
+                    "
+                    BEGIN;
+                    CREATE TABLE draft_thread_states (
+                      scope_kind TEXT NOT NULL,
+                      scope_id TEXT NOT NULL,
+                      payload_json TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (scope_kind, scope_id)
+                    );
+                    PRAGMA user_version = 7;
                     COMMIT;
                     ",
                 )?;
@@ -364,6 +423,51 @@ impl AppDatabase {
                     ],
                 )?;
             }
+
+            let draft_thread_states = {
+                let mut statement = connection.prepare(
+                    "
+                    SELECT scope_kind, scope_id, payload_json
+                    FROM draft_thread_states
+                    WHERE INSTR(payload_json, ?1) > 0
+                    ",
+                )?;
+                let states = statement
+                    .query_map([&legacy], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                states
+            };
+
+            for (scope_kind, scope_id, payload_json) in draft_thread_states {
+                let state = serde_json::from_str::<SavedDraftThreadState>(&payload_json).map_err(
+                    |error| {
+                        AppError::Runtime(format!(
+                            "Failed to deserialize persisted draft thread state for {scope_kind}:{scope_id}: {error}",
+                        ))
+                    },
+                )?;
+                let normalized_state =
+                    normalize_saved_draft_thread_state_paths(state, &legacy, &current);
+                connection.execute(
+                    "
+                    UPDATE draft_thread_states
+                    SET payload_json = ?1
+                    WHERE scope_kind = ?2 AND scope_id = ?3
+                    ",
+                    rusqlite::params![
+                        serde_json::to_string(&normalized_state)
+                            .map_err(|error| AppError::Runtime(error.to_string()))?,
+                        scope_kind,
+                        scope_id,
+                    ],
+                )?;
+            }
         }
         Ok(())
     }
@@ -402,6 +506,21 @@ fn normalize_composer_draft_paths(
             })
             .collect(),
         is_refining_plan,
+    }
+}
+
+fn normalize_saved_draft_thread_state_paths(
+    state: SavedDraftThreadState,
+    legacy_home: &str,
+    current_home: &str,
+) -> SavedDraftThreadState {
+    SavedDraftThreadState {
+        composer_draft: normalize_composer_draft_paths(
+            state.composer_draft,
+            legacy_home,
+            current_home,
+        ),
+        ..state
     }
 }
 
@@ -585,7 +704,7 @@ mod tests {
             )
             .expect("environment sort_order column should exist");
 
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert_eq!(default_settings, "'{}'");
         assert_eq!(managed_worktree_dir_default, None);
         assert_eq!(project_sort_order_default, "0");
@@ -688,7 +807,7 @@ mod tests {
             )
             .expect("environment sort_order column should exist");
 
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert_eq!(project_sort_order_default, "0");
         assert_eq!(environment_sort_order_default, "0");
         assert_eq!(
@@ -798,7 +917,7 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("environment order should collect");
 
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert_eq!(project_order, vec!["project-first", "project-second"]);
         assert_eq!(
             environment_order,
@@ -885,8 +1004,97 @@ mod tests {
             )
             .expect("composer_draft_json column should exist");
 
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert_eq!(composer_draft_default, None);
+
+        drop(connection);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrate_v6_adds_draft_thread_states_table() {
+        let root = std::env::temp_dir().join(format!("skein-db-test-{}", Uuid::now_v7()));
+        std::fs::create_dir_all(&root).expect("test directory should exist");
+        let db_path = root.join("skein.sqlite3");
+        let connection = Connection::open(&db_path).expect("db should open");
+        connection
+            .execute_batch(
+                "
+                BEGIN;
+                CREATE TABLE projects (
+                  id TEXT PRIMARY KEY,
+                  kind TEXT NOT NULL DEFAULT 'repository',
+                  name TEXT NOT NULL,
+                  root_path TEXT NOT NULL UNIQUE,
+                  managed_worktree_dir TEXT,
+                  settings_json TEXT NOT NULL DEFAULT '{}',
+                  sort_order INTEGER NOT NULL DEFAULT 0,
+                  sidebar_collapsed INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  archived_at TEXT
+                );
+                CREATE TABLE environments (
+                  id TEXT PRIMARY KEY,
+                  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  path TEXT NOT NULL UNIQUE,
+                  git_branch TEXT,
+                  base_branch TEXT,
+                  is_default INTEGER NOT NULL DEFAULT 0,
+                  sort_order INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE TABLE threads (
+                  id TEXT PRIMARY KEY,
+                  environment_id TEXT NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
+                  title TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  codex_thread_id TEXT,
+                  overrides_json TEXT NOT NULL,
+                  composer_draft_json TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  archived_at TEXT
+                );
+                CREATE TABLE global_settings (
+                  singleton_key TEXT PRIMARY KEY CHECK (singleton_key = 'global'),
+                  payload_json TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX idx_projects_managed_worktree_dir_active
+                ON projects(managed_worktree_dir)
+                WHERE archived_at IS NULL AND managed_worktree_dir IS NOT NULL;
+                CREATE INDEX idx_environments_project_id ON environments(project_id);
+                CREATE INDEX idx_threads_environment_id ON threads(environment_id);
+                PRAGMA user_version = 6;
+                COMMIT;
+                ",
+            )
+            .expect("v6 schema should be created");
+        drop(connection);
+
+        let database = AppDatabase::for_test(db_path.clone()).expect("migration should succeed");
+        let connection = database.open().expect("db should reopen");
+        let version: i32 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version should be readable");
+        let draft_thread_states_exists: String = connection
+            .query_row(
+                "
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'draft_thread_states'
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .expect("draft_thread_states table should exist");
+
+        assert_eq!(version, 7);
+        assert_eq!(draft_thread_states_exists, "draft_thread_states");
 
         drop(connection);
         let _ = std::fs::remove_dir_all(root);
@@ -1019,6 +1227,51 @@ mod tests {
                 ],
             )
             .expect("thread should insert");
+        connection
+            .execute(
+                "
+                INSERT INTO draft_thread_states (scope_kind, scope_id, payload_json, updated_at)
+                VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+                ",
+                rusqlite::params![
+                    "project",
+                    "project-1",
+                    serde_json::json!({
+                        "composerDraft": {
+                            "text": "Persist this",
+                            "images": [
+                                {
+                                    "type": "localImage",
+                                    "path": "/Users/test/.loom/worktrees/skein/feature/draft.png",
+                                }
+                            ],
+                            "mentionBindings": [
+                                {
+                                    "mention": "draft",
+                                    "kind": "app",
+                                    "path": "/Users/test/.threadex/worktrees/skein/feature/draft.md",
+                                    "start": 0,
+                                    "end": 5,
+                                }
+                            ],
+                            "isRefiningPlan": false,
+                        },
+                        "composer": {
+                            "model": "gpt-5.4",
+                            "reasoningEffort": "high",
+                            "collaborationMode": "build",
+                            "approvalPolicy": "askToEdit",
+                            "serviceTier": null,
+                        },
+                        "projectSelection": {
+                            "kind": "existing",
+                            "environmentId": "env-1",
+                        },
+                    })
+                    .to_string(),
+                ],
+            )
+            .expect("draft thread state should insert");
         drop(connection);
 
         database
@@ -1062,6 +1315,17 @@ mod tests {
                 },
             )
             .expect("thread draft should read");
+        let draft_thread_state: String = connection
+            .query_row(
+                "
+                SELECT payload_json
+                FROM draft_thread_states
+                WHERE scope_kind = 'project' AND scope_id = 'project-1'
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .expect("draft thread state should read");
 
         assert_eq!(
             project_root,
@@ -1087,6 +1351,10 @@ mod tests {
                 end: 6,
             }]
         );
+        assert!(draft_thread_state.contains("/Users/test/.skein/worktrees/skein/feature/draft.png"));
+        assert!(draft_thread_state.contains("/Users/test/.skein/worktrees/skein/feature/draft.md"));
+        assert!(!draft_thread_state.contains("/Users/test/.threadex"));
+        assert!(!draft_thread_state.contains("/Users/test/.loom"));
 
         let _ = std::fs::remove_dir_all(root);
     }

@@ -4,18 +4,19 @@ import skeinAppIcon from "../../../../src-tauri/icons/icon.png";
 import * as bridge from "../../../lib/bridge";
 import type {
   CollaborationModeOption,
-  ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
   ConversationComposerSettings,
   ConversationImageAttachment,
+  DraftProjectSelection,
   EnvironmentRecord,
-  GlobalSettings,
   ModelOption,
   ReasoningEffort,
 } from "../../../lib/types";
 import { useConversationStore } from "../../../stores/conversation-store";
+import { composerFromSettings } from "../../../stores/draft-threads";
 import {
   selectChatWorkspace,
+  selectDraftThreadState,
   selectProjects,
   selectSettings,
   useWorkspaceStore,
@@ -73,18 +74,6 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
 const PRIORITY_BRANCHES = ["main", "master"] as const;
 const PRIORITY_SET: ReadonlySet<string> = new Set(PRIORITY_BRANCHES);
 
-function composerFromSettings(
-  settings: GlobalSettings,
-): ConversationComposerSettings {
-  return {
-    model: settings.defaultModel,
-    reasoningEffort: settings.defaultReasoningEffort,
-    collaborationMode: settings.defaultCollaborationMode,
-    approvalPolicy: settings.defaultApprovalPolicy,
-    serviceTier: settings.defaultServiceTier ?? null,
-  };
-}
-
 function orderBranchesWithDefaults(branches: string[]): string[] {
   const priority = PRIORITY_BRANCHES.filter((name) => branches.includes(name));
   const rest = branches
@@ -108,25 +97,18 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const projects = useWorkspaceStore(selectProjects);
   const chatWorkspace = useWorkspaceStore(selectChatWorkspace);
   const settings = useWorkspaceStore(selectSettings);
+  const persistedDraftState = useWorkspaceStore(selectDraftThreadState(draft));
+  const hydrateDraftThreadState = useWorkspaceStore(
+    (state) => state.hydrateDraftThreadState,
+  );
+  const updateDraftThreadState = useWorkspaceStore(
+    (state) => state.updateDraftThreadState,
+  );
   const updateThreadDraftTarget = useWorkspaceStore(
     (state) => state.updateThreadDraftTarget,
   );
   const tryLoadEnvironmentCapabilities = useConversationStore(
     (state) => state.tryLoadEnvironmentCapabilities,
-  );
-  const [text, setText] = useState("");
-  const [images, setImages] = useState<ConversationImageAttachment[]>([]);
-  const [mentionBindings, setMentionBindings] = useState<
-    ComposerDraftMentionBinding[]
-  >([]);
-  const [composer, setComposer] = useState<ConversationComposerSettings>(() =>
-    settings ? composerFromSettings(settings) : BOOTSTRAP_COMPOSER,
-  );
-  const [projectSelections, setProjectSelections] = useState<
-    Record<string, EnvSelection>
-  >({});
-  const [lastProjectId, setLastProjectId] = useState<string | null>(
-    draft.kind === "project" ? draft.projectId : (projects[0]?.id ?? null),
   );
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoaded, setBranchesLoaded] = useState(draft.kind === "chat");
@@ -134,40 +116,47 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (draft.kind === "project") {
-      setLastProjectId(draft.projectId);
-      setProjectSelections((current) =>
-        current[draft.projectId]
-          ? current
-          : { ...current, [draft.projectId]: { kind: "local" } },
-      );
-      return;
-    }
-    if (!lastProjectId && projects[0]) {
-      setLastProjectId(projects[0].id);
-    }
-  }, [draft, lastProjectId, projects]);
+    void hydrateDraftThreadState(draft);
+  }, [draft, hydrateDraftThreadState]);
 
-  const activeProjectId = draft.kind === "project" ? draft.projectId : lastProjectId;
+  const composer =
+    persistedDraftState?.composer ??
+    (settings ? composerFromSettings(settings) : BOOTSTRAP_COMPOSER);
+  const composerDraft = persistedDraftState?.composerDraft ?? {
+    text: "",
+    images: [],
+    mentionBindings: [],
+    isRefiningPlan: false,
+  };
+  const selection = useMemo<EnvSelection>(
+    () =>
+      draft.kind === "project"
+        ? ((persistedDraftState?.projectSelection as EnvSelection | null) ?? {
+            kind: "local",
+          })
+        : { kind: "local" },
+    [draft, persistedDraftState?.projectSelection],
+  );
   const project = useMemo(
     () =>
-      activeProjectId
-        ? (projects.find((candidate) => candidate.id === activeProjectId) ?? null)
+      draft.kind === "project"
+        ? (projects.find((candidate) => candidate.id === draft.projectId) ?? null)
         : null,
-    [activeProjectId, projects],
+    [draft, projects],
   );
 
-  const selection = useMemo<EnvSelection>(() => {
-    if (!activeProjectId) {
-      return { kind: "local" };
-    }
-    return projectSelections[activeProjectId] ?? { kind: "local" };
-  }, [activeProjectId, projectSelections]);
-
-  const localEnvironment =
-    project?.environments.find((environment) => environment.kind === "local") ?? null;
-  const worktreeEnvironments =
-    project?.environments.filter((environment) => environment.kind !== "local") ?? [];
+  const localEnvironment = useMemo(
+    () =>
+      project?.environments.find((environment) => environment.kind === "local") ??
+      null,
+    [project],
+  );
+  const worktreeEnvironments = useMemo(
+    () =>
+      project?.environments.filter((environment) => environment.kind !== "local") ??
+      [],
+    [project],
+  );
 
   useEffect(() => {
     if (draft.kind !== "project" || !draft.projectId) {
@@ -204,11 +193,35 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     if (branches.includes(selection.baseBranch)) return;
     const fallback = defaultBaseBranch ?? "";
     if (fallback === selection.baseBranch) return;
-    setProjectSelections((current) => ({
+    updateDraftThreadState(draft, (current) => ({
       ...current,
-      [draft.projectId]: { ...selection, baseBranch: fallback },
+      projectSelection: { ...selection, baseBranch: fallback },
     }));
-  }, [branches, branchesLoaded, defaultBaseBranch, draft, selection]);
+  }, [
+    branches,
+    branchesLoaded,
+    defaultBaseBranch,
+    draft,
+    selection,
+    updateDraftThreadState,
+  ]);
+
+  useEffect(() => {
+    if (draft.kind !== "project" || selection.kind !== "existing") {
+      return;
+    }
+    if (
+      worktreeEnvironments.some(
+        (environment) => environment.id === selection.environmentId,
+      )
+    ) {
+      return;
+    }
+    updateDraftThreadState(draft, (current) => ({
+      ...current,
+      projectSelection: { kind: "local" },
+    }));
+  }, [draft, selection, updateDraftThreadState, worktreeEnvironments]);
 
   const resolvedComposerEnvId =
     draft.kind === "project"
@@ -265,20 +278,20 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       return;
     }
 
-    setLastProjectId(next.projectId);
-    setProjectSelections((current) => ({
-      ...current,
-      [next.projectId]:
-        draft.kind === "chat" &&
-        next.target.kind === "local" &&
-        current[next.projectId]
-          ? current[next.projectId]!
-          : next.target,
-    }));
-    updateThreadDraftTarget(paneId, {
+    const nextTarget: ThreadDraftState = {
       kind: "project",
       projectId: next.projectId,
-    });
+    };
+    updateDraftThreadState(nextTarget, (current) => ({
+      ...current,
+      projectSelection:
+        draft.kind === "chat" &&
+        next.target.kind === "local" &&
+        current.projectSelection
+          ? current.projectSelection
+          : (next.target as DraftProjectSelection),
+    }));
+    updateThreadDraftTarget(paneId, nextTarget);
   }
 
   async function handleSend(
@@ -293,11 +306,15 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       const result = await sendThreadDraft({
         paneId,
         draft,
+        persistedState: {
+          composerDraft,
+          composer,
+          projectSelection: draft.kind === "project" ? selection : null,
+        },
         projectSelection: selection,
         text: sendText,
         images: sendImages,
         mentionBindings: sendMentionBindings,
-        composer,
       });
       if (!result.ok) {
         setError(result.error);
@@ -344,32 +361,63 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         composer={composer}
         collaborationModes={collaborationModes}
         disabled={false}
-        draft={text}
+        draft={composerDraft.text}
         effortOptions={effortOptions}
         focusKey={`draft:${paneId}`}
-        images={images}
+        images={composerDraft.images}
         isBusy={false}
         isSending={isSending}
         isRefiningPlan={false}
-        mentionBindings={mentionBindings}
+        mentionBindings={composerDraft.mentionBindings}
         modelOptions={modelOptions}
         transportEnabled={composerTransportThreadId !== null}
         transportThreadId={composerTransportThreadId}
         voiceEnabled={draft.kind === "project" && resolvedComposerEnvId !== "draft"}
-        onChangeImages={setImages}
+        onChangeImages={(nextImages) =>
+          updateDraftThreadState(draft, (current) => ({
+            ...current,
+            composerDraft: {
+              ...current.composerDraft,
+              images:
+                typeof nextImages === "function"
+                  ? nextImages(current.composerDraft.images)
+                  : nextImages,
+            },
+          }))
+        }
         tokenUsage={null}
         onCancelRefine={() => undefined}
         onChangeDraft={(value, bindings) => {
-          setText(value);
-          if (bindings) setMentionBindings(bindings);
+          updateDraftThreadState(draft, (current) => ({
+            ...current,
+            composerDraft: {
+              ...current.composerDraft,
+              text: value,
+              mentionBindings: bindings ?? current.composerDraft.mentionBindings,
+            },
+          }));
         }}
-        onChangeMentionBindings={setMentionBindings}
+        onChangeMentionBindings={(nextMentionBindings) =>
+          updateDraftThreadState(draft, (current) => ({
+            ...current,
+            composerDraft: {
+              ...current.composerDraft,
+              mentionBindings: nextMentionBindings,
+            },
+          }))
+        }
         onInterrupt={() => undefined}
         onSend={(next, nextImages, nextMentionBindings) => {
           void handleSend(next, nextImages, nextMentionBindings);
         }}
         onUpdateComposer={(patch) =>
-          setComposer((previous) => ({ ...previous, ...patch }))
+          updateDraftThreadState(draft, (current) => ({
+            ...current,
+            composer: {
+              ...current.composer,
+              ...patch,
+            },
+          }))
         }
       />
       <EnvironmentSelector
