@@ -714,6 +714,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         const normalized =
           persisted == null ? null : normalizeDraftThreadState(target, persisted);
         set((state) => {
+          if (!state.snapshot || !validDraftThreadTargetKeys(state.snapshot).has(key)) {
+            return state;
+          }
           const hydrationByTargetKey = {
             ...state.draftHydrationByTargetKey,
             [key]: "ready" as const,

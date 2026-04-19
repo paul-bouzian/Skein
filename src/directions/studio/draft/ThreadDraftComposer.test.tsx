@@ -184,11 +184,74 @@ describe("ThreadDraftComposer", () => {
       />,
     );
 
-    expect(latestEnvironmentSelectorProps).not.toBeNull();
-    expect(latestEnvironmentSelectorProps?.value).toEqual({
+    await waitFor(() => {
+      expect(latestEnvironmentSelectorProps?.value).toEqual({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "new", baseBranch: "main", name: "feature-chat" },
+      });
+    });
+  });
+
+  it("hydrates the target project draft before applying the chat-to-project local fallback", async () => {
+    mockedBridge.listProjectBranches.mockResolvedValueOnce(["release", "main"]);
+    mockedBridge.getDraftThreadState
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        composerDraft: {
+          text: "Persisted project text",
+          images: [],
+          mentionBindings: [],
+          isRefiningPlan: false,
+        },
+        composer: {
+          model: "gpt-5.4-mini",
+          reasoningEffort: "medium",
+          collaborationMode: "plan",
+          approvalPolicy: "askToEdit",
+          serviceTier: null,
+        },
+        projectSelection: {
+          kind: "new",
+          baseBranch: "release",
+          name: "persisted-worktree",
+        },
+      });
+
+    const { rerender } = render(
+      <ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />,
+    );
+
+    await act(async () => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+      await Promise.resolve();
+    });
+
+    rerender(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps).toMatchObject({
+        draft: "Persisted project text",
+        composer: { model: "gpt-5.4-mini" },
+      });
+    });
+
+    expect(latestEnvironmentSelectorProps?.value).toMatchObject({
       kind: "project",
       projectId: "project-1",
-      target: { kind: "new", baseBranch: "main", name: "feature-chat" },
+      target: {
+        kind: "new",
+        name: "persisted-worktree",
+      },
     });
   });
 

@@ -1516,6 +1516,53 @@ describe("workspace store — grid 2x2 panes", () => {
       ).toBeUndefined();
     });
 
+    it("ignores late hydration results after the target project disappears", async () => {
+      seedTwoThreadWorkspace();
+      let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =
+        null;
+      mockedBridge.getDraftThreadState.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePersisted = resolve;
+          }),
+      );
+      mockedBridge.getWorkspaceSnapshot.mockResolvedValue(
+        makeWorkspaceSnapshot({
+          projects: [
+            makeProject({
+              id: "project-b",
+              environments: [
+                makeEnvironment({
+                  id: "env-b",
+                  projectId: "project-b",
+                  threads: [makeThread({ id: "thread-b-1", environmentId: "env-b" })],
+                }),
+              ],
+            }),
+          ],
+        }),
+      );
+
+      useWorkspaceStore.getState().openThreadDraft("project-a", "topLeft");
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await useWorkspaceStore.getState().refreshSnapshot();
+
+      await act(async () => {
+        resolvePersisted?.(makeSavedDraftState("Persisted draft"));
+        await Promise.resolve();
+      });
+
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toBeUndefined();
+      expect(
+        useWorkspaceStore.getState().draftHydrationByTargetKey["project:project-a"],
+      ).toBeUndefined();
+    });
+
     it("stops retrying draft persistence when a project target disappears", async () => {
       vi.useFakeTimers();
       seedTwoThreadWorkspace();

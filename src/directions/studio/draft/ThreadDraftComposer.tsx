@@ -283,16 +283,18 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       kind: "project",
       projectId: next.projectId,
     };
-    updateDraftThreadState(nextTarget, (current) => ({
-      ...current,
-      projectSelection:
-        draft.kind === "chat" &&
-        next.target.kind === "local" &&
-        current.projectSelection
-          ? current.projectSelection
-          : (next.target as DraftProjectSelection),
-    }));
     updateThreadDraftTarget(paneId, nextTarget);
+    void hydrateDraftThreadState(nextTarget).then(() => {
+      updateDraftThreadState(nextTarget, (current) => ({
+        ...current,
+        projectSelection:
+          draft.kind === "chat" &&
+          next.target.kind === "local" &&
+          current.projectSelection
+            ? current.projectSelection
+            : (next.target as DraftProjectSelection),
+      }));
+    });
   }
 
   async function handleSend(
