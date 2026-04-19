@@ -367,7 +367,6 @@ describe("terminal-store", () => {
     expect(mockedBridge.runProjectAction).toHaveBeenCalledWith({
       environmentId: ENV_A,
       actionId: "dev",
-      ptyId: null,
     });
   });
 
@@ -392,7 +391,7 @@ describe("terminal-store", () => {
     expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(1);
   });
 
-  it("reruns an idle manual action in place on the same tab", async () => {
+  it("reruns an idle manual action on a fresh PTY while keeping the same tab", async () => {
     const first = await useTerminalStore.getState().openActionTab(ENV_A, {
       id: "dev",
       label: "Dev",
@@ -408,13 +407,6 @@ describe("terminal-store", () => {
       state: "idle",
       exitCode: 0,
     });
-    mockedBridge.runProjectAction.mockResolvedValueOnce({
-      ptyId: "pty-1",
-      cwd: `/path/to/${ENV_A}`,
-      actionId: "dev",
-      actionLabel: "Dev",
-      actionIcon: "play",
-    });
 
     const second = await useTerminalStore.getState().openActionTab(ENV_A, {
       id: "dev",
@@ -426,18 +418,20 @@ describe("terminal-store", () => {
     expect(slotForA().tabs).toHaveLength(1);
     expect(slotForA().tabs[0]).toMatchObject({
       id: first,
-      ptyId: "pty-1",
+      ptyId: "pty-2",
       exited: false,
       actionRunState: "running",
+    });
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-1",
     });
     expect(mockedBridge.runProjectAction).toHaveBeenNthCalledWith(2, {
       environmentId: ENV_A,
       actionId: "dev",
-      ptyId: "pty-1",
     });
   });
 
-  it("preserves a newer idle state when an in-place rerun finishes before launch resolves", async () => {
+  it("ignores stale idle state from the previous PTY when a rerun replaces it", async () => {
     const first = await useTerminalStore.getState().openActionTab(ENV_A, {
       id: "dev",
       label: "Dev",
@@ -478,7 +472,7 @@ describe("terminal-store", () => {
     });
 
     resolveRun({
-      ptyId: "pty-1",
+      ptyId: "pty-2",
       cwd: `/path/to/${ENV_A}`,
       actionId: "dev",
       actionLabel: "Dev",
@@ -488,9 +482,12 @@ describe("terminal-store", () => {
     await expect(rerun).resolves.toBe(first);
     expect(slotForA().tabs[0]).toMatchObject({
       id: first,
-      ptyId: "pty-1",
+      ptyId: "pty-2",
       exited: false,
-      actionRunState: "idle",
+      actionRunState: "running",
+    });
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-1",
     });
   });
 
@@ -601,6 +598,9 @@ describe("terminal-store", () => {
     expect(slotForA().tabs[0]?.ptyId).toBe("pty-2");
     expect(slotForA().tabs[0]?.exited).toBe(false);
     expect(slotForA().tabs[0]?.actionRunState).toBe("running");
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-1",
+    });
     expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(2);
   });
 
@@ -700,7 +700,7 @@ describe("terminal-store", () => {
     });
 
     resolveRun({
-      ptyId: "pty-1",
+      ptyId: "pty-2",
       cwd: `/path/to/${ENV_A}`,
       actionId: "dev",
       actionLabel: "Dev",
@@ -711,11 +711,19 @@ describe("terminal-store", () => {
 
     expect(rerunTabA).toBe(first);
     expect(rerunTabB).toBe(first);
+    expect(slotForA().tabs[0]).toMatchObject({
+      id: first,
+      ptyId: "pty-2",
+      exited: false,
+      actionRunState: "running",
+    });
+    expect(mockedBridge.killTerminal).toHaveBeenCalledWith({
+      ptyId: "pty-1",
+    });
     expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(2);
     expect(mockedBridge.runProjectAction).toHaveBeenNthCalledWith(2, {
       environmentId: ENV_A,
       actionId: "dev",
-      ptyId: "pty-1",
     });
   });
 

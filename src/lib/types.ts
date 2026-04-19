@@ -818,7 +818,6 @@ export type UpdateProjectSettingsRequest = {
 export type RunProjectActionRequest = {
   environmentId: string;
   actionId: string;
-  ptyId?: string | null;
 };
 
 export type RunProjectActionResult = {
