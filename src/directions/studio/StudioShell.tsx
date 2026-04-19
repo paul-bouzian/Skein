@@ -22,7 +22,7 @@ import {
   selectSidePanelWidth,
   useSidePanelStore,
 } from "../../stores/side-panel-store";
-import { SettingsDialog } from "./SettingsDialog";
+import { SettingsView } from "./SettingsView";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
 import { InspectorPanel } from "./InspectorPanel";
@@ -166,6 +166,21 @@ export function StudioShell() {
 
   const rightPanelOpen = effectiveRightPanel !== "none";
 
+  if (settingsOpen) {
+    return (
+      <div className="studio-shell studio-shell--settings">
+        <SettingsView onClose={() => setSettingsOpen(false)} />
+        <ProjectActionCreateDialog
+          open={actionCreateDialogOpen}
+          project={actionCreateProject}
+          shortcutSettings={settings?.shortcuts ?? {}}
+          onClose={() => setActionCreateProjectId(null)}
+        />
+        <StudioStatusBar />
+      </div>
+    );
+  }
+
   return (
     <div
       className={`studio-shell${sidePanelDragging ? " studio-shell--resizing-side-panel" : ""}`}
@@ -207,10 +222,6 @@ export function StudioShell() {
         <InspectorPanel collapsed={!inspectorOpen} />
         <BrowserPanel collapsed={!browserOpen} />
       </div>
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
       <ProjectActionCreateDialog
         open={actionCreateDialogOpen}
         project={actionCreateProject}

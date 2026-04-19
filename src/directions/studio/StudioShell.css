@@ -12,6 +12,15 @@
   grid-column: 1 / -1;
 }
 
+.studio-shell--settings {
+  grid-template-columns: 1fr;
+}
+
+.studio-shell--settings > .settings-view {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
 .studio-shell__right-panel {
   display: flex;
   flex-direction: row;

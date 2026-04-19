@@ -28,28 +28,14 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
         : null;
 
   return (
-    <section className="settings-update-card" aria-label="App updates">
-      <div className="settings-update-card__header">
-        <div>
-          <label className="settings-field__label">App updates</label>
-          <p className="settings-field__help">
-            Check for the latest {APP_NAME} release and install it without
-            leaving the app.
-          </p>
-        </div>
-      </div>
-
+    <div className="settings-update-card" aria-label="App updates">
       <div className="settings-update-card__status">
-        <p className="settings-field__help">
-          Check GitHub releases for the latest {APP_NAME} build and install it
-          in place.
-        </p>
         {state === "checking" ? (
           <p className="settings-field__help">Checking for updates…</p>
         ) : null}
         {state === "latest" ? (
           <p className="settings-field__help">
-            {APP_NAME} is already up to date.
+            {APP_NAME} is up to date.
           </p>
         ) : null}
         {snapshot ? (
@@ -93,7 +79,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
           </>
         ) : null}
       </div>
-    </section>
+    </div>
   );
 }
 

@@ -10,12 +10,13 @@ import {
 import type {
   GlobalSettings,
   GlobalSettingsPatch,
-  NotificationSoundChannelSettings,
   NotificationSoundChannelSettingsPatch,
   NotificationSoundId,
 } from "../../lib/types";
 import { CheckIcon, ChevronRightIcon, SpeakerIcon } from "../../shared/Icons";
-import { SettingsSwitch, SettingsToggle } from "./SettingsControls";
+import { SettingsSwitch } from "./SettingsControls";
+import { SettingsRow } from "./SettingsRow";
+import { SettingsSection } from "./SettingsSection";
 
 type Props = {
   settings: Pick<
@@ -73,98 +74,82 @@ export function NotificationsSettingsTab({
   }
 
   return (
-    <div className="settings-list">
-      <SettingsToggle
-        disabled={disabled || desktopNotificationsBusy}
-        label="Desktop notifications"
-        description="Show an OS notification when a chat finishes or needs input while the app is in the background."
-        supportText="Desktop app notifications use your operating system notification center."
-        notice={desktopNotificationsNotice}
-        noticeTone="error"
-        checked={settings.desktopNotificationsEnabled}
-        onChange={(value) => void onDesktopNotificationsChange(value)}
-      />
-      <NotificationSoundSection
-        label="Needs attention"
-        description="Play a sound when Codex needs your approval, needs answers to a requestUserInput prompt, or is waiting on a plan decision."
-        supportText="This sound plays for background activity and also when another thread needs you while you are focused elsewhere in Skein."
-        disabled={disabled}
-        menuZIndex={menuZIndex}
-        value={attentionSettings}
-        onPreview={previewSound}
-        onToggle={(enabled) =>
-          updateNotificationSoundChannel("attention", { enabled })
-        }
-        onSoundChange={(sound) =>
-          updateNotificationSoundChannel("attention", { sound })
-        }
-      />
-      <NotificationSoundSection
-        label="Work completed"
-        description="Play a sound when a thread finishes and Codex returns a final answer."
-        supportText="Use a calmer sound here if you want completion cues to feel less urgent than attention alerts."
-        disabled={disabled}
-        menuZIndex={menuZIndex}
-        value={completionSettings}
-        onPreview={previewSound}
-        onToggle={(enabled) =>
-          updateNotificationSoundChannel("completion", { enabled })
-        }
-        onSoundChange={(sound) =>
-          updateNotificationSoundChannel("completion", { sound })
-        }
-      />
-    </div>
-  );
-}
+    <>
+      <SettingsSection title="Alerts">
+        <SettingsRow
+          title="Desktop notifications"
+          description="OS notification when a chat finishes or needs input in the background."
+          control={
+            <SettingsSwitch
+              label="Desktop notifications"
+              disabled={disabled || desktopNotificationsBusy}
+              checked={settings.desktopNotificationsEnabled}
+              onChange={(value) => void onDesktopNotificationsChange(value)}
+            />
+          }
+        >
+          {desktopNotificationsNotice ? (
+            <p className="settings-field__help settings-field__help--error">
+              {desktopNotificationsNotice}
+            </p>
+          ) : null}
+        </SettingsRow>
+      </SettingsSection>
 
-function NotificationSoundSection({
-  label,
-  description,
-  supportText,
-  disabled,
-  menuZIndex,
-  value,
-  onToggle,
-  onSoundChange,
-  onPreview,
-}: {
-  label: string;
-  description: string;
-  supportText: string;
-  disabled: boolean;
-  menuZIndex: number;
-  value: NotificationSoundChannelSettings;
-  onToggle: (enabled: boolean) => void;
-  onSoundChange: (sound: NotificationSoundId) => void;
-  onPreview: (sound: NotificationSoundId) => void;
-}) {
-  return (
-    <section className="settings-sound">
-      <div className="settings-sound__header">
-        <div className="settings-toggle__copy">
-          <label className="settings-field__label">{label}</label>
-          <p className="settings-field__help">{description}</p>
-          <p className="settings-field__help">{supportText}</p>
-        </div>
-        <SettingsSwitch
-          label={label}
-          disabled={disabled}
-          checked={value.enabled}
-          onChange={onToggle}
-        />
-      </div>
-      <div className="settings-sound__body">
-        <NotificationSoundPicker
-          disabled={disabled}
-          label={`${label} sound`}
-          menuZIndex={menuZIndex}
-          value={value.sound}
-          onChange={onSoundChange}
-          onPreview={onPreview}
-        />
-      </div>
-    </section>
+      <SettingsSection title="Sounds">
+        <SettingsRow
+          title="Needs attention"
+          description="Sound when Codex needs approval, input, or a plan decision — including when another thread needs you."
+          control={
+            <SettingsSwitch
+              label="Needs attention"
+              disabled={disabled}
+              checked={attentionSettings.enabled}
+              onChange={(enabled) =>
+                updateNotificationSoundChannel("attention", { enabled })
+              }
+            />
+          }
+        >
+          <NotificationSoundPicker
+            disabled={disabled}
+            label="Needs attention sound"
+            menuZIndex={menuZIndex}
+            value={attentionSettings.sound}
+            onChange={(sound) =>
+              updateNotificationSoundChannel("attention", { sound })
+            }
+            onPreview={previewSound}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          title="Work completed"
+          description="Sound when a thread returns its final answer."
+          control={
+            <SettingsSwitch
+              label="Work completed"
+              disabled={disabled}
+              checked={completionSettings.enabled}
+              onChange={(enabled) =>
+                updateNotificationSoundChannel("completion", { enabled })
+              }
+            />
+          }
+        >
+          <NotificationSoundPicker
+            disabled={disabled}
+            label="Work completed sound"
+            menuZIndex={menuZIndex}
+            value={completionSettings.sound}
+            onChange={(sound) =>
+              updateNotificationSoundChannel("completion", { sound })
+            }
+            onPreview={previewSound}
+          />
+        </SettingsRow>
+      </SettingsSection>
+    </>
   );
 }
 

@@ -222,37 +222,30 @@ beforeEach(async () => {
 describe("StudioShell", () => {
   const primaryModifier = () => (isMacPlatform() ? { metaKey: true } : { ctrlKey: true });
 
-  it("opens the settings dialog from the sidebar and closes it with all supported interactions", async () => {
+  it("opens the settings view from the sidebar and closes it with the back button or Escape", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Advanced" }));
     expect(screen.getByText("Codex binary")).toBeInTheDocument();
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Close settings" }),
+      screen.getByRole("button", { name: "Back to workspace" }),
     );
     await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
-
-    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    const backdrop = document.querySelector(".settings-dialog__backdrop");
-    expect(backdrop).not.toBeNull();
-    fireEvent.click(backdrop as Element);
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     });
   });
 
-  it("opens the settings dialog from the macOS menu event", async () => {
+  it("opens the settings view from the macOS menu event", async () => {
     let callback: (() => void) | null = null;
     mockedBridge.listenToMenuOpenSettings.mockImplementation(async (next) => {
       callback = next;
@@ -266,15 +259,21 @@ describe("StudioShell", () => {
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument(),
+    );
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Settings" })).toBeNull(),
+    );
 
     await act(async () => {
       callback?.();
     });
 
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument(),
+    );
   });
 
   it("closes the action dialog before opening settings from the menu event", async () => {
@@ -295,15 +294,14 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument();
     });
     expect(screen.queryByRole("dialog", { name: "Add Action" })).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back to workspace" }));
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     });
-    expect(document.body.style.overflow).toBe("");
   });
 
   it("opens settings from the global keyboard shortcut", async () => {
@@ -315,7 +313,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument();
     });
   });
 
@@ -636,7 +634,7 @@ describe("StudioShell", () => {
     expect(localStorage.getItem("threadex-theme")).toBeNull();
   });
 
-  it("renders settings picker menus above the modal backdrop", async () => {
+  it("renders settings picker menus with the expected z-index", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -687,7 +685,7 @@ describe("StudioShell", () => {
     });
   });
 
-  it("closes an open settings picker before dismissing the modal on Escape", async () => {
+  it("closes an open settings picker before dismissing the view on Escape", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
@@ -705,12 +703,12 @@ describe("StudioShell", () => {
         screen.queryByRole("listbox", { name: "Default model options" }),
       ).toBeNull();
     });
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Settings" })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "Escape" });
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
     });
   });
 
@@ -718,6 +716,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Advanced" }));
     const input = screen.getByPlaceholderText("auto-detect");
     await userEvent.clear(input);
     await userEvent.type(input, "/usr/local/bin/codex");
@@ -796,10 +795,11 @@ describe("StudioShell", () => {
     });
   });
 
-  it("saves the compact work activity setting from Codex settings", async () => {
+  it("saves the compact work activity setting from Behavior settings", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     await userEvent.click(
       screen.getByRole("switch", { name: "Collapse work activity" }),
     );
@@ -811,21 +811,23 @@ describe("StudioShell", () => {
     });
   });
 
-  it("shows the assistant streaming copy in Codex settings", async () => {
+  it("shows the assistant streaming copy in Behavior settings", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
 
     expect(screen.getByText("Stream assistant responses")).toBeInTheDocument();
     expect(
-      screen.getByText("Stream assistant replies token by token in real time."),
+      screen.getByText("Stream replies token by token."),
     ).toBeInTheDocument();
   });
 
-  it("saves the assistant streaming setting from Codex settings", async () => {
+  it("saves the assistant streaming setting from Behavior settings", async () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     await userEvent.click(
       screen.getByRole("switch", { name: "Stream assistant responses" }),
     );
@@ -847,12 +849,7 @@ describe("StudioShell", () => {
     expect(screen.getByText("Desktop notifications")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Show an OS notification when a chat finishes or needs input while the app is in the background.",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Desktop app notifications use your operating system notification center.",
+        "OS notification when a chat finishes or needs input in the background.",
       ),
     ).toBeInTheDocument();
   });
@@ -906,7 +903,7 @@ describe("StudioShell", () => {
     });
     expect(mockedBridge.updateGlobalSettings).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Codex" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     const collapseToggle = screen.getByRole("switch", {
       name: "Collapse work activity",
     });
@@ -1016,6 +1013,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     const toggle = screen.getByRole("switch", { name: "Collapse work activity" });
 
     await userEvent.click(toggle);
@@ -1059,6 +1057,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     const slider = screen.getByRole("slider", { name: "Max subagents" });
 
     fireEvent.change(slider, { target: { value: "5" } });
@@ -1099,19 +1098,20 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Behavior" }));
     const toggle = screen.getByRole("switch", { name: "Collapse work activity" });
-    const checkForUpdates = screen.getByRole("button", {
-      name: "Check for updates",
-    });
-
-    expect(checkForUpdates).not.toBeDisabled();
 
     await userEvent.click(toggle);
 
     await waitFor(() => {
       expect(toggle).toBeDisabled();
-      expect(checkForUpdates).toBeDisabled();
     });
+
+    await userEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    const checkForUpdates = screen.getByRole("button", {
+      name: "Check for updates",
+    });
+    expect(checkForUpdates).toBeDisabled();
 
     saveRequest.resolve(makeWorkspaceSnapshot().settings);
 
@@ -1286,7 +1286,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
 
     const setupInput = screen.getByLabelText("Setup Script");
     const teardownInput = screen.getByLabelText("Teardown Script");
@@ -1311,7 +1311,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
     await userEvent.click(screen.getByRole("button", { name: "Add action" }));
 
     await userEvent.type(screen.getByLabelText("Label"), "Dev");
@@ -1499,7 +1499,7 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
 
     const setupInput = screen.getByLabelText("Setup Script");
     await userEvent.type(setupInput, "pnpm install");
@@ -1534,10 +1534,10 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     await userEvent.click(screen.getByRole("button", { name: "Settings" }));
-    await userEvent.click(screen.getByRole("button", { name: "Project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Projects" }));
 
-    const dialog = screen.getByRole("dialog");
-    const sandboxHeader = within(dialog).getByRole("button", { name: /Sandbox/i });
+    const region = screen.getByRole("region", { name: "Settings" });
+    const sandboxHeader = within(region).getByRole("button", { name: /Sandbox/i });
     await userEvent.click(sandboxHeader);
     expect(sandboxHeader).toHaveAttribute("aria-expanded", "true");
 
@@ -1558,7 +1558,10 @@ describe("StudioShell", () => {
 
     await waitFor(() => {
       expect(
-        within(screen.getByRole("dialog")).getByRole("button", { name: /Sandbox/i }),
+        within(screen.getByRole("region", { name: "Settings" })).getByRole(
+          "button",
+          { name: /Sandbox/i },
+        ),
       ).toHaveAttribute("aria-expanded", "true");
     });
   });
