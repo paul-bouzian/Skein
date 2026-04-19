@@ -194,6 +194,16 @@ fn login_flag_for_shell_family(shell: &str, shell_family: ShellFamily) -> Option
     }
 }
 
+fn interactive_flag_for_shell(shell: &str) -> Option<&'static str> {
+    let shell_name = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())?;
+    match shell_name {
+        "sh" | "bash" | "zsh" | "ksh" | "mksh" | "fish" => Some("-i"),
+        _ => None,
+    }
+}
+
 fn shell_family_for_shell(shell: &str) -> ShellFamily {
     let shell_name = std::path::Path::new(shell)
         .file_name()
@@ -274,8 +284,9 @@ fn manual_action_startup_command(
             reentry = posix_shell_reentry(shell),
         ),
         ShellFamily::Fish => format!(
-            "set -l __skein_action_script {script}\nbegin\neval $__skein_action_script\nend\nset -l __skein_action_status $status\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' $__skein_action_status\nset -e __skein_action_script\n{reentry}",
+            "set -l __skein_action_script {script}\n{shell} -l -c $__skein_action_script\nset -l __skein_action_status $status\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' $__skein_action_status\nset -e __skein_action_script\n{reentry}",
             script = fish_shell_quote(script),
+            shell = fish_shell_quote(shell),
             reentry = fish_shell_reentry(shell),
         ),
         ShellFamily::Nu => format!(
@@ -314,6 +325,11 @@ fn configure_manual_action_command(
         _ => {
             if let Some(login_flag) = login_flag_for_shell_family(shell, shell_family) {
                 cmd.arg(login_flag);
+            }
+            if shell_family != ShellFamily::Fish {
+                if let Some(interactive_flag) = interactive_flag_for_shell(shell) {
+                    cmd.arg(interactive_flag);
+                }
             }
             cmd.arg("-c");
             cmd.arg(command);
@@ -949,6 +965,15 @@ mod tests {
     }
 
     #[test]
+    fn interactive_flag_only_targets_supported_shells() {
+        assert_eq!(interactive_flag_for_shell("/bin/zsh"), Some("-i"));
+        assert_eq!(interactive_flag_for_shell("/opt/homebrew/bin/fish"), Some("-i"));
+        assert_eq!(interactive_flag_for_shell("/opt/homebrew/bin/nu"), None);
+        assert_eq!(interactive_flag_for_shell("/usr/local/bin/pwsh"), None);
+        assert_eq!(interactive_flag_for_shell(""), None);
+    }
+
+    #[test]
     fn shell_family_matches_supported_shells() {
         assert_eq!(shell_family_for_shell("/bin/zsh"), ShellFamily::Zsh);
         assert_eq!(
@@ -1064,6 +1089,7 @@ mod tests {
         assert!(fish.contains("set -l __skein_action_status $status"));
         assert!(fish.contains("\\036SKEIN_ACTION_DONE:%s\\037\\n"));
         assert!(fish.contains("set -l __skein_action_script 'bun run dev'"));
+        assert!(fish.contains("'/opt/homebrew/bin/fish' -l -c $__skein_action_script"));
         assert!(fish.contains("exec '/opt/homebrew/bin/fish' -l"));
         assert!(!fish.contains("set -lx "));
 
@@ -1101,6 +1127,7 @@ mod tests {
             &vec![
                 OsString::from("/bin/zsh"),
                 OsString::from("-l"),
+                OsString::from("-i"),
                 OsString::from("-c"),
                 OsString::from(manual_action_startup_command(
                     "/bin/zsh",
