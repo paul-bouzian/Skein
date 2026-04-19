@@ -385,7 +385,24 @@ impl RuntimeSupervisor {
 
         if let Some(runtime) = self.running_runtime(environment_id).await {
             self.mark_runtime_activity(environment_id).await;
+            if let Err(error) =
+                finish_headless_search_session(&self.headless_search_sessions, environment_id).await
+            {
+                warn!(
+                    environment_id,
+                    "failed to stop shared headless search session after runtime became active: {error}"
+                );
+            }
             return Ok(runtime);
+        }
+
+        if let Err(error) =
+            finish_headless_search_session(&self.headless_search_sessions, environment_id).await
+        {
+            warn!(
+                environment_id,
+                "failed to stop shared headless search session before starting runtime: {error}"
+            );
         }
 
         let binary_path = resolve_binary_path(runtime_target.codex_binary_path.clone())?;
@@ -491,6 +508,14 @@ impl RuntimeSupervisor {
 
         if let Some(runtime) = self.running_runtime(environment_id).await {
             self.mark_runtime_activity(environment_id).await;
+            if let Err(error) =
+                finish_headless_search_session(&self.headless_search_sessions, environment_id).await
+            {
+                warn!(
+                    environment_id,
+                    "failed to stop shared headless search session after handing off to a running runtime: {error}"
+                );
+            }
             return Ok(RuntimeReadTarget::Running(runtime.session));
         }
 
@@ -1547,6 +1572,20 @@ fn finish_headless_read<T>(result: AppResult<T>, stop_result: AppResult<()>) -> 
     }
 }
 
+async fn finish_headless_search_session(
+    headless_search_sessions: &Arc<Mutex<HashMap<String, HeadlessSearchSession>>>,
+    environment_id: &str,
+) -> AppResult<()> {
+    let session = {
+        let mut sessions = headless_search_sessions.lock().await;
+        take_headless_search_session(&mut sessions, environment_id)
+    };
+    if let Some(session) = session {
+        session.stop().await?;
+    }
+    Ok(())
+}
+
 fn store_headless_search_session(
     sessions: &mut HashMap<String, HeadlessSearchSession>,
     environment_id: String,
@@ -1626,8 +1665,9 @@ mod tests {
     use super::{
         apply_account_usage_patch, apply_account_usage_snapshot, classify_idle_runtime_candidates,
         collect_idle_runtime_candidates, emit_account_usage_event, finish_headless_read,
-        latest_running_usage_source, merge_account_usage_snapshot, prime_running_runtime_usage,
-        read_account_from_target, read_auth_status_from_target,
+        finish_headless_search_session, latest_running_usage_source,
+        merge_account_usage_snapshot, prime_running_runtime_usage, read_account_from_target,
+        read_auth_status_from_target,
         read_capabilities_from_target, read_composer_catalog_from_target, resolve_binary_path,
         search_files_from_target, should_stop_idle_runtime_candidate,
         store_account_usage_snapshot_from_read, store_headless_search_session,
@@ -1830,6 +1870,31 @@ mod tests {
             .expect("fuzzyFileSearch request should be recorded");
         assert_eq!(search_request.params["roots"][0], "/tmp/skein");
         assert_eq!(search_request.params["cancellationToken"], "draft:topLeft");
+    }
+
+    #[tokio::test]
+    async fn finish_headless_search_session_clears_cached_session() {
+        let now = Utc::now();
+        let cached_session = Arc::new(RuntimeSession::from_snapshot_for_test(
+            make_completed_snapshot(),
+        ));
+        let headless_search_sessions = Arc::new(Mutex::new(HashMap::new()));
+
+        {
+            let mut sessions = headless_search_sessions.lock().await;
+            store_headless_search_session(
+                &mut sessions,
+                "env-1".to_string(),
+                cached_session,
+                now,
+            );
+        }
+
+        finish_headless_search_session(&headless_search_sessions, "env-1")
+            .await
+            .expect("cached headless session should stop cleanly");
+
+        assert!(!headless_search_sessions.lock().await.contains_key("env-1"));
     }
 
     #[test]

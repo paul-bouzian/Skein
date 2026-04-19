@@ -591,6 +591,7 @@ export function ThreadConversation({
         mentionBindings={mentionBindings}
         modelOptions={capabilities?.models ?? []}
         catalogTarget={composerTarget}
+        catalogRefreshKey={snapshot?.codexThreadId ?? thread.codexThreadId ?? null}
         fileSearchTarget={composerTarget}
         transportEnabled={transportReady}
         onChangeImages={(nextImages) =>

@@ -1595,8 +1595,22 @@ impl WorkspaceService {
             }
             ComposerTarget::Environment { environment_id } => {
                 validate_non_blank_id(environment_id, "Environment")?;
-                let runtime_target = self.environment_runtime_target(environment_id)?;
                 let connection = self.database.open()?;
+                let environment_kind = connection
+                    .query_row(
+                        "SELECT kind FROM environments WHERE id = ?1",
+                        params![environment_id],
+                        |row| environment_kind_from_str(&row.get::<_, String>(0)?),
+                    )
+                    .optional()?
+                    .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))?;
+                if matches!(environment_kind, EnvironmentKind::Chat) {
+                    return Err(AppError::Validation(
+                        "Chat environments must use the chat workspace composer target."
+                            .to_string(),
+                    ));
+                }
+                let runtime_target = self.environment_runtime_target(environment_id)?;
                 let codex_thread_id =
                     self.latest_active_codex_thread_id_for_environment(&connection, environment_id)?;
 
@@ -3082,6 +3096,7 @@ mod tests {
         ProjectSettingsPatch, PullRequestState, SavedDraftThreadState, ThreadOverrides,
         ThreadStatus,
     };
+    use crate::error::AppError;
     use crate::services::git;
     use crate::services::worktree_scripts::WorktreeScriptService;
 
@@ -3934,6 +3949,29 @@ mod tests {
 
         assert_eq!(context.environment_id, CHAT_WORKSPACE_PROJECT_ID);
         assert!(!context.file_search_enabled);
+    }
+
+    #[test]
+    fn environment_composer_target_rejects_chat_environments() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let chat = harness
+            .service
+            .create_chat_thread(CreateChatThreadRequest {
+                title: Some("Composer validation".to_string()),
+                overrides: None,
+            })
+            .expect("chat thread should be created");
+
+        let error = harness
+            .service
+            .composer_target_context(&ComposerTarget::Environment {
+                environment_id: chat.environment.id,
+            })
+            .expect_err("chat environment should be rejected");
+
+        assert!(
+            matches!(error, AppError::Validation(message) if message == "Chat environments must use the chat workspace composer target.")
+        );
     }
 
     #[test]

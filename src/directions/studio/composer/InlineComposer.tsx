@@ -92,6 +92,7 @@ type Props = {
   ) => void;
   onUpdateComposer: (patch: Partial<ConversationComposerSettings>) => void;
   catalogTarget?: ComposerTarget | null;
+  catalogRefreshKey?: string | null;
   fileSearchTarget?: ComposerTarget | null;
   imageSupportNoticeEnabled?: boolean;
   transportEnabled?: boolean;
@@ -122,6 +123,7 @@ export function InlineComposer({
   onSend,
   onUpdateComposer,
   catalogTarget = null,
+  catalogRefreshKey = null,
   fileSearchTarget = null,
   imageSupportNoticeEnabled,
   transportEnabled = true,
@@ -270,7 +272,7 @@ export function InlineComposer({
     return () => {
       cancelled = true;
     };
-  }, [catalogTarget]);
+  }, [catalogRefreshKey, catalogTarget]);
 
   useEffect(() => {
     const element = textareaRef.current;
