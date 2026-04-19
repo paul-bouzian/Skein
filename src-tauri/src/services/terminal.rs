@@ -272,6 +272,23 @@ fn fish_shell_reentry(shell: &str) -> String {
     command
 }
 
+fn nushell_login_argument(shell: &str) -> String {
+    login_flag_for_shell(shell)
+        .map(|flag| format!(" {}", nushell_raw_string(flag)))
+        .unwrap_or_default()
+}
+
+fn powershell_child_invocation(shell: &str, script_reference: &str) -> String {
+    let mut command = format!("& {}", powershell_shell_quote(shell));
+    if let Some(login_flag) = login_flag_for_shell_family(shell, ShellFamily::PowerShell) {
+        command.push(' ');
+        command.push_str(login_flag);
+    }
+    command.push_str(" -Interactive -Command ");
+    command.push_str(script_reference);
+    command
+}
+
 fn manual_action_startup_command(
     shell: &str,
     shell_family: ShellFamily,
@@ -290,16 +307,15 @@ fn manual_action_startup_command(
             reentry = fish_shell_reentry(shell),
         ),
         ShellFamily::Nu => format!(
-            "let __skein_action_script = {script}\nlet __skein_action_error = (try {{\n  run-external {shell} \"-c\" $__skein_action_script\n  null\n}} catch {{ |err| $err }})\nlet __skein_action_status = if $__skein_action_error == null {{\n  if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }}\n}} else {{\n  $__skein_action_error.exit_code? | default 1\n}}\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\nexec {shell}{login_flag}\n",
+            "let __skein_action_script = {script}\nlet __skein_action_error = (try {{\n  run-external {shell}{login_flag} \"-c\" $__skein_action_script\n  null\n}} catch {{ |err| $err }})\nlet __skein_action_status = if $__skein_action_error == null {{\n  if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }}\n}} else {{\n  $__skein_action_error.exit_code? | default 1\n}}\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\nexec {shell}{login_flag}\n",
             script = nushell_raw_string(script),
             shell = nushell_raw_string(shell),
-            login_flag = login_flag_for_shell(shell)
-                .map(|flag| format!(" {}", nushell_raw_string(flag)))
-                .unwrap_or_default(),
+            login_flag = nushell_login_argument(shell),
         ),
         ShellFamily::PowerShell => format!(
-            "$__skeinActionScript = {script}\ntry {{\n  Invoke-Expression $__skeinActionScript\n}}\nfinally {{\n  $__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n  [Console]::Out.Write(\"$([char]30){ACTION_DONE_PREFIX}$($__skeinActionStatus)$([char]31)`n\")\n  Remove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n  Remove-Variable __skeinActionScript -ErrorAction SilentlyContinue\n}}\n",
+            "$__skeinActionScript = {script}\ntry {{\n  {child_command}\n}}\nfinally {{\n  $__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n  [Console]::Out.Write(\"$([char]30){ACTION_DONE_PREFIX}$($__skeinActionStatus)$([char]31)`n\")\n  Remove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n  Remove-Variable __skeinActionScript -ErrorAction SilentlyContinue\n}}\n",
             script = powershell_shell_quote(script),
+            child_command = powershell_child_invocation(shell, "$__skeinActionScript"),
         ),
     }
 }
@@ -1100,7 +1116,9 @@ mod tests {
         );
         assert!(nu.contains("let __skein_action_error = (try {"));
         assert!(nu.contains("catch { |err| $err }"));
-        assert!(nu.contains("run-external r#'/opt/homebrew/bin/nu'# \"-c\" $__skein_action_script"));
+        assert!(
+            nu.contains("run-external r#'/opt/homebrew/bin/nu'# r#'-l'# \"-c\" $__skein_action_script")
+        );
         assert!(nu.contains("char --integer 30"));
         assert!(nu.contains(ACTION_DONE_PREFIX));
         assert!(nu.contains("exec r#'/opt/homebrew/bin/nu'# r#'-l'#"));
@@ -1112,9 +1130,13 @@ mod tests {
         );
         assert!(powershell.contains("$__skeinActionScript = 'bun run dev'"));
         assert!(powershell.contains("try {"));
+        assert!(powershell.contains(
+            "& '/usr/local/bin/pwsh' -Login -Interactive -Command $__skeinActionScript"
+        ));
         assert!(powershell.contains("Test-Path variable:LASTEXITCODE"));
         assert!(powershell.contains("$([char]30)"));
         assert!(powershell.contains(ACTION_DONE_PREFIX));
+        assert!(!powershell.contains("Invoke-Expression $__skeinActionScript"));
         assert!(powershell.contains("Remove-Variable __skeinActionScript"));
     }
 
