@@ -7,6 +7,7 @@ import {
   shortcutSignature,
 } from "../../lib/shortcuts";
 import type { ShortcutSettings, ShortcutSettingsPatch } from "../../lib/types";
+import { SettingsSection } from "./SettingsSection";
 import {
   SHORTCUT_DEFINITIONS,
   type ShortcutAction,
@@ -82,13 +83,11 @@ export function ShortcutsSettingsTab({ shortcuts, disabled, onChange }: Props) {
 
   return (
     <div className="settings-shortcuts">
-      <div className="settings-field">
-        <label className="settings-field__label" htmlFor="settings-shortcuts-search">
-          Search shortcuts
-        </label>
+      <div className="settings-field settings-shortcuts__search-wrap">
         <input
           id="settings-shortcuts-search"
           className="settings-field__input"
+          aria-label="Search shortcuts"
           placeholder="Search by action or shortcut"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -97,10 +96,7 @@ export function ShortcutsSettingsTab({ shortcuts, disabled, onChange }: Props) {
       <div className="settings-shortcuts__list">
         {filteredGroups.map(({ group, items }) =>
           items.length > 0 ? (
-            <section key={group} className="settings-shortcuts__group">
-              <div className="settings-shortcuts__group-header">
-                <h3 className="settings-shortcuts__group-title">{group}</h3>
-              </div>
+            <SettingsSection key={group} title={group}>
               <div className="settings-shortcuts__items">
                 {items.map((definition) => {
                   const currentValue = shortcuts[definition.action] ?? null;
@@ -207,7 +203,7 @@ export function ShortcutsSettingsTab({ shortcuts, disabled, onChange }: Props) {
                   );
                 })}
               </div>
-            </section>
+            </SettingsSection>
           ) : null,
         )}
       </div>

@@ -20,12 +20,38 @@ import {
 import { useConversationStore } from "../../stores/conversation-store";
 
 const confirmMock = vi.fn();
+const draftComposer = {
+  model: "gpt-5.4",
+  reasoningEffort: "high" as const,
+  collaborationMode: "build" as const,
+  approvalPolicy: "askToEdit" as const,
+  serviceTier: null,
+};
+
+function makePersistedDraftState(
+  text: string,
+  projectSelection: { kind: "local" } | { kind: "new"; baseBranch: string; name: string } | null,
+) {
+  return {
+    composerDraft: {
+      text,
+      images: [],
+      mentionBindings: [],
+      isRefiningPlan: false,
+    },
+    composer: draftComposer,
+    projectSelection,
+  };
+}
 
 vi.mock("../../lib/bridge", () => ({
   archiveThread: vi.fn(),
   createChatThread: vi.fn(),
   createManagedWorktree: vi.fn(),
   createThread: vi.fn(),
+  getDraftThreadState: vi.fn(),
+  saveDraftThreadState: vi.fn(),
+  saveThreadComposerDraft: vi.fn(),
   sendThreadMessage: vi.fn(),
 }));
 
@@ -84,6 +110,9 @@ describe("studioActions", () => {
       selectedEnvironmentId: "env-1",
       selectedThreadId: null,
     }));
+    mockedBridge.getDraftThreadState.mockResolvedValue(null);
+    mockedBridge.saveDraftThreadState.mockResolvedValue(undefined);
+    mockedBridge.saveThreadComposerDraft.mockResolvedValue(undefined);
   });
 
   it("selects the first active thread when navigating next with no current selection", () => {
@@ -529,6 +558,7 @@ describe("studioActions", () => {
       const result = await sendThreadDraft({
         paneId: "topLeft",
         draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("Hello", { kind: "local" }),
         projectSelection: { kind: "local" },
         text: "Hello",
       });
@@ -536,6 +566,23 @@ describe("studioActions", () => {
       expect(result.ok).toBe(true);
       expect(mockedBridge.createThread).toHaveBeenCalledWith({
         environmentId: "env-1",
+        overrides: {
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          collaborationMode: "build",
+          approvalPolicy: "askToEdit",
+          serviceTier: null,
+          serviceTierOverridden: false,
+        },
+      });
+      expect(mockedBridge.saveThreadComposerDraft).toHaveBeenCalledWith({
+        threadId: newThread.id,
+        draft: {
+          text: "Hello",
+          images: [],
+          mentionBindings: [],
+          isRefiningPlan: false,
+        },
       });
       // The draft hands the first message off to ThreadConversation rather
       // than calling bridge.sendThreadMessage itself.
@@ -548,10 +595,93 @@ describe("studioActions", () => {
         text: "Hello",
         images: [],
         mentionBindings: [],
-        composer: null,
+        composer: draftComposer,
       });
       expect(useWorkspaceStore.getState().draftBySlot.topLeft).toBeUndefined();
       expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
+    });
+
+    it("sendThreadDraft transfers the latest mention bindings into the new thread draft", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      const refreshSnapshot = vi.fn(async () => true);
+      useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        draft: { kind: "project", projectId: "project-1" },
+        persistedState: {
+          ...makePersistedDraftState("Old text", { kind: "local" }),
+          composerDraft: {
+            text: "Old text",
+            images: [],
+            mentionBindings: [
+              {
+                mention: "old",
+                kind: "skill",
+                path: "old",
+                start: 0,
+                end: 4,
+              },
+            ],
+            isRefiningPlan: false,
+          },
+        },
+        projectSelection: { kind: "local" },
+        text: "New text",
+        mentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+          },
+        ],
+        draftMentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+            start: 4,
+            end: 10,
+          },
+        ],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockedBridge.saveThreadComposerDraft).toHaveBeenCalledWith({
+        threadId: newThread.id,
+        draft: {
+          text: "New text",
+          images: [],
+          mentionBindings: [
+            {
+              mention: "fresh",
+              kind: "skill",
+              path: "fresh",
+              start: 4,
+              end: 10,
+            },
+          ],
+          isRefiningPlan: false,
+        },
+      });
+      expect(
+        useConversationStore.getState().pendingFirstMessageByThreadId[
+          newThread.id
+        ],
+      ).toEqual({
+        text: "New text",
+        images: [],
+        mentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+          },
+        ],
+        composer: draftComposer,
+      });
     });
 
     it("sendThreadDraft with a new-worktree selection forwards baseBranch and name", async () => {
@@ -577,6 +707,11 @@ describe("studioActions", () => {
       const result = await sendThreadDraft({
         paneId: "topLeft",
         draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("Investigate crash", {
+          kind: "new",
+          baseBranch: "main",
+          name: "fix/crash",
+        }),
         projectSelection: {
           kind: "new",
           baseBranch: "main",
@@ -588,9 +723,64 @@ describe("studioActions", () => {
       expect(result.ok).toBe(true);
       expect(mockedBridge.createManagedWorktree).toHaveBeenCalledWith(
         "project-1",
-        { baseBranch: "main", name: "fix/crash" },
+        {
+          baseBranch: "main",
+          name: "fix/crash",
+          overrides: {
+            model: "gpt-5.4",
+            reasoningEffort: "high",
+            collaborationMode: "build",
+            approvalPolicy: "askToEdit",
+            serviceTier: null,
+            serviceTierOverridden: false,
+          },
+        },
       );
       expect(mockedBridge.createThread).not.toHaveBeenCalled();
+    });
+
+    it("sendThreadDraft keeps service tier inherited when it matches the global default", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: makeWorkspaceSnapshot({
+          settings: {
+            ...state.snapshot!.settings,
+            defaultServiceTier: "fast",
+          },
+          projects: state.snapshot?.projects ?? [],
+          chat: state.snapshot!.chat,
+        }),
+      }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        draft: { kind: "project", projectId: "project-1" },
+        persistedState: {
+          ...makePersistedDraftState("Hello", { kind: "local" }),
+          composer: {
+            ...draftComposer,
+            serviceTier: "fast",
+          },
+        },
+        projectSelection: { kind: "local" },
+        text: "Hello",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(mockedBridge.createThread).toHaveBeenCalledWith({
+        environmentId: "env-1",
+        overrides: {
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          collaborationMode: "build",
+          approvalPolicy: "askToEdit",
+          serviceTier: "fast",
+          serviceTierOverridden: false,
+        },
+      });
     });
 
     it("sendThreadDraft still navigates when refreshSnapshot fails", async () => {
@@ -606,6 +796,7 @@ describe("studioActions", () => {
       const result = await sendThreadDraft({
         paneId: "topLeft",
         draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("Hi", { kind: "local" }),
         projectSelection: { kind: "local" },
         text: "Hi",
       });
@@ -620,6 +811,7 @@ describe("studioActions", () => {
       const result = await sendThreadDraft({
         paneId: "topLeft",
         draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("   ", { kind: "local" }),
         projectSelection: { kind: "local" },
         text: "   ",
       });
@@ -654,14 +846,96 @@ describe("studioActions", () => {
       const result = await sendThreadDraft({
         paneId: "topLeft",
         draft: { kind: "chat" },
+        persistedState: makePersistedDraftState("Research this topic", null),
         projectSelection: { kind: "local" },
         text: "Research this topic",
       });
 
       expect(result.ok).toBe(true);
-      expect(mockedBridge.createChatThread).toHaveBeenCalledWith({});
+      expect(mockedBridge.createChatThread).toHaveBeenCalledWith({
+        overrides: {
+          model: "gpt-5.4",
+          reasoningEffort: "high",
+          collaborationMode: "build",
+          approvalPolicy: "askToEdit",
+          serviceTier: null,
+          serviceTierOverridden: false,
+        },
+      });
       expect(mockedBridge.createThread).not.toHaveBeenCalled();
       expect(useWorkspaceStore.getState().selectedThreadId).toBe(chatThread.id);
+    });
+
+    it("sendThreadDraft still navigates when draft transfer persistence fails", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      mockedBridge.saveThreadComposerDraft.mockRejectedValueOnce(
+        new Error("transfer failed"),
+      );
+      const refreshSnapshot = vi.fn(async () => false);
+      useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        draft: { kind: "project", projectId: "project-1" },
+        persistedState: {
+          ...makePersistedDraftState("Recovered", { kind: "local" }),
+          composerDraft: {
+            text: "Recovered",
+            images: [],
+            mentionBindings: [
+              {
+                mention: "stale",
+                kind: "skill",
+                path: "stale",
+                start: 0,
+                end: 6,
+              },
+            ],
+            isRefiningPlan: false,
+          },
+        },
+        projectSelection: { kind: "local" },
+        text: "Recovered",
+        mentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+          },
+        ],
+        draftMentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+            start: 0,
+            end: 6,
+          },
+        ],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toBeUndefined();
+      expect(useConversationStore.getState().draftByThreadId[newThread.id]).toEqual({
+        text: "Recovered",
+        images: [],
+        mentionBindings: [
+          {
+            mention: "fresh",
+            kind: "skill",
+            path: "fresh",
+            start: 0,
+            end: 6,
+          },
+        ],
+        isRefiningPlan: false,
+      });
+      expect(useConversationStore.getState().composerByThreadId[newThread.id]).toEqual(
+        draftComposer,
+      );
     });
 
     afterEach(() => {

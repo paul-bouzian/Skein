@@ -7,8 +7,9 @@ use crate::domain::conversation::EnvironmentCapabilitiesSnapshot;
 use crate::domain::settings::{GlobalSettings, GlobalSettingsPatch};
 use crate::domain::shortcuts::ShortcutSettings;
 use crate::domain::workspace::{
-    ChatThreadCreateResult, CodexRateLimitSnapshot, ManagedWorktreeCreateResult, ProjectActionIcon,
-    ProjectRecord, RuntimeStatusSnapshot, ThreadRecord, WorkspaceSnapshot,
+    ChatThreadCreateResult, CodexRateLimitSnapshot, DraftThreadTarget,
+    ManagedWorktreeCreateResult, ProjectActionIcon, ProjectRecord, RuntimeStatusSnapshot,
+    SavedDraftThreadState, ThreadRecord, WorkspaceSnapshot,
 };
 use crate::error::{AppError, CommandError};
 use crate::services::terminal::ManualActionLaunch;
@@ -42,8 +43,13 @@ pub struct RunProjectActionResult {
 pub struct RunProjectActionInput {
     pub environment_id: String,
     pub action_id: String,
-    #[serde(default)]
-    pub pty_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDraftThreadStateInput {
+    pub target: DraftThreadTarget,
+    pub state: Option<SavedDraftThreadState>,
 }
 
 #[tauri::command]
@@ -55,6 +61,24 @@ pub async fn get_workspace_snapshot(
     Ok(state
         .workspace
         .snapshot_with_pull_requests(runtime_statuses, &pull_requests)?)
+}
+
+#[tauri::command]
+pub fn get_draft_thread_state(
+    target: DraftThreadTarget,
+    state: State<'_, AppState>,
+) -> Result<Option<SavedDraftThreadState>, CommandError> {
+    Ok(state.workspace.draft_thread_state(&target)?)
+}
+
+#[tauri::command]
+pub fn save_draft_thread_state(
+    input: SaveDraftThreadStateInput,
+    state: State<'_, AppState>,
+) -> Result<(), CommandError> {
+    Ok(state
+        .workspace
+        .persist_draft_thread_state(&input.target, input.state.as_ref())?)
 }
 
 #[tauri::command]
@@ -115,11 +139,6 @@ pub fn run_project_action(
         return Err(AppError::Validation("Action id is required.".to_string()).into());
     }
 
-    let pty_id = input
-        .pty_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|pty_id| !pty_id.is_empty());
     let target = state
         .workspace
         .project_action_execution_target(RunProjectActionRequest {
@@ -142,30 +161,18 @@ pub fn run_project_action(
         target.action.label.clone(),
     ));
     env.push(("SKEIN_ACTION_KIND".to_string(), "manual".to_string()));
-    let pty_id = if let Some(existing_pty_id) = pty_id {
-        state.terminal.rerun_manual_action(
-            &app,
-            existing_pty_id,
-            &target.environment_id,
-            &target.action.id,
-            env,
-            &target.action.script,
-        )?;
-        existing_pty_id.to_string()
-    } else {
-        state.terminal.spawn_manual_action(
-            &app,
-            ManualActionLaunch {
-                environment_id: &target.environment_id,
-                cwd: &target.cwd,
-                cols: 80,
-                rows: 24,
-                env_overrides: env,
-                action_id: &target.action.id,
-                script: &target.action.script,
-            },
-        )?
-    };
+    let pty_id = state.terminal.spawn_manual_action(
+        &app,
+        ManualActionLaunch {
+            environment_id: &target.environment_id,
+            cwd: &target.cwd,
+            cols: 80,
+            rows: 24,
+            env_overrides: env,
+            action_id: &target.action.id,
+            script: &target.action.script,
+        },
+    )?;
 
     Ok(RunProjectActionResult {
         pty_id,

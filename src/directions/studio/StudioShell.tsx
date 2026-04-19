@@ -22,7 +22,7 @@ import {
   selectSidePanelWidth,
   useSidePanelStore,
 } from "../../stores/side-panel-store";
-import { SettingsDialog } from "./SettingsDialog";
+import { SettingsView } from "./SettingsView";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
 import { InspectorPanel } from "./InspectorPanel";
@@ -166,10 +166,16 @@ export function StudioShell() {
 
   const rightPanelOpen = effectiveRightPanel !== "none";
 
+  const shellClassName = [
+    "studio-shell",
+    sidePanelDragging ? "studio-shell--resizing-side-panel" : null,
+    settingsOpen ? "studio-shell--settings-open" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div
-      className={`studio-shell${sidePanelDragging ? " studio-shell--resizing-side-panel" : ""}`}
-    >
+    <div className={shellClassName}>
       <TreeSidebar
         theme={theme}
         collapsed={!projectsSidebarOpen}
@@ -207,10 +213,6 @@ export function StudioShell() {
         <InspectorPanel collapsed={!inspectorOpen} />
         <BrowserPanel collapsed={!browserOpen} />
       </div>
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
       <ProjectActionCreateDialog
         open={actionCreateDialogOpen}
         project={actionCreateProject}
@@ -221,6 +223,10 @@ export function StudioShell() {
         <FirstPromptRenameFailureNotice />
         <AppUpdateNotice />
       </div>
+      <SettingsView
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
       <StudioStatusBar />
     </div>
   );

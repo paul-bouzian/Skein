@@ -88,7 +88,7 @@ export function ProjectSettingsTab({
   }, [projects]);
 
   if (projects.length === 0) {
-    return <p className="settings-dialog__empty">No projects yet.</p>;
+    return <p className="settings-empty">No projects yet.</p>;
   }
 
   return (
@@ -138,9 +138,8 @@ export function ProjectSettingsTab({
                     Setup Script
                   </label>
                   <p className="settings-field__help">
-                    Runs once after {APP_NAME} creates the worktree, with the new worktree as
-                    the current directory. It runs in the background and does not block opening
-                    the thread.
+                    Runs once after {APP_NAME} creates the worktree, from the worktree dir.
+                    Non-blocking.
                   </p>
                   <textarea
                     id={`${project.id}-setup-script`}
@@ -172,8 +171,8 @@ export function ProjectSettingsTab({
                     Teardown Script
                   </label>
                   <p className="settings-field__help">
-                    Runs after {APP_NAME} deletes the worktree, from the project root. Context
-                    is exposed through `SKEIN_*` environment variables.
+                    Runs after {APP_NAME} deletes the worktree, from the project root. `SKEIN_*`
+                    env vars expose context.
                   </p>
                   <textarea
                     id={`${project.id}-teardown-script`}
@@ -202,8 +201,8 @@ export function ProjectSettingsTab({
                     <div className="settings-project-actions__copy">
                       <h3 className="settings-project-actions__title">Actions</h3>
                       <p className="settings-field__help">
-                        Configure reusable manual actions for every environment in this project.
-                        These appear beside the terminal and Open In controls.
+                        Reusable actions for every environment in this project, shown beside the
+                        terminal and Open In controls.
                       </p>
                     </div>
                     <button
@@ -233,12 +232,12 @@ export function ProjectSettingsTab({
                     </button>
                   </div>
                   {issues.global ? (
-                    <p className="settings-dialog__notice">{issues.global}</p>
+                    <p className="settings-notice">{issues.global}</p>
                   ) : null}
                   {draft.actions.length === 0 ? (
                     <p className="settings-field__help">
-                      No manual actions yet. Add one to expose a split action button in every
-                      environment for this project.
+                      No manual actions yet. Add one to make it available in every
+                      environment.
                     </p>
                   ) : (
                     <div className="settings-project-actions__list">

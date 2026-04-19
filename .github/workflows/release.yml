@@ -144,8 +144,8 @@ jobs:
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Build desktop debug bundle
-        run: bun run tauri:build:debug
+      - name: Build desktop debug app bundle
+        run: bun run tauri:build:debug:app
 
       - id: signing_identity
         name: Import signing certificate

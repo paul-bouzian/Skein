@@ -3,18 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { makeGlobalSettings } from "../../test/fixtures/conversation";
-import { CodexSettingsTab } from "./CodexSettingsTab";
+import { BehaviorSettingsTab } from "./BehaviorSettingsTab";
 
-const MODEL_OPTIONS = [{ value: "gpt-5.4", label: "GPT-5.4" }] as const;
-
-describe("CodexSettingsTab", () => {
+describe("BehaviorSettingsTab", () => {
   it("renders multi-agent controls and disables the slider when the mode is off", () => {
     render(
-      <CodexSettingsTab
+      <BehaviorSettingsTab
         disabled={false}
-        menuZIndex={1310}
-        modelOptions={[...MODEL_OPTIONS]}
-        rangeDisabled={false}
         settings={makeGlobalSettings()}
         onChange={() => undefined}
       />,
@@ -26,11 +21,8 @@ describe("CodexSettingsTab", () => {
 
   it("keeps the slider interactive while settings are saving", () => {
     render(
-      <CodexSettingsTab
+      <BehaviorSettingsTab
         disabled={true}
-        menuZIndex={1310}
-        modelOptions={[...MODEL_OPTIONS]}
-        rangeDisabled={false}
         settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
         onChange={() => undefined}
       />,
@@ -44,11 +36,8 @@ describe("CodexSettingsTab", () => {
     const onChange = vi.fn();
 
     render(
-      <CodexSettingsTab
+      <BehaviorSettingsTab
         disabled={false}
-        menuZIndex={1310}
-        modelOptions={[...MODEL_OPTIONS]}
-        rangeDisabled={false}
         settings={makeGlobalSettings()}
         onChange={onChange}
       />,
@@ -63,11 +52,8 @@ describe("CodexSettingsTab", () => {
     const onChange = vi.fn();
 
     render(
-      <CodexSettingsTab
+      <BehaviorSettingsTab
         disabled={false}
-        menuZIndex={1310}
-        modelOptions={[...MODEL_OPTIONS]}
-        rangeDisabled={false}
         settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
         onChange={onChange}
       />,
@@ -88,11 +74,8 @@ describe("CodexSettingsTab", () => {
     const onChange = vi.fn();
 
     render(
-      <CodexSettingsTab
+      <BehaviorSettingsTab
         disabled={false}
-        menuZIndex={1310}
-        modelOptions={[...MODEL_OPTIONS]}
-        rangeDisabled={false}
         settings={makeGlobalSettings({ multiAgentNudgeEnabled: true })}
         onChange={onChange}
       />,

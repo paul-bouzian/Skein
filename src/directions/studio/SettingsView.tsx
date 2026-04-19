@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   isPermissionGranted,
   requestPermission,
 } from "@tauri-apps/plugin-notification";
 
-import { CodexSettingsTab } from "./CodexSettingsTab";
+import { AdvancedSettingsTab } from "./AdvancedSettingsTab";
+import { BehaviorSettingsTab } from "./BehaviorSettingsTab";
+import { GeneralSettingsTab } from "./GeneralSettingsTab";
 import type {
   GlobalSettingsPatch,
   ProjectRecord,
@@ -25,9 +26,9 @@ import {
   selectSettings,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
-import { CloseIcon } from "../../shared/Icons";
+import { ArrowLeftIcon } from "../../shared/Icons";
 import { settingsModelOptions } from "./composerOptions";
-import "./SettingsDialog.css";
+import "./SettingsView.css";
 
 type Props = {
   open: boolean;
@@ -39,7 +40,59 @@ const DESKTOP_NOTIFICATIONS_ENABLE_ERROR =
   "Desktop notifications could not be enabled. Check your operating system notification permissions and try again.";
 const DESKTOP_NOTIFICATIONS_PERMISSION_DENIED =
   "Desktop notifications were not enabled because permission was denied by the operating system.";
-type SettingsTab = "codex" | "notifications" | "openIn" | "shortcuts" | "project";
+
+type SettingsTab =
+  | "general"
+  | "behavior"
+  | "notifications"
+  | "integrations"
+  | "shortcuts"
+  | "project"
+  | "advanced";
+
+type SettingsTabMeta = {
+  id: SettingsTab;
+  label: string;
+  description: string;
+};
+
+const SETTINGS_TABS: SettingsTabMeta[] = [
+  {
+    id: "general",
+    label: "General",
+    description: "Model, reasoning, mode, approval, and speed defaults.",
+  },
+  {
+    id: "behavior",
+    label: "Behavior",
+    description: "How Codex responds, streams, and uses sub-agents.",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    description: "Desktop alerts and completion sounds.",
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    description: "Apps shown in the Open In menu.",
+  },
+  {
+    id: "shortcuts",
+    label: "Shortcuts",
+    description: "Keyboard bindings for every command.",
+  },
+  {
+    id: "project",
+    label: "Projects",
+    description: "Per-project scripts and manual actions.",
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    description: "Codex binary path and app updates.",
+  },
+];
 
 async function requestDesktopNotificationsAccess(): Promise<
   "granted" | "denied" | "error"
@@ -55,7 +108,7 @@ async function requestDesktopNotificationsAccess(): Promise<
   }
 }
 
-export function SettingsDialog({ open, onClose }: Props) {
+export function SettingsView({ open, onClose }: Props) {
   const settings = useWorkspaceStore(selectSettings);
   const projects = useWorkspaceStore(selectProjects);
   const selectedProjectId = useWorkspaceStore((state) => state.selectedProjectId);
@@ -83,7 +136,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   const [desktopNotificationsNotice, setDesktopNotificationsNotice] = useState<
     string | null
   >(null);
-  const [activeTab, setActiveTab] = useState<SettingsTab>("codex");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
   const [desktopNotificationsBusy, setDesktopNotificationsBusy] = useState(false);
   const savingGlobalSettingsRef = useRef(false);
@@ -98,11 +151,7 @@ export function SettingsDialog({ open, onClose }: Props) {
   );
 
   useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const previousOverflow = document.body.style.overflow;
+    if (!open) return;
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -117,11 +166,8 @@ export function SettingsDialog({ open, onClose }: Props) {
       });
     }
 
-    document.body.style.overflow = "hidden";
     window.addEventListener("keydown", handleKeyDown);
-
     return () => {
-      document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [open, onClose]);
@@ -132,14 +178,6 @@ export function SettingsDialog({ open, onClose }: Props) {
     }
     void tryLoadEnvironmentCapabilities(settingsCapabilityEnvironmentId);
   }, [open, settingsCapabilityEnvironmentId, tryLoadEnvironmentCapabilities]);
-
-  useEffect(() => {
-    if (!open) {
-      setActionError(null);
-      setDesktopNotificationsNotice(null);
-      setActiveTab("codex");
-    }
-  }, [open]);
 
   async function applyGlobalSettingsChange(patch: GlobalSettingsPatch) {
     try {
@@ -244,152 +282,141 @@ export function SettingsDialog({ open, onClose }: Props) {
     return null;
   }
 
-  return createPortal(
-    <div className="settings-dialog__backdrop" onClick={onClose}>
-      <section
-        className="settings-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-dialog-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="settings-dialog__header">
-          <h2 id="settings-dialog-title" className="settings-dialog__title">
-            Settings
-          </h2>
-          <button
-            type="button"
-            className="settings-dialog__close"
-            onClick={onClose}
-            aria-label="Close settings"
-            title="Close settings"
-          >
-            <CloseIcon size={12} />
-          </button>
-        </div>
+  const activeTabMeta =
+    SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0];
 
-        <div className="settings-dialog__layout">
-          <div
-            className="settings-dialog__sidebar"
-            role="navigation"
-            aria-label="Settings sections"
-          >
-            <button
-              type="button"
-              className={`settings-dialog__tab ${
-                activeTab === "codex" ? "settings-dialog__tab--active" : ""
-              }`}
-              aria-current={activeTab === "codex" ? "page" : undefined}
-              onClick={() => setActiveTab("codex")}
-            >
-              Codex
-            </button>
-            <button
-              type="button"
-              className={`settings-dialog__tab ${
-                activeTab === "notifications" ? "settings-dialog__tab--active" : ""
-              }`}
-              aria-current={activeTab === "notifications" ? "page" : undefined}
-              onClick={() => setActiveTab("notifications")}
-            >
-              Notifications
-            </button>
-            <button
-              type="button"
-              className={`settings-dialog__tab ${
-                activeTab === "openIn" ? "settings-dialog__tab--active" : ""
-              }`}
-              aria-current={activeTab === "openIn" ? "page" : undefined}
-              onClick={() => setActiveTab("openIn")}
-            >
-              Open In
-            </button>
-            <button
-              type="button"
-              className={`settings-dialog__tab ${
-                activeTab === "shortcuts" ? "settings-dialog__tab--active" : ""
-              }`}
-              aria-current={activeTab === "shortcuts" ? "page" : undefined}
-              onClick={() => setActiveTab("shortcuts")}
-            >
-              Shortcuts
-            </button>
-            <button
-              type="button"
-              className={`settings-dialog__tab ${
-                activeTab === "project" ? "settings-dialog__tab--active" : ""
-              }`}
-              aria-current={activeTab === "project" ? "page" : undefined}
-              onClick={() => setActiveTab("project")}
-            >
-              Project
-            </button>
-          </div>
-          <div className="settings-dialog__body">
+  function renderActiveTab() {
+    if (activeTab === "project") {
+      return (
+        <ProjectSettingsTab
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          shortcutSettings={settings?.shortcuts ?? {}}
+          onSave={handleProjectSave}
+        />
+      );
+    }
+
+    if (!settings) {
+      return <p className="settings-empty">Loading…</p>;
+    }
+
+    switch (activeTab) {
+      case "general":
+        return (
+          <GeneralSettingsTab
+            disabled={savingGlobalSettings}
+            menuZIndex={SETTINGS_PICKER_Z_INDEX}
+            modelOptions={modelOptions}
+            settings={settings}
+            onChange={handleGlobalChange}
+          />
+        );
+      case "behavior":
+        return (
+          <BehaviorSettingsTab
+            disabled={savingGlobalSettings}
+            settings={settings}
+            onChange={handleGlobalChange}
+          />
+        );
+      case "notifications":
+        return (
+          <NotificationsSettingsTab
+            settings={settings}
+            disabled={savingGlobalSettings}
+            desktopNotificationsBusy={desktopNotificationsBusy}
+            desktopNotificationsNotice={desktopNotificationsNotice}
+            menuZIndex={SETTINGS_PICKER_Z_INDEX}
+            onChange={handleGlobalChange}
+            onDesktopNotificationsChange={handleDesktopNotificationsChange}
+          />
+        );
+      case "integrations":
+        return (
+          <OpenInSettingsTab
+            targets={settings.openTargets}
+            defaultTargetId={settings.defaultOpenTargetId}
+          />
+        );
+      case "shortcuts":
+        return (
+          <ShortcutsSettingsTab
+            shortcuts={settings.shortcuts}
+            disabled={savingGlobalSettings}
+            onChange={(shortcuts) => handleGlobalChange({ shortcuts })}
+          />
+        );
+      case "advanced":
+        return (
+          <AdvancedSettingsTab
+            disabled={savingGlobalSettings}
+            settings={settings}
+            onChange={handleGlobalChange}
+          />
+        );
+    }
+  }
+
+  return (
+    <section
+      className="settings-view"
+      role="region"
+      aria-labelledby="settings-view-title"
+    >
+      <header className="settings-view__header">
+        <button
+          type="button"
+          className="settings-view__back"
+          onClick={onClose}
+          aria-label="Back to workspace"
+          title="Back"
+        >
+          <ArrowLeftIcon size={16} />
+        </button>
+        <h1 id="settings-view-title" className="settings-view__title">
+          Settings
+        </h1>
+      </header>
+
+      <div className="settings-view__layout">
+        <nav className="settings-view__nav" aria-label="Settings sections">
+          {SETTINGS_TABS.map((tab) => {
+            const isActive = tab.id === activeTab;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={`settings-view__nav-item ${
+                  isActive ? "settings-view__nav-item--active" : ""
+                }`}
+                aria-current={isActive ? "page" : undefined}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="settings-view__body">
+          <div className="settings-view__body-inner">
+            <div className="settings-view__body-header">
+              <h2 className="settings-view__body-title">{activeTabMeta.label}</h2>
+              <p className="settings-view__body-description">
+                {activeTabMeta.description}
+              </p>
+            </div>
+
             {actionError ? (
-              <p className="settings-dialog__notice">{actionError}</p>
+              <p className="settings-notice">{actionError}</p>
             ) : null}
-            {activeTab === "codex" && settings ? (
-              <CodexSettingsTab
-                disabled={savingGlobalSettings}
-                rangeDisabled={desktopNotificationsBusy}
-                menuZIndex={SETTINGS_PICKER_Z_INDEX}
-                modelOptions={modelOptions}
-                settings={settings}
-                onChange={handleGlobalChange}
-              />
-            ) : null}
-            {activeTab === "codex" && !settings ? (
-              <p className="settings-dialog__empty">Loading...</p>
-            ) : null}
-            {activeTab === "notifications" && settings ? (
-              <NotificationsSettingsTab
-                settings={settings}
-                disabled={savingGlobalSettings}
-                desktopNotificationsBusy={desktopNotificationsBusy}
-                desktopNotificationsNotice={desktopNotificationsNotice}
-                menuZIndex={SETTINGS_PICKER_Z_INDEX}
-                onChange={handleGlobalChange}
-                onDesktopNotificationsChange={handleDesktopNotificationsChange}
-              />
-            ) : null}
-            {activeTab === "notifications" && !settings ? (
-              <p className="settings-dialog__empty">Loading...</p>
-            ) : null}
-            {activeTab === "shortcuts" && settings ? (
-              <ShortcutsSettingsTab
-                shortcuts={settings.shortcuts}
-                disabled={savingGlobalSettings}
-                onChange={(shortcuts) => handleGlobalChange({ shortcuts })}
-              />
-            ) : null}
-            {activeTab === "shortcuts" && !settings ? (
-              <p className="settings-dialog__empty">Loading...</p>
-            ) : null}
-            {activeTab === "openIn" && settings ? (
-              <OpenInSettingsTab
-                targets={settings.openTargets}
-                defaultTargetId={settings.defaultOpenTargetId}
-              />
-            ) : null}
-            {activeTab === "openIn" && !settings ? (
-              <p className="settings-dialog__empty">Loading...</p>
-            ) : null}
-            {activeTab === "project" ? (
-              <ProjectSettingsTab
-                projects={projects}
-                selectedProjectId={selectedProjectId}
-                shortcutSettings={settings?.shortcuts ?? {}}
-                onSave={handleProjectSave}
-              />
-            ) : (
-              null
-            )}
+
+            {renderActiveTab()}
           </div>
         </div>
-      </section>
-    </div>,
-    document.body,
+      </div>
+    </section>
   );
 }
 

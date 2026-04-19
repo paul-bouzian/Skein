@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   makeEnvironment,
   makeProject,
+  makeThread,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
 import { useTerminalStore } from "../../stores/terminal-store";
@@ -100,6 +101,51 @@ function makeTerminalTab(id: string, ptyId: string, title: string) {
   };
 }
 
+function makeEmptyLayout() {
+  return {
+    slots: {
+      topLeft: null,
+      topRight: null,
+      bottomLeft: null,
+      bottomRight: null,
+    },
+    focusedSlot: null,
+    rowRatio: 0.5,
+    colRatio: 0.5,
+  };
+}
+
+function makeSinglePaneLayout(
+  topLeft: { projectId: string | null; environmentId: string | null; threadId: string | null },
+) {
+  const emptyLayout = makeEmptyLayout();
+
+  return {
+    ...emptyLayout,
+    slots: {
+      ...emptyLayout.slots,
+      topLeft,
+    },
+    focusedSlot: "topLeft" as const,
+  };
+}
+
+function renderStudioMain() {
+  return render(
+    <StudioMain
+      theme="dark"
+      projectsSidebarOpen={false}
+      inspectorOpen={false}
+      browserOpen={false}
+      composerFocusKey={0}
+      approveOrSubmitKey={0}
+      onToggleProjectsSidebar={() => {}}
+      onToggleInspector={() => {}}
+      onToggleBrowser={() => {}}
+    />,
+  );
+}
+
 beforeEach(() => {
   latestEnvironmentActionControlProps = null;
   latestOpenEnvironmentControlProps = null;
@@ -129,17 +175,7 @@ beforeEach(() => {
     bootstrapStatus: null,
     loadingState: "ready",
     error: null,
-    layout: {
-      slots: {
-        topLeft: null,
-        topRight: null,
-        bottomLeft: null,
-        bottomRight: null,
-      },
-      focusedSlot: null,
-      rowRatio: 0.5,
-      colRatio: 0.5,
-    },
+    layout: makeEmptyLayout(),
     draftBySlot: {},
     selectedProjectId: "project-1",
     selectedEnvironmentId: "env-1",
@@ -167,19 +203,7 @@ beforeEach(() => {
 
 describe("StudioMain", () => {
   it("wraps the default workspace overview in the canonical pane scroll container", () => {
-    const { container } = render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    const { container } = renderStudioMain();
 
     expect(
       screen.getByRole("heading", { name: "Workspace" }),
@@ -187,47 +211,25 @@ describe("StudioMain", () => {
     expect(container.querySelector(".studio-main__pane-scroll")).not.toBeNull();
   });
 
-  it("uses the overview instead of onboarding when the workspace only has chats", () => {
+  it("uses project onboarding when the workspace has no imported projects", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [],
       }),
-      layout: {
-        slots: {
-          topLeft: null,
-          topRight: null,
-          bottomLeft: null,
-          bottomRight: null,
-        },
-        focusedSlot: null,
-        rowRatio: 0.5,
-        colRatio: 0.5,
-      },
+      layout: makeEmptyLayout(),
       draftBySlot: {},
       selectedProjectId: null,
       selectedEnvironmentId: null,
       selectedThreadId: null,
     }));
 
-    render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    renderStudioMain();
 
+    expect(screen.getByTestId("studio-welcome")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Workspace" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("studio-welcome")).toBeNull();
+      screen.queryByRole("heading", { name: "Workspace" }),
+    ).toBeNull();
   });
 
   it("falls back to the workspace overview when a selected environment has no active thread", () => {
@@ -235,19 +237,7 @@ describe("StudioMain", () => {
       useWorkspaceStore.getState().selectEnvironment("env-1");
     });
 
-    render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    renderStudioMain();
 
     expect(
       screen.getByRole("heading", { name: "Workspace" }),
@@ -260,17 +250,7 @@ describe("StudioMain", () => {
   it("treats the local environment as selected while a draft pane is focused", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
-      layout: {
-        slots: {
-          topLeft: null,
-          topRight: null,
-          bottomLeft: null,
-          bottomRight: null,
-        },
-        focusedSlot: null,
-        rowRatio: 0.5,
-        colRatio: 0.5,
-      },
+      layout: makeEmptyLayout(),
       draftBySlot: {},
       selectedProjectId: null,
       selectedEnvironmentId: null,
@@ -288,19 +268,7 @@ describe("StudioMain", () => {
       },
     }));
 
-    render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    renderStudioMain();
 
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
     expect(latestEnvironmentActionControlProps).toMatchObject({
@@ -318,21 +286,11 @@ describe("StudioMain", () => {
   it("keeps the same draft composer instance when the draft destination changes", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
-      layout: {
-        slots: {
-          topLeft: {
-            projectId: "skein-chat-workspace",
-            environmentId: null,
-            threadId: null,
-          },
-          topRight: null,
-          bottomLeft: null,
-          bottomRight: null,
-        },
-        focusedSlot: "topLeft",
-        rowRatio: 0.5,
-        colRatio: 0.5,
-      },
+      layout: makeSinglePaneLayout({
+        projectId: "skein-chat-workspace",
+        environmentId: null,
+        threadId: null,
+      }),
       draftBySlot: {
         topLeft: { kind: "chat" },
       },
@@ -341,19 +299,7 @@ describe("StudioMain", () => {
       selectedThreadId: null,
     }));
 
-    render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    renderStudioMain();
 
     const initialComposer = screen.getByTestId("thread-draft-composer");
     const initialInstanceId = initialComposer.getAttribute("data-instance-id");
@@ -372,19 +318,7 @@ describe("StudioMain", () => {
   });
 
   it("renders the browser toggle button between terminal and inspector", () => {
-    const { container } = render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    const { container } = renderStudioMain();
 
     const actions = container.querySelector(".studio-main__toolbar-actions");
     expect(actions).not.toBeNull();
@@ -399,67 +333,105 @@ describe("StudioMain", () => {
     expect(classLists[2]).toContain("studio-main__toggle-inspector");
   });
 
-  it("shows the overview instead of project onboarding in a chat-only workspace", () => {
+  it("shows project onboarding when the chats workspace is selected without imported projects", () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
         projects: [],
       }),
-      layout: {
-        slots: {
-          topLeft: {
-            projectId: "skein-chat-workspace",
-            environmentId: null,
-            threadId: null,
-          },
-          topRight: null,
-          bottomLeft: null,
-          bottomRight: null,
-        },
-        focusedSlot: "topLeft",
-        rowRatio: 0.5,
-        colRatio: 0.5,
-      },
+      layout: makeSinglePaneLayout({
+        projectId: "skein-chat-workspace",
+        environmentId: null,
+        threadId: null,
+      }),
       draftBySlot: {},
       selectedProjectId: "skein-chat-workspace",
       selectedEnvironmentId: null,
       selectedThreadId: null,
     }));
 
-    render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    renderStudioMain();
 
+    expect(screen.getByTestId("studio-welcome")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Workspace" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Workspace" }),
+    ).toBeNull();
+  });
+
+  it("keeps the chat draft composer visible when no imported projects exist", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [],
+      }),
+      layout: makeSinglePaneLayout({
+        projectId: "skein-chat-workspace",
+        environmentId: null,
+        threadId: null,
+      }),
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+      selectedProjectId: "skein-chat-workspace",
+      selectedEnvironmentId: null,
+      selectedThreadId: null,
+    }));
+
+    renderStudioMain();
+
+    expect(screen.getByTestId("thread-draft-composer")).toBeInTheDocument();
+    expect(screen.queryByTestId("studio-welcome")).toBeNull();
+  });
+
+  it("keeps an open chat thread visible when no imported projects exist", () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [],
+        chat: {
+          projectId: "skein-chat-workspace",
+          title: "Chats",
+          rootPath: "/tmp/.skein/chats",
+          environments: [
+            makeEnvironment({
+              id: "chat-env-1",
+              projectId: "skein-chat-workspace",
+              kind: "chat",
+              path: "/tmp/.skein/chats/chat-env-1",
+              gitBranch: undefined,
+              threads: [
+                makeThread({
+                  id: "chat-thread-1",
+                  environmentId: "chat-env-1",
+                }),
+              ],
+              runtime: {
+                environmentId: "chat-env-1",
+                state: "running",
+              },
+            }),
+          ],
+        },
+      }),
+      layout: makeSinglePaneLayout({
+        projectId: "skein-chat-workspace",
+        environmentId: "chat-env-1",
+        threadId: "chat-thread-1",
+      }),
+      draftBySlot: {},
+      selectedProjectId: "skein-chat-workspace",
+      selectedEnvironmentId: "chat-env-1",
+      selectedThreadId: "chat-thread-1",
+    }));
+
+    renderStudioMain();
+
+    expect(screen.getByTestId("thread-conversation")).toBeInTheDocument();
     expect(screen.queryByTestId("studio-welcome")).toBeNull();
   });
 
   it("keeps TerminalPanel mounted when another environment still has tabs", () => {
-    const { container } = render(
-      <StudioMain
-        theme="dark"
-        projectsSidebarOpen={false}
-        inspectorOpen={false}
-        browserOpen={false}
-        composerFocusKey={0}
-        approveOrSubmitKey={0}
-        onToggleProjectsSidebar={() => {}}
-        onToggleInspector={() => {}}
-        onToggleBrowser={() => {}}
-      />,
-    );
+    const { container } = renderStudioMain();
 
     expect(screen.getByTestId("terminal-panel")).toBeInTheDocument();
     expect(container.querySelector(".studio-main__terminal--hidden")).toBeNull();

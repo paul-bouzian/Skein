@@ -20,6 +20,7 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "tauri:build:debug": "tauri build --debug",
+    "tauri:build:debug:app": "tauri build --debug --bundles app",
     "verify": "bun run lint && bun run typecheck && bun run test && bun run build && bun run check:rust && bun run lint:rust"
   },
   "dependencies": {

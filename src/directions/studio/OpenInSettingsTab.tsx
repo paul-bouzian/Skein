@@ -4,6 +4,7 @@ import type { OpenTarget } from "../../lib/types";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { CheckIcon, GripVerticalIcon } from "../../shared/Icons";
 import { OpenTargetIcon } from "./OpenTargetIcon";
+import { SettingsSection } from "./SettingsSection";
 import {
   buildDraftState,
   matchesPersistedTargets,
@@ -204,14 +205,12 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
   }
 
   return (
-    <div className="settings-open-targets">
-      <div className="settings-open-targets__intro">
-        <p className="settings-field__help">
-          Drag to reorder. Click the checkmark to set as default.
-        </p>
-      </div>
+    <SettingsSection
+      title="Targets"
+      description="Drag to reorder. Click the checkmark to set as default. Appears in the Open In menu on right-click."
+    >
       {noticeMessage ? (
-        <p className="settings-dialog__notice">{noticeMessage}</p>
+        <p className="settings-notice">{noticeMessage}</p>
       ) : null}
       <div
         ref={listRef}
@@ -301,7 +300,7 @@ export function OpenInSettingsTab({ targets, defaultTargetId }: Props) {
           Save
         </button>
       </div>
-    </div>
+    </SettingsSection>
   );
 }
 

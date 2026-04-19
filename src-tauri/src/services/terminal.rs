@@ -61,7 +61,6 @@ enum ShellFamily {
 #[derive(Debug, Default)]
 struct ManualActionOutputFilter {
     marker_bytes: Option<Vec<u8>>,
-    suppress_trailing_newline: bool,
 }
 
 impl ManualActionOutputFilter {
@@ -72,21 +71,11 @@ impl ManualActionOutputFilter {
         for &byte in input {
             let mut current = Some(byte);
             while let Some(value) = current.take() {
-                if self.suppress_trailing_newline {
-                    if matches!(value, b'\r' | b'\n') {
-                        break;
-                    }
-                    self.suppress_trailing_newline = false;
-                    current = Some(value);
-                    continue;
-                }
-
                 if self.marker_bytes.is_some() {
                     if value == ACTION_MARKER_END {
                         let marker = self.marker_bytes.take().unwrap_or_default();
                         if let Some(exit_code) = parse_action_done_marker(&marker) {
                             exit_codes.push(exit_code);
-                            self.suppress_trailing_newline = true;
                         } else {
                             output.push(ACTION_MARKER_START);
                             output.extend_from_slice(&marker);
@@ -120,27 +109,16 @@ impl ManualActionOutputFilter {
 
 #[derive(Debug)]
 struct ManualActionSession {
-    environment_id: String,
     action_id: String,
-    shell_family: ShellFamily,
-    env_overrides: Vec<EnvOverride>,
     state: ProjectActionRunState,
     output_filter: ManualActionOutputFilter,
 }
 
 impl ManualActionSession {
-    fn new(
-        environment_id: String,
-        action_id: String,
-        shell_family: ShellFamily,
-        env_overrides: Vec<EnvOverride>,
-    ) -> Self {
+    fn new_running(action_id: String) -> Self {
         Self {
-            environment_id,
             action_id,
-            shell_family,
-            env_overrides,
-            state: ProjectActionRunState::Idle,
+            state: ProjectActionRunState::Running,
             output_filter: ManualActionOutputFilter::default(),
         }
     }
@@ -166,7 +144,12 @@ struct TerminalSpawnRequest<'a> {
     cols: u16,
     rows: u16,
     env_overrides: Vec<EnvOverride>,
-    manual_action_id: Option<&'a str>,
+    manual_action: Option<ManualActionSpawnRequest<'a>>,
+}
+
+struct ManualActionSpawnRequest<'a> {
+    action_id: &'a str,
+    script: &'a str,
 }
 
 pub struct ManualActionLaunch<'a> {
@@ -200,6 +183,23 @@ fn login_flag_for_shell(shell: &str) -> Option<&'static str> {
         .and_then(|name| name.to_str())?;
     match shell_name {
         "sh" | "bash" | "zsh" | "ksh" | "mksh" | "fish" | "nu" => Some("-l"),
+        _ => None,
+    }
+}
+
+fn login_flag_for_shell_family(shell: &str, shell_family: ShellFamily) -> Option<&'static str> {
+    match shell_family {
+        ShellFamily::PowerShell => Some("-Login"),
+        _ => login_flag_for_shell(shell),
+    }
+}
+
+fn interactive_flag_for_shell(shell: &str) -> Option<&'static str> {
+    let shell_name = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())?;
+    match shell_name {
+        "sh" | "bash" | "zsh" | "ksh" | "mksh" | "fish" => Some("-i"),
         _ => None,
     }
 }
@@ -252,94 +252,109 @@ fn nushell_raw_string(value: &str) -> String {
     unreachable!("hash count is unbounded")
 }
 
-fn posix_env_lines(env_overrides: &[EnvOverride]) -> String {
-    let mut lines = String::new();
-    for (key, value) in env_overrides {
-        lines.push_str("  export ");
-        lines.push_str(key);
-        lines.push('=');
-        lines.push_str(&posix_shell_quote(value));
-        lines.push('\n');
+fn posix_shell_reentry(shell: &str) -> String {
+    let mut command = format!("exec {}", posix_shell_quote(shell));
+    if let Some(login_flag) = login_flag_for_shell(shell) {
+        command.push(' ');
+        command.push_str(login_flag);
     }
-    lines
+    command.push('\n');
+    command
 }
 
-fn fish_env_lines(env_overrides: &[EnvOverride]) -> String {
-    let mut lines = String::new();
-    for (key, value) in env_overrides {
-        lines.push_str("  set -lx ");
-        lines.push_str(key);
-        lines.push(' ');
-        lines.push_str(&fish_shell_quote(value));
-        lines.push('\n');
+fn fish_shell_reentry(shell: &str) -> String {
+    let mut command = format!("exec {}", fish_shell_quote(shell));
+    if let Some(login_flag) = login_flag_for_shell(shell) {
+        command.push(' ');
+        command.push_str(login_flag);
     }
-    lines
+    command.push('\n');
+    command
 }
 
-fn nushell_env_record(env_overrides: &[EnvOverride]) -> String {
-    if env_overrides.is_empty() {
-        return "{}".to_string();
-    }
-
-    let mut record = String::from("{\n");
-    for (key, value) in env_overrides {
-        record.push_str("  ");
-        record.push_str(key);
-        record.push_str(": ");
-        record.push_str(&nushell_raw_string(value));
-        record.push('\n');
-    }
-    record.push('}');
-    record
+fn nushell_login_argument(shell: &str) -> String {
+    login_flag_for_shell(shell)
+        .map(|flag| format!(" {}", nushell_raw_string(flag)))
+        .unwrap_or_default()
 }
 
-fn powershell_env_hashtable(env_overrides: &[EnvOverride]) -> String {
-    if env_overrides.is_empty() {
-        return "@{}".to_string();
+fn powershell_child_invocation(shell: &str, script_reference: &str) -> String {
+    let mut command = format!("& {}", powershell_shell_quote(shell));
+    if let Some(login_flag) = login_flag_for_shell_family(shell, ShellFamily::PowerShell) {
+        command.push(' ');
+        command.push_str(login_flag);
     }
-
-    let mut hashtable = String::from("@{\n");
-    for (key, value) in env_overrides {
-        hashtable.push_str("  ");
-        hashtable.push_str(&powershell_shell_quote(key));
-        hashtable.push_str(" = ");
-        hashtable.push_str(&powershell_shell_quote(value));
-        hashtable.push('\n');
-    }
-    hashtable.push('}');
-    hashtable
+    command.push_str(" -Interactive -Command ");
+    command.push_str(script_reference);
+    command
 }
 
-fn project_action_wrapper(
+fn manual_action_startup_command(
+    shell: &str,
     shell_family: ShellFamily,
-    env_overrides: &[EnvOverride],
     script: &str,
 ) -> String {
     match shell_family {
-        ShellFamily::Posix => {
-            let env_lines = posix_env_lines(env_overrides);
-            format!(
-                "__skein_action() {{\n(\n{env_lines}{script}\n)\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\n}}\n__skein_action\n"
-            )
-        }
-        ShellFamily::Zsh => {
-            let env_lines = posix_env_lines(env_overrides);
-            format!(
-                "__skein_action() {{\n{{\n(\n{env_lines}{script}\n)\n}} always {{\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$?\"\n}}\n}}\n__skein_action\n"
-            )
-        }
+        ShellFamily::Posix => format!(
+            "__skein_action_script={script}\n(\neval \"$__skein_action_script\"\n)\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\nunset __skein_action_script\n{reentry}",
+            script = posix_shell_quote(script),
+            reentry = posix_shell_reentry(shell),
+        ),
+        ShellFamily::Zsh => format!(
+            "__skein_action_script={script}\n{{\n(\neval \"$__skein_action_script\"\n)\n}} always {{\n__skein_action_status=$?\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' \"$__skein_action_status\"\nunset __skein_action_script\n{reentry}}}\n",
+            script = posix_shell_quote(script),
+            reentry = posix_shell_reentry(shell),
+        ),
         ShellFamily::Fish => format!(
-            "function __skein_action\nbegin\n{env_lines}begin\n{script}\nend\nend\nset -l __skein_action_status $status\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' $__skein_action_status\nend\n__skein_action\nfunctions -e __skein_action\n",
-            env_lines = fish_env_lines(env_overrides),
+            "set -l __skein_action_script {script}\n{shell} -l -c $__skein_action_script\nset -l __skein_action_status $status\nprintf '\\036{ACTION_DONE_PREFIX}%s\\037\\n' $__skein_action_status\nset -e __skein_action_script\n{reentry}",
+            script = fish_shell_quote(script),
+            shell = fish_shell_quote(shell),
+            reentry = fish_shell_reentry(shell),
         ),
         ShellFamily::Nu => format!(
-            "let __skein_action_error = (try {{\n  with-env {env_record} {{\n    do {{\n{script}\n    }}\n  }}\n  null\n}} catch {{ |err| $err }})\nlet __skein_action_status = if $__skein_action_error == null {{\n  if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }}\n}} else {{\n  $__skein_action_error.exit_code? | default 1\n}}\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\nif $__skein_action_error != null {{\n  error make $__skein_action_error\n}}\n",
-            env_record = nushell_env_record(env_overrides),
+            "let __skein_action_script = {script}\nlet __skein_action_error = (try {{\n  run-external {shell}{login_flag} \"-c\" $__skein_action_script\n  null\n}} catch {{ |err| $err }})\nlet __skein_action_status = if $__skein_action_error == null {{\n  if \"LAST_EXIT_CODE\" in $env {{ $env.LAST_EXIT_CODE }} else {{ 0 }}\n}} else {{\n  $__skein_action_error.exit_code? | default 1\n}}\nprint -n ((char --integer 30) + \"{ACTION_DONE_PREFIX}\" + ($__skein_action_status | into string) + (char --integer 31) + (char newline))\nexec {shell}{login_flag}\n",
+            script = nushell_raw_string(script),
+            shell = nushell_raw_string(shell),
+            login_flag = nushell_login_argument(shell),
         ),
         ShellFamily::PowerShell => format!(
-            "$__skeinEnv = {env_hashtable}\n$__skeinPreviousEnv = @{{}}\nforeach ($__skeinName in $__skeinEnv.Keys) {{\n  $__skeinItem = Get-Item -Path (\"Env:\" + $__skeinName) -ErrorAction SilentlyContinue\n  $__skeinPreviousEnv[$__skeinName] = if ($null -eq $__skeinItem) {{ $null }} else {{ $__skeinItem.Value }}\n  Set-Item -Path (\"Env:\" + $__skeinName) -Value $__skeinEnv[$__skeinName]\n}}\ntry {{\n  & {{\n{script}\n  }}\n}}\nfinally {{\n  foreach ($__skeinName in $__skeinEnv.Keys) {{\n    if ($null -eq $__skeinPreviousEnv[$__skeinName]) {{\n      Remove-Item -Path (\"Env:\" + $__skeinName) -ErrorAction SilentlyContinue\n    }} else {{\n      Set-Item -Path (\"Env:\" + $__skeinName) -Value $__skeinPreviousEnv[$__skeinName]\n    }}\n  }}\n  $__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n  [Console]::Out.Write(\"$([char]30){ACTION_DONE_PREFIX}$($__skeinActionStatus)$([char]31)`n\")\n  Remove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n  Remove-Variable __skeinEnv -ErrorAction SilentlyContinue\n  Remove-Variable __skeinPreviousEnv -ErrorAction SilentlyContinue\n}}\n",
-            env_hashtable = powershell_env_hashtable(env_overrides),
+            "$__skeinActionScript = {script}\ntry {{\n  {child_command}\n}}\nfinally {{\n  $__skeinActionStatus = if (Test-Path variable:LASTEXITCODE) {{ $LASTEXITCODE }} elseif ($?) {{ 0 }} else {{ 1 }}\n  [Console]::Out.Write(\"$([char]30){ACTION_DONE_PREFIX}$($__skeinActionStatus)$([char]31)`n\")\n  Remove-Variable __skeinActionStatus -ErrorAction SilentlyContinue\n  Remove-Variable __skeinActionScript -ErrorAction SilentlyContinue\n}}\n",
+            script = powershell_shell_quote(script),
+            child_command = powershell_child_invocation(shell, "$__skeinActionScript"),
         ),
+    }
+}
+
+fn configure_manual_action_command(
+    cmd: &mut CommandBuilder,
+    shell: &str,
+    shell_family: ShellFamily,
+    script: &str,
+) {
+    let command = manual_action_startup_command(shell, shell_family, script);
+
+    match shell_family {
+        ShellFamily::PowerShell => {
+            if let Some(login_flag) = login_flag_for_shell_family(shell, shell_family) {
+                cmd.arg(login_flag);
+            }
+            cmd.arg("-NoExit");
+            cmd.arg("-Interactive");
+            cmd.arg("-Command");
+            cmd.arg(command);
+        }
+        _ => {
+            if let Some(login_flag) = login_flag_for_shell_family(shell, shell_family) {
+                cmd.arg(login_flag);
+            }
+            if shell_family != ShellFamily::Fish {
+                if let Some(interactive_flag) = interactive_flag_for_shell(shell) {
+                    cmd.arg(interactive_flag);
+                }
+            }
+            cmd.arg("-c");
+            cmd.arg(command);
+        }
     }
 }
 
@@ -388,118 +403,35 @@ impl TerminalService {
         Self::emit_project_action_state(app, pty_id, &manual_action.action_id, state, exit_code);
     }
 
-    fn dispatch_manual_action(&self, app: &AppHandle, pty_id: &str, script: &str) -> AppResult<()> {
-        let session = self.get_session(pty_id)?;
-        let Some(manual_action) = session.manual_action.as_ref() else {
-            return Err(AppError::Validation(
-                "Terminal session is not a project action shell.".to_string(),
-            ));
-        };
-
-        let (shell_family, env_overrides) = {
-            let mut manual_action = manual_action.lock().unwrap();
-            if manual_action.state == ProjectActionRunState::Running {
-                return Err(AppError::Validation(
-                    "Project action is still running.".to_string(),
-                ));
-            }
-            manual_action.output_filter = ManualActionOutputFilter::default();
-            let shell_family = manual_action.shell_family;
-            let env_overrides = manual_action.env_overrides.clone();
-            Self::set_manual_action_state(
-                app,
-                pty_id,
-                &mut manual_action,
-                ProjectActionRunState::Running,
-                None,
-            );
-            (shell_family, env_overrides)
-        };
-
-        let wrapped_script = project_action_wrapper(shell_family, &env_overrides, script);
-        let encoded = B64.encode(wrapped_script);
-        if let Err(error) = self.write(pty_id, &encoded) {
-            if let Some(manual_action) = session.manual_action.as_ref() {
-                let mut manual_action = manual_action.lock().unwrap();
-                Self::set_manual_action_state(
-                    app,
-                    pty_id,
-                    &mut manual_action,
-                    ProjectActionRunState::Exited,
-                    None,
-                );
-            }
-            let _ = app.emit(
-                TERMINAL_EXIT_EVENT_NAME,
-                TerminalExitPayload {
-                    pty_id: pty_id.to_string(),
-                    exit_code: None,
-                },
-            );
-            let _ = self.kill(pty_id);
-            return Err(error);
-        }
-
-        Ok(())
-    }
-
     pub fn spawn_manual_action(
         &self,
         app: &AppHandle,
         request: ManualActionLaunch<'_>,
     ) -> AppResult<String> {
-        let pty_id = self.spawn_internal(
+        let environment_id = request.environment_id.trim();
+        if environment_id.is_empty() {
+            return Err(AppError::Validation("Environment id is required.".to_string()));
+        }
+
+        let action_id = request.action_id.trim();
+        if action_id.is_empty() {
+            return Err(AppError::Validation("Action id is required.".to_string()));
+        }
+
+        self.spawn_internal(
             app,
             TerminalSpawnRequest {
-                environment_id: request.environment_id,
+                environment_id,
                 cwd: request.cwd,
                 cols: request.cols,
                 rows: request.rows,
                 env_overrides: request.env_overrides,
-                manual_action_id: Some(request.action_id),
+                manual_action: Some(ManualActionSpawnRequest {
+                    action_id,
+                    script: request.script,
+                }),
             },
-        )?;
-
-        if let Err(error) = self.dispatch_manual_action(app, &pty_id, request.script) {
-            let _ = self.kill(&pty_id);
-            return Err(error);
-        }
-
-        Ok(pty_id)
-    }
-
-    pub fn rerun_manual_action(
-        &self,
-        app: &AppHandle,
-        pty_id: &str,
-        environment_id: &str,
-        action_id: &str,
-        env_overrides: Vec<EnvOverride>,
-        script: &str,
-    ) -> AppResult<()> {
-        let session = self.get_session(pty_id)?;
-        let Some(manual_action) = session.manual_action.as_ref() else {
-            return Err(AppError::Validation(
-                "Terminal session is not a project action shell.".to_string(),
-            ));
-        };
-
-        {
-            let mut manual_action = manual_action.lock().unwrap();
-            if manual_action.environment_id != environment_id {
-                return Err(AppError::Validation(
-                    "Project action terminal belongs to a different environment.".to_string(),
-                ));
-            }
-            if manual_action.action_id != action_id {
-                return Err(AppError::Validation(
-                    "Project action terminal belongs to a different action.".to_string(),
-                ));
-            }
-            manual_action.env_overrides = env_overrides;
-        }
-
-        self.dispatch_manual_action(app, pty_id, script)
+        )
     }
 
     fn register_session(&self, environment_id: String, pty_id: String, session: Arc<Session>) {
@@ -606,7 +538,7 @@ impl TerminalService {
                     .into_iter()
                     .map(|(key, value)| (key.as_ref().to_string(), value.as_ref().to_string()))
                     .collect(),
-                manual_action_id: None,
+                manual_action: None,
             },
         )
     }
@@ -647,15 +579,16 @@ impl TerminalService {
         let shell_family = shell_family_for_shell(&shell);
 
         let mut cmd = CommandBuilder::new(&shell);
-        // Login shell: source .zprofile/.zshrc/etc so PATH/nvm/mise/pyenv work
-        // on shells that explicitly support login mode.
-        if let Some(login_flag) = login_flag_for_shell(&shell) {
+        if let Some(manual_action) = request.manual_action.as_ref() {
+            configure_manual_action_command(&mut cmd, &shell, shell_family, manual_action.script);
+        } else if let Some(login_flag) = login_flag_for_shell_family(&shell, shell_family) {
+            // Login shell: source .zprofile/.zshrc/etc so PATH/nvm/mise/pyenv work
+            // on shells that explicitly support login mode.
             cmd.arg(login_flag);
         }
         cmd.cwd(&resolved_cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        let manual_action_env_overrides = request.env_overrides.clone();
         for (key, value) in request.env_overrides {
             cmd.env(key, value);
         }
@@ -682,12 +615,9 @@ impl TerminalService {
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: Mutex::new(child),
-            manual_action: request.manual_action_id.map(|action_id| {
-                Mutex::new(ManualActionSession::new(
-                    request.environment_id.to_string(),
-                    action_id.to_string(),
-                    shell_family,
-                    manual_action_env_overrides.clone(),
+            manual_action: request.manual_action.as_ref().map(|manual_action| {
+                Mutex::new(ManualActionSession::new_running(
+                    manual_action.action_id.to_string(),
                 ))
             }),
         });
@@ -705,6 +635,16 @@ impl TerminalService {
         let pty_id_for_reader = pty_id.clone();
         let session_for_reader = session.clone();
         let service_for_reader = self.clone();
+        if let Some(manual_action) = session.manual_action.as_ref() {
+            let manual_action = manual_action.lock().unwrap();
+            Self::emit_project_action_state(
+                app,
+                &pty_id,
+                &manual_action.action_id,
+                manual_action.state,
+                None,
+            );
+        }
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
@@ -833,6 +773,7 @@ impl TerminalService {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::io::{Cursor, Result as IoResult};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1033,6 +974,27 @@ mod tests {
     }
 
     #[test]
+    fn login_flag_uses_shell_specific_overrides() {
+        assert_eq!(
+            login_flag_for_shell_family("/bin/zsh", ShellFamily::Zsh),
+            Some("-l")
+        );
+        assert_eq!(
+            login_flag_for_shell_family("/usr/local/bin/pwsh", ShellFamily::PowerShell),
+            Some("-Login")
+        );
+    }
+
+    #[test]
+    fn interactive_flag_only_targets_supported_shells() {
+        assert_eq!(interactive_flag_for_shell("/bin/zsh"), Some("-i"));
+        assert_eq!(interactive_flag_for_shell("/opt/homebrew/bin/fish"), Some("-i"));
+        assert_eq!(interactive_flag_for_shell("/opt/homebrew/bin/nu"), None);
+        assert_eq!(interactive_flag_for_shell("/usr/local/bin/pwsh"), None);
+        assert_eq!(interactive_flag_for_shell(""), None);
+    }
+
+    #[test]
     fn shell_family_matches_supported_shells() {
         assert_eq!(shell_family_for_shell("/bin/zsh"), ShellFamily::Zsh);
         assert_eq!(
@@ -1088,7 +1050,7 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(output).expect("utf8 output"),
-            "hello world"
+            "hello \nworld"
         );
         assert_eq!(exit_codes, vec![42]);
     }
@@ -1126,54 +1088,118 @@ mod tests {
     }
 
     #[test]
-    fn project_action_wrappers_apply_env_overrides_and_emit_completion_markers() {
-        let env = vec![("SKEIN_ACTION_LABEL".to_string(), "dev server".to_string())];
-
-        let posix = project_action_wrapper(ShellFamily::Posix, &env, "bun run dev");
+    fn manual_action_startup_commands_emit_completion_markers_and_reenter_shells() {
+        let posix = manual_action_startup_command("/bin/sh", ShellFamily::Posix, "bun run dev");
         assert!(posix.contains("\\036SKEIN_ACTION_DONE:%s\\037\\n"));
         assert!(posix.contains("__skein_action_status=$?"));
-        assert!(posix.contains("export SKEIN_ACTION_LABEL='dev server'"));
+        assert!(posix.contains("__skein_action_script='bun run dev'"));
+        assert!(posix.contains("exec '/bin/sh' -l"));
+        assert!(!posix.contains("export "));
 
-        let zsh = project_action_wrapper(ShellFamily::Zsh, &env, "bun run dev");
-        assert!(zsh.contains("always"));
-        assert!(zsh.contains("printf '\\036SKEIN_ACTION_DONE:%s\\037\\n' \"$?\""));
-        assert!(zsh.contains("export SKEIN_ACTION_LABEL='dev server'"));
+        let zsh = manual_action_startup_command("/bin/zsh", ShellFamily::Zsh, "bun run dev");
+        assert!(zsh.contains("eval \"$__skein_action_script\""));
+        assert!(zsh.contains("printf '\\036SKEIN_ACTION_DONE:%s\\037\\n' \"$__skein_action_status\""));
+        assert!(zsh.contains("exec '/bin/zsh' -l"));
+        assert!(zsh.contains("} always {"));
 
-        let fish = project_action_wrapper(ShellFamily::Fish, &env, "bun run dev");
+        let fish = manual_action_startup_command(
+            "/opt/homebrew/bin/fish",
+            ShellFamily::Fish,
+            "bun run dev",
+        );
         assert!(fish.contains("set -l __skein_action_status $status"));
         assert!(fish.contains("\\036SKEIN_ACTION_DONE:%s\\037\\n"));
-        assert!(fish.contains("set -lx SKEIN_ACTION_LABEL 'dev server'"));
+        assert!(fish.contains("set -l __skein_action_script 'bun run dev'"));
+        assert!(fish.contains("'/opt/homebrew/bin/fish' -l -c $__skein_action_script"));
+        assert!(fish.contains("exec '/opt/homebrew/bin/fish' -l"));
+        assert!(!fish.contains("set -lx "));
 
-        let nu = project_action_wrapper(ShellFamily::Nu, &env, "bun run dev");
+        let nu = manual_action_startup_command(
+            "/opt/homebrew/bin/nu",
+            ShellFamily::Nu,
+            "bun run dev",
+        );
         assert!(nu.contains("let __skein_action_error = (try {"));
         assert!(nu.contains("catch { |err| $err }"));
-        assert!(nu.contains("error make $__skein_action_error"));
-        assert!(nu.contains("with-env"));
+        assert!(
+            nu.contains("run-external r#'/opt/homebrew/bin/nu'# r#'-l'# \"-c\" $__skein_action_script")
+        );
         assert!(nu.contains("char --integer 30"));
         assert!(nu.contains(ACTION_DONE_PREFIX));
-        assert!(nu.contains("SKEIN_ACTION_LABEL: r#'dev server'#"));
+        assert!(nu.contains("exec r#'/opt/homebrew/bin/nu'# r#'-l'#"));
 
-        let powershell = project_action_wrapper(ShellFamily::PowerShell, &env, "bun run dev");
-        assert!(powershell.contains("$__skeinEnv = @{"));
+        let powershell = manual_action_startup_command(
+            "/usr/local/bin/pwsh",
+            ShellFamily::PowerShell,
+            "bun run dev",
+        );
+        assert!(powershell.contains("$__skeinActionScript = 'bun run dev'"));
         assert!(powershell.contains("try {"));
+        assert!(powershell.contains(
+            "& '/usr/local/bin/pwsh' -Login -Interactive -Command $__skeinActionScript"
+        ));
         assert!(powershell.contains("Test-Path variable:LASTEXITCODE"));
         assert!(powershell.contains("$([char]30)"));
         assert!(powershell.contains(ACTION_DONE_PREFIX));
-        assert!(powershell.contains("'SKEIN_ACTION_LABEL' = 'dev server'"));
+        assert!(!powershell.contains("Invoke-Expression $__skeinActionScript"));
+        assert!(powershell.contains("Remove-Variable __skeinActionScript"));
     }
 
     #[test]
-    fn project_action_wrappers_do_not_embed_raw_marker_bytes() {
-        for shell_family in [
-            ShellFamily::Posix,
-            ShellFamily::Zsh,
-            ShellFamily::Fish,
-            ShellFamily::Nu,
+    fn configure_manual_action_command_uses_shell_specific_boot_flags() {
+        let mut zsh = CommandBuilder::new("/bin/zsh");
+        configure_manual_action_command(&mut zsh, "/bin/zsh", ShellFamily::Zsh, "bun run dev");
+        assert_eq!(
+            zsh.get_argv(),
+            &vec![
+                OsString::from("/bin/zsh"),
+                OsString::from("-l"),
+                OsString::from("-i"),
+                OsString::from("-c"),
+                OsString::from(manual_action_startup_command(
+                    "/bin/zsh",
+                    ShellFamily::Zsh,
+                    "bun run dev",
+                )),
+            ]
+        );
+
+        let mut powershell = CommandBuilder::new("/usr/local/bin/pwsh");
+        configure_manual_action_command(
+            &mut powershell,
+            "/usr/local/bin/pwsh",
             ShellFamily::PowerShell,
+            "bun run dev",
+        );
+        assert_eq!(
+            powershell.get_argv(),
+            &vec![
+                OsString::from("/usr/local/bin/pwsh"),
+                OsString::from("-Login"),
+                OsString::from("-NoExit"),
+                OsString::from("-Interactive"),
+                OsString::from("-Command"),
+                OsString::from(manual_action_startup_command(
+                    "/usr/local/bin/pwsh",
+                    ShellFamily::PowerShell,
+                    "bun run dev",
+                )),
+            ]
+        );
+    }
+
+    #[test]
+    fn manual_action_startup_commands_do_not_embed_raw_marker_bytes() {
+        for (shell, shell_family) in [
+            ("/bin/sh", ShellFamily::Posix),
+            ("/bin/zsh", ShellFamily::Zsh),
+            ("/opt/homebrew/bin/fish", ShellFamily::Fish),
+            ("/opt/homebrew/bin/nu", ShellFamily::Nu),
+            ("/usr/local/bin/pwsh", ShellFamily::PowerShell),
         ] {
-            let wrapper = project_action_wrapper(shell_family, &[], "bun run dev");
-            assert!(!wrapper.as_bytes().contains(&ACTION_MARKER_START));
-            assert!(!wrapper.as_bytes().contains(&ACTION_MARKER_END));
+            let command = manual_action_startup_command(shell, shell_family, "bun run dev");
+            assert!(!command.as_bytes().contains(&ACTION_MARKER_START));
+            assert!(!command.as_bytes().contains(&ACTION_MARKER_END));
         }
     }
 }

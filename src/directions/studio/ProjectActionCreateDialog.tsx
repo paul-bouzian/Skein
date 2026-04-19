@@ -211,7 +211,7 @@ export function ProjectActionCreateDialog({
         </div>
 
         <div className="project-action-create-dialog__body">
-          {saveError ? <p className="settings-dialog__notice">{saveError}</p> : null}
+          {saveError ? <p className="settings-notice">{saveError}</p> : null}
           <ProjectActionFields
             projectId={currentProject.id}
             action={draft}
