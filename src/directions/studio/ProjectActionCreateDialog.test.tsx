@@ -7,9 +7,6 @@ import { makeGlobalSettings, makeProject } from "../../test/fixtures/conversatio
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { ProjectActionCreateDialog } from "./ProjectActionCreateDialog";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  message: vi.fn(),
-}));
 
 describe("ProjectActionCreateDialog", () => {
   const primaryModifier = () => (isMacPlatform() ? { metaKey: true } : { ctrlKey: true });

@@ -3,28 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CONVERSATION_EVENT_NAMES } from "./app-identity";
 import { listenToConversationEvents } from "./bridge";
 
-const invokeMock = vi.fn();
 let listenImpl: (
   eventName: string,
   callback: (event: { payload: unknown }) => void,
 ) => Promise<() => void>;
+
 const listenersByEventName = new Map<
   string,
   Set<(event: { payload: unknown }) => void>
 >();
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invokeMock(...args),
-}));
-
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(
+vi.mock("./desktop-host", () => ({
+  invokeCommand: vi.fn(),
+  listenEvent: vi.fn(
     async (
       eventName: string,
       callback: (event: { payload: unknown }) => void,
-    ) => {
-      return listenImpl(eventName, callback);
-    },
+    ) => listenImpl(eventName, callback),
   ),
 }));
 
@@ -35,7 +30,6 @@ function emit(eventName: string, payload: unknown) {
 }
 
 beforeEach(() => {
-  invokeMock.mockReset();
   listenersByEventName.clear();
   listenImpl = async (eventName, callback) => {
     const listeners = listenersByEventName.get(eventName) ?? new Set();

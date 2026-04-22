@@ -5,9 +5,12 @@ import {
   LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS,
   TERMINAL_HEIGHT_STORAGE_KEY,
   TERMINAL_LAYOUTS_STORAGE_KEY,
-  readLocalStorageWithMigration,
 } from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
+import {
+  persistUiPreference,
+  readUiPreferenceWithMigration,
+} from "../lib/ui-prefs";
 import type {
   ProjectActionIcon,
   ProjectActionRunState,
@@ -46,7 +49,7 @@ function clampHeight(value: number): number {
 
 function readLegacyHeight(): number {
   try {
-    const rawValue = readLocalStorageWithMigration(
+    const rawValue = readUiPreferenceWithMigration(
       TERMINAL_HEIGHT_STORAGE_KEY,
       LEGACY_TERMINAL_HEIGHT_STORAGE_KEYS,
     );
@@ -165,7 +168,7 @@ function readPersistedLayouts(): PersistedTerminalLayouts {
   try {
     rawValue = hasLoadedPersistedLayouts
       ? localStorage.getItem(TERMINAL_LAYOUTS_STORAGE_KEY)
-      : readLocalStorageWithMigration(
+      : readUiPreferenceWithMigration(
           TERMINAL_LAYOUTS_STORAGE_KEY,
           LEGACY_TERMINAL_LAYOUTS_STORAGE_KEYS,
         );
@@ -191,7 +194,7 @@ function readPersistedLayouts(): PersistedTerminalLayouts {
 function writePersistedLayouts(layouts: PersistedTerminalLayouts) {
   try {
     const rawValue = JSON.stringify(layouts);
-    localStorage.setItem(TERMINAL_LAYOUTS_STORAGE_KEY, rawValue);
+    void persistUiPreference(TERMINAL_LAYOUTS_STORAGE_KEY, rawValue);
     persistedLayoutsCache = layouts;
     persistedLayoutsRawCache = rawValue;
     hasLoadedPersistedLayouts = true;

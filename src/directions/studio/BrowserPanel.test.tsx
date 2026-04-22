@@ -13,9 +13,6 @@ import {
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { BrowserPanel } from "./BrowserPanel";
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn().mockResolvedValue(undefined),
-}));
 
 const ENV = "env-a";
 

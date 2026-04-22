@@ -47,7 +47,7 @@ describe("StudioStatusBar", () => {
       bootstrapStatus: {
         appName: "Skein",
         appVersion: "1.2.3",
-        backend: "tauri",
+        backend: "electron",
         platform: "darwin",
         appDataDir: "/tmp/skein-data",
         databasePath: "/tmp/skein-data/skein.sqlite3",

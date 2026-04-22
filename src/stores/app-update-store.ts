@@ -1,9 +1,12 @@
 import { create } from "zustand";
-import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { RELEASES_BASE_URL } from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
+import type {
+  DesktopUpdate,
+  DesktopUpdateDownloadEvent,
+} from "../lib/desktop-types";
+import { openExternalUrl, updater } from "../lib/shell";
 import type { AppUpdateSnapshot, AppUpdateState } from "../lib/types";
 
 type UpdateStore = {
@@ -28,7 +31,7 @@ type UpdateSetter = (
     | ((state: UpdateStore) => UpdateStore | Partial<UpdateStore>),
 ) => void;
 
-let pendingUpdate: Update | null = null;
+let pendingUpdate: DesktopUpdate | null = null;
 let initialization: Promise<void> | null = null;
 let queuedManualCheck: Promise<void> | null = null;
 
@@ -108,7 +111,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     });
 
     try {
-      const update = await check();
+      const update = await updater.check();
       await replacePendingUpdate(update);
       if (!update) {
         set({
@@ -173,7 +176,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   viewChanges: async () => {
     const snapshot = get().snapshot;
     if (!snapshot) return;
-    await openUrl(snapshot.releaseUrl);
+    await openExternalUrl(snapshot.releaseUrl);
   },
 
   install: async () => {
@@ -188,7 +191,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     });
 
     try {
-      await pendingUpdate.downloadAndInstall((event) => {
+      await updater.downloadAndInstall(pendingUpdate.id, (event) => {
         applyDownloadEvent(event, set);
       });
       await replacePendingUpdate(null);
@@ -205,7 +208,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   },
 }));
 
-function applyDownloadEvent(event: DownloadEvent, set: UpdateSetter) {
+function applyDownloadEvent(event: DesktopUpdateDownloadEvent, set: UpdateSetter) {
   switch (event.event) {
     case "Started":
       set({
@@ -226,16 +229,16 @@ function applyDownloadEvent(event: DownloadEvent, set: UpdateSetter) {
   }
 }
 
-async function replacePendingUpdate(next: Update | null) {
+async function replacePendingUpdate(next: DesktopUpdate | null) {
   const previous = pendingUpdate;
   pendingUpdate = next;
 
   if (previous && previous !== next) {
-    await previous.close().catch(() => undefined);
+    await updater.close(previous.id).catch(() => undefined);
   }
 }
 
-function toUpdateSnapshot(update: Update): AppUpdateSnapshot {
+function toUpdateSnapshot(update: DesktopUpdate): AppUpdateSnapshot {
   return {
     currentVersion: update.currentVersion,
     availableVersion: update.version,

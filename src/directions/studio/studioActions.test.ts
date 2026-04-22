@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
+import { dialogConfirmMock } from "../../test/desktop-mock";
 import {
   makeEnvironment,
   makeProject,
@@ -19,7 +20,6 @@ import {
 } from "./studioActions";
 import { useConversationStore } from "../../stores/conversation-store";
 
-const confirmMock = vi.fn();
 const draftComposer = {
   model: "gpt-5.4",
   reasoningEffort: "high" as const,
@@ -55,16 +55,13 @@ vi.mock("../../lib/bridge", () => ({
   sendThreadMessage: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  confirm: (...args: unknown[]) => confirmMock(...args),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 
 describe("studioActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    confirmMock.mockReset();
+    dialogConfirmMock.mockReset();
     useVoiceSessionStore.setState({
       activeSessionToken: null,
       durationMs: 0,
@@ -389,7 +386,7 @@ describe("studioActions", () => {
       refreshSnapshot,
     }));
     let resolveConfirm!: (value: boolean) => void;
-    confirmMock.mockImplementation(
+    dialogConfirmMock.mockImplementation(
       () =>
         new Promise<boolean>((resolve) => {
           resolveConfirm = resolve;
@@ -409,7 +406,7 @@ describe("studioActions", () => {
   });
 
   it("reselects a remaining active thread when archive refresh fails", async () => {
-    confirmMock.mockResolvedValue(true);
+    dialogConfirmMock.mockResolvedValue(true);
     mockedBridge.archiveThread.mockResolvedValue(makeThread({ id: "thread-1" }));
     const refreshSnapshot = vi.fn(async () => false);
     useWorkspaceStore.setState((state) => ({ ...state, refreshSnapshot }));
@@ -428,7 +425,7 @@ describe("studioActions", () => {
 
   it("does not archive when voice work starts while the archive confirmation is open", async () => {
     let resolveConfirm!: (value: boolean) => void;
-    confirmMock.mockImplementation(
+    dialogConfirmMock.mockImplementation(
       () =>
         new Promise<boolean>((resolve) => {
           resolveConfirm = resolve;
@@ -449,7 +446,7 @@ describe("studioActions", () => {
   });
 
   it("archives chat threads from the sidebar context menu", async () => {
-    confirmMock.mockResolvedValue(true);
+    dialogConfirmMock.mockResolvedValue(true);
     mockedBridge.archiveThread.mockResolvedValue(
       makeThread({
         id: "chat-thread-1",

@@ -1,13 +1,13 @@
 ---
 name: skein-standards
-description: Production engineering standards for the Skein desktop app. Use when working in this repository on Tauri v2, React, TypeScript, Rust, Codex runtime integration, Git/worktree services, desktop command boundaries, capabilities/permissions, persistence, release/update plumbing, or any architectural change that should stay aligned with the project's professional desktop standards.
+description: Production engineering standards for the Skein desktop app. Use when working in this repository on Electron, React, TypeScript, Rust, Codex runtime integration, Git/worktree services, desktop command boundaries, permissions, persistence, release/update plumbing, or any architectural change that should stay aligned with the project's professional desktop standards.
 ---
 
 # Skein Standards
 
 ## Overview
 
-Apply the repository's desktop engineering standards before changing Skein. Keep the implementation aligned with the app's Tauri v2, React, TypeScript, and Rust architecture instead of making local optimizations that weaken long-term maintainability.
+Apply the repository's desktop engineering standards before changing Skein. Keep the implementation aligned with the app's Electron, React, TypeScript, and Rust architecture instead of making local optimizations that weaken long-term maintainability.
 
 ## Workflow
 
@@ -24,7 +24,7 @@ Apply the repository's desktop engineering standards before changing Skein. Keep
    - `Project -> Environment -> Thread`
    - worktrees are environments, not threads
    - shared runtime/Git/terminal state is environment-scoped
-5. When changing Tauri privileges, review least-privilege requirements first:
+5. When changing desktop privileges, review least-privilege requirements first:
    - prefer explicit capabilities
    - avoid broad shell/process exposure
    - keep privileged APIs narrow and typed
@@ -38,16 +38,16 @@ Apply the repository's desktop engineering standards before changing Skein. Keep
    - use `Result`, add context, and avoid `unwrap`/`expect` on runtime paths
 8. Run the standard validation suite before finishing:
    - `bun run verify`
-   - `bun run tauri:build:debug` when Tauri config, plugins, bundling, or desktop behavior changed
+   - `bun run verify:electron` when Electron shell, preload, updater, packaging, or desktop behavior changed
 
 ## Task-Specific Checks
 
-### Tauri and capabilities
+### Electron and permissions
 
-- Add plugins only when the capability is first-class and necessary.
+- Add desktop capabilities only when the capability is first-class and necessary.
 - Do not expose unrestricted shell execution to the frontend.
-- Keep permissions/capabilities granular and auditable.
-- Treat window boundaries and capability files as security boundaries, not UI details.
+- Keep permissions granular and auditable.
+- Treat preload exposure and window boundaries as security boundaries, not UI details.
 
 ### React and TypeScript
 
@@ -73,10 +73,10 @@ Apply the repository's desktop engineering standards before changing Skein. Keep
 
 ### Distribution and updates
 
-- The intended future path is GitHub Releases plus Tauri updater, not a custom updater.
+- The intended path is GitHub Releases plus `electron-updater`, with a temporary transition bridge for pre-Electron installs.
 - Preserve a stable bundle identifier and semantic versioning discipline.
 - When implementing updates, use signed updater artifacts and a user-controlled restart flow.
-- For updater work, consult the official Tauri updater, GitHub pipeline, and process plugin docs before changing code.
+- For updater work, consult the Electron updater and GitHub release pipeline docs before changing code.
 
 ## References
 

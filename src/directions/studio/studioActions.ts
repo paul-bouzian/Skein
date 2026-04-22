@@ -1,6 +1,5 @@
-import { confirm } from "@tauri-apps/plugin-dialog";
-
 import * as bridge from "../../lib/bridge";
+import { dialog } from "../../lib/shell";
 import type {
   ComposerMentionBindingInput,
   ConversationComposerDraft,
@@ -365,7 +364,7 @@ export async function archiveThreadWithConfirmation(threadId: string) {
     : "Archive Thread";
   const dialogOkLabel = willEmptyWorktree ? "Archive & delete" : "Archive";
 
-  const confirmed = await confirm(dialogPrompt, {
+  const confirmed = await dialog.confirm(dialogPrompt, {
     title: dialogTitle,
     kind: "warning",
     okLabel: dialogOkLabel,

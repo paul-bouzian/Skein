@@ -1,8 +1,8 @@
 import { render, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as notifications from "@tauri-apps/plugin-notification";
 import * as notificationSounds from "../lib/notification-sounds";
+import { notificationSendMock } from "../test/desktop-mock";
 
 import {
   INITIAL_CONVERSATION_STATE,
@@ -20,15 +20,11 @@ import {
 } from "../test/fixtures/conversation";
 import { DesktopNotificationRuntime } from "./DesktopNotificationRuntime";
 
-vi.mock("@tauri-apps/plugin-notification", () => ({
-  sendNotification: vi.fn(),
-}));
 
 vi.mock("../lib/notification-sounds", () => ({
   playNotificationAlertSound: vi.fn(),
 }));
 
-const mockedNotifications = vi.mocked(notifications);
 const mockedNotificationSounds = vi.mocked(notificationSounds);
 
 let visibilityState: DocumentVisibilityState = "visible";
@@ -100,7 +96,8 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn(() => hasFocus),
   });
-  mockedNotifications.sendNotification.mockReset();
+  notificationSendMock.mockReset();
+  notificationSendMock.mockResolvedValue(undefined);
   mockedNotificationSounds.playNotificationAlertSound.mockReset();
   mockedNotificationSounds.playNotificationAlertSound.mockResolvedValue(undefined);
   useConversationStore.setState({
@@ -138,7 +135,7 @@ describe("DesktopNotificationRuntime", () => {
 
     render(<DesktopNotificationRuntime />);
 
-    expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
+    expect(notificationSendMock).not.toHaveBeenCalled();
     expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
@@ -181,7 +178,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotifications.sendNotification).toHaveBeenCalledWith({
+      expect(notificationSendMock).toHaveBeenCalledWith({
         title: "Ship desktop notifications",
         body: "Finished working in Feature Branch.",
       });
@@ -230,7 +227,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotifications.sendNotification).toHaveBeenCalledWith({
+      expect(notificationSendMock).toHaveBeenCalledWith({
         title: "Ship desktop notifications",
         body: "Needs your approval in Feature Branch.",
       });
@@ -277,7 +274,7 @@ describe("DesktopNotificationRuntime", () => {
       }));
     });
 
-    expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
+    expect(notificationSendMock).not.toHaveBeenCalled();
 
     await act(async () => {
       useConversationStore.setState((state) => ({
@@ -297,7 +294,7 @@ describe("DesktopNotificationRuntime", () => {
     });
 
     await waitFor(() => {
-      expect(mockedNotifications.sendNotification).toHaveBeenCalledWith({
+      expect(notificationSendMock).toHaveBeenCalledWith({
         title: "New background approval",
         body: "Needs your approval in Feature Branch.",
       });
@@ -342,7 +339,7 @@ describe("DesktopNotificationRuntime", () => {
       }));
     });
 
-    expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
+    expect(notificationSendMock).not.toHaveBeenCalled();
     expect(mockedNotificationSounds.playNotificationAlertSound).not.toHaveBeenCalled();
   });
 
@@ -395,7 +392,7 @@ describe("DesktopNotificationRuntime", () => {
         "chord",
       );
     });
-    expect(mockedNotifications.sendNotification).not.toHaveBeenCalled();
+    expect(notificationSendMock).not.toHaveBeenCalled();
   });
 
   it("plays an attention sound in the foreground when another thread needs input", async () => {

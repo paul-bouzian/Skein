@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { normalizeBrowserUrl } from "../../lib/browser-preview";
+import { openExternalUrl } from "../../lib/shell";
 import { GlobeIcon } from "../../shared/Icons";
 import {
   BROWSER_HOME_URL,
@@ -94,7 +94,7 @@ export function BrowserPanel({ collapsed = false }: Props) {
 
   const handleOpenExternal = useCallback((url: string) => {
     if (!url || url === BROWSER_HOME_URL) return;
-    void openUrl(url).catch((error) => {
+    void openExternalUrl(url).catch((error) => {
       console.error("Failed to open URL externally:", error);
     });
   }, []);

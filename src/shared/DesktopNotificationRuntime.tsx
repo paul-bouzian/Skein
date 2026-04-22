@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { sendNotification } from "@tauri-apps/plugin-notification";
 
 import {
   collectDesktopNotificationCandidates,
   type DesktopNotificationCandidate,
 } from "../lib/desktop-notifications";
+import { notifications } from "../lib/shell";
 import { playNotificationAlertSound } from "../lib/notification-sounds";
 import type {
   NotificationSoundSettings,
@@ -157,11 +157,9 @@ export function DesktopNotificationRuntime() {
         }
 
         const copy = buildNotificationCopy(workspaceSnapshot, candidate);
-        try {
-          sendNotification(copy);
-        } catch {
+        void notifications.send(copy).catch(() => {
           // Ignore OS notification delivery failures; the feature is best-effort.
-        }
+        });
       }
     }
 

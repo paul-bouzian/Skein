@@ -5,9 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTerminalStore } from "../../stores/terminal-store";
 import { EnvironmentActionControl } from "./EnvironmentActionControl";
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  message: vi.fn(),
-}));
 
 const storageState = new Map<string, string>();
 

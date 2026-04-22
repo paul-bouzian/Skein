@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
 import {
+  dialogConfirmMock,
+  dialogMessageMock,
+  openExternalMock,
+} from "../../test/desktop-mock";
+import {
   makeConversationSnapshot,
   makeEnvironment,
   makeProject,
@@ -14,10 +19,6 @@ import { useConversationStore } from "../../stores/conversation-store";
 import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { TreeSidebar } from "./TreeSidebar";
-
-const confirmMock = vi.fn();
-const messageMock = vi.fn();
-const openUrlMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
   ensureProjectCanBeRemoved: vi.fn(),
@@ -45,14 +46,7 @@ vi.mock("./SidebarUsagePanel", () => ({
   SidebarUsagePanel: () => <div data-testid="sidebar-usage-panel" />,
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  confirm: (...args: unknown[]) => confirmMock(...args),
-  message: (...args: unknown[]) => messageMock(...args),
-}));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: (...args: unknown[]) => openUrlMock(...args),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 const onOpenSettings = vi.fn();
@@ -60,8 +54,8 @@ const onToggleTheme = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
-  messageMock.mockResolvedValue("Ok");
-  openUrlMock.mockResolvedValue(undefined);
+  dialogMessageMock.mockResolvedValue(undefined);
+  openExternalMock.mockResolvedValue(undefined);
   mockedBridge.ensureProjectCanBeRemoved.mockResolvedValue(undefined);
   mockedBridge.reorderProjects.mockResolvedValue(undefined);
   mockedBridge.setProjectSidebarCollapsed.mockResolvedValue(undefined);
@@ -262,7 +256,7 @@ describe("TreeSidebar", () => {
   });
 
   it("shows the updated project removal confirmation copy", async () => {
-    confirmMock.mockResolvedValue(false);
+    dialogConfirmMock.mockResolvedValue(false);
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -286,13 +280,13 @@ describe("TreeSidebar", () => {
     expect(mockedBridge.ensureProjectCanBeRemoved).toHaveBeenCalledWith(
       "project-1",
     );
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining("The repository stays on disk."),
       expect.objectContaining({
         title: "Remove project",
       }),
     );
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining(
         "Skein may also remove its empty managed worktree folder.",
       ),
@@ -449,11 +443,11 @@ describe("TreeSidebar", () => {
       screen.getByRole("button", { name: "Remove from Skein" }),
     );
 
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(dialogConfirmMock).not.toHaveBeenCalled();
     expect(mockedBridge.ensureProjectCanBeRemoved).toHaveBeenCalledWith(
       "project-1",
     );
-    expect(messageMock).toHaveBeenCalledWith(
+    expect(dialogMessageMock).toHaveBeenCalledWith(
       "Delete this project's worktrees before removing it from Skein.",
       expect.objectContaining({
         title: "Remove project",
@@ -464,7 +458,7 @@ describe("TreeSidebar", () => {
   });
 
   it("shows the native blocker dialog when project removal fails in the backend", async () => {
-    confirmMock.mockResolvedValue(true);
+    dialogConfirmMock.mockResolvedValue(true);
     mockedBridge.removeProject.mockRejectedValue({
       code: "validation_error",
       message:
@@ -491,7 +485,7 @@ describe("TreeSidebar", () => {
     );
 
     await waitFor(() => {
-      expect(messageMock).toHaveBeenCalledWith(
+      expect(dialogMessageMock).toHaveBeenCalledWith(
         "Delete this project's worktrees before removing it from Skein.",
         expect.objectContaining({
           title: "Remove project",
@@ -502,7 +496,7 @@ describe("TreeSidebar", () => {
   });
 
   it("keeps generic project removal failures in the sidebar notice", async () => {
-    confirmMock.mockResolvedValue(true);
+    dialogConfirmMock.mockResolvedValue(true);
     mockedBridge.removeProject.mockRejectedValue(
       new Error("Disk is unavailable."),
     );
@@ -522,7 +516,7 @@ describe("TreeSidebar", () => {
   });
 
   it.skip("shows a destructive confirmation before deleting a worktree", async () => {
-    confirmMock.mockResolvedValue(false);
+    dialogConfirmMock.mockResolvedValue(false);
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot({
@@ -567,22 +561,22 @@ describe("TreeSidebar", () => {
       screen.getByRole("button", { name: "Delete worktree" }),
     );
 
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining('Delete the worktree "fuzzy-tiger"?'),
       expect.objectContaining({
         title: "Delete worktree",
         okLabel: "Delete",
       }),
     );
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining("- 1 active thread"),
       expect.any(Object),
     );
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining("- 1 archived thread"),
       expect.any(Object),
     );
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(dialogConfirmMock).toHaveBeenCalledWith(
       expect.stringContaining("- branch fuzzy-tiger"),
       expect.any(Object),
     );
@@ -981,7 +975,7 @@ describe("TreeSidebar", () => {
       }),
     );
 
-    expect(openUrlMock).toHaveBeenCalledWith(
+    expect(openExternalMock).toHaveBeenCalledWith(
       "https://github.com/acme/skein/pull/17",
     );
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBe(
@@ -1160,7 +1154,7 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(badge);
 
-    expect(openUrlMock).toHaveBeenCalledWith(
+    expect(openExternalMock).toHaveBeenCalledWith(
       "https://github.com/acme/skein/pull/42",
     );
   });
@@ -1199,7 +1193,7 @@ describe("TreeSidebar", () => {
 
     await userEvent.click(badge);
 
-    expect(openUrlMock).not.toHaveBeenCalled();
+    expect(openExternalMock).not.toHaveBeenCalled();
   });
 
   it("persists project collapse from the dedicated chevron", async () => {

@@ -1,8 +1,8 @@
-import { message } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { formatShortcut } from "../../lib/shortcuts";
+import { dialog } from "../../lib/shell";
 import type { ProjectManualAction } from "../../lib/types";
 import { CheckIcon, ChevronRightIcon, PlusIcon } from "../../shared/Icons";
 import { useTerminalStore } from "../../stores/terminal-store";
@@ -148,7 +148,7 @@ export function EnvironmentActionControl({
     try {
       const tabId = await openActionTab(environmentId, action);
       if (!tabId) {
-        await message("Maximum 10 terminals are open in this environment.", {
+        await dialog.message("Maximum 10 terminals are open in this environment.", {
           title: "Project action",
           kind: "warning",
         });
@@ -156,7 +156,7 @@ export function EnvironmentActionControl({
       }
       setPreferredActionIdForProject(projectId, action.id);
     } catch (cause: unknown) {
-      await message(
+      await dialog.message(
         cause instanceof Error ? cause.message : "Failed to run project action.",
         {
           title: "Project action",

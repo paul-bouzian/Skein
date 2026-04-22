@@ -1,18 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
+import { openExternalMock } from "../../test/desktop-mock";
 import { ConversationMarkdown } from "./ConversationMarkdown";
-
-const openUrlMock = vi.fn();
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: (...args: unknown[]) => openUrlMock(...args),
-}));
-
-beforeEach(() => {
-  openUrlMock.mockReset();
-});
 
 describe("ConversationMarkdown", () => {
   it("renders markdown links as external links and opens them with the desktop opener", async () => {
@@ -27,7 +18,7 @@ describe("ConversationMarkdown", () => {
 
     await userEvent.click(link);
 
-    expect(openUrlMock).toHaveBeenCalledWith("https://openai.com/docs");
+    expect(openExternalMock).toHaveBeenCalledWith("https://openai.com/docs");
   });
 
   it("renders local markdown targets as compact file reference tokens", () => {

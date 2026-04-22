@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeCommand as invoke } from "./desktop-host";
 
 export type BootstrapStatus = {
   appName: string;

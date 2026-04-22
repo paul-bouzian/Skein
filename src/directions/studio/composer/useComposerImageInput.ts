@@ -7,9 +7,7 @@ import {
   type SetStateAction,
 } from "react";
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open } from "@tauri-apps/plugin-dialog";
-
+import { dialog, windowShell } from "../../../lib/shell";
 import type { ConversationImageAttachment } from "../../../lib/types";
 import {
   IMAGE_FILE_EXTENSIONS,
@@ -27,8 +25,6 @@ type Props = {
   setImages: Dispatch<SetStateAction<ConversationImageAttachment[]>>;
 };
 
-type DragPosition = { x: number; y: number };
-
 const FILE_TRANSFER_TYPES = ["Files", "public.file-url", "application/x-moz-file"];
 
 function mergeImages(
@@ -42,26 +38,6 @@ function mergeImages(
     deduped.set(conversationImageKey(image), image);
   }
   return Array.from(deduped.values());
-}
-
-function normalizeDragPosition(
-  position: DragPosition,
-  lastClientPosition: DragPosition | null,
-) {
-  const scale = window.devicePixelRatio || 1;
-  if (scale === 1 || !lastClientPosition) {
-    return position;
-  }
-  const scaled = { x: position.x / scale, y: position.y / scale };
-  const directDistance = Math.hypot(
-    position.x - lastClientPosition.x,
-    position.y - lastClientPosition.y,
-  );
-  const scaledDistance = Math.hypot(
-    scaled.x - lastClientPosition.x,
-    scaled.y - lastClientPosition.y,
-  );
-  return scaledDistance < directDistance ? scaled : position;
 }
 
 function isFileTransfer(types: readonly string[] | undefined) {
@@ -94,7 +70,6 @@ export function useComposerImageInput({
   setImages,
 }: Props) {
   const dropTargetRef = useRef<HTMLDivElement | null>(null);
-  const lastClientPositionRef = useRef<DragPosition | null>(null);
   const disabledRef = useRef(disabled);
   const imagesEnabledRef = useRef(imagesEnabled);
   const scopeKeyRef = useRef(scopeKey);
@@ -141,7 +116,7 @@ export function useComposerImageInput({
     const scopeVersion = scopeVersionRef.current;
     let selection: string | string[] | null;
     try {
-      selection = await open({
+      selection = await dialog.open({
         multiple: true,
         filters: [
           {
@@ -160,68 +135,11 @@ export function useComposerImageInput({
     appendImages(paths);
   }
 
-  useEffect(() => {
-    if (disabled || !imagesEnabled) {
-      setIsDragOver(false);
-      return;
-    }
-
-    let cancelled = false;
-    let unlisten: null | (() => void) = null;
-    void getCurrentWindow()
-      .onDragDropEvent((event) => {
-        const target = dropTargetRef.current;
-        if (!target) {
-          return;
-        }
-        if (event.payload.type === "leave") {
-          setIsDragOver(false);
-          return;
-        }
-        const position = normalizeDragPosition(
-          event.payload.position,
-          lastClientPositionRef.current,
-        );
-        const rect = target.getBoundingClientRect();
-        const inside =
-          position.x >= rect.left &&
-          position.x <= rect.right &&
-          position.y >= rect.top &&
-          position.y <= rect.bottom;
-
-        if (event.payload.type === "enter" || event.payload.type === "over") {
-          setIsDragOver(inside);
-          return;
-        }
-        if (event.payload.type === "drop") {
-          setIsDragOver(false);
-          if (!inside) {
-            return;
-          }
-          appendImages(pathsToLocalImages(event.payload.paths));
-        }
-      })
-      .then((cleanup) => {
-        if (cancelled) {
-          cleanup();
-          return;
-        }
-        unlisten = cleanup;
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [appendImages, disabled, imagesEnabled]);
-
   function handleDragOver(event: React.DragEvent<HTMLElement>) {
     if (!isFileTransfer(event.dataTransfer?.types)) {
       return;
     }
     event.preventDefault();
-    lastClientPositionRef.current = { x: event.clientX, y: event.clientY };
     if (!disabled && imagesEnabled) {
       setIsDragOver(true);
     }
@@ -233,7 +151,6 @@ export function useComposerImageInput({
 
   function handleDragLeave() {
     setIsDragOver(false);
-    lastClientPositionRef.current = null;
   }
 
   async function handleDrop(event: React.DragEvent<HTMLElement>) {
@@ -242,20 +159,30 @@ export function useComposerImageInput({
     }
     event.preventDefault();
     setIsDragOver(false);
-    lastClientPositionRef.current = null;
     if (disabled || !imagesEnabled) {
       return;
     }
     const scopeVersion = scopeVersionRef.current;
 
     const files = Array.from(event.dataTransfer?.files ?? []);
-    const pathImages = pathsToLocalImages(
-      files.map((file) => (file as File & { path?: string }).path ?? ""),
+    const resolvedFiles = files.map((file) => {
+      const path = windowShell.getPathForFile(file);
+      return {
+        file,
+        path,
+        useResolvedPath: Boolean(path && isSupportedImagePath(path)),
+      };
+    });
+    const pathImages = resolvedFiles.flatMap(({ path, useResolvedPath }) =>
+      useResolvedPath && path ? [{ type: "localImage" as const, path }] : [],
     );
     const dataImages = await readImageFilesAsDataUrls(
-      files
-        .filter((file) => isSupportedImageFile(file))
-        .filter((file) => !((file as File & { path?: string }).path ?? "")),
+      resolvedFiles
+        .filter(
+          ({ file, useResolvedPath }) =>
+            isSupportedImageFile(file) && !useResolvedPath,
+        )
+        .map(({ file }) => file),
     );
     if (scopeVersion !== scopeVersionRef.current) {
       return;

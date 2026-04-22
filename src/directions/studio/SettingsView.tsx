@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  isPermissionGranted,
-  requestPermission,
-} from "@tauri-apps/plugin-notification";
 
+import { notifications } from "../../lib/shell";
 import { AdvancedSettingsTab } from "./AdvancedSettingsTab";
 import { BehaviorSettingsTab } from "./BehaviorSettingsTab";
 import { GeneralSettingsTab } from "./GeneralSettingsTab";
@@ -98,11 +95,13 @@ async function requestDesktopNotificationsAccess(): Promise<
   "granted" | "denied" | "error"
 > {
   try {
-    if (await isPermissionGranted()) {
+    if ((await notifications.getPermissionState()) === "granted") {
       return "granted";
     }
 
-    return (await requestPermission()) === "granted" ? "granted" : "denied";
+    return (await notifications.requestPermission()) === "granted"
+      ? "granted"
+      : "denied";
   } catch {
     return "error";
   }

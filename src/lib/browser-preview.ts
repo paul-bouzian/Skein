@@ -2,8 +2,8 @@
 //
 // `toPreviewUrl` / `fromPreviewUrl` translate between the user-facing
 // http(s) URL the panel stores and the `skein-preview://` URL the iframe
-// actually loads. The custom scheme is intercepted by the Rust proxy in
-// `services/browser_proxy.rs`, which refetches the real URL and strips
+// actually loads. The custom scheme is intercepted by the Electron preview
+// protocol, which refetches the real URL and strips
 // frame-blocking headers.
 //
 // `normalizeBrowserUrl` prepares raw text typed in the address bar:
@@ -11,15 +11,17 @@
 // `http://`, auto-prefixes anything dotted with `https://`, and rejects
 // unstructured input so the bar never doubles as a search box.
 
-export const PREVIEW_SCHEME = "skein-preview";
-const HOST_DELIMITER = "_";
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
+import {
+  isLoopbackHost,
+  parsePreviewTarget,
+  toLoopbackPreviewUrl,
+} from "./preview-url";
+
+export { PREVIEW_SCHEME } from "./preview-url";
+export { isLoopbackHost } from "./preview-url";
+
 const LOOPBACK_PATTERN =
   /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(\/|$)/i;
-
-export function isLoopbackHost(hostname: string): boolean {
-  return LOOPBACK_HOSTS.has(hostname);
-}
 
 // Converts the text typed in the address bar into a navigable URL, or
 // returns `null` for values that don't parse as one. We auto-prefix bare
@@ -71,27 +73,10 @@ export function toPreviewUrl(httpUrl: string): string {
   if (!isLoopbackHost(parsed.hostname)) {
     return httpUrl;
   }
-  const scheme = parsed.protocol.slice(0, -1);
-  const port = parsed.port ? `:${parsed.port}` : "";
-  return `${PREVIEW_SCHEME}://${scheme}${HOST_DELIMITER}${parsed.hostname}${port}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return toLoopbackPreviewUrl(parsed) ?? httpUrl;
 }
 
 export function fromPreviewUrl(previewUrl: string): string | null {
   if (!previewUrl) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(previewUrl);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== `${PREVIEW_SCHEME}:`) return null;
-  const host = parsed.hostname;
-  const separator = host.indexOf(HOST_DELIMITER);
-  if (separator === -1) return null;
-  const scheme = host.slice(0, separator);
-  const targetHost = host.slice(separator + 1);
-  if (scheme !== "http" && scheme !== "https") return null;
-  if (!isLoopbackHost(targetHost)) return null;
-  const port = parsed.port ? `:${parsed.port}` : "";
-  return `${scheme}://${targetHost}${port}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  return parsePreviewTarget(previewUrl)?.toString() ?? null;
 }

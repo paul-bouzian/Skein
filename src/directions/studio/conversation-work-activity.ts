@@ -66,7 +66,13 @@ export function buildConversationTimeline(
 ): ConversationTimelineEntry[] {
   const groupsByTurn = new Map<string, MutableGroup>();
   const actionTurnIds = collectActionTurnIds(snapshot);
+  const assistantSuppressedTurnIds = collectAssistantSuppressedTurnIds(snapshot);
   const effectiveTurnIds = inferEffectiveTurnIds(snapshot);
+  const actionAssistantMessageIds = collectAssistantMessageIdsForTurns(
+    snapshot.items,
+    effectiveTurnIds,
+    assistantSuppressedTurnIds,
+  );
   const latestWorkTurnId = findLatestWorkTurnId(snapshot, effectiveTurnIds);
   const finalAssistantMessageIds = collectFinalAssistantMessageIds(
     snapshot,
@@ -79,6 +85,7 @@ export function buildConversationTimeline(
   for (const item of snapshot.items) {
     const turnId = effectiveTurnIds.get(item.id) ?? null;
     if (
+      actionAssistantMessageIds.has(item.id) ||
       !turnId ||
       !shouldRenderConversationItem(item) ||
       !isGroupedWorkItem(item, turnId, finalAssistantMessageIds)
@@ -110,6 +117,10 @@ export function buildConversationTimeline(
   const emittedGroupTurnIds = new Set<string>();
 
   for (const item of snapshot.items) {
+    if (actionAssistantMessageIds.has(item.id)) {
+      continue;
+    }
+
     const turnId = effectiveTurnIds.get(item.id) ?? null;
     const group = turnId ? finalizedGroups.get(turnId) : null;
 
@@ -138,6 +149,18 @@ export function buildConversationTimeline(
   return entries;
 }
 
+export function collectStructuredActionAssistantMessageIds(
+  snapshot: ThreadConversationSnapshot,
+) {
+  const effectiveTurnIds = inferEffectiveTurnIds(snapshot);
+  const actionTurnIds = collectAssistantSuppressedTurnIds(snapshot);
+  return collectAssistantMessageIdsForTurns(
+    snapshot.items,
+    effectiveTurnIds,
+    actionTurnIds,
+  );
+}
+
 function collectActionTurnIds(snapshot: ThreadConversationSnapshot) {
   const turnIds = new Set<string>();
 
@@ -147,6 +170,22 @@ function collectActionTurnIds(snapshot: ThreadConversationSnapshot) {
 
   for (const interaction of snapshot.pendingInteractions) {
     if (interaction.turnId) {
+      turnIds.add(interaction.turnId);
+    }
+  }
+
+  return turnIds;
+}
+
+function collectAssistantSuppressedTurnIds(snapshot: ThreadConversationSnapshot) {
+  const turnIds = new Set<string>();
+
+  if (shouldRenderProposedPlan(snapshot.proposedPlan)) {
+    turnIds.add(snapshot.proposedPlan!.turnId);
+  }
+
+  for (const interaction of snapshot.pendingInteractions) {
+    if (interaction.kind === "userInput" && interaction.turnId) {
       turnIds.add(interaction.turnId);
     }
   }
@@ -188,6 +227,31 @@ function collectFinalAssistantMessageIds(
   }
 
   return ids;
+}
+
+function collectAssistantMessageIdsForTurns(
+  items: ConversationItem[],
+  effectiveTurnIds: Map<string, string>,
+  targetTurnIds: Set<string>,
+) {
+  const lastAssistantMessageIdByTurn = new Map<string, string>();
+
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    const turnId = effectiveTurnIds.get(item.id);
+    if (
+      !turnId ||
+      !targetTurnIds.has(turnId) ||
+      lastAssistantMessageIdByTurn.has(turnId)
+    ) {
+      continue;
+    }
+    if (item.kind === "message" && item.role === "assistant") {
+      lastAssistantMessageIdByTurn.set(turnId, item.id);
+    }
+  }
+
+  return new Set(lastAssistantMessageIdByTurn.values());
 }
 
 function isGroupedWorkItem(

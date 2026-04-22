@@ -49,6 +49,21 @@ const KEY_LABELS: Record<string, string> = {
   arrowleft: "←",
   arrowright: "→",
 };
+const ELECTRON_ACCELERATOR_KEYS: Record<string, string> = {
+  plus: "Plus",
+  comma: ",",
+  period: ".",
+  slash: "/",
+  backquote: "`",
+  escape: "Esc",
+  enter: "Enter",
+  tab: "Tab",
+  space: "Space",
+  arrowup: "Up",
+  arrowdown: "Down",
+  arrowleft: "Left",
+  arrowright: "Right",
+};
 
 export function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") {
@@ -158,6 +173,31 @@ export function formatShortcut(value: string | null | undefined): string {
   return mac
     ? [...uniqueParts, keyLabel].join("")
     : [...uniqueParts, keyLabel].join("+");
+}
+
+export function toElectronAccelerator(
+  value: string | null | undefined,
+): string | undefined {
+  const parsed = parseShortcut(value);
+  if (!parsed) {
+    return undefined;
+  }
+
+  const modifiers = [
+    parsed.mod ? "CommandOrControl" : null,
+    parsed.meta ? "Command" : null,
+    parsed.ctrl ? "Control" : null,
+    parsed.alt ? "Alt" : null,
+    parsed.shift ? "Shift" : null,
+  ].filter((modifier): modifier is string => Boolean(modifier));
+  const key =
+    ELECTRON_ACCELERATOR_KEYS[parsed.key] ??
+    (parsed.key.length === 1 ? parsed.key.toUpperCase() : null);
+  if (!key) {
+    return undefined;
+  }
+
+  return [...modifiers, key].join("+");
 }
 
 export function buildShortcutValue(event: KeyboardEvent): string | null {

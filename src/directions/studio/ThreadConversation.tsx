@@ -40,6 +40,7 @@ import { SubagentStrip } from "./SubagentStrip";
 import { InlineComposer } from "./composer/InlineComposer";
 import {
   buildConversationTimeline,
+  collectStructuredActionAssistantMessageIds,
   hasRenderableTaskPlan,
   shouldRenderProposedPlan,
 } from "./conversation-work-activity";
@@ -215,6 +216,10 @@ export function ThreadConversation({
   const activeTaskPlan = snapshot?.taskPlan ?? null;
   const shouldRenderPlanCard = shouldRenderProposedPlan(activePlan);
   const hasTaskPlanContent = hasRenderableTaskPlan(activeTaskPlan);
+  const suppressedAssistantItemIds = useMemo(
+    () => (snapshot ? collectStructuredActionAssistantMessageIds(snapshot) : new Set<string>()),
+    [snapshot],
+  );
   const timelineEntries = useMemo(() => {
     if (!snapshot) {
       return [];
@@ -222,8 +227,10 @@ export function ThreadConversation({
 
     return compactWorkActivity
       ? buildConversationTimeline(snapshot)
-      : snapshot.items.map((item) => ({ kind: "item" as const, item }));
-  }, [compactWorkActivity, snapshot]);
+      : snapshot.items
+          .filter((item) => !suppressedAssistantItemIds.has(item.id))
+          .map((item) => ({ kind: "item" as const, item }));
+  }, [compactWorkActivity, snapshot, suppressedAssistantItemIds]);
   const interaction = snapshot?.pendingInteractions[0] ?? null;
   const fallbackComposer = useMemo(
     () => resolveFallbackComposer(thread, settings),

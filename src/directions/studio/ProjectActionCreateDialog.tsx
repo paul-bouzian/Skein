@@ -1,7 +1,7 @@
-import { message } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { dialog } from "../../lib/shell";
 import type { ProjectRecord, ShortcutSettings } from "../../lib/types";
 import { CloseIcon } from "../../shared/Icons";
 import { useWorkspaceStore } from "../../stores/workspace-store";
@@ -156,7 +156,7 @@ export function ProjectActionCreateDialog({
         return;
       }
       if (result.warningMessage) {
-        await message(result.warningMessage, {
+        await dialog.message(result.warningMessage, {
           title: "Project action",
           kind: "warning",
         });

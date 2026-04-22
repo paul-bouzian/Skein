@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
+import { dialogConfirmMock } from "../../test/desktop-mock";
 import {
   makeConversationSnapshot,
   makeEnvironment,
@@ -14,8 +15,6 @@ import { useConversationStore } from "../../stores/conversation-store";
 import { useGitReviewStore } from "../../stores/git-review-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { InspectorPanel } from "./InspectorPanel";
-
-const confirmMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
   getGitReviewSnapshot: vi.fn(),
@@ -33,9 +32,6 @@ vi.mock("../../lib/bridge", () => ({
   generateGitCommitMessage: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  confirm: (...args: unknown[]) => confirmMock(...args),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 
@@ -174,7 +170,7 @@ describe("InspectorPanel", () => {
   });
 
   it("confirms before reverting all tracked changes", async () => {
-    confirmMock.mockResolvedValue(false);
+    dialogConfirmMock.mockResolvedValue(false);
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(makeGitReviewSnapshot());
 
     render(<InspectorPanel />);
@@ -183,7 +179,7 @@ describe("InspectorPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Revert all" }));
 
     await waitFor(() => {
-      expect(confirmMock).toHaveBeenCalledWith(
+      expect(dialogConfirmMock).toHaveBeenCalledWith(
         "Are you sure you want to revert all tracked changes?",
         expect.objectContaining({ title: "Revert All Changes" }),
       );

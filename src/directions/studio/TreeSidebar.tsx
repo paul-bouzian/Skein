@@ -1,9 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
-import { confirm, message } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { createPortal } from "react-dom";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { APP_NAME } from "../../lib/app-identity";
+import { dialog, openExternalUrl } from "../../lib/shell";
 import {
   selectChatWorkspace,
   useWorkspaceStore,
@@ -251,9 +250,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       );
                     }}
                     onBranchChipOpenPullRequest={(url) => {
-                      void Promise.resolve(openUrl(url)).catch(
-                        () => undefined,
-                      );
+                      openPullRequest(url);
                     }}
                     onContextMenu={(event) => {
                       event.preventDefault();
@@ -353,7 +350,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
       return;
     }
 
-    const approved = await confirm(
+    const approved = await dialog.confirm(
       `Remove "${projectName}" from ${APP_NAME}? The repository stays on disk. ${APP_NAME} may also remove its empty managed worktree folder.`,
       {
         title: PROJECT_REMOVAL_DIALOG_TITLE,
@@ -441,7 +438,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
       menu.branchName ? `- branch ${menu.branchName}` : null,
       menu.path ? `- ${menu.path}` : null,
     ].filter(Boolean);
-    const approved = await confirm(warningLines.join("\n"), {
+    const approved = await dialog.confirm(warningLines.join("\n"), {
       title: "Delete worktree",
       kind: "warning",
       okLabel: "Delete",
@@ -459,6 +456,12 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     } catch (cause: unknown) {
       setActionError(actionErrorMessage(cause, "Failed to delete worktree"));
     }
+  }
+
+  function openPullRequest(url: string) {
+    void Promise.resolve(openExternalUrl(url)).catch((cause: unknown) => {
+      setActionError(actionErrorMessage(cause, "Failed to open pull request"));
+    });
   }
 
   return (
@@ -714,9 +717,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       const url = contextMenu.pullRequestUrl;
                       setContextMenu(null);
                       if (url) {
-                        void Promise.resolve(openUrl(url)).catch(
-                          () => undefined,
-                        );
+                        openPullRequest(url);
                       }
                     }}
                   >
@@ -790,7 +791,7 @@ async function showProjectRemovalBlockedDialog(
     return false;
   }
 
-  await message(errorMessage, {
+  await dialog.message(errorMessage, {
     title: PROJECT_REMOVAL_DIALOG_TITLE,
     kind: "info",
   });

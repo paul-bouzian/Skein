@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../lib/bridge";
 import {
+  dialogOpenMock,
+  openExternalMock,
+} from "../../test/desktop-mock";
+import {
   baseComposer,
   capabilitiesFixture,
   makeApprovalRequest,
@@ -28,7 +32,6 @@ import { ConversationMarkdown } from "./ConversationMarkdown";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ThreadConversation } from "./ThreadConversation";
 
-const openUrlMock = vi.fn();
 const clipboardWriteTextMock = vi.fn();
 
 vi.mock("../../lib/bridge", () => ({
@@ -49,19 +52,8 @@ vi.mock("../../lib/bridge", () => ({
   listenToConversationEvents: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
-}));
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({
-    onDragDropEvent: vi.fn(async () => () => undefined),
-  })),
-}));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: (...args: unknown[]) => openUrlMock(...args),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 
@@ -114,7 +106,7 @@ function resetStores() {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  openUrlMock.mockReset();
+  openExternalMock.mockReset();
   clipboardWriteTextMock.mockReset();
   clipboardWriteTextMock.mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
@@ -1080,7 +1072,7 @@ describe("ThreadConversation", () => {
 
     await userEvent.click(link);
 
-    expect(openUrlMock).toHaveBeenCalledWith("https://openai.com/docs");
+    expect(openExternalMock).toHaveBeenCalledWith("https://openai.com/docs");
   });
 
   it("keeps malformed protocol-only URL fragments as plain text", () => {
@@ -1273,7 +1265,7 @@ describe("ThreadConversation", () => {
 
     await userEvent.click(summaryLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://skein.dev/docs");
+    expect(openExternalMock).toHaveBeenNthCalledWith(1, "https://skein.dev/docs");
 
     const outputLink = screen.getByRole("link", {
       name: "https://skein.dev/output",
@@ -1285,8 +1277,8 @@ describe("ThreadConversation", () => {
     await userEvent.click(outputLink);
     await userEvent.click(systemLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://skein.dev/output");
-    expect(openUrlMock).toHaveBeenNthCalledWith(3, "https://skein.dev/status");
+    expect(openExternalMock).toHaveBeenNthCalledWith(2, "https://skein.dev/output");
+    expect(openExternalMock).toHaveBeenNthCalledWith(3, "https://skein.dev/status");
   });
 
   it("renders clickable bare URLs in approval interaction copy", async () => {
@@ -1319,8 +1311,8 @@ describe("ThreadConversation", () => {
     await userEvent.click(summaryLink);
     await userEvent.click(reasonLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://skein.dev/approval");
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://skein.dev/reason");
+    expect(openExternalMock).toHaveBeenNthCalledWith(1, "https://skein.dev/approval");
+    expect(openExternalMock).toHaveBeenNthCalledWith(2, "https://skein.dev/reason");
   });
 
   it("renders clickable bare URLs in plan and task explanations", async () => {
@@ -1354,8 +1346,8 @@ describe("ThreadConversation", () => {
     await userEvent.click(planLink);
     await userEvent.click(taskLink);
 
-    expect(openUrlMock).toHaveBeenNthCalledWith(1, "https://skein.dev/plan");
-    expect(openUrlMock).toHaveBeenNthCalledWith(2, "https://skein.dev/task");
+    expect(openExternalMock).toHaveBeenNthCalledWith(1, "https://skein.dev/plan");
+    expect(openExternalMock).toHaveBeenNthCalledWith(2, "https://skein.dev/task");
   });
 
   it("renders clickable bare URLs in unsupported interaction messages", async () => {
@@ -1390,7 +1382,7 @@ describe("ThreadConversation", () => {
 
     await userEvent.click(helpLink);
 
-    expect(openUrlMock).toHaveBeenCalledWith("https://skein.dev/help");
+    expect(openExternalMock).toHaveBeenCalledWith("https://skein.dev/help");
   });
 
   it("renders attached user images in the timeline", async () => {
@@ -1448,8 +1440,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(open).mockResolvedValue(["/tmp/diagram.png"]);
+    dialogOpenMock.mockResolvedValue(["/tmp/diagram.png"]);
 
     await screen.findByPlaceholderText("Message Skein...");
     await userEvent.click(screen.getByRole("button", { name: "Attach images" }));
@@ -1748,6 +1739,15 @@ describe("ThreadConversation", () => {
             content: "Checking the safest way to ship this.",
             isStreaming: false,
           },
+          {
+            kind: "message",
+            id: "assistant-plan-clarification",
+            turnId: "turn-plan-1",
+            role: "assistant",
+            text: "Tell me which path to take.",
+            images: null,
+            isStreaming: false,
+          },
         ],
         proposedPlan: makeProposedPlan({ turnId: "turn-plan-1" }),
         pendingInteractions: [makeUserInputRequest({ turnId: "turn-plan-1" })],
@@ -1766,6 +1766,49 @@ describe("ThreadConversation", () => {
     expect(screen.getByRole("heading", { name: "Proposed plan" })).toBeInTheDocument();
     expect(screen.getByText("Codex needs input")).toBeInTheDocument();
     expect(screen.queryByText("Checking the safest way to ship this.")).toBeNull();
+    expect(screen.queryByText("Tell me which path to take.")).toBeNull();
+  });
+
+  it("hides assistant clarification messages while user input is pending in expanded mode", async () => {
+    setCompactWorkActivity(false);
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "waitingForExternalAction",
+        composer: { ...baseComposer, collaborationMode: "plan" },
+        items: [
+          {
+            kind: "message",
+            id: "user-weather-1",
+            turnId: "turn-weather-1",
+            role: "user",
+            text: "Quelle est la météo de demain ?",
+            images: null,
+            isStreaming: false,
+          },
+          {
+            kind: "message",
+            id: "assistant-weather-clarification",
+            turnId: "turn-weather-1",
+            role: "assistant",
+            text: "Dis-moi la ville à utiliser.",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+        pendingInteractions: [makeUserInputRequest({ turnId: "turn-weather-1" })],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(await screen.findByText("Codex needs input")).toBeInTheDocument();
+    expect(screen.queryByText("Dis-moi la ville à utiliser.")).toBeNull();
   });
 
   it("renders a proposed plan card and continues through approve or refine", async () => {
@@ -2003,8 +2046,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(open).mockResolvedValue(["/tmp/diagram.png"]);
+    dialogOpenMock.mockResolvedValue(["/tmp/diagram.png"]);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Refine" }),
@@ -2773,8 +2815,7 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(open).mockResolvedValue(["/tmp/thread-a.png"]);
+    dialogOpenMock.mockResolvedValue(["/tmp/thread-a.png"]);
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Attach images" }),

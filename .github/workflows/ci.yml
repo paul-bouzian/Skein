@@ -47,7 +47,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "./desktop-backend -> target"
 
       - name: Ensure CMake
         run: command -v cmake >/dev/null 2>&1 || brew install cmake
@@ -58,8 +58,11 @@ jobs:
       - name: Run repo quality gates
         run: bun run verify
 
+      - name: Run Rust tests
+        run: cargo test --manifest-path desktop-backend/Cargo.toml
+
   desktop-debug-build:
-    name: Desktop Debug Build
+    name: Electron Debug Build
     needs: quality
     runs-on: macos-latest
     timeout-minutes: 45
@@ -87,7 +90,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "./desktop-backend -> target"
 
       - name: Ensure CMake
         run: command -v cmake >/dev/null 2>&1 || brew install cmake
@@ -95,9 +98,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build Tauri desktop app bundle
-        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun run tauri:build:debug:app
+      - name: Run Electron verification
+        run: bun run verify:electron
+
+      - name: Build Electron desktop app bundle
+        run: bun run electron:build:debug

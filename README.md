@@ -19,7 +19,7 @@ It talks directly to `codex app-server`, keeps Git and runtime state environment
 - Native `requestUserInput` questions and approval prompts
 - Subagent visibility and context window tracking
 - Git review pane with staged / unstaged / untracked changes, diffs, commit generation, fetch / pull / push
-- Release-based desktop updates through Tauri's updater flow
+- Release-based desktop updates through Electron + `electron-updater`
 
 ## Product shape
 
@@ -45,11 +45,13 @@ Current public focus:
 
 ## Stack
 
-- Tauri v2
+- Electron 41
 - React 19
 - TypeScript
 - Rust
 - Bun
+
+The Electron main/preload layer owns shell concerns. The Rust backend remains the authority for Codex runtime, Git/worktrees, terminals, persistence, and validation.
 
 ## Requirements
 
@@ -64,18 +66,19 @@ Current public focus:
 
 ```bash
 bun install
-bun run tauri:dev
+bun run electron:dev
 ```
 
 Useful commands:
 
 - `bun run dev` starts the Vite frontend only
-- `bun run tauri:dev` starts the desktop app in development
+- `bun run electron:dev` starts the Electron desktop app in development
 - `bun run build` builds the frontend bundle
-- `bun run tauri:build` builds the desktop app bundle
-- `bun run tauri:build:debug` builds the debug desktop app bundle
+- `bun run electron:build` builds the packaged Electron release artifacts
+- `bun run electron:build:debug` builds the unpacked Electron debug app
 - `bun run verify` runs the full local validation suite
-- `cargo test --manifest-path src-tauri/Cargo.toml` runs Rust tests
+- `bun run verify:electron` runs the Electron shell validation suite
+- `cargo test --manifest-path desktop-backend/Cargo.toml` runs Rust tests
 
 ## Architecture
 
@@ -83,7 +86,12 @@ Skein keeps a strict desktop boundary:
 
 - Rust owns privileged logic, runtime supervision, persistence, Git, worktrees, and release/update plumbing
 - React owns rendering, local UI state, and typed interaction with the backend
-- Tauri commands stay narrow and typed
+- Electron main/preload stay narrow and typed over the Rust sidecar JSONL RPC
+
+Implementation note:
+
+- `desktop-backend` hosts the Rust library and the packaged `skein-backend` sidecar
+- the canonical desktop shell is Electron under `electron/*`
 
 Key product surfaces already implemented:
 
@@ -97,9 +105,9 @@ Key product surfaces already implemented:
 
 ## Releases and updates
 
-Skein is distributed through GitHub Releases and uses Tauri updater artifacts for in-app updates.
+Skein is distributed through GitHub Releases and uses Electron release metadata (`latest-mac.yml`) for in-app updates.
 
-Starting with the Skein rebrand release, release assets, the bundled app, and the macOS bundle identifier use the Skein name. Existing installs migrate forward from the previous Loom and ThreadEx identifiers during startup.
+Existing installs migrate forward during startup, and the first Electron cut publishes transition updater assets for pre-Electron installs.
 
 The current release target is:
 
@@ -121,11 +129,11 @@ Issues and pull requests are welcome. Before opening a PR, run:
 
 ```bash
 bun run verify
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path desktop-backend/Cargo.toml
 ```
 
-If you changed Tauri, runtime, release, or desktop behavior, also run:
+If you changed desktop shell, runtime, release, preload, updater, or packaging behavior, also run:
 
 ```bash
-bun run tauri:build:debug
+bun run verify:electron
 ```

@@ -1,5 +1,6 @@
 import { Fragment, type MouseEvent, type ReactNode } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+
+import { openExternalUrl } from "../../lib/shell";
 
 const EXTERNAL_URL_PATTERN = /https?:\/\/[^\s<>"'`]+/gi;
 const TRAILING_PUNCTUATION = new Set([".", ",", ";", ":", "!", "?"]);
@@ -20,7 +21,7 @@ export function handleExternalLinkClick(
     return;
   }
 
-  void Promise.resolve(openUrl(href)).catch(() => undefined);
+  void Promise.resolve(openExternalUrl(href)).catch(() => undefined);
 }
 
 export function renderTextWithExternalLinks(text: string, keyPrefix: string): ReactNode[] {

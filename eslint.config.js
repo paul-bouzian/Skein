@@ -6,7 +6,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "node_modules", "src-tauri/target"],
+    ignores: ["dist", "dist-electron", "node_modules", "desktop-backend/target"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -27,6 +27,14 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    files: ["electron/**/*.ts"],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: "module",
+      globals: globals.node,
     },
   },
 );

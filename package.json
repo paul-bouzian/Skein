@@ -3,36 +3,41 @@
   "private": true,
   "version": "0.1.15",
   "description": "Skein is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
+  "author": "Paul Bouzian",
   "packageManager": "bun@1.2.19",
+  "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
+    "build:renderer:electron": "vite build --mode electron",
+    "build:electron:main": "tsc -p tsconfig.electron.json",
+    "prepare:electron:dist": "node scripts/prepare-electron-dist.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "typecheck:electron": "tsc -p tsconfig.electron.json --noEmit",
     "lint": "eslint .",
-    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "backend:build": "cargo build --manifest-path desktop-backend/Cargo.toml --bin skein-backend",
+    "backend:build:release": "cargo build --release --manifest-path desktop-backend/Cargo.toml --bin skein-backend",
+    "check:rust": "cargo check --manifest-path desktop-backend/Cargo.toml",
+    "lint:rust": "cargo clippy --manifest-path desktop-backend/Cargo.toml --all-targets -- -D warnings",
     "preview": "vite preview",
+    "electron:dev": "bun run backend:build && concurrently -k -n renderer,electron,desktop -c auto \"bun run dev\" \"bun run build:electron:main -- --watch\" \"wait-on tcp:1420 file:dist-electron/electron/main.js file:dist-electron/electron/preload.js file:dist-electron/src/lib/app-identity.js file:dist-electron/src/lib/desktop-types.js file:desktop-backend/target/debug/skein-backend && bun run prepare:electron:dist && env -u ELECTRON_RUN_AS_NODE ELECTRON_RENDERER_URL=http://127.0.0.1:1420 electron .\"",
+    "electron:prepare": "bun run build:renderer:electron && bun run build:electron:main && bun run prepare:electron:dist && bun run backend:build:release",
+    "electron:build": "bun run electron:prepare && electron-builder --mac dmg zip --publish never",
+    "electron:build:debug": "bun run electron:prepare && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir -c.compression=store --publish never",
+    "electron:test:smoke": "vitest run src/lib/desktop-host.test.ts src/lib/shell.test.ts electron/updater.test.ts",
+    "verify:electron": "bun run lint && bun run typecheck && bun run typecheck:electron && bun run test && bun run electron:test:smoke && bun run electron:build:debug",
     "release:version": "node scripts/update-version.mjs",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:build:debug": "tauri build --debug",
-    "tauri:build:debug:app": "tauri build --debug --bundles app",
+    "release:legacy-transition-artifacts": "node scripts/generate-legacy-transition-artifacts.mjs",
     "verify": "bun run lint && bun run typecheck && bun run test && bun run build && bun run check:rust && bun run lint:rust"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2",
-    "@tauri-apps/plugin-notification": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-store": "^2",
-    "@tauri-apps/plugin-updater": "~2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "electron-updater": "^6.8.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zod": "^4.1.5",
@@ -40,13 +45,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
-    "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "concurrently": "^9.0.0",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.36.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
@@ -55,6 +63,60 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.44.1",
     "vite": "^7.0.4",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.paulbouzian.skein",
+    "productName": "Skein",
+    "asar": true,
+    "electronUpdaterCompatibility": ">=2.16",
+    "directories": {
+      "output": "release-artifacts/electron"
+    },
+    "files": [
+      "dist-electron/**",
+      "package.json"
+    ],
+    "extraFiles": [
+      {
+        "from": "desktop-backend/target/release/skein-backend",
+        "to": "Resources/bin/skein-backend"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "paul-bouzian",
+        "repo": "Skein"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "icon": "desktop-backend/icons/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "desktop-backend/Entitlements.plist",
+      "entitlementsInherit": "desktop-backend/Entitlements.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Skein uses the microphone to record voice dictation and transcribe it into the composer.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true
+            },
+            "127.0.0.1": {
+              "NSExceptionAllowsInsecureHTTPLoads": true
+            }
+          }
+        }
+      }
+    }
   }
 }

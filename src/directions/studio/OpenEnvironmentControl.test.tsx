@@ -11,9 +11,6 @@ vi.mock("../../lib/bridge", () => ({
   openEnvironment: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  message: vi.fn(),
-}));
 
 describe("OpenEnvironmentControl", () => {
   beforeEach(() => {

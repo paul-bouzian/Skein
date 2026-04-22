@@ -5,6 +5,7 @@ import {
   isMacPlatform,
   matchesShortcut,
   parseShortcut,
+  toElectronAccelerator,
 } from "./shortcuts";
 
 function primaryModifier() {
@@ -61,5 +62,11 @@ describe("shortcuts helpers", () => {
 
     expect(buildShortcutValue(event)).toBe("mod+shift+plus");
     expect(parseShortcut("mod+shift+plus")?.key).toBe("plus");
+  });
+
+  it("converts shortcuts into Electron accelerators", () => {
+    expect(toElectronAccelerator("mod+comma")).toBe("CommandOrControl+,");
+    expect(toElectronAccelerator("ctrl+shift+/")).toBe("Control+Shift+/");
+    expect(toElectronAccelerator(null)).toBeUndefined();
   });
 });

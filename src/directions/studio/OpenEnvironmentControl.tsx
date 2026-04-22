@@ -1,8 +1,8 @@
-import { message } from "@tauri-apps/plugin-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import * as bridge from "../../lib/bridge";
+import { dialog } from "../../lib/shell";
 import type { GlobalSettings, OpenTarget } from "../../lib/types";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { CheckIcon, ChevronRightIcon } from "../../shared/Icons";
@@ -148,7 +148,7 @@ export function OpenEnvironmentControl({ environmentId, settings }: Props) {
           throw new Error(result.errorMessage ?? "Failed to save Open In target");
         }
         if (result.warningMessage) {
-          await message(result.warningMessage, {
+          await dialog.message(result.warningMessage, {
             title: "Open In",
             kind: "warning",
           });
@@ -158,7 +158,7 @@ export function OpenEnvironmentControl({ environmentId, settings }: Props) {
       if (shouldPersist) {
         setPendingTargetId(null);
       }
-      await message(
+      await dialog.message(
         cause instanceof Error ? cause.message : "Failed to open environment",
         {
           title: "Open In",

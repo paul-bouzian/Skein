@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isMacPlatform } from "../../lib/shortcuts";
+import { dialogMessageMock } from "../../test/desktop-mock";
 import {
   capabilitiesFixture,
   makeConversationSnapshot,
@@ -22,10 +23,6 @@ vi.mock("../../lib/bridge", () => ({
   createThread: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  confirm: vi.fn(),
-  message: vi.fn(),
-}));
 
 function isTerminalVisible(environmentId = "env-1") {
   const state = useTerminalStore.getState() as {
@@ -370,9 +367,8 @@ describe("useStudioShortcuts", () => {
       ...primaryModifier(),
     });
 
-    const { message } = await import("@tauri-apps/plugin-dialog");
     await waitFor(() => {
-      expect(message).toHaveBeenCalledWith(
+      expect(dialogMessageMock).toHaveBeenCalledWith(
         "Maximum 10 terminals are open in this environment.",
         {
           title: "Project action",

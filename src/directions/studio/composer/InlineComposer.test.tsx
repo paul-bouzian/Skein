@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { useMemo, useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { open } from "@tauri-apps/plugin-dialog";
+import { dialogOpenMock } from "../../../test/desktop-mock";
 
 import * as bridge from "../../../lib/bridge";
 import type { ComposerDraftMentionBinding } from "../../../lib/types";
@@ -32,15 +32,7 @@ vi.mock("./composer-voice-audio", () => ({
   startVoiceCapture: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
-}));
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({
-    onDragDropEvent: vi.fn(async () => () => undefined),
-  })),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 const mockedStartVoiceCapture = vi.mocked(startVoiceCapture);
@@ -103,7 +95,7 @@ beforeEach(async () => {
     configurable: true,
     value: class FakeAudioContext {},
   });
-  vi.mocked(open).mockResolvedValue(null);
+  dialogOpenMock.mockResolvedValue(null);
 });
 
 describe("InlineComposer voice dictation", () => {
@@ -509,7 +501,7 @@ describe("InlineComposer voice dictation", () => {
 describe("InlineComposer image attachments", () => {
   it("sends image-only drafts with attached files", async () => {
     const onSend = vi.fn();
-    vi.mocked(open).mockResolvedValue(["/tmp/screenshot.png"]);
+    dialogOpenMock.mockResolvedValue(["/tmp/screenshot.png"]);
 
     renderComposer("", { onSend });
 
@@ -530,7 +522,7 @@ describe("InlineComposer image attachments", () => {
 
   it("ignores picker failures and keeps the composer usable", async () => {
     const onSend = vi.fn();
-    vi.mocked(open).mockRejectedValue(new Error("dialog failed"));
+    dialogOpenMock.mockRejectedValue(new Error("dialog failed"));
 
     renderComposer("Retry after picker failure", { onSend });
 

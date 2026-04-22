@@ -3,9 +3,12 @@ import { create } from "zustand";
 import {
   LEGACY_WORKSPACE_LAYOUT_STORAGE_KEYS,
   WORKSPACE_LAYOUT_STORAGE_KEY,
-  readLocalStorageWithMigration,
 } from "../lib/app-identity";
 import * as bridge from "../lib/bridge";
+import {
+  persistUiPreference,
+  readUiPreferenceWithMigration,
+} from "../lib/ui-prefs";
 import type {
   BootstrapStatus,
   ChatWorkspaceSnapshot,
@@ -1994,7 +1997,7 @@ function persistLayoutNow(layout: WorkspaceLayout) {
       rowRatio: layout.rowRatio,
       colRatio: layout.colRatio,
     });
-    localStorage.setItem(WORKSPACE_LAYOUT_STORAGE_KEY, payload);
+    void persistUiPreference(WORKSPACE_LAYOUT_STORAGE_KEY, payload);
   } catch {
     /* storage quota or disabled — ignore */
   }
@@ -2013,7 +2016,7 @@ function schedulePersistLayout(layout: WorkspaceLayout) {
 function readPersistedLayout(): WorkspaceLayout | null {
   let raw: string | null;
   try {
-    raw = readLocalStorageWithMigration(
+    raw = readUiPreferenceWithMigration(
       WORKSPACE_LAYOUT_STORAGE_KEY,
       LEGACY_WORKSPACE_LAYOUT_STORAGE_KEYS,
     );

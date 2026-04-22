@@ -3,8 +3,11 @@ import { create } from "zustand";
 import {
   LEGACY_SIDE_PANEL_WIDTH_STORAGE_KEYS,
   SIDE_PANEL_WIDTH_STORAGE_KEY,
-  readLocalStorageWithMigration,
 } from "../lib/app-identity";
+import {
+  persistUiPreference,
+  readUiPreferenceWithMigration,
+} from "../lib/ui-prefs";
 
 export const SIDE_PANEL_MIN_WIDTH = 280;
 export const SIDE_PANEL_MAX_WIDTH = 900;
@@ -21,7 +24,7 @@ export function clampSidePanelWidth(value: number): number {
 
 function readPersistedWidth(): number {
   try {
-    const raw = readLocalStorageWithMigration(
+    const raw = readUiPreferenceWithMigration(
       SIDE_PANEL_WIDTH_STORAGE_KEY,
       LEGACY_SIDE_PANEL_WIDTH_STORAGE_KEYS,
     );
@@ -37,11 +40,7 @@ function readPersistedWidth(): number {
 let persistTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
 
 function persistWidthNow(width: number) {
-  try {
-    localStorage.setItem(SIDE_PANEL_WIDTH_STORAGE_KEY, String(width));
-  } catch {
-    /* storage quota or disabled — ignore */
-  }
+  void persistUiPreference(SIDE_PANEL_WIDTH_STORAGE_KEY, String(width));
 }
 
 function schedulePersistWidth(width: number) {

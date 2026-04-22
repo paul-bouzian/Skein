@@ -1,6 +1,6 @@
-import { message } from "@tauri-apps/plugin-dialog";
 import { useEffect, useRef } from "react";
 
+import { dialog } from "../../lib/shell";
 import { matchesShortcut } from "../../lib/shortcuts";
 import type {
   ApprovalPolicy,
@@ -388,7 +388,7 @@ async function launchProjectActionShortcut(
 ) {
   const tabId = await useTerminalStore.getState().openActionTab(environmentId, action);
   if (!tabId) {
-    await message("Maximum 10 terminals are open in this environment.", {
+    await dialog.message("Maximum 10 terminals are open in this environment.", {
       title: "Project action",
       kind: "warning",
     });

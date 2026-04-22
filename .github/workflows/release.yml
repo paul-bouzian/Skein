@@ -29,8 +29,8 @@ jobs:
       APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      LEGACY_UPDATER_PRIVATE_KEY: ${{ secrets.LEGACY_UPDATER_PRIVATE_KEY }}
+      LEGACY_UPDATER_PRIVATE_KEY_PASSWORD: ${{ secrets.LEGACY_UPDATER_PRIVATE_KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -95,7 +95,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: ./src-tauri -> target
+          workspaces: ./desktop-backend -> target
 
       - name: Persist release version
         if: steps.release_meta.outputs.tag_exists != 'true'
@@ -107,13 +107,13 @@ jobs:
 
           node scripts/update-version.mjs "$RELEASE_VERSION"
 
-          if git diff --quiet -- package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json; then
+          if git diff --quiet -- package.json desktop-backend/Cargo.toml; then
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+          git add package.json desktop-backend/Cargo.toml
           git commit \
             -m "chore(release): cut v$RELEASE_VERSION" \
             -m "Co-authored-by: Codex <noreply@openai.com>"
@@ -142,10 +142,7 @@ jobs:
         run: bun run verify
 
       - name: Run Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
-
-      - name: Build desktop debug app bundle
-        run: bun run tauri:build:debug:app
+        run: cargo test --manifest-path desktop-backend/Cargo.toml
 
       - id: signing_identity
         name: Import signing certificate
@@ -226,11 +223,16 @@ jobs:
           git tag "${RELEASE_TAG}" "$SOURCE_SHA"
           git push origin "${RELEASE_TAG}"
 
-      - name: Build signed app bundle
+      - name: Build signed unpacked Electron app
         shell: bash
         env:
-          APPLE_SIGNING_IDENTITY: ${{ steps.signing_identity.outputs.identity }}
-        run: bun run tauri build --target aarch64-apple-darwin --bundles app
+          CSC_NAME: ${{ steps.signing_identity.outputs.identity }}
+          CSC_KEYCHAIN: ${{ steps.signing_identity.outputs.keychain_path }}
+        run: |
+          set -euo pipefail
+
+          bun run electron:prepare
+          bunx electron-builder --dir --publish never
 
       - id: notarize
         name: Notarize and staple app bundle
@@ -240,7 +242,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_path="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Skein.app"
+          app_path="release-artifacts/electron/mac-arm64/Skein.app"
           zip_path="$RUNNER_TEMP/Skein-notary.zip"
 
           if [[ ! -d "$app_path" ]]; then
@@ -300,49 +302,17 @@ jobs:
 
           xcrun stapler staple "$app_path"
 
-      - name: Write updater signing key
+      - name: Package notarized Electron release artifacts
         shell: bash
         run: |
           set -euo pipefail
-          key_path="$RUNNER_TEMP/skein-updater.key"
-          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$key_path"
-          chmod 600 "$key_path"
-          echo "UPDATER_KEY_PATH=$key_path" >> "$GITHUB_ENV"
 
-      - name: Package release artifacts
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          app_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
-          app_path="$app_dir/Skein.app"
-          artifacts_dir="release-artifacts"
-          dmg_root="$artifacts_dir/dmg-root"
-
-          rm -rf "$artifacts_dir"
-          mkdir -p "$artifacts_dir" "$dmg_root"
-
-          ditto "$app_path" "$dmg_root/Skein.app"
-          ditto -c -k --keepParent "$dmg_root/Skein.app" "$artifacts_dir/Skein.zip"
-
-          hdiutil create \
-            -volname "Skein" \
-            -srcfolder "$dmg_root" \
-            -ov \
-            -format UDZO \
-            "$artifacts_dir/Skein_${RELEASE_VERSION}_aarch64.dmg"
-
-          COPYFILE_DISABLE=1 tar -czf \
-            "$artifacts_dir/Skein.app.tar.gz" \
-            -C "$app_dir" \
-            "Skein.app"
-
-          bun run tauri signer sign -- \
-            -f "$UPDATER_KEY_PATH" \
-            -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
-            "$artifacts_dir/Skein.app.tar.gz"
+          rm -rf release-artifacts/release
+          bunx electron-builder \
+            --prepackaged "release-artifacts/electron/mac-arm64/Skein.app" \
+            --mac dmg zip \
+            --publish never \
+            -c.directories.output=release-artifacts/release
 
       - name: Generate release notes
         shell: bash
@@ -351,6 +321,7 @@ jobs:
           SOURCE_SHA: ${{ steps.release_source.outputs.source_sha }}
         run: |
           set -euo pipefail
+
           gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
             -X POST \
             -F "tag_name=${RELEASE_TAG}" \
@@ -361,7 +332,7 @@ jobs:
             echo "- Initial Skein release." > release-artifacts/release-notes.md
           fi
 
-      - name: Build latest.json
+      - name: Generate transition updater artifacts
         shell: bash
         env:
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
@@ -369,7 +340,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          python3 -c 'import json, os; from datetime import datetime, timezone; from pathlib import Path; notes = Path("release-artifacts/release-notes.md").read_text().strip(); signature = Path("release-artifacts/Skein.app.tar.gz.sig").read_text().strip(); payload = {"version": os.environ["RELEASE_VERSION"], "notes": notes, "pub_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "platforms": {"darwin-aarch64": {"signature": signature, "url": f"https://github.com/{os.environ['"'"'GITHUB_REPOSITORY'"'"']}/releases/download/{os.environ['"'"'RELEASE_TAG'"'"']}/Skein.app.tar.gz"}}}; Path("release-artifacts/latest.json").write_text(json.dumps(payload, indent=2) + "\n")'
+          if [[ -z "${LEGACY_UPDATER_PRIVATE_KEY}" ]]; then
+            echo "LEGACY_UPDATER_PRIVATE_KEY must be configured to publish the pre-Electron transition release." >&2
+            exit 1
+          fi
+
+          node scripts/generate-legacy-transition-artifacts.mjs "${RELEASE_VERSION}"
 
       - name: Publish or update GitHub release
         shell: bash
@@ -382,11 +358,14 @@ jobs:
           set -euo pipefail
 
           assets=(
-            "release-artifacts/Skein.zip"
-            "release-artifacts/Skein_${RELEASE_VERSION}_aarch64.dmg"
-            "release-artifacts/Skein.app.tar.gz"
-            "release-artifacts/Skein.app.tar.gz.sig"
-            "release-artifacts/latest.json"
+            "release-artifacts/release/Skein-${RELEASE_VERSION}-arm64.zip"
+            "release-artifacts/release/Skein-${RELEASE_VERSION}-arm64.zip.blockmap"
+            "release-artifacts/release/Skein-${RELEASE_VERSION}-arm64.dmg"
+            "release-artifacts/release/Skein-${RELEASE_VERSION}-arm64.dmg.blockmap"
+            "release-artifacts/release/Skein.app.tar.gz"
+            "release-artifacts/release/Skein.app.tar.gz.sig"
+            "release-artifacts/release/latest.json"
+            "release-artifacts/release/latest-mac.yml"
           )
 
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then

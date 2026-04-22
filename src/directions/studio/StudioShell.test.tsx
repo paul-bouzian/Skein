@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as notifications from "@tauri-apps/plugin-notification";
 
 import * as bridge from "../../lib/bridge";
 import { isMacPlatform } from "../../lib/shortcuts";
+import {
+  notificationGetPermissionStateMock,
+  notificationRequestPermissionMock,
+} from "../../test/desktop-mock";
 import {
   baseComposer,
   capabilitiesFixture,
@@ -108,17 +111,9 @@ vi.mock("../../lib/bridge", () => ({
   listenToMenuOpenSettings: vi.fn(async () => () => undefined),
 }));
 
-vi.mock("@tauri-apps/plugin-notification", () => ({
-  isPermissionGranted: vi.fn(),
-  requestPermission: vi.fn(),
-}));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  message: vi.fn(),
-}));
 
 const mockedBridge = vi.mocked(bridge);
-const mockedNotifications = vi.mocked(notifications);
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
@@ -142,10 +137,10 @@ beforeEach(async () => {
   mockedBridge.updateGlobalSettings.mockResolvedValue(makeGlobalSettings());
   mockedBridge.updateProjectSettings.mockResolvedValue(makeWorkspaceSnapshot().projects[0]);
   mockedBridge.listenToMenuOpenSettings.mockResolvedValue(() => undefined);
-  mockedNotifications.isPermissionGranted.mockReset();
-  mockedNotifications.requestPermission.mockReset();
-  mockedNotifications.isPermissionGranted.mockResolvedValue(true);
-  mockedNotifications.requestPermission.mockResolvedValue("granted");
+  notificationGetPermissionStateMock.mockReset();
+  notificationRequestPermissionMock.mockReset();
+  notificationGetPermissionStateMock.mockResolvedValue("granted");
+  notificationRequestPermissionMock.mockResolvedValue("granted");
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: {
@@ -855,8 +850,8 @@ describe("StudioShell", () => {
   });
 
   it("requests notification permission before enabling desktop notifications", async () => {
-    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
-    mockedNotifications.requestPermission.mockResolvedValue("granted");
+    notificationGetPermissionStateMock.mockResolvedValue("default");
+    notificationRequestPermissionMock.mockResolvedValue("granted");
     mockedBridge.updateGlobalSettings.mockResolvedValue(
       makeGlobalSettings({ desktopNotificationsEnabled: true }),
     );
@@ -874,14 +869,14 @@ describe("StudioShell", () => {
         desktopNotificationsEnabled: true,
       });
     });
-    expect(mockedNotifications.isPermissionGranted).toHaveBeenCalledTimes(1);
-    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+    expect(notificationGetPermissionStateMock).toHaveBeenCalledTimes(1);
+    expect(notificationRequestPermissionMock).toHaveBeenCalledTimes(1);
   });
 
   it("disables other global settings while desktop notification permission is pending", async () => {
     const permissionRequest = createDeferred<"granted" | "denied">();
-    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
-    mockedNotifications.requestPermission.mockImplementation(
+    notificationGetPermissionStateMock.mockResolvedValue("default");
+    notificationRequestPermissionMock.mockImplementation(
       () => permissionRequest.promise,
     );
     mockedBridge.updateGlobalSettings.mockResolvedValue(
@@ -922,8 +917,8 @@ describe("StudioShell", () => {
   });
 
   it("keeps desktop notifications off when notification permission is denied", async () => {
-    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
-    mockedNotifications.requestPermission.mockResolvedValue("denied");
+    notificationGetPermissionStateMock.mockResolvedValue("default");
+    notificationRequestPermissionMock.mockResolvedValue("denied");
 
     render(<StudioShell />);
 
@@ -969,14 +964,14 @@ describe("StudioShell", () => {
         desktopNotificationsEnabled: false,
       });
     });
-    expect(mockedNotifications.requestPermission).not.toHaveBeenCalled();
+    expect(notificationRequestPermissionMock).not.toHaveBeenCalled();
   });
 
   it("ignores repeated desktop notification toggles while the save is in flight", async () => {
     const saveRequest =
       createDeferred<ReturnType<typeof makeWorkspaceSnapshot>["settings"]>();
-    mockedNotifications.isPermissionGranted.mockResolvedValue(false);
-    mockedNotifications.requestPermission.mockResolvedValue("granted");
+    notificationGetPermissionStateMock.mockResolvedValue("default");
+    notificationRequestPermissionMock.mockResolvedValue("granted");
     mockedBridge.updateGlobalSettings.mockImplementation(() => saveRequest.promise);
 
     render(<StudioShell />);
@@ -990,12 +985,12 @@ describe("StudioShell", () => {
     await waitFor(() => {
       expect(toggle).toBeDisabled();
     });
-    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+    expect(notificationRequestPermissionMock).toHaveBeenCalledTimes(1);
     expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
 
     await userEvent.click(toggle);
 
-    expect(mockedNotifications.requestPermission).toHaveBeenCalledTimes(1);
+    expect(notificationRequestPermissionMock).toHaveBeenCalledTimes(1);
     expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledTimes(1);
 
     saveRequest.resolve(makeWorkspaceSnapshot().settings);

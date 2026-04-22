@@ -6,7 +6,7 @@ This file is the working contract for agents in this repository. Read it before 
 
 Skein is a Codex-first macOS desktop app built with:
 
-- `Tauri v2`
+- `Electron 41`
 - `React 19`
 - `TypeScript`
 - `Rust`
@@ -66,7 +66,7 @@ Do not clone another app visually. Reuse behavior and product framing, not brand
 - OpenAI Codex docs and `openai/codex`:
   - source of truth for protocol behavior and product semantics
 - `Dimillian/CodexMonitor`:
-  - strongest Tauri/Codex desktop reference
+  - strongest desktop Codex reference for event handling, approvals, review flows, and orchestration
   - use for app-server event handling, approvals, review flows, and desktop orchestration
 - `pingdotgg/t3code`:
   - strongest reference for Codex-first event brokering and session lifecycle handling
@@ -116,25 +116,26 @@ When extending these features, preserve the current product model instead of lay
 
 ### Keep these modules thin
 
-- `src-tauri/src/commands/*`
+- `desktop-backend/src/commands/*`
 
 Put behavior in domain/runtime/service modules instead of command handlers.
 
 ### Key backend anchors
 
-- `src-tauri/src/lib.rs`
-- `src-tauri/src/runtime/protocol.rs`
-- `src-tauri/src/runtime/session.rs`
-- `src-tauri/src/runtime/supervisor.rs`
-- `src-tauri/src/domain/conversation.rs`
-- `src-tauri/src/services/workspace.rs`
+- `desktop-backend/src/lib.rs`
+- `desktop-backend/src/runtime/protocol.rs`
+- `desktop-backend/src/runtime/session.rs`
+- `desktop-backend/src/runtime/supervisor.rs`
+- `desktop-backend/src/domain/conversation.rs`
+- `desktop-backend/src/services/workspace.rs`
 
-### Tauri rules
+### Desktop shell rules
 
-- Use explicit, typed commands
+- Electron main/preload own windowing, menu, updater, dialogs, external open, notifications, and preview protocol
+- The Rust sidecar owns privileged product logic and is reached through typed JSONL RPC
+- Keep preload exposure explicit; never expose raw `ipcRenderer`
 - Validate inputs up front and fail fast
 - Do not expose unrestricted shell/process behavior to the frontend
-- Keep capabilities/permissions least-privilege
 - Return structured results, not ad hoc strings
 
 ## Frontend Architecture Rules
@@ -200,19 +201,19 @@ Run these before considering a task done:
 
 ```bash
 bun run verify
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path desktop-backend/Cargo.toml
 ```
 
-Also run this when desktop/runtime/Tauri behavior changed:
+Also run this when the Electron shell, preload, updater, or packaging behavior changed:
 
 ```bash
-bun run tauri:build:debug
+bun run verify:electron
 ```
 
 If you changed Rust runtime or protocol code, also run:
 
 ```bash
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo clippy --manifest-path desktop-backend/Cargo.toml --all-targets -- -D warnings
 ```
 
 Add or update tests for:

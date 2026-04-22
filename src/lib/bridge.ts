@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-
 import {
   CODEX_USAGE_EVENT_NAMES,
   CONVERSATION_EVENT_NAMES,
@@ -67,6 +64,11 @@ import type {
   VoiceTranscriptionResult,
   WorkspaceSnapshot,
 } from "./types";
+import {
+  invokeCommand as invoke,
+  listenEvent as listen,
+  type HostUnlistenFn as UnlistenFn,
+} from "./desktop-host";
 
 export function getBootstrapStatus(): Promise<BootstrapStatus> {
   return invoke<BootstrapStatus>("get_bootstrap_status");

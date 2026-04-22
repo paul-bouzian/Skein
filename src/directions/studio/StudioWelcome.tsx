@@ -1,7 +1,7 @@
 import { EmptyState } from "../../shared/EmptyState";
 import { useProjectImport } from "./useProjectImport";
 import { APP_NAME } from "../../lib/app-identity";
-import skeinAppIcon from "../../../src-tauri/icons/icon.png";
+import skeinAppIcon from "../../../desktop-backend/icons/icon.png";
 import "./StudioWelcome.css";
 
 export function StudioWelcome() {

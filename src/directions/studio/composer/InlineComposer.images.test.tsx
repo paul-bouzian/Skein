@@ -2,7 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { useEffect, useMemo, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { open } from "@tauri-apps/plugin-dialog";
+import {
+  dialogOpenMock,
+  windowGetPathForFileMock,
+} from "../../../test/desktop-mock";
 
 import * as bridge from "../../../lib/bridge";
 import type { ComposerDraftMentionBinding } from "../../../lib/types";
@@ -21,18 +24,11 @@ vi.mock("../../../lib/bridge", () => ({
   getComposerCatalog: vi.fn(),
   searchComposerFiles: vi.fn(),
   getEnvironmentVoiceStatus: vi.fn(),
+  readImageAsDataUrl: vi.fn(),
   transcribeEnvironmentVoice: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  open: vi.fn(),
-}));
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: vi.fn(() => ({
-    onDragDropEvent: vi.fn(async () => () => undefined),
-  })),
-}));
 
 const mockedBridge = vi.mocked(bridge);
 
@@ -70,13 +66,16 @@ beforeEach(async () => {
     unavailableReason: null,
     message: null,
   });
-  vi.mocked(open).mockResolvedValue(null);
+  mockedBridge.readImageAsDataUrl.mockResolvedValue(
+    "data:image/png;base64,cHJldmlldw==",
+  );
+  dialogOpenMock.mockResolvedValue(null);
 });
 
 describe("InlineComposer image regressions", () => {
   it("ignores async picker completions after switching threads", async () => {
     const selection = createDeferred<string | string[] | null>();
-    vi.mocked(open).mockReturnValue(selection.promise);
+    dialogOpenMock.mockReturnValue(selection.promise);
 
     renderComposerWithDynamicThreadState();
 
@@ -196,6 +195,113 @@ describe("InlineComposer image regressions", () => {
         expect(screen.queryByLabelText("Attached images")).toBeNull();
       });
       expect(readAsDataUrl).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        value: originalFileReader,
+      });
+    }
+  });
+
+  it("does not duplicate dropped files when Electron resolves a local path", async () => {
+    const originalFileReader = window.FileReader;
+    const readAsDataUrl = vi.fn();
+
+    class TrackingFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public error: DOMException | null = null;
+      public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL(file: File) {
+        readAsDataUrl(file);
+      }
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      value: TrackingFileReader,
+    });
+
+    try {
+      const file = new File(["ok"], "dropped.png", { type: "image/png" });
+      windowGetPathForFileMock.mockReturnValue("/tmp/dropped.png");
+
+      renderComposer();
+
+      const input = await screen.findByPlaceholderText("Message Skein...");
+      const dropTarget = input.closest(".tx-composer__body");
+      expect(dropTarget).not.toBeNull();
+
+      fireEvent.drop(dropTarget!, {
+        dataTransfer: {
+          types: ["Files"],
+          files: [file],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("dropped.png")).toBeInTheDocument();
+      });
+      expect(readAsDataUrl).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "FileReader", {
+        configurable: true,
+        value: originalFileReader,
+      });
+    }
+  });
+
+  it("keeps each dropped file paired with its resolved path", async () => {
+    const originalFileReader = window.FileReader;
+    const readAsDataUrl = vi.fn();
+
+    class TrackingFileReader {
+      public result: string | ArrayBuffer | null = null;
+      public error: DOMException | null = null;
+      public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+
+      readAsDataURL(file: File) {
+        readAsDataUrl(file);
+        this.result = "data:image/png;base64,cGFpcmVk";
+        this.onload?.(new ProgressEvent("load") as ProgressEvent<FileReader>);
+      }
+    }
+
+    Object.defineProperty(window, "FileReader", {
+      configurable: true,
+      value: TrackingFileReader,
+    });
+
+    try {
+      const textFile = new File(["notes"], "notes.txt", { type: "text/plain" });
+      const imageFile = new File(["img"], "fallback.png", { type: "image/png" });
+      windowGetPathForFileMock.mockImplementation((file) => {
+        if (file === textFile) {
+          return "/tmp/notes.txt";
+        }
+        return null;
+      });
+
+      renderComposer();
+
+      const input = await screen.findByPlaceholderText("Message Skein...");
+      const dropTarget = input.closest(".tx-composer__body");
+      expect(dropTarget).not.toBeNull();
+
+      fireEvent.drop(dropTarget!, {
+        dataTransfer: {
+          types: ["Files"],
+          files: [textFile, imageFile],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("Pasted image")).toBeInTheDocument();
+      });
+      expect(readAsDataUrl).toHaveBeenCalledTimes(1);
+      expect(readAsDataUrl).toHaveBeenCalledWith(imageFile);
     } finally {
       Object.defineProperty(window, "FileReader", {
         configurable: true,

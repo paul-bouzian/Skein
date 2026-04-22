@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import * as bridge from "../../lib/bridge";
+import { dialog } from "../../lib/shell";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import type { EnvironmentRecord } from "../../lib/types";
 
@@ -20,7 +20,7 @@ export function useProjectImport() {
   const [error, setError] = useState<string | null>(null);
 
   async function importProject() {
-    const selection = await open({
+    const selection = await dialog.open({
       title: "Choose a project folder",
       directory: true,
       multiple: false,

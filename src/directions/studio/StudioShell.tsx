@@ -3,8 +3,12 @@ import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
   LEGACY_THEME_STORAGE_KEYS,
-  readLocalStorageWithMigration,
 } from "../../lib/app-identity";
+import {
+  persistUiPreference,
+  readUiPreferenceWithMigration,
+} from "../../lib/ui-prefs";
+import { menuShell } from "../../lib/shell";
 import {
   selectGitReviewScope,
   selectGitReviewSelectedFile,
@@ -41,7 +45,7 @@ export type Theme = "dark" | "light";
 
 function readTheme(): Theme {
   try {
-    const v = readLocalStorageWithMigration(
+    const v = readUiPreferenceWithMigration(
       THEME_STORAGE_KEY,
       LEGACY_THEME_STORAGE_KEYS,
     );
@@ -126,7 +130,7 @@ export function StudioShell() {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    void persistUiPreference(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
@@ -135,6 +139,12 @@ export function StudioShell() {
       `${sidePanelWidth}px`,
     );
   }, [sidePanelWidth]);
+
+  useEffect(() => {
+    void menuShell
+      .setOpenSettingsShortcut(settings?.shortcuts?.openSettings ?? null)
+      .catch(() => undefined);
+  }, [settings?.shortcuts?.openSettings]);
 
   useEffect(() => {
     void reconcileVoiceSessionSnapshot(workspaceSnapshot);

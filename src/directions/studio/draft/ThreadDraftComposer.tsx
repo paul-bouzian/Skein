@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import skeinAppIcon from "../../../../src-tauri/icons/icon.png";
+import skeinAppIcon from "../../../../desktop-backend/icons/icon.png";
 import * as bridge from "../../../lib/bridge";
 import type {
   CollaborationModeOption,
