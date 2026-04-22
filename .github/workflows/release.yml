@@ -232,7 +232,7 @@ jobs:
           set -euo pipefail
 
           bun run electron:prepare
-          bunx electron-builder --dir --publish never
+          bunx electron-builder --dir --publish never -c.mac.notarize=false
 
       - id: notarize
         name: Notarize and staple app bundle
@@ -312,6 +312,7 @@ jobs:
             --prepackaged "release-artifacts/electron/mac-arm64/Skein.app" \
             --mac dmg zip \
             --publish never \
+            -c.mac.notarize=false \
             -c.directories.output=release-artifacts/release
 
       - name: Generate release notes
