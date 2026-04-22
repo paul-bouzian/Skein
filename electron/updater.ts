@@ -67,6 +67,11 @@ export class AppUpdater {
         return null;
       }
 
+      const activeOffer = this.activeOffer;
+      if (activeOffer && !activeOffer.closed && activeOffer.downloading) {
+        return this.toDesktopUpdate(activeOffer);
+      }
+
       const result = await this.updater.checkForUpdates();
       if (!result?.isUpdateAvailable) {
         this.releaseOffer(this.activeOffer);
@@ -88,13 +93,7 @@ export class AppUpdater {
       this.releaseOffer(this.activeOffer);
       this.activeOffer = offer;
 
-      return {
-        id: offer.id,
-        currentVersion: app.getVersion(),
-        version: offer.info.version,
-        date: offer.info.releaseDate ?? null,
-        body: normalizeReleaseNotes(offer.info.releaseNotes),
-      };
+      return this.toDesktopUpdate(offer);
     });
   }
 
@@ -106,20 +105,26 @@ export class AppUpdater {
   }
 
   async downloadAndInstall(updateId: string, onEvent?: UpdateDownloadHandler) {
-    await this.runExclusive(async () => {
+    const offer = await this.runExclusive(async () => {
       const offer = this.requireActiveOffer(updateId);
       if (offer.downloading) {
         throw new Error("This update is already downloading.");
       }
 
       offer.downloading = true;
-      try {
-        await this.downloadUpdate(offer, onEvent);
-        this.releaseOffer(offer);
-      } finally {
-        offer.downloading = false;
-      }
+      return offer;
     });
+
+    try {
+      await this.downloadUpdate(offer, onEvent);
+    } finally {
+      await this.runExclusive(async () => {
+        if (this.activeOffer === offer && !offer.closed) {
+          this.releaseOffer(offer);
+        }
+        offer.downloading = false;
+      });
+    }
   }
 
   restartToApplyUpdate() {
@@ -147,6 +152,16 @@ export class AppUpdater {
       () => undefined,
     );
     return task;
+  }
+
+  private toDesktopUpdate(offer: PendingUpdateOffer): DesktopUpdate {
+    return {
+      id: offer.id,
+      currentVersion: app.getVersion(),
+      version: offer.info.version,
+      date: offer.info.releaseDate ?? null,
+      body: normalizeReleaseNotes(offer.info.releaseNotes),
+    };
   }
 
   private releaseOffer(offer: PendingUpdateOffer | null) {
@@ -179,7 +194,7 @@ export class AppUpdater {
       }
 
       started = true;
-      onEvent?.({
+      this.safeEmit(onEvent, {
         event: "Started",
         data: {
           contentLength: contentLength ?? null,
@@ -196,7 +211,7 @@ export class AppUpdater {
         return;
       }
 
-      onEvent?.({
+      this.safeEmit(onEvent, {
         event: "Progress",
         data: {
           chunkLength,
@@ -209,11 +224,22 @@ export class AppUpdater {
       await this.updater.downloadUpdate(offer.cancellationToken);
       emitStarted(null);
       this.downloadedVersion = offer.info.version;
-      onEvent?.({
+      this.safeEmit(onEvent, {
         event: "Finished",
       });
     } finally {
       this.updater.off("download-progress", handleProgress);
+    }
+  }
+
+  private safeEmit(
+    onEvent: UpdateDownloadHandler | undefined,
+    event: DesktopUpdateDownloadEvent,
+  ) {
+    try {
+      onEvent?.(event);
+    } catch {
+      // Ignore renderer delivery failures so they cannot break updater state.
     }
   }
 }

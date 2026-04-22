@@ -12,10 +12,12 @@ const quitAndInstallMock = vi.fn();
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 class MockCancellationToken {
@@ -159,7 +161,34 @@ describe("AppUpdater", () => {
 
     await expect(firstInstall).resolves.toBeUndefined();
     await expect(secondInstall).rejects.toThrow(
-      "This update is no longer active.",
+      "This update is already downloading.",
     );
+  });
+
+  it("allows close to cancel an in-flight download", async () => {
+    const cancellationToken = new MockCancellationToken();
+    const downloadDeferred = createDeferred<string[]>();
+    cancellationToken.cancel = vi.fn(() => {
+      downloadDeferred.reject(new Error("cancelled"));
+    });
+    checkForUpdatesMock.mockResolvedValue({
+      isUpdateAvailable: true,
+      updateInfo: {
+        version: "0.2.0",
+        releaseDate: "2026-04-21T10:00:00Z",
+        releaseNotes: "Adds Electron auto-update support.",
+      },
+      cancellationToken,
+    });
+    downloadUpdateMock.mockReturnValue(downloadDeferred.promise);
+
+    const { AppUpdater } = await import("./updater.js");
+    const updater = new AppUpdater();
+    const update = await updater.check();
+
+    const install = updater.downloadAndInstall(update!.id);
+    await expect(updater.close(update!.id)).resolves.toBeUndefined();
+    await expect(install).rejects.toThrow("cancelled");
+    expect(cancellationToken.cancel).toHaveBeenCalledTimes(1);
   });
 });

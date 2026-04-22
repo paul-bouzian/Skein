@@ -91,11 +91,12 @@ function isFileMissing(error) {
 }
 
 async function materializePrivateKey(privateKey, destinationPath) {
-  if (await fileExists(privateKey)) {
-    return resolve(privateKey);
+  const normalizedPrivateKey = privateKey.trim();
+  if (await fileExists(normalizedPrivateKey)) {
+    return resolve(normalizedPrivateKey);
   }
 
-  await writeFile(destinationPath, privateKey.trim(), {
+  await writeFile(destinationPath, normalizedPrivateKey, {
     encoding: "utf8",
     mode: 0o600,
   });
