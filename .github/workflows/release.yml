@@ -351,6 +351,7 @@ jobs:
       - name: Publish or update GitHub release
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN != '' && secrets.RELEASE_GH_TOKEN || github.token }}
           RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
