@@ -351,11 +351,9 @@ jobs:
       - name: Publish or update GitHub release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN != '' && secrets.RELEASE_GH_TOKEN || github.token }}
           RELEASE_TAG: ${{ steps.release_meta.outputs.tag }}
           RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
-          SOURCE_SHA: ${{ steps.release_source.outputs.source_sha }}
         run: |
           set -euo pipefail
 
@@ -382,7 +380,6 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --title "Skein v${RELEASE_VERSION}" \
               --notes-file release-artifacts/release-notes.md \
-              --target "$SOURCE_SHA" \
               --prerelease \
               "${assets[@]}"
             exit 0
@@ -391,5 +388,4 @@ jobs:
           gh release create "$RELEASE_TAG" \
             --title "Skein v${RELEASE_VERSION}" \
             --notes-file release-artifacts/release-notes.md \
-            --target "$SOURCE_SHA" \
             "${assets[@]}"
