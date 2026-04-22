@@ -115,7 +115,7 @@ describe("AppUpdater", () => {
     expect(events).toEqual([
       {
         event: "Started",
-        data: { contentLength: null },
+        data: { contentLength: 100 },
       },
       {
         event: "Progress",

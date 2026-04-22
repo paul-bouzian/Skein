@@ -158,4 +158,87 @@ describe("preview protocol", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("carries session cookies across redirect hops", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 303,
+          headers: {
+            location: "/done",
+            "set-cookie": "session=skein; Path=/; HttpOnly",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const { registerPreviewProtocol } = await import("./preview-protocol.js");
+      await registerPreviewProtocol();
+
+      const protocolHandler = handleMock.mock.calls.at(-1)?.[1] as
+        | ((request: Request) => Promise<Response>)
+        | undefined;
+      expect(protocolHandler).toBeTypeOf("function");
+
+      const request = new Request("skein-preview://http_localhost:3000/login", {
+        method: "POST",
+        body: "email=skein@example.com",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+        },
+      });
+
+      const response = await protocolHandler!(request);
+
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        method: "GET",
+        body: undefined,
+      });
+      const headers = (fetchMock.mock.calls[1]?.[1] as RequestInit | undefined)
+        ?.headers as Headers | undefined;
+      expect(headers?.get("cookie")).toBe("session=skein");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects oversized buffered request bodies before forwarding", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const { registerPreviewProtocol } = await import("./preview-protocol.js");
+      await registerPreviewProtocol();
+
+      const protocolHandler = handleMock.mock.calls.at(-1)?.[1] as
+        | ((request: Request) => Promise<Response>)
+        | undefined;
+      expect(protocolHandler).toBeTypeOf("function");
+
+      const request = new Request("skein-preview://http_localhost:3000/upload", {
+        method: "POST",
+        body: "tiny",
+        headers: {
+          "content-length": String(20 * 1024 * 1024 + 1),
+        },
+      });
+
+      const response = await protocolHandler!(request);
+
+      expect(response.status).toBe(413);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

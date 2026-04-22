@@ -95,7 +95,7 @@ async function materializePrivateKey(privateKey, destinationPath) {
     return resolve(privateKey);
   }
 
-  await writeFile(destinationPath, privateKey, {
+  await writeFile(destinationPath, privateKey.trim(), {
     encoding: "utf8",
     mode: 0o600,
   });

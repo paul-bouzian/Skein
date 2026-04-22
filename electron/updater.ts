@@ -206,8 +206,8 @@ export class AppUpdater {
 
     this.updater.on("download-progress", handleProgress);
     try {
-      emitStarted(null);
       await this.updater.downloadUpdate(offer.cancellationToken);
+      emitStarted(null);
       this.downloadedVersion = offer.info.version;
       onEvent?.({
         event: "Finished",

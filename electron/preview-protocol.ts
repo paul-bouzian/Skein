@@ -8,6 +8,7 @@ import {
 } from "../src/lib/preview-url.js";
 
 const MAX_REDIRECTS = 10;
+const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
 const PROXY_TIMEOUT_MS = 30_000;
 const BLOCKED_REQUEST_HEADERS = new Set([
@@ -158,19 +159,119 @@ async function readBoundedBody(response: Response) {
   return { tooLarge: false as const, body };
 }
 
+async function readBoundedRequestBody(request: Request, method: string) {
+  if (method === "GET" || method === "HEAD") {
+    return { tooLarge: false as const, body: undefined };
+  }
+
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_REQUEST_BYTES) {
+    return { tooLarge: true as const, body: undefined };
+  }
+
+  if (!request.body) {
+    return { tooLarge: false as const, body: undefined };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    total += value.byteLength;
+    if (total > MAX_REQUEST_BYTES) {
+      return { tooLarge: true as const, body: undefined };
+    }
+    chunks.push(value);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return { tooLarge: false as const, body: Buffer.from(body) };
+}
+
+function collectSetCookies(headers: Headers) {
+  const extendedHeaders = headers as Headers & {
+    getSetCookie?: () => string[];
+    raw?: () => Record<string, string[]>;
+  };
+  if (typeof extendedHeaders.getSetCookie === "function") {
+    return extendedHeaders.getSetCookie();
+  }
+  if (typeof extendedHeaders.raw === "function") {
+    return extendedHeaders.raw()["set-cookie"] ?? [];
+  }
+
+  const value = headers.get("set-cookie");
+  return value ? [value] : [];
+}
+
+function mergeCookieHeader(
+  existingCookieHeader: string | null,
+  setCookies: string[],
+) {
+  if (setCookies.length === 0) {
+    return existingCookieHeader;
+  }
+
+  const cookies = new Map<string, string>();
+  for (const fragment of (existingCookieHeader ?? "").split(";")) {
+    const cookie = fragment.trim();
+    if (!cookie) {
+      continue;
+    }
+    const separatorIndex = cookie.indexOf("=");
+    const name = separatorIndex >= 0 ? cookie.slice(0, separatorIndex) : cookie;
+    cookies.set(name, cookie);
+  }
+
+  for (const setCookie of setCookies) {
+    const cookie = setCookie.split(";", 1)[0]?.trim();
+    if (!cookie) {
+      continue;
+    }
+    const separatorIndex = cookie.indexOf("=");
+    const name = separatorIndex >= 0 ? cookie.slice(0, separatorIndex) : cookie;
+    cookies.set(name, cookie);
+  }
+
+  return Array.from(cookies.values()).join("; ");
+}
+
 async function fetchLoopbackTarget(
   request: Request,
   target: URL,
   redirectsRemaining = MAX_REDIRECTS,
   method = request.method,
   requestBody?: Buffer,
+  cookieHeader?: string | null,
 ): Promise<Response> {
-  const body =
-    requestBody ??
-    (method === "GET" || method === "HEAD"
-      ? undefined
-      : Buffer.from(await request.arrayBuffer()));
+  const requestBodyState =
+    requestBody === undefined
+      ? await readBoundedRequestBody(request, method)
+      : { tooLarge: false as const, body: requestBody };
+  if (requestBodyState.tooLarge) {
+    return buildErrorResponse(
+      413,
+      `Request to ${target} exceeded the 20-MiB proxy limit.`,
+    );
+  }
+
+  const body = requestBodyState.body;
   const headers = sanitizeRequestHeaders(request);
+  if (cookieHeader) {
+    headers.set("cookie", cookieHeader);
+  }
   if (body === undefined) {
     headers.delete("content-type");
   }
@@ -205,6 +306,10 @@ async function fetchLoopbackTarget(
     }
 
     const nextRequest = rewriteRedirectRequest(response.status, method, body);
+    const nextCookieHeader = mergeCookieHeader(
+      headers.get("cookie"),
+      collectSetCookies(response.headers),
+    );
 
     return fetchLoopbackTarget(
       request,
@@ -212,6 +317,7 @@ async function fetchLoopbackTarget(
       redirectsRemaining - 1,
       nextRequest.method,
       nextRequest.body,
+      nextCookieHeader,
     );
   }
 

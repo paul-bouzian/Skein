@@ -41,21 +41,35 @@ export class PreferencesStore {
   }
 
   async set(key: string, value: string | null) {
-    this.writeChain = this.writeChain.then(async () => {
-      if (value === null) {
-        delete this.snapshot[key];
-      } else {
-        this.snapshot[key] = value;
-      }
+    const writeTask = this.writeChain.then(
+      () => this.applyAndPersist(key, value),
+      () => this.applyAndPersist(key, value),
+    );
+    this.writeChain = writeTask.then(
+      () => undefined,
+      () => undefined,
+    );
+    return writeTask;
+  }
 
+  private async applyAndPersist(key: string, value: string | null) {
+    const previousSnapshot = this.getSnapshot();
+    if (value === null) {
+      delete this.snapshot[key];
+    } else {
+      this.snapshot[key] = value;
+    }
+
+    try {
       await mkdir(dirname(this.path), { recursive: true });
       await writeFile(
         this.path,
         `${JSON.stringify(this.snapshot, null, 2)}\n`,
         "utf8",
       );
-    });
-
-    return this.writeChain;
+    } catch (error) {
+      this.snapshot = previousSnapshot;
+      throw error;
+    }
   }
 }
