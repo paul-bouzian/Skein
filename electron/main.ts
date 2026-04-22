@@ -24,14 +24,6 @@ import { PreferencesStore } from "./preferences.js";
 import { registerPreviewProtocol } from "./preview-protocol.js";
 import { AppUpdater } from "./updater.js";
 
-// Chromium's Fontations backend still crashes on some macOS 26 installs at
-// startup, before the renderer loads. Force the mature font backend until the
-// upstream Electron channel ships a stable fix.
-app.commandLine.appendSwitch(
-  "disable-features",
-  "FontationsFontBackend",
-);
-
 const appDataPath = app.getPath("appData");
 app.setPath("userData", join(appDataPath, "com.paulbouzian.skein"));
 const preferencesStore = new PreferencesStore(
