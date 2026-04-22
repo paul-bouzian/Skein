@@ -60,6 +60,7 @@ function readPreferencesSnapshot() {
 }
 
 const preferencesSnapshot = readPreferencesSnapshot();
+let preferenceWriteChain: Promise<void> = Promise.resolve();
 
 const skeinDesktop: SkeinDesktopApi = {
   invoke<T>(command: string, payload?: Record<string, unknown>) {
@@ -153,24 +154,16 @@ const skeinDesktop: SkeinDesktopApi = {
     getSnapshot() {
       return { ...preferencesSnapshot };
     },
-    async set(key: string, value: string | null) {
-      const previousValue = preferencesSnapshot[key];
-      if (value === null) {
-        delete preferencesSnapshot[key];
-      } else {
-        preferencesSnapshot[key] = value;
-      }
-
-      try {
-        await ipcRenderer.invoke("skein:preferences:set", key, value);
-      } catch (error) {
-        if (typeof previousValue === "string") {
-          preferencesSnapshot[key] = previousValue;
-        } else {
-          delete preferencesSnapshot[key];
-        }
-        throw error;
-      }
+    set(key: string, value: string | null) {
+      const writeTask = preferenceWriteChain.then(
+        () => persistPreference(key, value),
+        () => persistPreference(key, value),
+      );
+      preferenceWriteChain = writeTask.then(
+        () => undefined,
+        () => undefined,
+      );
+      return writeTask;
     },
   },
 
@@ -186,3 +179,23 @@ const skeinDesktop: SkeinDesktopApi = {
 };
 
 contextBridge.exposeInMainWorld("skeinDesktop", skeinDesktop);
+
+async function persistPreference(key: string, value: string | null) {
+  const previousValue = preferencesSnapshot[key];
+  if (value === null) {
+    delete preferencesSnapshot[key];
+  } else {
+    preferencesSnapshot[key] = value;
+  }
+
+  try {
+    await ipcRenderer.invoke("skein:preferences:set", key, value);
+  } catch (error) {
+    if (typeof previousValue === "string") {
+      preferencesSnapshot[key] = previousValue;
+    } else {
+      delete preferencesSnapshot[key];
+    }
+    throw error;
+  }
+}
