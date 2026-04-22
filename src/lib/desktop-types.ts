@@ -70,14 +70,11 @@ export type DesktopUpdateDownloadEvent =
     };
 
 export type DesktopUpdate = {
+  id: string;
   currentVersion: string;
   version: string;
   date?: string | null;
   body?: string | null;
-  close(): Promise<void>;
-  downloadAndInstall(
-    onEvent?: (event: DesktopUpdateDownloadEvent) => void,
-  ): Promise<void>;
 };
 
 export type DesktopPreferencesApi = {
@@ -111,6 +108,11 @@ export type SkeinDesktopApi = {
   };
   updater: {
     check(): Promise<DesktopUpdate | null>;
+    close(updateId: string): Promise<void>;
+    downloadAndInstall(
+      updateId: string,
+      onEvent?: (event: DesktopUpdateDownloadEvent) => void,
+    ): Promise<void>;
   };
   preferences?: DesktopPreferencesApi;
   window: {

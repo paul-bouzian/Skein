@@ -95,7 +95,10 @@ async function materializePrivateKey(privateKey, destinationPath) {
     return resolve(privateKey);
   }
 
-  await writeFile(destinationPath, privateKey.replace(/\s+/g, ""), "utf8");
+  await writeFile(destinationPath, privateKey, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return destinationPath;
 }
 

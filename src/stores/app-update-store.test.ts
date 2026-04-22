@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
-import { openExternalMock, updaterCheckMock } from "../test/desktop-mock";
+import {
+  openExternalMock,
+  updaterCheckMock,
+  updaterCloseMock,
+  updaterDownloadAndInstallMock,
+} from "../test/desktop-mock";
 import { useAppUpdateStore } from "./app-update-store";
-
-const closeMock = vi.fn().mockResolvedValue(undefined);
-const downloadAndInstallMock = vi.fn();
 
 
 
@@ -17,12 +19,11 @@ const mockedBridge = vi.mocked(bridge);
 
 function makeUpdate(overrides?: Partial<Record<string, unknown>>) {
   return {
+    id: "offer-1",
     currentVersion: "0.1.0",
     version: "0.2.0",
     date: "2026-04-04T10:00:00Z",
     body: "Adds native updater support.",
-    downloadAndInstall: downloadAndInstallMock,
-    close: closeMock,
     ...overrides,
   };
 }
@@ -106,27 +107,25 @@ describe("app-update-store", () => {
   });
 
   it("downloads, installs, and restarts the app", async () => {
-    updaterCheckMock.mockResolvedValue(
-      makeUpdate({
-        downloadAndInstall: (onEvent?: (event: unknown) => void) => {
-          onEvent?.({
-            event: "Started",
-            data: { contentLength: 100 },
-          });
-          onEvent?.({
-            event: "Progress",
-            data: { chunkLength: 60 },
-          });
-          onEvent?.({
-            event: "Progress",
-            data: { chunkLength: 40 },
-          });
-          onEvent?.({
-            event: "Finished",
-          });
-          return Promise.resolve();
-        },
-      }),
+    updaterCheckMock.mockResolvedValue(makeUpdate());
+    updaterDownloadAndInstallMock.mockImplementation(
+      async (_updateId, onEvent) => {
+        onEvent?.({
+          event: "Started",
+          data: { contentLength: 100 },
+        });
+        onEvent?.({
+          event: "Progress",
+          data: { chunkLength: 60 },
+        });
+        onEvent?.({
+          event: "Progress",
+          data: { chunkLength: 40 },
+        });
+        onEvent?.({
+          event: "Finished",
+        });
+      },
     );
 
     await useAppUpdateStore.getState().initialize();
@@ -134,7 +133,11 @@ describe("app-update-store", () => {
 
     expect(useAppUpdateStore.getState().downloadedBytes).toBe(100);
     expect(mockedBridge.restartApp).toHaveBeenCalledTimes(1);
-    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(updaterDownloadAndInstallMock).toHaveBeenCalledWith(
+      "offer-1",
+      expect.any(Function),
+    );
+    expect(updaterCloseMock).toHaveBeenCalledWith("offer-1");
   });
 
   it("opens the release page for the pending update", async () => {

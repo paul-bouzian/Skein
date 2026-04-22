@@ -1,11 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
+import {
+  assertDesktopBackendCommand,
+  assertDesktopEventName,
+  assertDesktopPayload,
+  assertOpenExternalUrl,
+} from "../src/lib/desktop-contract.js";
 import type {
   DesktopDialogOpenOptions,
   DesktopDialogOptions,
   DesktopNotification,
   DesktopNotificationPermission,
   DesktopUpdate,
+  DesktopUpdateDownloadEvent,
   HostEvent,
   HostUnlistenFn,
   SkeinDesktopApi,
@@ -56,14 +63,18 @@ const preferencesSnapshot = readPreferencesSnapshot();
 
 const skeinDesktop: SkeinDesktopApi = {
   invoke<T>(command: string, payload?: Record<string, unknown>) {
-    return ipcRenderer.invoke("skein:invoke", command, payload) as Promise<T>;
+    return ipcRenderer.invoke(
+      "skein:invoke",
+      assertDesktopBackendCommand(command),
+      assertDesktopPayload(payload),
+    ) as Promise<T>;
   },
 
   async listen<T>(
     eventName: string,
     handler: (event: HostEvent<T>) => void,
   ): Promise<HostUnlistenFn> {
-    const channel = `skein:event:${eventName}`;
+    const channel = `skein:event:${assertDesktopEventName(eventName)}`;
     const listener = (_event: unknown, payload: HostEvent<T>) => {
       handler(payload);
     };
@@ -87,7 +98,10 @@ const skeinDesktop: SkeinDesktopApi = {
 
   shell: {
     openExternal(url: string) {
-      return ipcRenderer.invoke("skein:shell:open-external", url);
+      return ipcRenderer.invoke(
+        "skein:shell:open-external",
+        assertOpenExternalUrl(url),
+      );
     },
   },
 
@@ -104,6 +118,25 @@ const skeinDesktop: SkeinDesktopApi = {
   updater: {
     check(): Promise<DesktopUpdate | null> {
       return ipcRenderer.invoke("skein:updater:check");
+    },
+    close(updateId: string) {
+      return ipcRenderer.invoke("skein:updater:close", updateId);
+    },
+    async downloadAndInstall(updateId: string, onEvent) {
+      const progressChannel = `skein:updater:download:${updateId}:${crypto.randomUUID()}`;
+      const listener = (_event: unknown, event: unknown) => {
+        onEvent?.(event as DesktopUpdateDownloadEvent);
+      };
+      ipcRenderer.on(progressChannel, listener);
+      try {
+        await ipcRenderer.invoke(
+          "skein:updater:download-and-install",
+          updateId,
+          progressChannel,
+        );
+      } finally {
+        ipcRenderer.removeListener(progressChannel, listener);
+      }
     },
   },
 

@@ -9,6 +9,11 @@ import {
 import { join } from "node:path";
 
 import { APP_NAME } from "../src/lib/app-identity.js";
+import {
+  assertDesktopBackendCommand,
+  assertDesktopPayload,
+  assertOpenExternalUrl,
+} from "../src/lib/desktop-contract.js";
 import type {
   DesktopDialogOpenOptions,
   DesktopDialogOptions,
@@ -73,7 +78,10 @@ function createMainWindow() {
 function registerIpcHandlers() {
   ipcMain.handle(
     "skein:invoke",
-    async (_event, command: string, payload?: Record<string, unknown>) => {
+    async (_event, command: string, payload?: unknown) => {
+      const nextCommand = assertDesktopBackendCommand(command);
+      const nextPayload = assertDesktopPayload(payload);
+
       if (command === "restart_app") {
         if (!appUpdater.restartToApplyUpdate()) {
           app.relaunch();
@@ -82,7 +90,7 @@ function registerIpcHandlers() {
         return;
       }
 
-      return backendClient.invoke(command, payload);
+      return backendClient.invoke(nextCommand, nextPayload);
     },
   );
 
@@ -144,9 +152,9 @@ function registerIpcHandlers() {
     },
   );
 
-  ipcMain.handle("skein:shell:open-external", (_event, url: string) =>
-    shell.openExternal(url),
-  );
+  ipcMain.handle("skein:shell:open-external", (_event, url: string) => {
+    return shell.openExternal(assertOpenExternalUrl(url));
+  });
 
   ipcMain.handle("skein:notifications:send", (_event, payload: { title: string; body: string }) => {
     if (!Notification.isSupported()) {
@@ -157,6 +165,25 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("skein:updater:check", () => appUpdater.check());
+  ipcMain.handle("skein:updater:close", (_event, updateId: string) =>
+    appUpdater.close(updateId),
+  );
+  ipcMain.handle(
+    "skein:updater:download-and-install",
+    (event, updateId: string, progressChannel: string) => {
+      if (
+        typeof progressChannel !== "string" ||
+        !progressChannel.startsWith("skein:updater:download:") ||
+        progressChannel.length <= "skein:updater:download:".length
+      ) {
+        throw new Error("Invalid updater progress channel.");
+      }
+
+      return appUpdater.downloadAndInstall(updateId, (downloadEvent) => {
+        event.sender.send(progressChannel, downloadEvent);
+      });
+    },
+  );
 
   ipcMain.handle(
     "skein:preferences:set",

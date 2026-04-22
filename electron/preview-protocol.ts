@@ -155,11 +155,13 @@ async function fetchLoopbackTarget(
   request: Request,
   target: URL,
   redirectsRemaining = MAX_REDIRECTS,
+  requestBody?: Buffer,
 ): Promise<Response> {
   const body =
-    request.method === "GET" || request.method === "HEAD"
+    requestBody ??
+    (request.method === "GET" || request.method === "HEAD"
       ? undefined
-      : Buffer.from(await request.arrayBuffer());
+      : Buffer.from(await request.arrayBuffer()));
   const response = await fetch(target, {
     method: request.method,
     headers: sanitizeRequestHeaders(request),
@@ -187,7 +189,7 @@ async function fetchLoopbackTarget(
       );
     }
 
-    return fetchLoopbackTarget(request, next, redirectsRemaining - 1);
+    return fetchLoopbackTarget(request, next, redirectsRemaining - 1, body);
   }
 
   return response;

@@ -250,9 +250,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       );
                     }}
                     onBranchChipOpenPullRequest={(url) => {
-                      void Promise.resolve(openExternalUrl(url)).catch(
-                        () => undefined,
-                      );
+                      openPullRequest(url);
                     }}
                     onContextMenu={(event) => {
                       event.preventDefault();
@@ -458,6 +456,12 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     } catch (cause: unknown) {
       setActionError(actionErrorMessage(cause, "Failed to delete worktree"));
     }
+  }
+
+  function openPullRequest(url: string) {
+    void Promise.resolve(openExternalUrl(url)).catch((cause: unknown) => {
+      setActionError(actionErrorMessage(cause, "Failed to open pull request"));
+    });
   }
 
   return (
@@ -713,9 +717,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                       const url = contextMenu.pullRequestUrl;
                       setContextMenu(null);
                       if (url) {
-                        void Promise.resolve(openExternalUrl(url)).catch(
-                          () => undefined,
-                        );
+                        openPullRequest(url);
                       }
                     }}
                   >

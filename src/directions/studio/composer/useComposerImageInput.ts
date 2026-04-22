@@ -247,13 +247,14 @@ export function useComposerImageInput({
     const scopeVersion = scopeVersionRef.current;
 
     const files = Array.from(event.dataTransfer?.files ?? []);
+    const filePaths = files.map((file) => windowShell.getPathForFile(file));
     const pathImages = pathsToLocalImages(
-      files.map((file) => windowShell.getPathForFile(file) ?? ""),
+      filePaths.map((path) => path ?? ""),
     );
     const dataImages = await readImageFilesAsDataUrls(
       files
         .filter((file) => isSupportedImageFile(file))
-        .filter((file) => !((file as File & { path?: string }).path ?? "")),
+        .filter((_, index) => !filePaths[index]),
     );
     if (scopeVersion !== scopeVersionRef.current) {
       return;

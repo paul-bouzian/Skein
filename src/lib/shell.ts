@@ -4,6 +4,7 @@ import type {
   DesktopNotification,
   DesktopNotificationPermission,
   DesktopUpdate,
+  DesktopUpdateDownloadEvent,
   DesktopWindowDragDropEvent,
   HostUnlistenFn,
 } from "./desktop-types";
@@ -55,6 +56,17 @@ export const notifications = {
 export const updater = {
   check(): Promise<DesktopUpdate | null> {
     return requireDesktopShell().updater.check();
+  },
+
+  close(updateId: string): Promise<void> {
+    return requireDesktopShell().updater.close(updateId);
+  },
+
+  downloadAndInstall(
+    updateId: string,
+    onEvent?: (event: DesktopUpdateDownloadEvent) => void,
+  ): Promise<void> {
+    return requireDesktopShell().updater.downloadAndInstall(updateId, onEvent);
   },
 };
 

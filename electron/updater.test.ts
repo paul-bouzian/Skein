@@ -95,11 +95,12 @@ describe("AppUpdater", () => {
     const update = await updater.check();
 
     expect(update).not.toBeNull();
+    expect(update?.id).toBe("offer-1");
     expect(update?.version).toBe("0.2.0");
     expect(update?.body).toBe("Adds Electron auto-update support.");
 
     const events: Array<unknown> = [];
-    await update?.downloadAndInstall((event) => {
+    await updater.downloadAndInstall(update!.id, (event) => {
       events.push(event);
     });
 
@@ -124,7 +125,7 @@ describe("AppUpdater", () => {
     expect(updater.restartToApplyUpdate()).toBe(true);
     expect(quitAndInstallMock).toHaveBeenCalledTimes(1);
 
-    await update?.close();
+    await updater.close(update!.id);
     expect(cancellationToken.cancel).toHaveBeenCalledTimes(1);
   });
 });

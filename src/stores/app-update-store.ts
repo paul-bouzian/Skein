@@ -191,7 +191,7 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     });
 
     try {
-      await pendingUpdate.downloadAndInstall((event) => {
+      await updater.downloadAndInstall(pendingUpdate.id, (event) => {
         applyDownloadEvent(event, set);
       });
       await replacePendingUpdate(null);
@@ -234,7 +234,7 @@ async function replacePendingUpdate(next: DesktopUpdate | null) {
   pendingUpdate = next;
 
   if (previous && previous !== next) {
-    await previous.close().catch(() => undefined);
+    await updater.close(previous.id).catch(() => undefined);
   }
 }
 

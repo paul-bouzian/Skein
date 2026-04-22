@@ -29,6 +29,7 @@ function parsePreferencesFile(path: string): PreferencesSnapshot {
 export class PreferencesStore {
   private readonly path: string;
   private snapshot: PreferencesSnapshot;
+  private writeChain: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.path = path;
@@ -40,13 +41,21 @@ export class PreferencesStore {
   }
 
   async set(key: string, value: string | null) {
-    if (value === null) {
-      delete this.snapshot[key];
-    } else {
-      this.snapshot[key] = value;
-    }
+    this.writeChain = this.writeChain.then(async () => {
+      if (value === null) {
+        delete this.snapshot[key];
+      } else {
+        this.snapshot[key] = value;
+      }
 
-    await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, `${JSON.stringify(this.snapshot, null, 2)}\n`, "utf8");
+      await mkdir(dirname(this.path), { recursive: true });
+      await writeFile(
+        this.path,
+        `${JSON.stringify(this.snapshot, null, 2)}\n`,
+        "utf8",
+      );
+    });
+
+    return this.writeChain;
   }
 }

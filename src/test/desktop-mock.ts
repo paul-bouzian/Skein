@@ -38,6 +38,12 @@ export const notificationRequestPermissionMock = vi.fn<
 export const updaterCheckMock = vi.fn<
   SkeinDesktopApi["updater"]["check"]
 >();
+export const updaterCloseMock = vi.fn<
+  SkeinDesktopApi["updater"]["close"]
+>();
+export const updaterDownloadAndInstallMock = vi.fn<
+  SkeinDesktopApi["updater"]["downloadAndInstall"]
+>();
 export const preferenceSetMock = vi.fn<
   NonNullable<SkeinDesktopApi["preferences"]>["set"]
 >();
@@ -75,6 +81,8 @@ function createDesktopMock(): SkeinDesktopApi {
     },
     updater: {
       check: updaterCheckMock,
+      close: updaterCloseMock,
+      downloadAndInstall: updaterDownloadAndInstallMock,
     },
     preferences: {
       snapshot: defaultPreferencesSnapshot,
@@ -98,6 +106,8 @@ export function resetDesktopMock() {
   notificationGetPermissionStateMock.mockReset();
   notificationRequestPermissionMock.mockReset();
   updaterCheckMock.mockReset();
+  updaterCloseMock.mockReset();
+  updaterDownloadAndInstallMock.mockReset();
   preferenceSetMock.mockReset();
   windowGetPathForFileMock.mockReset();
   windowOnDragDropEventMock.mockReset();
@@ -114,6 +124,8 @@ export function resetDesktopMock() {
   );
   notificationRequestPermissionMock.mockResolvedValue("denied");
   updaterCheckMock.mockResolvedValue(null as DesktopUpdate | null);
+  updaterCloseMock.mockResolvedValue();
+  updaterDownloadAndInstallMock.mockResolvedValue();
   preferenceSetMock.mockResolvedValue();
   windowGetPathForFileMock.mockImplementation((file: File) => {
     return (file as File & { path?: string }).path ?? null;

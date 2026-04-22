@@ -4,7 +4,9 @@ import {
   dialogConfirmMock,
   notificationGetPermissionStateMock,
   openExternalMock,
+  updaterCloseMock,
   updaterCheckMock,
+  updaterDownloadAndInstallMock,
   windowGetPathForFileMock,
 } from "../test/desktop-mock";
 import {
@@ -21,6 +23,8 @@ describe("shell", () => {
     notificationGetPermissionStateMock.mockReset();
     openExternalMock.mockReset();
     updaterCheckMock.mockReset();
+    updaterCloseMock.mockReset();
+    updaterDownloadAndInstallMock.mockReset();
     windowGetPathForFileMock.mockReset();
   });
 
@@ -48,15 +52,28 @@ describe("shell", () => {
 
   it("passes updater checks through the desktop host", async () => {
     const update = {
+      id: "offer-1",
       currentVersion: "0.1.0",
       version: "0.2.0",
-      close: async () => undefined,
-      downloadAndInstall: async () => undefined,
     };
     updaterCheckMock.mockResolvedValue(update);
 
     await expect(updater.check()).resolves.toBe(update);
     expect(updaterCheckMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes updater actions through the desktop host", async () => {
+    updaterCloseMock.mockResolvedValue(undefined);
+    updaterDownloadAndInstallMock.mockResolvedValue(undefined);
+
+    await updater.close("offer-1");
+    await updater.downloadAndInstall("offer-1");
+
+    expect(updaterCloseMock).toHaveBeenCalledWith("offer-1");
+    expect(updaterDownloadAndInstallMock).toHaveBeenCalledWith(
+      "offer-1",
+      undefined,
+    );
   });
 
   it("reads file paths through the desktop host", () => {

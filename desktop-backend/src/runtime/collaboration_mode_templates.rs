@@ -4,6 +4,8 @@ const PLAN_TEMPLATE: &str = include_str!("collaboration_mode_templates/plan.md")
 
 pub fn developer_instructions_for_mode(mode: CollaborationMode) -> Option<String> {
     match mode {
+        // Build mode uses Codex's built-in default collaboration mode. Sending
+        // `null` here clears any prior plan-specific developer instructions.
         CollaborationMode::Build => None,
         CollaborationMode::Plan => Some(PLAN_TEMPLATE.to_string()),
     }
@@ -15,7 +17,7 @@ mod tests {
     use crate::domain::settings::CollaborationMode;
 
     #[test]
-    fn build_mode_instructions_render_default_template() {
+    fn build_mode_instructions_clear_mode_specific_template() {
         let instructions = developer_instructions_for_mode(CollaborationMode::Build);
 
         assert!(instructions.is_none());
