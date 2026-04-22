@@ -1,6 +1,6 @@
 [package]
 name = "skein"
-version = "0.1.18"
+version = "0.1.19"
 description = "Skein is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows"
 authors = ["Paul Bouzian"]
 edition = "2021"
