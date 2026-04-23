@@ -119,7 +119,7 @@ export function TerminalView({ ptyId, active, exited, theme }: Props) {
     const term = new Terminal({
       cursorBlink: true,
       fontFamily:
-        "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+        "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
       fontSize: 12.5,
       theme: readTerminalTheme(container),
       scrollback: 5000,
