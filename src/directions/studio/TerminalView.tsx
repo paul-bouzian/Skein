@@ -116,10 +116,10 @@ export function TerminalView({ ptyId, active, exited, theme }: Props) {
     const container = containerRef.current;
     if (!container) return;
 
+    const fontFamily = readCssToken(getComputedStyle(container), "--tx-font-mono");
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily:
-        "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+      fontFamily,
       fontSize: 12.5,
       theme: readTerminalTheme(container),
       scrollback: 5000,
@@ -135,6 +135,19 @@ export function TerminalView({ ptyId, active, exited, theme }: Props) {
 
     // Initial fit — defers one tick so the container has its layout box.
     queueMicrotask(refit);
+
+    // JetBrains Mono loads async via @fontsource-variable/jetbrains-mono, so
+    // xterm's initial glyph measurement at term.open() is based on whatever
+    // fallback was active. Once the webfont swaps in, force a re-measure —
+    // the options setter short-circuits equal values, so round-trip through
+    // a different string to guarantee the measurement pipeline runs again.
+    void document.fonts?.ready?.then(() => {
+      const currentTerm = termRef.current;
+      if (!currentTerm || !fontFamily) return;
+      currentTerm.options.fontFamily = `${fontFamily}, monospace`;
+      currentTerm.options.fontFamily = fontFamily;
+      refit();
+    });
 
     // FE -> PTY: forward keystrokes / paste / wheel input.
     const dataSubscription = term.onData((data) => {
