@@ -60,8 +60,18 @@ vi.mock("electron", () => ({
 
 vi.mock("electron-updater", () => ({
   autoUpdater: mockUpdater,
+  MacUpdater: class {
+    constructor() {
+      return mockUpdater;
+    }
+  },
   default: {
     autoUpdater: mockUpdater,
+    MacUpdater: class {
+      constructor() {
+        return mockUpdater;
+      }
+    },
   },
   CancellationToken: MockCancellationToken,
 }));
@@ -80,6 +90,14 @@ describe("AppUpdater", () => {
     const { AppUpdater } = await import("./updater.js");
 
     await expect(new AppUpdater().check()).resolves.toBeNull();
+    expect(checkForUpdatesMock).not.toHaveBeenCalled();
+  });
+
+  it("constructs the packaged updater from the explicit GitHub feed on macOS", async () => {
+    const { AppUpdater } = await import("./updater.js");
+
+    new AppUpdater();
+
     expect(checkForUpdatesMock).not.toHaveBeenCalled();
   });
 

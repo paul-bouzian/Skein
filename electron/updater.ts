@@ -25,6 +25,21 @@ type PendingUpdateOffer = {
 
 const { autoUpdater, CancellationToken } = electronUpdater;
 const DEV_UPDATER_ENV = "SKEIN_ENABLE_DEV_UPDATER";
+const GITHUB_UPDATER_CONFIGURATION = {
+  provider: "github",
+  owner: "paul-bouzian",
+  repo: "Skein",
+  channel: "latest",
+  updaterCacheDirName: "com.paulbouzian.skein-updater",
+} as const;
+
+function createDefaultUpdater(): ElectronUpdater {
+  if (process.platform !== "darwin") {
+    return autoUpdater;
+  }
+
+  return new electronUpdater.MacUpdater(GITHUB_UPDATER_CONFIGURATION);
+}
 
 function shouldEnableUpdater(appUpdater: ElectronUpdater) {
   if (app.isPackaged) {
@@ -54,7 +69,7 @@ export class AppUpdater {
   private nextOfferId = 0;
   private actionQueue: Promise<void> = Promise.resolve();
 
-  constructor(updater: ElectronUpdater = autoUpdater) {
+  constructor(updater: ElectronUpdater = createDefaultUpdater()) {
     this.updater = updater;
     this.updater.autoDownload = false;
     this.updater.autoInstallOnAppQuit = true;

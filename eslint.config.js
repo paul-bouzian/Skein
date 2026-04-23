@@ -6,7 +6,15 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist", "dist-electron", "node_modules", "desktop-backend/target"],
+    ignores: [
+      "dist",
+      "dist-electron",
+      "node_modules",
+      "desktop-backend/target",
+      "src-tauri",
+      "main.js",
+      "preload.js",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

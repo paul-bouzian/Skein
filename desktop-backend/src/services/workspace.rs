@@ -2760,6 +2760,9 @@ impl WorkspaceService {
             "
             INSERT INTO global_settings (singleton_key, payload_json, updated_at)
             VALUES ('global', ?1, ?2)
+            ON CONFLICT(singleton_key) DO UPDATE SET
+              payload_json = excluded.payload_json,
+              updated_at = excluded.updated_at
             ",
             params![payload, Utc::now()],
         )?;
