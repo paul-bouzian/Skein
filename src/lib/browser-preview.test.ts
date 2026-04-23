@@ -38,6 +38,15 @@ describe("normalizeBrowserUrl", () => {
     const result = normalizeBrowserUrl("http://[::1]:8080/");
     expect(result).toBe("http://[::1]:8080/");
   });
+
+  it("treats loopback with query/hash as http, not https", () => {
+    expect(normalizeBrowserUrl("localhost:3000?foo=1")).toBe(
+      "http://localhost:3000/?foo=1",
+    );
+    expect(normalizeBrowserUrl("127.0.0.1:8080#hash")).toBe(
+      "http://127.0.0.1:8080/#hash",
+    );
+  });
 });
 
 describe("isLoopbackHost", () => {

@@ -110,12 +110,22 @@ export class BrowserController {
 
     ipcMain.handle("skein:browser:back", async (_event, payload) => {
       const body = assertPlainObject(payload);
-      this.back(assertBrowserTabId(body.tabId));
+      const tabId = assertBrowserTabId(body.tabId);
+      const fallback =
+        body.fallbackUrl === undefined || body.fallbackUrl === null
+          ? null
+          : assertBrowserUrl(body.fallbackUrl);
+      this.back(tabId, fallback);
     });
 
     ipcMain.handle("skein:browser:forward", async (_event, payload) => {
       const body = assertPlainObject(payload);
-      this.forward(assertBrowserTabId(body.tabId));
+      const tabId = assertBrowserTabId(body.tabId);
+      const fallback =
+        body.fallbackUrl === undefined || body.fallbackUrl === null
+          ? null
+          : assertBrowserUrl(body.fallbackUrl);
+      this.forward(tabId, fallback);
     });
 
     ipcMain.handle("skein:browser:reload", async (_event, payload) => {
@@ -188,18 +198,32 @@ export class BrowserController {
     });
   }
 
-  private back(tabId: string): void {
+  private back(tabId: string, fallbackUrl: string | null): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
     const history = tab.view.webContents.navigationHistory;
-    if (history.canGoBack()) history.goBack();
+    if (history.canGoBack()) {
+      history.goBack();
+      return;
+    }
+    // View was recreated (env switch round-trip) — native history is
+    // empty but the renderer still has the URL it wants to return to.
+    if (fallbackUrl) {
+      void tab.view.webContents.loadURL(fallbackUrl).catch(() => {});
+    }
   }
 
-  private forward(tabId: string): void {
+  private forward(tabId: string, fallbackUrl: string | null): void {
     const tab = this.tabs.get(tabId);
     if (!tab) return;
     const history = tab.view.webContents.navigationHistory;
-    if (history.canGoForward()) history.goForward();
+    if (history.canGoForward()) {
+      history.goForward();
+      return;
+    }
+    if (fallbackUrl) {
+      void tab.view.webContents.loadURL(fallbackUrl).catch(() => {});
+    }
   }
 
   private reload(tabId: string, hard: boolean): void {

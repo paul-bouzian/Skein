@@ -11,7 +11,7 @@
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
 const LOOPBACK_PATTERN =
-  /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?(\/|$)/i;
+  /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i;
 
 const DISALLOWED_SCHEMES = /^(file|javascript|data|about|vbscript|ftp):/i;
 

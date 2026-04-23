@@ -146,16 +146,24 @@ export function BrowserPanel({ collapsed = false }: Props) {
   }, [collapsed, environmentId, detectedTopUrl, activeTab, handleNavigate]);
 
   const handleBack = useCallback(() => {
-    if (!environmentId || !activeTabId) return;
+    if (!environmentId || !activeTabId || !activeTab) return;
+    if (activeTab.cursor <= 0) return;
+    const fallbackUrl = activeTab.history[activeTab.cursor - 1];
     back(environmentId);
-    void getDesktopApi()?.browser.back(activeTabId).catch(() => {});
-  }, [environmentId, activeTabId, back]);
+    void getDesktopApi()
+      ?.browser.back(activeTabId, fallbackUrl)
+      .catch(() => {});
+  }, [environmentId, activeTabId, activeTab, back]);
 
   const handleForward = useCallback(() => {
-    if (!environmentId || !activeTabId) return;
+    if (!environmentId || !activeTabId || !activeTab) return;
+    if (activeTab.cursor >= activeTab.history.length - 1) return;
+    const fallbackUrl = activeTab.history[activeTab.cursor + 1];
     forward(environmentId);
-    void getDesktopApi()?.browser.forward(activeTabId).catch(() => {});
-  }, [environmentId, activeTabId, forward]);
+    void getDesktopApi()
+      ?.browser.forward(activeTabId, fallbackUrl)
+      .catch(() => {});
+  }, [environmentId, activeTabId, activeTab, forward]);
 
   const handleReload = useCallback(() => {
     if (!environmentId || !activeTabId) return;

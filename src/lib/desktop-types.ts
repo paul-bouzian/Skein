@@ -101,8 +101,8 @@ export type SkeinBrowserApi = {
   destroyEnv(envId: string): Promise<void>;
   activateTab(tabId: string | null): Promise<void>;
   navigate(tabId: string, url: string): Promise<void>;
-  back(tabId: string): Promise<void>;
-  forward(tabId: string): Promise<void>;
+  back(tabId: string, fallbackUrl?: string): Promise<void>;
+  forward(tabId: string, fallbackUrl?: string): Promise<void>;
   reload(tabId: string, hard?: boolean): Promise<void>;
   setPanelBounds(bounds: BrowserPanelBounds | null): Promise<void>;
   openDevTools(tabId: string): Promise<void>;
