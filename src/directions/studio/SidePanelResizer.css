@@ -10,8 +10,11 @@
 .side-panel-resizer::after {
   content: "";
   position: absolute;
-  inset: 0 2px;
-  background: transparent;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: var(--tx-border-subtle);
   transition: background var(--tx-transition-fast);
 }
 

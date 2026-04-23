@@ -10,7 +10,7 @@ import {
   WORKSPACE_EVENT_NAMES,
   WORKTREE_SCRIPT_FAILURE_EVENT_NAMES,
 } from "./app-identity";
-import { isLoopbackHost } from "./preview-url";
+import { isLoopbackHost } from "./browser-preview";
 
 export const DESKTOP_BACKEND_COMMANDS = [
   "add_project",

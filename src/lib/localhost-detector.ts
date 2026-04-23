@@ -3,10 +3,6 @@
 // chunks emitted by terminal-output-bus, including the fragment that may end
 // on a partial URL. The caller is responsible for prepending the returned
 // `remainder` to the next chunk so URLs split across bytes are recovered.
-
-// IPv6 loopback (`[::1]`) is intentionally excluded: the `skein-preview`
-// scheme has no way to encode bracketed hosts without producing invalid
-// URIs, so detecting them would create suggestions the proxy can't serve.
 /* eslint-disable no-control-regex */
 const ANSI_ESCAPE = /\x1b\[[0-9;]*[A-Za-z]/g;
 const URL_PATTERN =

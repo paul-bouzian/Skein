@@ -27,7 +27,50 @@ function selectEnvironment(): void {
   } as Partial<ReturnType<typeof useWorkspaceStore.getState>>);
 }
 
+class NoopResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  (globalThis as unknown as { ResizeObserver: typeof NoopResizeObserver }).ResizeObserver =
+    NoopResizeObserver;
+}
+
 const storageState = new Map<string, string>();
+
+type BrowserApiMock = {
+  createTab: ReturnType<typeof vi.fn>;
+  destroyTab: ReturnType<typeof vi.fn>;
+  destroyEnv: ReturnType<typeof vi.fn>;
+  activateTab: ReturnType<typeof vi.fn>;
+  navigate: ReturnType<typeof vi.fn>;
+  back: ReturnType<typeof vi.fn>;
+  forward: ReturnType<typeof vi.fn>;
+  reload: ReturnType<typeof vi.fn>;
+  setPanelBounds: ReturnType<typeof vi.fn>;
+  openDevTools: ReturnType<typeof vi.fn>;
+  onTabEvent: ReturnType<typeof vi.fn>;
+};
+
+let browserApi: BrowserApiMock;
+
+function makeBrowserApiMock(): BrowserApiMock {
+  return {
+    createTab: vi.fn().mockResolvedValue(undefined),
+    destroyTab: vi.fn().mockResolvedValue(undefined),
+    destroyEnv: vi.fn().mockResolvedValue(undefined),
+    activateTab: vi.fn().mockResolvedValue(undefined),
+    navigate: vi.fn().mockResolvedValue(undefined),
+    back: vi.fn().mockResolvedValue(undefined),
+    forward: vi.fn().mockResolvedValue(undefined),
+    reload: vi.fn().mockResolvedValue(undefined),
+    setPanelBounds: vi.fn().mockResolvedValue(undefined),
+    openDevTools: vi.fn().mockResolvedValue(undefined),
+    onTabEvent: vi.fn(() => () => {}),
+  };
+}
 
 beforeEach(() => {
   storageState.clear();
@@ -46,6 +89,16 @@ beforeEach(() => {
       },
     },
   });
+  browserApi = makeBrowserApiMock();
+  Object.defineProperty(globalThis, "skeinDesktop", {
+    configurable: true,
+    value: { browser: browserApi },
+  });
+  if (typeof window !== "undefined") {
+    (window as unknown as { skeinDesktop?: unknown }).skeinDesktop = {
+      browser: browserApi,
+    };
+  }
   useBrowserStore.setState({ byEnv: {} });
   const snapshot = makeWorkspaceSnapshot({
     projects: [
@@ -63,6 +116,9 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  if (typeof window !== "undefined") {
+    delete (window as unknown as { skeinDesktop?: unknown }).skeinDesktop;
+  }
 });
 
 describe("BrowserPanel", () => {
@@ -93,7 +149,7 @@ describe("BrowserPanel", () => {
     expect(screen.getByRole("button", { name: "Reload" })).toBeEnabled();
   });
 
-  it("navigating via URL bar pushes history to the active tab", () => {
+  it("navigating via URL bar pushes history to the active tab and calls IPC", () => {
     render(<BrowserPanel />);
     const input = screen.getByRole("combobox", {
       name: "Address",
@@ -104,6 +160,10 @@ describe("BrowserPanel", () => {
     fireEvent.submit(form!);
     const tab = slot().tabs[0];
     expect(tab.history[tab.cursor]).toBe("http://localhost:5173/");
+    expect(browserApi.navigate).toHaveBeenCalledWith(
+      tab.id,
+      "http://localhost:5173/",
+    );
   });
 
   it("back becomes enabled after navigating once", () => {
@@ -114,16 +174,28 @@ describe("BrowserPanel", () => {
     expect(screen.getByRole("button", { name: "Back" })).toBeEnabled();
   });
 
-  it("rendering more tabs keeps inactive iframes hidden", () => {
+  it("renders one BrowserWebView per tab", () => {
     const { container } = render(<BrowserPanel />);
     act(() => {
       useBrowserStore.getState().openTab(ENV, "http://a");
       useBrowserStore.getState().openTab(ENV, "http://b");
     });
-    const frames = container.querySelectorAll("[data-testid='browser-frame']");
-    expect(frames.length).toBe(3);
-    const hidden = container.querySelectorAll(".browser-frame--hidden");
-    expect(hidden.length).toBe(2);
+    const views = container.querySelectorAll(
+      "[data-testid='browser-webview']",
+    );
+    expect(views.length).toBe(3);
+  });
+
+  it("creates a tab on the main side when a new tab appears", async () => {
+    render(<BrowserPanel />);
+    await Promise.resolve();
+    expect(browserApi.createTab).toHaveBeenCalledTimes(1);
+    const tab = slot().tabs[0];
+    expect(browserApi.createTab).toHaveBeenCalledWith({
+      tabId: tab.id,
+      envId: ENV,
+      initialUrl: "about:blank",
+    });
   });
 
   it("auto-navigates a pristine blank tab to the most recent detected URL", () => {
@@ -182,5 +254,13 @@ describe("BrowserPanel", () => {
       "http://localhost:3000",
       "http://localhost:5173",
     ]);
+  });
+
+  it("clicking DevTools invokes openDevTools IPC for the active tab", () => {
+    render(<BrowserPanel />);
+    const tab = slot().tabs[0];
+    const button = screen.getByRole("button", { name: "Open DevTools" });
+    fireEvent.click(button);
+    expect(browserApi.openDevTools).toHaveBeenCalledWith(tab.id);
   });
 });

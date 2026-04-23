@@ -19,9 +19,9 @@ import type {
   DesktopDialogOptions,
 } from "../src/lib/desktop-types.js";
 import { BackendClient } from "./backend-client.js";
+import { BrowserController } from "./browser-controller.js";
 import { installApplicationMenu } from "./menu.js";
 import { PreferencesStore } from "./preferences.js";
-import { registerPreviewProtocol } from "./preview-protocol.js";
 import { AppUpdater } from "./updater.js";
 
 const appDataPath = app.getPath("appData");
@@ -85,6 +85,8 @@ function createMainWindow() {
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
+
+  new BrowserController(mainWindow);
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -226,7 +228,6 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(async () => {
-  await registerPreviewProtocol();
   await backendClient.start();
   registerIpcHandlers();
   openMainWindow();

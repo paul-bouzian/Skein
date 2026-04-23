@@ -4,6 +4,7 @@ import { normalizeBrowserUrl } from "../../lib/browser-preview";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  BugIcon,
   OpenInIcon,
   ReloadIcon,
 } from "../../shared/Icons";
@@ -16,11 +17,13 @@ type Props = {
   canGoForward: boolean;
   loading: boolean;
   detectedUrls: DetectedUrl[];
+  canOpenDevTools?: boolean;
   onBack: () => void;
   onForward: () => void;
   onReload: () => void;
   onNavigate: (url: string) => void;
   onOpenExternal?: (url: string) => void;
+  onOpenDevTools?: () => void;
 };
 
 export function BrowserUrlBar({
@@ -29,11 +32,13 @@ export function BrowserUrlBar({
   canGoForward,
   loading,
   detectedUrls,
+  canOpenDevTools = false,
   onBack,
   onForward,
   onReload,
   onNavigate,
   onOpenExternal,
+  onOpenDevTools,
 }: Props) {
   const datalistId = useId();
   const [draftState, setDraftState] = useState<{
@@ -55,6 +60,7 @@ export function BrowserUrlBar({
   }
 
   const showExternal = Boolean(onOpenExternal && currentUrl);
+  const showDevTools = Boolean(onOpenDevTools);
 
   return (
     <form className="browser-url-bar" onSubmit={handleSubmit}>
@@ -110,6 +116,19 @@ export function BrowserUrlBar({
           <option key={entry.url} value={entry.url} />
         ))}
       </datalist>
+      {showDevTools && (
+        <Tooltip content="Open DevTools" side="bottom">
+          <button
+            type="button"
+            className="browser-panel__action"
+            aria-label="Open DevTools"
+            disabled={!canOpenDevTools}
+            onClick={onOpenDevTools}
+          >
+            <BugIcon size={13} />
+          </button>
+        </Tooltip>
+      )}
       {showExternal && (
         <Tooltip content="Open in external browser" side="bottom">
           <button

@@ -123,13 +123,12 @@ describe("browser-store: navigation", () => {
     expect(selectCanGoForward(slot())).toBe(false);
   });
 
-  it("reload bumps reloadNonce and marks pending", () => {
+  it("reload marks the active tab as pending", () => {
     useBrowserStore.getState().openTab(ENV, "http://a");
-    useBrowserStore.getState().markLoaded(ENV, slot().tabs[0].id);
+    useBrowserStore.getState().markPending(slot().tabs[0].id, false);
     expect(slot().tabs[0].pending).toBe(false);
     useBrowserStore.getState().reload(ENV);
     expect(slot().tabs[0].pending).toBe(true);
-    expect(slot().tabs[0].reloadNonce).toBe(1);
   });
 
   it("back is no-op at cursor=0", () => {
@@ -189,5 +188,115 @@ describe("browser-store: session-only", () => {
       key.includes("browser"),
     );
     expect(keys).toEqual([]);
+  });
+});
+
+describe("browser-store: events from main process", () => {
+  it("navigateFromMain appends a new URL to the tab's history", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    // Simulate the initial load settling so a subsequent page-initiated
+    // navigation is treated as a fresh history step, not a replace.
+    useBrowserStore.getState().markPending(id!, false);
+    useBrowserStore.getState().navigateFromMain(id!, "http://b", false);
+    const tab = slot().tabs[0];
+    expect(tab.history).toEqual(["http://a", "http://b"]);
+    expect(tab.cursor).toBe(1);
+  });
+
+  it("navigateFromMain dedupes when the URL matches the current one", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    useBrowserStore.getState().navigateFromMain(id!, "http://a", false);
+    const tab = slot().tabs[0];
+    expect(tab.history).toEqual(["http://a"]);
+    expect(tab.cursor).toBe(0);
+  });
+
+  it("navigateFromMain truncates forward history when navigating after back", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    useBrowserStore.getState().navigate(ENV, "http://b");
+    useBrowserStore.getState().navigate(ENV, "http://c");
+    useBrowserStore.getState().back(ENV);
+    useBrowserStore.getState().markPending(id!, false);
+    useBrowserStore.getState().navigateFromMain(id!, "http://d", false);
+    expect(slot().tabs[0].history).toEqual(["http://a", "http://b", "http://d"]);
+  });
+
+  it("navigateFromMain replaces the pending entry when a user-initiated nav redirects", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://example.com");
+    // User typed the URL → store.navigate pushed, awaitingResolve=true.
+    expect(slot().tabs[0].awaitingResolve).toBe(true);
+    // Main process resolved it to the https redirect.
+    useBrowserStore
+      .getState()
+      .navigateFromMain(id!, "https://example.com/", false);
+    const tab = slot().tabs[0];
+    expect(tab.history).toEqual(["https://example.com/"]);
+    expect(tab.cursor).toBe(0);
+    expect(tab.awaitingResolve).toBe(false);
+  });
+
+  it("navigateFromMain appends on page-initiated link click even if pending is true", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    // Initial load settles — pending + awaitingResolve cleared.
+    useBrowserStore.getState().markPending(id!, false);
+    // The page starts loading a link the user clicked: did-start-loading
+    // sets pending=true but leaves awaitingResolve=false.
+    useBrowserStore.getState().markPending(id!, true);
+    expect(slot().tabs[0].awaitingResolve).toBe(false);
+    useBrowserStore.getState().navigateFromMain(id!, "http://b", false);
+    const tab = slot().tabs[0];
+    expect(tab.history).toEqual(["http://a", "http://b"]);
+    expect(tab.cursor).toBe(1);
+  });
+
+  it("navigateFromMain replaces the current entry when isInPlace=true", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a/p1");
+    useBrowserStore.getState().navigateFromMain(id!, "http://a/p2", true);
+    const tab = slot().tabs[0];
+    expect(tab.history).toEqual(["http://a/p2"]);
+    expect(tab.cursor).toBe(0);
+  });
+
+  it("setTitle updates a tab title", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    useBrowserStore.getState().setTitle(id!, "My Page");
+    expect(slot().tabs[0].title).toBe("My Page");
+  });
+
+  it("setTitle no-ops on empty titles", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    const before = slot().tabs[0].title;
+    useBrowserStore.getState().setTitle(id!, "");
+    expect(slot().tabs[0].title).toBe(before);
+  });
+
+  it("setFavicon stores a favicon URL and clears it", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    useBrowserStore.getState().setFavicon(id!, "http://a/favicon.ico");
+    expect(slot().tabs[0].favicon).toBe("http://a/favicon.ico");
+    useBrowserStore.getState().setFavicon(id!, null);
+    expect(slot().tabs[0].favicon).toBeNull();
+  });
+
+  it("markPending toggles the pending flag", () => {
+    const id = useBrowserStore.getState().openTab(ENV, "http://a");
+    expect(slot().tabs[0].pending).toBe(true);
+    useBrowserStore.getState().markPending(id!, false);
+    expect(slot().tabs[0].pending).toBe(false);
+    useBrowserStore.getState().markPending(id!, true);
+    expect(slot().tabs[0].pending).toBe(true);
+  });
+
+  it("ignores events for an unknown tabId", () => {
+    useBrowserStore.getState().openTab(ENV, "http://a");
+    const before = slot();
+    useBrowserStore
+      .getState()
+      .navigateFromMain(
+        "00000000-0000-4000-8000-000000000000",
+        "http://unknown",
+        false,
+      );
+    expect(slot()).toBe(before);
   });
 });

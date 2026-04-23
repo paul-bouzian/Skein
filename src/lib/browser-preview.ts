@@ -1,27 +1,39 @@
 // URL helpers for the integrated browser.
 //
-// `toPreviewUrl` / `fromPreviewUrl` translate between the user-facing
-// http(s) URL the panel stores and the `skein-preview://` URL the iframe
-// actually loads. The custom scheme is intercepted by the Electron preview
-// protocol, which refetches the real URL and strips
-// frame-blocking headers.
-//
 // `normalizeBrowserUrl` prepares raw text typed in the address bar:
 // it accepts explicit http(s) URLs, auto-prefixes bare localhost with
 // `http://`, auto-prefixes anything dotted with `https://`, and rejects
 // unstructured input so the bar never doubles as a search box.
+//
+// `isLoopbackHost` is exported for callers that distinguish local dev
+// servers from public URLs (e.g. the "open externally" allow-list).
 
-import {
-  isLoopbackHost,
-  parsePreviewTarget,
-  toLoopbackPreviewUrl,
-} from "./preview-url";
-
-export { PREVIEW_SCHEME } from "./preview-url";
-export { isLoopbackHost } from "./preview-url";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
 const LOOPBACK_PATTERN =
-  /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(\/|$)/i;
+  /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:[/?#]|$)/i;
+
+// Matches any explicit URI scheme prefix (`scheme:` syntax). Used to
+// reject non-`http(s)` schemes before prefixing heuristics kick in.
+const EXPLICIT_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+// Matches a dotted-domain `host:port(/path/…)` form, which looks like a
+// scheme prefix syntactically but is really a bare host. Loopback hosts
+// are handled separately via `LOOPBACK_PATTERN`.
+const DOMAIN_HOST_PORT =
+  /^[a-z0-9-]+(?:\.[a-z0-9-]+)+:\d+(?:[/?#]|$)/i;
+
+// The URL parser strips brackets from IPv6 hostnames (`[::1]` → `::1`),
+// so we match both forms here so callers can pass either the raw
+// `hostname` field or the bracketed form.
+export function isLoopbackHost(hostname: string): boolean {
+  if (!hostname) return false;
+  if (LOOPBACK_HOSTS.has(hostname)) return true;
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return LOOPBACK_HOSTS.has(hostname.slice(1, -1));
+  }
+  return false;
+}
 
 // Converts the text typed in the address bar into a navigable URL, or
 // returns `null` for values that don't parse as one. We auto-prefix bare
@@ -43,40 +55,15 @@ export function normalizeBrowserUrl(raw: string): string | null {
   }
 }
 
-const DISALLOWED_SCHEMES = /^(file|javascript|data|about|vbscript|ftp):/i;
-
 function buildCandidate(trimmed: string): string | null {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (DISALLOWED_SCHEMES.test(trimmed)) return null;
+  // Resolve bare `host:port` forms before the scheme check — otherwise
+  // the leading `localhost` / `example.com` would look like a scheme.
   if (LOOPBACK_PATTERN.test(trimmed)) return `http://${trimmed}`;
+  if (DOMAIN_HOST_PORT.test(trimmed)) return `https://${trimmed}`;
+  // Any remaining `scheme:` prefix is explicitly non-http(s); reject it
+  // so `mailto:…`, `ws://…`, `javascript:1`, etc. don't get rewritten.
+  if (EXPLICIT_SCHEME.test(trimmed)) return null;
   if (!trimmed.includes(".") && !trimmed.includes(":")) return null;
   return `https://${trimmed}`;
-}
-
-// Rewrite a loopback http(s) URL so the iframe loads it through the Rust
-// `skein-preview://` proxy, which strips frame-blocking response headers.
-// Non-loopback URLs are returned unchanged: they load directly and are
-// subject to the browser's normal iframe policies (X-Frame-Options, CSP),
-// so for sites like github.com / youtube.com users should use the
-// "Open externally" button instead of forcing an embed.
-export function toPreviewUrl(httpUrl: string): string {
-  if (!httpUrl) return httpUrl;
-  let parsed: URL;
-  try {
-    parsed = new URL(httpUrl);
-  } catch {
-    return httpUrl;
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return httpUrl;
-  }
-  if (!isLoopbackHost(parsed.hostname)) {
-    return httpUrl;
-  }
-  return toLoopbackPreviewUrl(parsed) ?? httpUrl;
-}
-
-export function fromPreviewUrl(previewUrl: string): string | null {
-  if (!previewUrl) return null;
-  return parsePreviewTarget(previewUrl)?.toString() ?? null;
 }

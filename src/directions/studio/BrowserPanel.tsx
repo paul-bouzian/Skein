@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
+import { installBrowserBridge } from "../../lib/browser-bridge";
 import { normalizeBrowserUrl } from "../../lib/browser-preview";
+import { getDesktopApi } from "../../lib/desktop-host";
 import { openExternalUrl } from "../../lib/shell";
 import { GlobeIcon } from "../../shared/Icons";
 import {
@@ -17,9 +19,9 @@ import {
   selectEffectiveEnvironment,
   useWorkspaceStore,
 } from "../../stores/workspace-store";
-import { BrowserFrame } from "./BrowserFrame";
 import { BrowserTabBar } from "./BrowserTabBar";
 import { BrowserUrlBar } from "./BrowserUrlBar";
+import { BrowserWebView } from "./BrowserWebView";
 import "./BrowserPanel.css";
 
 type Props = {
@@ -42,7 +44,9 @@ export function BrowserPanel({ collapsed = false }: Props) {
   const canGoBack = selectCanGoBack(slot);
   const canGoForward = selectCanGoForward(slot);
   const currentUrl = selectCurrentUrl(slot) ?? "";
+  const activeTabId = slot.activeTabId;
   const seededEnvIdsRef = useRef<Set<string>>(new Set());
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const openTab = useBrowserStore((state) => state.openTab);
   const closeTab = useBrowserStore((state) => state.closeTab);
@@ -51,7 +55,53 @@ export function BrowserPanel({ collapsed = false }: Props) {
   const back = useBrowserStore((state) => state.back);
   const forward = useBrowserStore((state) => state.forward);
   const reload = useBrowserStore((state) => state.reload);
-  const markLoaded = useBrowserStore((state) => state.markLoaded);
+
+  useEffect(() => installBrowserBridge(), []);
+
+  // Report the body rect to the main process so WebContentsView can size
+  // itself to the panel. `ResizeObserver` only fires on size changes, so
+  // we also poll via rAF to catch pure position shifts driven by sibling
+  // layout changes (sidebar toggle, diff panel open, etc.) that the
+  // observer can't see. The poll is cheap — a single
+  // `getBoundingClientRect` + dirty check per frame — and stops when the
+  // panel is collapsed.
+  useLayoutEffect(() => {
+    const browser = getDesktopApi()?.browser;
+    if (!browser) return;
+    const element = bodyRef.current;
+    if (!element || collapsed) {
+      void browser.setPanelBounds(null).catch(() => {});
+      return;
+    }
+    let rafId: number | null = null;
+    let prevKey = "";
+    const tick = () => {
+      rafId = null;
+      const rect = element.getBoundingClientRect();
+      const key = `${rect.left}|${rect.top}|${rect.width}|${rect.height}`;
+      if (key !== prevKey) {
+        prevKey = key;
+        if (rect.width === 0 || rect.height === 0) {
+          void browser.setPanelBounds(null).catch(() => {});
+        } else {
+          void browser
+            .setPanelBounds({
+              x: rect.left,
+              y: rect.top,
+              width: rect.width,
+              height: rect.height,
+            })
+            .catch(() => {});
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      void browser.setPanelBounds(null).catch(() => {});
+    };
+  }, [collapsed]);
 
   // Seed the first tab only the first time the panel is revealed for an
   // env. Once the user has used the panel (even if they close every tab)
@@ -69,28 +119,85 @@ export function BrowserPanel({ collapsed = false }: Props) {
     openTab(environmentId);
   }, [collapsed, environmentId, slot.tabs.length, openTab]);
 
+  const handleNavigate = useCallback(
+    (url: string) => {
+      if (!environmentId) return;
+      const normalized = normalizeBrowserUrl(url);
+      if (!normalized) return;
+      if (!activeTabId) {
+        openTab(environmentId, normalized);
+        return;
+      }
+      navigate(environmentId, normalized);
+      void getDesktopApi()
+        ?.browser.navigate(activeTabId, normalized)
+        .catch(() => {});
+    },
+    [environmentId, activeTabId, openTab, navigate],
+  );
+
   // Drop a detected dev-server URL into a pristine about:blank tab so the
   // user doesn't have to type it themselves.
   const detectedTopUrl = slot.detectedUrls[0]?.url ?? null;
   useEffect(() => {
     if (collapsed || !environmentId || !detectedTopUrl) return;
     if (!isPristineBlankTab(activeTab)) return;
-    navigate(environmentId, detectedTopUrl);
-  }, [collapsed, environmentId, detectedTopUrl, activeTab, navigate]);
+    handleNavigate(detectedTopUrl);
+  }, [collapsed, environmentId, detectedTopUrl, activeTab, handleNavigate]);
 
-  const handleNavigate = useCallback(
-    (url: string) => {
+  const handleBack = useCallback(() => {
+    if (!environmentId || !activeTabId || !activeTab) return;
+    if (activeTab.cursor <= 0) return;
+    const targetUrl = activeTab.history[activeTab.cursor - 1];
+    if (!targetUrl) return;
+    back(environmentId);
+    void getDesktopApi()
+      ?.browser.back(activeTabId, targetUrl)
+      .catch(() => {});
+  }, [environmentId, activeTabId, activeTab, back]);
+
+  const handleForward = useCallback(() => {
+    if (!environmentId || !activeTabId || !activeTab) return;
+    if (activeTab.cursor >= activeTab.history.length - 1) return;
+    const targetUrl = activeTab.history[activeTab.cursor + 1];
+    if (!targetUrl) return;
+    forward(environmentId);
+    void getDesktopApi()
+      ?.browser.forward(activeTabId, targetUrl)
+      .catch(() => {});
+  }, [environmentId, activeTabId, activeTab, forward]);
+
+  const handleReload = useCallback(() => {
+    if (!environmentId || !activeTabId) return;
+    reload(environmentId);
+    void getDesktopApi()?.browser.reload(activeTabId).catch(() => {});
+  }, [environmentId, activeTabId, reload]);
+
+  const handleOpenDevTools = useCallback(() => {
+    if (!activeTabId) return;
+    void getDesktopApi()?.browser.openDevTools(activeTabId).catch(() => {});
+  }, [activeTabId]);
+
+  const handleActivateTab = useCallback(
+    (id: string) => {
       if (!environmentId) return;
-      const normalized = normalizeBrowserUrl(url);
-      if (!normalized) return;
-      if (slot.activeTabId) {
-        navigate(environmentId, normalized);
-      } else {
-        openTab(environmentId, normalized);
-      }
+      activateTab(environmentId, id);
     },
-    [environmentId, slot.activeTabId, openTab, navigate],
+    [environmentId, activateTab],
   );
+
+  const handleCloseTab = useCallback(
+    (id: string) => {
+      if (!environmentId) return;
+      closeTab(environmentId, id);
+    },
+    [environmentId, closeTab],
+  );
+
+  const handleNewTab = useCallback(() => {
+    if (!environmentId) return;
+    openTab(environmentId);
+  }, [environmentId, openTab]);
 
   const handleOpenExternal = useCallback((url: string) => {
     if (!url || url === BROWSER_HOME_URL) return;
@@ -119,31 +226,33 @@ export function BrowserPanel({ collapsed = false }: Props) {
           canGoForward={canGoForward}
           loading={activeTab?.pending ?? false}
           detectedUrls={slot.detectedUrls}
-          onBack={() => environmentId && back(environmentId)}
-          onForward={() => environmentId && forward(environmentId)}
-          onReload={() => environmentId && reload(environmentId)}
+          canOpenDevTools={Boolean(activeTabId)}
+          onBack={handleBack}
+          onForward={handleForward}
+          onReload={handleReload}
           onNavigate={handleNavigate}
           onOpenExternal={handleOpenExternal}
+          onOpenDevTools={handleOpenDevTools}
         />
         <BrowserTabBar
           tabs={slot.tabs}
-          activeTabId={slot.activeTabId}
-          onActivate={(id) => environmentId && activateTab(environmentId, id)}
-          onClose={(id) => environmentId && closeTab(environmentId, id)}
-          onNewTab={() => environmentId && openTab(environmentId)}
+          activeTabId={activeTabId}
+          onActivate={handleActivateTab}
+          onClose={handleCloseTab}
+          onNewTab={handleNewTab}
         />
       </div>
-      <div className="browser-panel__body">
-        {slot.tabs.map((tab) => (
-          <BrowserFrame
-            key={tab.id}
-            tabId={tab.id}
-            url={tab.history[tab.cursor] ?? BROWSER_HOME_URL}
-            reloadNonce={tab.reloadNonce}
-            active={tab.id === slot.activeTabId}
-            onLoad={(tabId) => environmentId && markLoaded(environmentId, tabId)}
-          />
-        ))}
+      <div className="browser-panel__body" ref={bodyRef}>
+        {environmentId &&
+          slot.tabs.map((tab) => (
+            <BrowserWebView
+              key={tab.id}
+              tabId={tab.id}
+              envId={environmentId}
+              initialUrl={tab.history[tab.cursor] ?? BROWSER_HOME_URL}
+              active={tab.id === activeTabId}
+            />
+          ))}
         {showEnvSelectPrompt && (
           <div className="browser-panel__empty-state">
             <p className="browser-panel__hint">

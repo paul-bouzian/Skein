@@ -55,6 +55,35 @@ export const preferenceGetSnapshotMock = vi.fn<
 export const windowGetPathForFileMock = vi.fn<
   SkeinDesktopApi["window"]["getPathForFile"]
 >();
+export const browserCreateTabMock = vi.fn<
+  SkeinDesktopApi["browser"]["createTab"]
+>();
+export const browserDestroyTabMock = vi.fn<
+  SkeinDesktopApi["browser"]["destroyTab"]
+>();
+export const browserDestroyEnvMock = vi.fn<
+  SkeinDesktopApi["browser"]["destroyEnv"]
+>();
+export const browserActivateTabMock = vi.fn<
+  SkeinDesktopApi["browser"]["activateTab"]
+>();
+export const browserNavigateMock = vi.fn<
+  SkeinDesktopApi["browser"]["navigate"]
+>();
+export const browserBackMock = vi.fn<SkeinDesktopApi["browser"]["back"]>();
+export const browserForwardMock = vi.fn<
+  SkeinDesktopApi["browser"]["forward"]
+>();
+export const browserReloadMock = vi.fn<SkeinDesktopApi["browser"]["reload"]>();
+export const browserSetPanelBoundsMock = vi.fn<
+  SkeinDesktopApi["browser"]["setPanelBounds"]
+>();
+export const browserOpenDevToolsMock = vi.fn<
+  SkeinDesktopApi["browser"]["openDevTools"]
+>();
+export const browserOnTabEventMock = vi.fn<
+  SkeinDesktopApi["browser"]["onTabEvent"]
+>();
 
 const defaultPreferencesSnapshot: Record<string, string> = {};
 
@@ -95,6 +124,19 @@ function createDesktopMock(): SkeinDesktopApi {
     window: {
       getPathForFile: windowGetPathForFileMock,
     },
+    browser: {
+      createTab: browserCreateTabMock,
+      destroyTab: browserDestroyTabMock,
+      destroyEnv: browserDestroyEnvMock,
+      activateTab: browserActivateTabMock,
+      navigate: browserNavigateMock,
+      back: browserBackMock,
+      forward: browserForwardMock,
+      reload: browserReloadMock,
+      setPanelBounds: browserSetPanelBoundsMock,
+      openDevTools: browserOpenDevToolsMock,
+      onTabEvent: browserOnTabEventMock,
+    },
   };
 }
 
@@ -115,6 +157,29 @@ export function resetDesktopMock() {
   preferenceGetSnapshotMock.mockReset();
   preferenceSetMock.mockReset();
   windowGetPathForFileMock.mockReset();
+  browserCreateTabMock.mockReset();
+  browserDestroyTabMock.mockReset();
+  browserDestroyEnvMock.mockReset();
+  browserActivateTabMock.mockReset();
+  browserNavigateMock.mockReset();
+  browserBackMock.mockReset();
+  browserForwardMock.mockReset();
+  browserReloadMock.mockReset();
+  browserSetPanelBoundsMock.mockReset();
+  browserOpenDevToolsMock.mockReset();
+  browserOnTabEventMock.mockReset();
+
+  browserCreateTabMock.mockResolvedValue();
+  browserDestroyTabMock.mockResolvedValue();
+  browserDestroyEnvMock.mockResolvedValue();
+  browserActivateTabMock.mockResolvedValue();
+  browserNavigateMock.mockResolvedValue();
+  browserBackMock.mockResolvedValue();
+  browserForwardMock.mockResolvedValue();
+  browserReloadMock.mockResolvedValue();
+  browserSetPanelBoundsMock.mockResolvedValue();
+  browserOpenDevToolsMock.mockResolvedValue();
+  browserOnTabEventMock.mockImplementation(() => () => undefined);
 
   desktopInvokeMock.mockImplementation(async () => undefined);
   desktopListenMock.mockImplementation(async () => () => undefined);

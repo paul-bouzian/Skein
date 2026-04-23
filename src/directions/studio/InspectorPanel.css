@@ -1,7 +1,6 @@
 .inspector-panel {
   width: var(--tx-side-panel-width);
   background: var(--tx-bg-base);
-  border-left: 1px solid var(--tx-border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -10,7 +9,6 @@
 
 .inspector-panel--collapsed {
   width: 0;
-  border-left-color: transparent;
 }
 
 .inspector__header {

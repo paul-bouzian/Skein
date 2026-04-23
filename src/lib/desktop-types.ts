@@ -63,6 +63,55 @@ export type DesktopPreferencesApi = {
   set(key: string, value: string | null): Promise<void>;
 };
 
+export type BrowserPanelBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type BrowserTabEventMap = {
+  "did-start-loading": { tabId: string };
+  "did-stop-loading": { tabId: string };
+  "did-navigate": { tabId: string; url: string; isInPlace: boolean };
+  "did-fail-load": {
+    tabId: string;
+    url: string;
+    errorCode: number;
+    errorDescription: string;
+  };
+  "page-title-updated": { tabId: string; title: string };
+  "page-favicon-updated": { tabId: string; favicons: string[] };
+  "open-window-request": {
+    sourceTabId: string;
+    url: string;
+    disposition: string;
+  };
+};
+
+export type BrowserTabEventName = keyof BrowserTabEventMap;
+
+export type SkeinBrowserApi = {
+  createTab(args: {
+    tabId: string;
+    envId: string;
+    initialUrl: string;
+  }): Promise<void>;
+  destroyTab(tabId: string): Promise<void>;
+  destroyEnv(envId: string): Promise<void>;
+  activateTab(tabId: string | null): Promise<void>;
+  navigate(tabId: string, url: string): Promise<void>;
+  back(tabId: string, targetUrl: string): Promise<void>;
+  forward(tabId: string, targetUrl: string): Promise<void>;
+  reload(tabId: string, hard?: boolean): Promise<void>;
+  setPanelBounds(bounds: BrowserPanelBounds | null): Promise<void>;
+  openDevTools(tabId: string): Promise<void>;
+  onTabEvent<K extends BrowserTabEventName>(
+    kind: K,
+    handler: (payload: BrowserTabEventMap[K]) => void,
+  ): HostUnlistenFn;
+};
+
 export type SkeinDesktopApi = {
   invoke<T>(command: string, payload?: Record<string, unknown>): Promise<T>;
   listen<T>(
@@ -102,6 +151,7 @@ export type SkeinDesktopApi = {
   window: {
     getPathForFile(file: File): string | null;
   };
+  browser: SkeinBrowserApi;
 };
 
 declare global {

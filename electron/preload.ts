@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
+import { assertBrowserTabEventName } from "../src/lib/browser-contract.js";
 import {
   assertDesktopBackendCommand,
   assertDesktopEventName,
@@ -7,6 +8,9 @@ import {
   assertOpenExternalUrl,
 } from "../src/lib/desktop-contract.js";
 import type {
+  BrowserPanelBounds,
+  BrowserTabEventMap,
+  BrowserTabEventName,
   DesktopDialogOpenOptions,
   DesktopDialogOptions,
   DesktopNotification,
@@ -174,6 +178,52 @@ const skeinDesktop: SkeinDesktopApi = {
       } catch {
         return null;
       }
+    },
+  },
+
+  browser: {
+    createTab(args: { tabId: string; envId: string; initialUrl: string }) {
+      return ipcRenderer.invoke("skein:browser:create-tab", args);
+    },
+    destroyTab(tabId: string) {
+      return ipcRenderer.invoke("skein:browser:destroy-tab", { tabId });
+    },
+    destroyEnv(envId: string) {
+      return ipcRenderer.invoke("skein:browser:destroy-env", { envId });
+    },
+    activateTab(tabId: string | null) {
+      return ipcRenderer.invoke("skein:browser:activate-tab", { tabId });
+    },
+    navigate(tabId: string, url: string) {
+      return ipcRenderer.invoke("skein:browser:navigate", { tabId, url });
+    },
+    back(tabId: string, targetUrl: string) {
+      return ipcRenderer.invoke("skein:browser:back", { tabId, targetUrl });
+    },
+    forward(tabId: string, targetUrl: string) {
+      return ipcRenderer.invoke("skein:browser:forward", { tabId, targetUrl });
+    },
+    reload(tabId: string, hard?: boolean) {
+      return ipcRenderer.invoke("skein:browser:reload", { tabId, hard });
+    },
+    setPanelBounds(bounds: BrowserPanelBounds | null) {
+      return ipcRenderer.invoke("skein:browser:set-panel-bounds", bounds);
+    },
+    openDevTools(tabId: string) {
+      return ipcRenderer.invoke("skein:browser:open-devtools", { tabId });
+    },
+    onTabEvent<K extends BrowserTabEventName>(
+      kind: K,
+      handler: (payload: BrowserTabEventMap[K]) => void,
+    ): HostUnlistenFn {
+      const channel = `skein:browser:${assertBrowserTabEventName(kind)}`;
+      const listener = (_event: unknown, payload: BrowserTabEventMap[K]) => {
+        handler(payload);
+      };
+      ipcRenderer.on(channel, listener);
+      return () => {
+        ipcRenderer.removeListener(channel, listener);
+      };
     },
   },
 };
