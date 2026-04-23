@@ -54,6 +54,7 @@ export function createLauncherSource({
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sysctl.h>
+#include <unistd.h>
 
 int ElectronMain(int argc, char* argv[]);
 
@@ -85,6 +86,8 @@ static bool current_macos_requires_jitless(void) {
 }
 
 int main(int argc, char* argv[]) {
+  unsetenv("ELECTRON_RUN_AS_NODE");
+
   bool has_fontations_disable_flag = false;
   bool has_jitless_flag = false;
 

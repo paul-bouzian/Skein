@@ -10,6 +10,7 @@ describe("electron afterPack", () => {
     });
 
     expect(source).toContain("int ElectronMain(int argc, char* argv[]);");
+    expect(source).toContain('unsetenv("ELECTRON_RUN_AS_NODE");');
     expect(source).toContain(
       'patched_argv[next_argument_index] = "--disable-features=FontationsFontBackend";',
     );
