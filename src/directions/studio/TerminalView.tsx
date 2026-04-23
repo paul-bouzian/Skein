@@ -142,10 +142,11 @@ export function TerminalView({ ptyId, active, exited, theme }: Props) {
     // the options setter short-circuits equal values, so round-trip through
     // a different string to guarantee the measurement pipeline runs again.
     void document.fonts?.ready?.then(() => {
-      const currentTerm = termRef.current;
-      if (!currentTerm || !fontFamily) return;
-      currentTerm.options.fontFamily = `${fontFamily}, monospace`;
-      currentTerm.options.fontFamily = fontFamily;
+      // Identity-check the term so a late callback from a stale ptyId effect
+      // can't mutate the current session or refit it against the old ptyId.
+      if (termRef.current !== term || !fontFamily) return;
+      term.options.fontFamily = `${fontFamily}, monospace`;
+      term.options.fontFamily = fontFamily;
       refit();
     });
 
