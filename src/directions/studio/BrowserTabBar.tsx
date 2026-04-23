@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { CloseIcon, GlobeIcon, PlusIcon } from "../../shared/Icons";
 import { MAX_BROWSER_TABS, type BrowserTab } from "../../stores/browser-store";
@@ -105,6 +105,11 @@ export function BrowserTabBar({
 
 function TabFavicon({ src }: { src: string | null }) {
   const [failed, setFailed] = useState(false);
+  // A previous favicon URL might have failed to load; clear that state
+  // so the tab retries when the page points us at a new URL.
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
   if (!src || failed) {
     return (
       <span className="browser-tab__favicon" aria-hidden>

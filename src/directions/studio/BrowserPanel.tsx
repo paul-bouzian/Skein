@@ -59,9 +59,10 @@ export function BrowserPanel({ collapsed = false }: Props) {
   useEffect(() => installBrowserBridge(), []);
 
   // Report the body rect to the main process so WebContentsView can size
-  // itself to the panel. We rebind the observer whenever `collapsed`
-  // flips so the view is hidden immediately rather than waiting for a
-  // DOM mutation.
+  // itself to the panel. `ResizeObserver` catches size changes; we also
+  // listen to the window `resize` event to pick up pure position shifts
+  // (the shell uses `auto 1fr auto auto`, so resizing the window moves
+  // the panel horizontally without changing its width).
   useLayoutEffect(() => {
     const browser = getDesktopApi()?.browser;
     if (!browser) return;
@@ -71,31 +72,33 @@ export function BrowserPanel({ collapsed = false }: Props) {
       return;
     }
     let rafId: number | null = null;
-    const send = () => {
-      rafId = null;
-      const rect = element.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        void browser.setPanelBounds(null).catch(() => {});
-        return;
-      }
-      void browser
-        .setPanelBounds({
-          x: rect.left,
-          y: rect.top,
-          width: rect.width,
-          height: rect.height,
-        })
-        .catch(() => {});
-    };
-    const observer = new ResizeObserver(() => {
+    const scheduleSend = () => {
       if (rafId !== null) return;
-      rafId = requestAnimationFrame(send);
-    });
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+          void browser.setPanelBounds(null).catch(() => {});
+          return;
+        }
+        void browser
+          .setPanelBounds({
+            x: rect.left,
+            y: rect.top,
+            width: rect.width,
+            height: rect.height,
+          })
+          .catch(() => {});
+      });
+    };
+    const observer = new ResizeObserver(scheduleSend);
     observer.observe(element);
-    send();
+    window.addEventListener("resize", scheduleSend);
+    scheduleSend();
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       observer.disconnect();
+      window.removeEventListener("resize", scheduleSend);
       void browser.setPanelBounds(null).catch(() => {});
     };
   }, [collapsed]);

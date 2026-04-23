@@ -60,6 +60,18 @@ export function hostFromUrl(url: string): string {
   }
 }
 
+// Return a canonical form suitable for equality checks. `new URL()`
+// normalizes trailing slashes, default ports, percent-encoding, and
+// case-insensitive host, so two URLs that differ only by those forms
+// are treated as the same entry in the tab history.
+function canonicalUrl(url: string): string {
+  try {
+    return new URL(url).toString();
+  } catch {
+    return url;
+  }
+}
+
 function buildTab(initialUrl: string): BrowserTab {
   return {
     id: crypto.randomUUID(),
@@ -241,13 +253,22 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   navigateFromMain: (tabId, url, isInPlace) => {
     const patch = updateTabById(get(), tabId, (tab) => {
-      const currentUrl = tab.history[tab.cursor];
-      if (currentUrl === url) return null;
+      const currentUrl = tab.history[tab.cursor] ?? "";
+      const sameEntry = canonicalUrl(currentUrl) === canonicalUrl(url);
       if (isInPlace) {
+        // In-page navigations (`pushState`) never emit `did-stop-loading`,
+        // so we clear `pending` here to keep the spinner in sync.
+        if (sameEntry && !tab.pending) return null;
         const nextHistory = tab.history.slice();
         nextHistory[tab.cursor] = url;
-        return { ...tab, history: nextHistory, title: hostFromUrl(url) };
+        return {
+          ...tab,
+          history: nextHistory,
+          title: hostFromUrl(url),
+          pending: false,
+        };
       }
+      if (sameEntry) return null;
       const trimmed = tab.history.slice(0, tab.cursor + 1);
       const nextHistory = [...trimmed, url];
       return {

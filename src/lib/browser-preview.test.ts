@@ -47,9 +47,15 @@ describe("isLoopbackHost", () => {
     expect(isLoopbackHost("0.0.0.0")).toBe(true);
   });
 
+  it("accepts IPv6 loopback in both raw and bracketed form", () => {
+    expect(isLoopbackHost("::1")).toBe(true);
+    expect(isLoopbackHost("[::1]")).toBe(true);
+  });
+
   it("rejects everything else", () => {
     expect(isLoopbackHost("example.com")).toBe(false);
     expect(isLoopbackHost("192.168.1.1")).toBe(false);
+    expect(isLoopbackHost("::2")).toBe(false);
     expect(isLoopbackHost("")).toBe(false);
   });
 });
