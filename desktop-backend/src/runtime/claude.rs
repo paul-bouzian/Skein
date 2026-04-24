@@ -529,9 +529,13 @@ impl ClaudeRuntimeSession {
                         .get(&context.thread_id)
                         .cloned()
                         .unwrap_or_else(|| rollback_snapshot.clone());
+                    let new_provider_thread_id = changed_provider_thread_id(
+                        context.provider_thread_id.as_deref(),
+                        snapshot.provider_thread_id.clone(),
+                    );
                     return Ok(SendMessageResult {
                         snapshot,
-                        new_provider_thread_id: None,
+                        new_provider_thread_id,
                         new_codex_thread_id: None,
                     });
                 }
@@ -586,8 +590,10 @@ impl ClaudeRuntimeSession {
 
         Ok(SendMessageResult {
             snapshot,
-            new_provider_thread_id: provider_thread_id
-                .filter(|id| context.provider_thread_id.as_deref() != Some(id.as_str())),
+            new_provider_thread_id: changed_provider_thread_id(
+                context.provider_thread_id.as_deref(),
+                provider_thread_id,
+            ),
             new_codex_thread_id: None,
         })
     }
@@ -1177,6 +1183,10 @@ fn validate_claude_message_content(
         ));
     }
     Ok(())
+}
+
+fn changed_provider_thread_id(current: Option<&str>, next: Option<String>) -> Option<String> {
+    next.filter(|id| current != Some(id.as_str()))
 }
 
 fn snapshot_from_claude_messages(
@@ -2091,6 +2101,22 @@ mod tests {
             .expect_err("empty prompt without images should fail");
 
         assert!(error.to_string().contains("text or an image"));
+    }
+
+    #[test]
+    fn changed_provider_thread_id_preserves_new_interrupted_session_ids() {
+        assert_eq!(
+            changed_provider_thread_id(None, Some("claude-session-1".to_string())).as_deref(),
+            Some("claude-session-1")
+        );
+        assert_eq!(
+            changed_provider_thread_id(
+                Some("claude-session-1"),
+                Some("claude-session-1".to_string())
+            ),
+            None
+        );
+        assert_eq!(changed_provider_thread_id(Some("old"), None), None);
     }
 
     #[test]
