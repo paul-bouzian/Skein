@@ -170,9 +170,29 @@ export function settingsModelOptions(
         }))
       : MODEL_FALLBACK_OPTIONS;
   return ensureSelectedOption(
-    models.length > 0 ? composerModelOptions(models, undefined, provider) : fallback,
+    models.length > 0 ? settingsScopedModelOptions(models, provider) : fallback,
     selectedValue,
   );
+}
+
+function settingsScopedModelOptions(
+  models: ModelOption[],
+  provider: ProviderKind,
+): ComposerPickerOption[] {
+  return sortModelOptionsByPreference(
+    models.filter((model) => (model.provider ?? "codex") === provider),
+  ).map((model) => ({
+    value: model.id,
+    label: settingsModelLabel(model, provider),
+  }));
+}
+
+function settingsModelLabel(
+  model: ModelOption,
+  provider: ProviderKind,
+): string {
+  const label = labelForModelOption(model, model.id);
+  return provider === "claude" ? stripClaudeModelLabelPrefix(label) : label;
 }
 
 export function reasoningOptionsFor(

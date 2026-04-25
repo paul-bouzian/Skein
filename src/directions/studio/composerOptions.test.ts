@@ -97,6 +97,39 @@ describe("composerOptions", () => {
       },
     ]);
   });
+
+  it("keeps Claude 1M models available in settings", () => {
+    const claudeBase: ModelOption = {
+      ...MODEL_OPTION,
+      provider: "claude",
+      id: "claude-opus-4-7",
+      displayName: "Claude Opus 4.7",
+      defaultReasoningEffort: "xhigh",
+      supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    };
+    const claudeLargeContext: ModelOption = {
+      ...claudeBase,
+      id: "claude-opus-4-7[1m]",
+      displayName: "Claude Opus 4.7 1M",
+    };
+
+    expect(
+      settingsModelOptions(
+        [claudeLargeContext, claudeBase],
+        "claude-opus-4-7",
+        "claude",
+      ),
+    ).toEqual([
+      {
+        value: "claude-opus-4-7",
+        label: "Opus 4.7",
+      },
+      {
+        value: "claude-opus-4-7[1m]",
+        label: "Opus 4.7 1M",
+      },
+    ]);
+  });
 });
 
 describe("modelLabels", () => {
