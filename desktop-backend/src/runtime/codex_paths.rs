@@ -1,9 +1,14 @@
 use std::ffi::OsString;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::error::{AppError, AppResult};
+
+const CODEX_BINARY_VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodexCliVersion {
@@ -135,12 +140,19 @@ fn executable_path_candidates(executable_name: &str, home: Option<&Path>) -> Vec
 }
 
 fn choose_best_executable_candidate(candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    choose_best_executable_candidate_with_timeout(candidates, CODEX_BINARY_VERSION_TIMEOUT)
+}
+
+fn choose_best_executable_candidate_with_timeout(
+    candidates: Vec<PathBuf>,
+    version_timeout: Duration,
+) -> Option<PathBuf> {
     let mut fallback = None;
     let mut best: Option<(CodexCliVersion, PathBuf)> = None;
 
     for candidate in candidates {
         fallback.get_or_insert_with(|| candidate.clone());
-        let Some(version) = codex_binary_version(&candidate) else {
+        let Some(version) = codex_binary_version_with_timeout(&candidate, version_timeout) else {
             continue;
         };
         if best
@@ -212,10 +224,44 @@ pub fn parse_codex_cli_version(output: &str) -> Option<CodexCliVersion> {
     })
 }
 
-pub fn codex_binary_version(path: &Path) -> Option<CodexCliVersion> {
-    let output = Command::new(path).arg("--version").output().ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+fn codex_binary_version_with_timeout(path: &Path, timeout: Duration) -> Option<CodexCliVersion> {
+    let start = Instant::now();
+    let mut child = Command::new(path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+
+    let mut stdout_bytes = Vec::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_end(&mut stdout_bytes);
+    }
+    let mut stderr_bytes = Vec::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = stderr.read_to_end(&mut stderr_bytes);
+    }
+    let _ = child.wait();
+
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    let stderr = String::from_utf8_lossy(&stderr_bytes);
     parse_codex_cli_version(&stdout).or_else(|| parse_codex_cli_version(&stderr))
 }
 
@@ -341,11 +387,12 @@ fn read_path_from_login_shell(shell: &Path) -> Option<OsString> {
 mod tests {
     use super::{
         binary_candidates, build_codex_process_path, choose_best_executable_candidate,
-        missing_codex_binary_message, parse_codex_cli_version, resolve_codex_binary_path,
-        versioned_node_bin_paths,
+        choose_best_executable_candidate_with_timeout, missing_codex_binary_message,
+        parse_codex_cli_version, resolve_codex_binary_path, versioned_node_bin_paths,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
     use uuid::Uuid;
 
     #[test]
@@ -423,6 +470,35 @@ mod tests {
 
         let _ = fs::remove_dir_all(root);
         assert_eq!(resolved, new_binary_path);
+    }
+
+    #[test]
+    fn choose_best_executable_candidate_skips_version_probes_that_timeout() {
+        let root = std::env::temp_dir().join(format!("skein-codex-timeout-{}", Uuid::now_v7()));
+        let slow_binary_path = root.join("path-bin/codex");
+        let new_binary_path = root.join("Applications/Codex.app/Contents/Resources/codex");
+        fs::create_dir_all(slow_binary_path.parent().expect("slow binary parent"))
+            .expect("slow binary dir should exist");
+        fs::create_dir_all(new_binary_path.parent().expect("app binary parent"))
+            .expect("app binary dir should exist");
+        fs::write(&slow_binary_path, "#!/bin/sh\nsleep 5\n")
+            .expect("slow binary should be written");
+        make_executable(&slow_binary_path);
+        write_versioned_binary(&new_binary_path, "codex-cli 99.0.0");
+
+        let start = Instant::now();
+        let resolved = choose_best_executable_candidate_with_timeout(
+            vec![slow_binary_path, new_binary_path.clone()],
+            Duration::from_millis(500),
+        )
+        .expect("best binary should resolve despite a hung probe");
+
+        let _ = fs::remove_dir_all(root);
+        assert_eq!(resolved, new_binary_path);
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "hung version probes should be bounded"
+        );
     }
 
     #[test]
