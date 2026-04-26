@@ -86,8 +86,10 @@ export function compareThreadsByMode(
   mode: ThreadSortMode,
 ): (left: ThreadRecord, right: ThreadRecord) => number {
   if (mode === "createdFirst") {
+    // Oldest-created first — matches the literal reading of the "Created first"
+    // label and gives a useful chronological view distinct from "Last message".
     return (left, right) =>
-      timestampValue(right.createdAt) - timestampValue(left.createdAt);
+      timestampValue(left.createdAt) - timestampValue(right.createdAt);
   }
   if (mode === "alphabetical") {
     return (left, right) =>

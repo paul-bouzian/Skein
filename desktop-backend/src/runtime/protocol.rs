@@ -2206,6 +2206,38 @@ fn item_id(item: &ConversationItem) -> &str {
     }
 }
 
+fn item_turn_id(item: &ConversationItem) -> Option<&str> {
+    match item {
+        ConversationItem::Message(message) => message.turn_id.as_deref(),
+        ConversationItem::Reasoning(reasoning) => reasoning.turn_id.as_deref(),
+        ConversationItem::Tool(tool) => tool.turn_id.as_deref(),
+        ConversationItem::System(system) => system.turn_id.as_deref(),
+    }
+}
+
+/// Merge a persisted item back into a freshly-built snapshot. If the item is
+/// already present (by ID) the existing entry wins. Otherwise, insert just
+/// after the last sibling sharing the same `turn_id` so the persisted
+/// activity rejoins its original turn instead of getting appended at the end
+/// of the transcript.
+pub fn merge_persisted_item(items: &mut Vec<ConversationItem>, item: ConversationItem) {
+    let target_id = item_id(&item);
+    if items.iter().any(|candidate| item_id(candidate) == target_id) {
+        return;
+    }
+    let Some(turn_id) = item_turn_id(&item) else {
+        items.push(item);
+        return;
+    };
+    let last_sibling = items
+        .iter()
+        .rposition(|candidate| item_turn_id(candidate) == Some(turn_id));
+    match last_sibling {
+        Some(index) => items.insert(index + 1, item),
+        None => items.push(item),
+    }
+}
+
 fn optimistic_user_message_index(
     items: &[ConversationItem],
     incoming: &ConversationItem,

@@ -330,7 +330,7 @@ export function ConversationBanner({
 function iconForToolType(
   toolType: string,
 ): (props: IconProps) => React.ReactElement {
-  const normalized = toolType.toLowerCase();
+  const normalized = typeof toolType === "string" ? toolType.toLowerCase() : "";
   if (
     normalized === "commandexecution" ||
     normalized === "bash" ||

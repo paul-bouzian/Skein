@@ -524,7 +524,13 @@ export function ThreadConversation({
             <button
               type="button"
               className="tx-conversation__reconnect-button"
-              onClick={() => void openThread(thread.id)}
+              onClick={() => {
+                if (snapshot) {
+                  void refreshThread(thread.id);
+                } else {
+                  void openThread(thread.id);
+                }
+              }}
             >
               Reconnect
             </button>

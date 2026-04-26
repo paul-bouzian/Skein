@@ -39,6 +39,15 @@ type WorkActivityTiming = {
 };
 
 const TIMING_BY_TURN: Map<string, WorkActivityTiming> = new Map();
+const TIMING_MAX_ENTRIES = 500;
+
+function evictOldestTiming(): void {
+  while (TIMING_BY_TURN.size > TIMING_MAX_ENTRIES) {
+    const oldest = TIMING_BY_TURN.keys().next().value;
+    if (oldest === undefined) break;
+    TIMING_BY_TURN.delete(oldest);
+  }
+}
 
 function recordTiming(
   turnId: string,
@@ -52,6 +61,7 @@ function recordTiming(
     }
     const created: WorkActivityTiming = { startedAt: Date.now(), finishedAt: null };
     TIMING_BY_TURN.set(turnId, created);
+    evictOldestTiming();
     return created;
   }
   if (!existing) return null;

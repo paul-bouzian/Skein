@@ -307,6 +307,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoaded, setBranchesLoaded] = useState(draft.kind === "chat");
   const [isSending, setIsSending] = useState(false);
+  const [hasSentOnce, setHasSentOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optimisticMessage, setOptimisticMessage] =
     useState<ConversationMessageItem | null>(null);
@@ -527,6 +528,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     setError(null);
     if (optimisticUserMessage) {
       setOptimisticMessage(optimisticUserMessage);
+      setHasSentOnce(true);
       updateDraftThreadState(draft, (current) => ({
         ...current,
         composerDraft: cloneComposerDraft(EMPTY_CONVERSATION_COMPOSER_DRAFT),
@@ -585,7 +587,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   return (
     <div
       className={`tx-conversation thread-draft ${
-        optimisticMessage ? "" : "thread-draft--centered"
+        hasSentOnce ? "" : "thread-draft--centered"
       }`}
     >
       {optimisticMessage ? (

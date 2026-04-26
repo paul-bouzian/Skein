@@ -62,7 +62,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
   }, [isActive, group.startedAt]);
 
   const headerLabel = buildHeaderLabel(
-    isActive,
+    group.status,
     group.startedAt,
     group.finishedAt,
   );
@@ -139,18 +139,21 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
 }
 
 function buildHeaderLabel(
-  isActive: boolean,
+  status: WorkActivityStatus,
   startedAt: number | null,
   finishedAt: number | null,
 ): string {
-  if (isActive) {
+  if (status === "running" || status === "waiting") {
     if (!startedAt) return "Working…";
     return `Working for ${formatElapsed(Date.now() - startedAt)}`;
   }
-  if (startedAt && finishedAt) {
-    return `Worked for ${formatElapsed(finishedAt - startedAt)}`;
-  }
-  return "Worked";
+  const duration =
+    startedAt && finishedAt
+      ? ` for ${formatElapsed(finishedAt - startedAt)}`
+      : "";
+  if (status === "failed") return `Failed${duration}`;
+  if (status === "interrupted") return `Interrupted${duration}`;
+  return duration ? `Worked${duration}` : "Worked";
 }
 
 function labelForSubagent(subagent: SubagentThreadSnapshot) {

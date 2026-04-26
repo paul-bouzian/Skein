@@ -110,6 +110,9 @@ function SidebarThreadRowImpl(props: Props) {
     : chipLabel;
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    // Only handle keys that landed on the row itself; nested controls (archive
+    // button, branch chip) need to receive their own Enter/Space.
+    if (event.target !== event.currentTarget) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onSelect();
