@@ -51,7 +51,7 @@ body {
   line-height: var(--tx-leading-normal);
   letter-spacing: var(--tx-tracking-tight);
   color: var(--tx-text-primary);
-  background: var(--tx-bg-base);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
