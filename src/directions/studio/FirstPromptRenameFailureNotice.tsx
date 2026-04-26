@@ -1,6 +1,5 @@
 import { useFirstPromptRenameStore } from "../../stores/first-prompt-rename-store";
 import { CloseIcon } from "../../shared/Icons";
-import "./AppUpdateNotice.css";
 import "./FirstPromptRenameFailureNotice.css";
 
 export function FirstPromptRenameFailureNotice() {
@@ -20,21 +19,18 @@ export function FirstPromptRenameFailureNotice() {
     : latestFailure.environmentName;
 
   return (
-    <aside
-      className="tx-update-notice tx-rename-failure-notice"
-      aria-live="polite"
-    >
-      <div className="tx-update-notice__header">
+    <aside className="tx-rename-failure-notice" aria-live="polite">
+      <div className="tx-rename-failure-notice__header">
         <div>
-          <p className="tx-update-notice__eyebrow">Workspace naming</p>
-          <h3 className="tx-update-notice__title">
+          <p className="tx-rename-failure-notice__eyebrow">Workspace naming</p>
+          <h3 className="tx-rename-failure-notice__title">
             Couldn't rename branch and worktree
           </h3>
-          <p className="tx-update-notice__meta">{meta}</p>
+          <p className="tx-rename-failure-notice__meta">{meta}</p>
         </div>
         <button
           type="button"
-          className="tx-update-notice__dismiss"
+          className="tx-rename-failure-notice__dismiss"
           onClick={dismissLatestFailure}
           title="Dismiss rename failure notice"
         >
@@ -42,7 +38,7 @@ export function FirstPromptRenameFailureNotice() {
         </button>
       </div>
 
-      <p className="tx-update-notice__error">{latestFailure.message}</p>
+      <p className="tx-rename-failure-notice__error">{latestFailure.message}</p>
     </aside>
   );
 }

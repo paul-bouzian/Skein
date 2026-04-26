@@ -4,6 +4,7 @@ import {
   FIRST_PROMPT_RENAME_FAILURE_EVENT_NAMES,
   MENU_CHECK_FOR_UPDATES_EVENT_NAMES,
   MENU_OPEN_SETTINGS_EVENT_NAMES,
+  MENU_SIMULATE_UPDATE_EVENT_NAMES,
   PROJECT_ACTION_STATE_EVENT_NAMES,
   TERMINAL_EXIT_EVENT_NAMES,
   TERMINAL_OUTPUT_EVENT_NAMES,
@@ -334,6 +335,12 @@ export function listenToMenuCheckForUpdates(
   callback: () => void,
 ): Promise<UnlistenFn> {
   return listenToSignalEvents(MENU_CHECK_FOR_UPDATES_EVENT_NAMES, callback);
+}
+
+export function listenToMenuSimulateUpdate(
+  callback: () => void,
+): Promise<UnlistenFn> {
+  return listenToSignalEvents(MENU_SIMULATE_UPDATE_EVENT_NAMES, callback);
 }
 
 export function updateGlobalSettings(

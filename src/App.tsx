@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import "./App.css";
+import { ReleaseNotesCard } from "./directions/studio/ReleaseNotesCard";
 import { StudioShell } from "./directions/studio/StudioShell";
 import * as bridge from "./lib/bridge";
 import { LoadingState } from "./shared/LoadingState";
@@ -35,6 +36,7 @@ function App() {
   );
   const initializeUpdates = useAppUpdateStore((s) => s.initialize);
   const checkForUpdates = useAppUpdateStore((s) => s.checkNow);
+  const simulateUpdateFlow = useAppUpdateStore((s) => s.simulateUpdateFlow);
   const initializeWorktreeScriptListener = useWorktreeScriptStore(
     (s) => s.initializeListener,
   );
@@ -88,6 +90,52 @@ function App() {
   }, [checkForUpdates]);
 
   useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void bridge
+      .listenToMenuSimulateUpdate(() => {
+        simulateUpdateFlow();
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [simulateUpdateFlow]);
+
+  useEffect(() => {
+    const REFOCUS_CHECK_THRESHOLD_MS = 30 * 60 * 1000;
+    let lastBlurTimestamp: number | null = null;
+
+    function onBlur() {
+      lastBlurTimestamp = Date.now();
+    }
+    function onFocus() {
+      if (lastBlurTimestamp === null) return;
+      const elapsed = Date.now() - lastBlurTimestamp;
+      lastBlurTimestamp = null;
+      if (elapsed >= REFOCUS_CHECK_THRESHOLD_MS) {
+        void checkForUpdates({ announceNoUpdate: false });
+      }
+    }
+
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [checkForUpdates]);
+
+  useEffect(() => {
     void initializeWorktreeScriptListener();
     return () => {
       teardownWorktreeScriptListener();
@@ -124,6 +172,7 @@ function App() {
   return (
     <>
       <StudioShell />
+      <ReleaseNotesCard />
       <DesktopNotificationRuntime />
     </>
   );

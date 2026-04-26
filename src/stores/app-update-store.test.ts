@@ -40,6 +40,16 @@ function createDeferred<T>() {
 }
 
 beforeEach(async () => {
+  useAppUpdateStore.setState({
+    state: "idle",
+    snapshot: null,
+    error: null,
+    downloadedBytes: 0,
+    contentLength: null,
+    noticeVisible: false,
+    hasInitialized: false,
+    simulating: false,
+  });
   useAppUpdateStore.getState().dismiss();
   vi.clearAllMocks();
   useAppUpdateStore.setState({
@@ -50,6 +60,7 @@ beforeEach(async () => {
     contentLength: null,
     noticeVisible: false,
     hasInitialized: false,
+    simulating: false,
   });
 });
 
@@ -106,7 +117,7 @@ describe("app-update-store", () => {
     expect(useAppUpdateStore.getState().state).toBe("idle");
   });
 
-  it("downloads, installs, and restarts the app", async () => {
+  it("downloads the update without restarting and waits for install confirmation", async () => {
     updaterCheckMock.mockResolvedValue(makeUpdate());
     updaterDownloadAndInstallMock.mockImplementation(
       async (_updateId, onEvent) => {
@@ -129,15 +140,69 @@ describe("app-update-store", () => {
     );
 
     await useAppUpdateStore.getState().initialize();
-    await useAppUpdateStore.getState().install();
+    await useAppUpdateStore.getState().startDownload();
 
+    expect(useAppUpdateStore.getState().state).toBe("downloaded");
     expect(useAppUpdateStore.getState().downloadedBytes).toBe(100);
-    expect(mockedBridge.restartApp).toHaveBeenCalledTimes(1);
     expect(updaterDownloadAndInstallMock).toHaveBeenCalledWith(
       "offer-1",
       expect.any(Function),
     );
+    expect(mockedBridge.restartApp).not.toHaveBeenCalled();
+  });
+
+  it("restarts the app only when installAndRestart is called after download", async () => {
+    updaterCheckMock.mockResolvedValue(makeUpdate());
+    updaterDownloadAndInstallMock.mockImplementation(
+      async (_updateId, onEvent) => {
+        onEvent?.({ event: "Started", data: { contentLength: 100 } });
+        onEvent?.({ event: "Finished" });
+      },
+    );
+
+    await useAppUpdateStore.getState().initialize();
+    await useAppUpdateStore.getState().startDownload();
+
+    expect(useAppUpdateStore.getState().state).toBe("downloaded");
+
+    await useAppUpdateStore.getState().installAndRestart();
+
+    expect(mockedBridge.restartApp).toHaveBeenCalledTimes(1);
     expect(updaterCloseMock).toHaveBeenCalledWith("offer-1");
+  });
+
+  it("ignores installAndRestart when no download has completed", async () => {
+    updaterCheckMock.mockResolvedValue(makeUpdate());
+
+    await useAppUpdateStore.getState().initialize();
+    await useAppUpdateStore.getState().installAndRestart();
+
+    expect(mockedBridge.restartApp).not.toHaveBeenCalled();
+    expect(useAppUpdateStore.getState().state).toBe("available");
+  });
+
+  it("does not dismiss the pill while the download is in progress", async () => {
+    updaterCheckMock.mockResolvedValue(makeUpdate());
+    const gate = createDeferred<void>();
+    updaterDownloadAndInstallMock.mockImplementation(
+      async (_updateId, onEvent) => {
+        onEvent?.({ event: "Started", data: { contentLength: 100 } });
+        await gate.promise;
+        onEvent?.({ event: "Finished" });
+      },
+    );
+
+    await useAppUpdateStore.getState().initialize();
+    const downloadPromise = useAppUpdateStore.getState().startDownload();
+
+    await Promise.resolve();
+    expect(useAppUpdateStore.getState().state).toBe("downloading");
+    useAppUpdateStore.getState().dismiss();
+    expect(useAppUpdateStore.getState().state).toBe("downloading");
+
+    gate.resolve();
+    await downloadPromise;
+    expect(useAppUpdateStore.getState().state).toBe("downloaded");
   });
 
   it("opens the release page for the pending update", async () => {

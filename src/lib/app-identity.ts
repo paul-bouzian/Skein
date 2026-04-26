@@ -130,6 +130,14 @@ export const MENU_CHECK_FOR_UPDATES_EVENT_NAMES = [
   ...LEGACY_MENU_CHECK_FOR_UPDATES_EVENT_NAMES,
 ] as const;
 
+export const MENU_SIMULATE_UPDATE_EVENT_NAME = buildEventName(
+  APP_SLUG,
+  "menu-simulate-update",
+);
+export const MENU_SIMULATE_UPDATE_EVENT_NAMES = [
+  MENU_SIMULATE_UPDATE_EVENT_NAME,
+] as const;
+
 export const THEME_STORAGE_KEY = buildStorageKey(APP_SLUG, "theme");
 export const LEGACY_THEME_STORAGE_KEYS = buildLegacyStorageKeys("theme");
 export const TERMINAL_HEIGHT_STORAGE_KEY = buildStorageKey(

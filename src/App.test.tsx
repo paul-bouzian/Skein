@@ -26,6 +26,7 @@ vi.mock("./shared/DesktopNotificationRuntime", () => ({
 vi.mock("./lib/bridge", () => ({
   listenToFirstPromptRenameFailures: vi.fn(async () => () => undefined),
   listenToMenuCheckForUpdates: vi.fn(async () => () => undefined),
+  listenToMenuSimulateUpdate: vi.fn(async () => () => undefined),
 }));
 
 const mockedBridge = vi.mocked(bridge);
@@ -34,6 +35,8 @@ describe("App", () => {
   beforeEach(() => {
     mockedBridge.listenToMenuCheckForUpdates.mockReset();
     mockedBridge.listenToMenuCheckForUpdates.mockResolvedValue(() => undefined);
+    mockedBridge.listenToMenuSimulateUpdate.mockReset();
+    mockedBridge.listenToMenuSimulateUpdate.mockResolvedValue(() => undefined);
 
     useWorkspaceStore.setState((state) => ({
       ...state,
@@ -56,6 +59,7 @@ describe("App", () => {
       ...state,
       initialize: vi.fn(async () => undefined),
       checkNow: vi.fn(async () => undefined),
+      simulateUpdateFlow: vi.fn(),
     }));
     useWorktreeScriptStore.setState((state) => ({
       ...state,
