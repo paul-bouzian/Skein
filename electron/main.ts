@@ -73,6 +73,9 @@ function createMainWindow() {
     minWidth: 1100,
     minHeight: 720,
     show: false,
+    vibrancy: "sidebar",
+    visualEffectState: "active",
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: join(__dirname, "preload.js"),
       contextIsolation: true,
