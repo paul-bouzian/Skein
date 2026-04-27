@@ -432,6 +432,49 @@ mod tests {
     }
 
     #[test]
+    fn push_sets_upstream_when_missing() -> AppResult<()> {
+        let repo = TestRepo::new()?;
+        let remote_path =
+            std::env::temp_dir().join(format!("skein-git-remote-{}", uuid::Uuid::now_v7()));
+        let status = Command::new("git")
+            .args(["init", "--bare", "--initial-branch=main"])
+            .arg(&remote_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        assert!(status.success());
+        let _remote_guard = TempDirGuard {
+            path: remote_path.clone(),
+        };
+
+        let file = repo.path.join("src/app.ts");
+        fs::create_dir_all(file.parent().expect("parent"))?;
+        fs::write(&file, "const answer = 1;\n")?;
+        stage_file(&repo.path, "src/app.ts")?;
+        repo.run(["commit", "-m", "feat: add app file"])?;
+        repo.run([
+            "remote",
+            "add",
+            "origin",
+            remote_path.to_str().expect("remote path"),
+        ])?;
+
+        super::push(&repo.path)?;
+
+        assert_eq!(
+            repo.stdout([
+                "rev-parse",
+                "--abbrev-ref",
+                "--symbolic-full-name",
+                "@{upstream}"
+            ])?
+            .trim(),
+            "origin/main"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn git_actions_round_trip_file_staging() -> AppResult<()> {
         let repo = TestRepo::new()?;
         let file = repo.path.join("src/app.ts");
@@ -616,6 +659,16 @@ mod tests {
     }
 
     impl Drop for TestRepo {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+
+    impl Drop for TempDirGuard {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }

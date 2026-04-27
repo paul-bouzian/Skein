@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::domain::git_review::{
@@ -99,6 +100,11 @@ fn build_repo_summary(
 }
 
 fn read_uncommitted_sections(repo_root: &Path) -> AppResult<Vec<GitChangeSectionSnapshot>> {
+    let staged_stats = read_numstat(
+        repo_root,
+        ["diff", "--cached", "--numstat", "--find-renames=50%"],
+    )?;
+    let unstaged_stats = read_numstat(repo_root, ["diff", "--numstat", "--find-renames=50%"])?;
     let output = command_output(
         repo_root,
         [
@@ -134,25 +140,30 @@ fn read_uncommitted_sections(repo_root: &Path) -> AppResult<Vec<GitChangeSection
                 None,
                 GitChangeSection::Untracked,
                 GitChangeKind::Added,
+                None,
             ));
             continue;
         }
 
         if let Some(entry) = parse_status_record(&record, &mut records)? {
             if let Some(kind) = entry.staged_kind {
+                let stats = staged_stats.get(&entry.path).copied();
                 staged.push(make_change(
                     entry.path.clone(),
                     entry.old_path.clone(),
                     GitChangeSection::Staged,
                     kind,
+                    stats,
                 ));
             }
             if let Some(kind) = entry.unstaged_kind {
+                let stats = unstaged_stats.get(&entry.path).copied();
                 unstaged.push(make_change(
                     entry.path,
                     entry.old_path,
                     GitChangeSection::Unstaged,
                     kind,
+                    stats,
                 ));
             }
         }
@@ -202,9 +213,23 @@ fn read_branch_sections(
         return Err(AppError::Git(stderr_message(&output.stderr)));
     }
 
+    let stats_by_path = read_numstat(
+        repo_root,
+        [
+            "diff".to_string(),
+            "--numstat".to_string(),
+            "--find-renames=50%".to_string(),
+            format!("{base_branch}...HEAD"),
+        ],
+    )?;
     let mut files = stdout_message(&output.stdout)
         .lines()
         .filter_map(parse_branch_name_status_line)
+        .map(|mut file| {
+            let stats = stats_by_path.get(&file.path).copied();
+            apply_stats(&mut file, stats);
+            file
+        })
         .collect::<Vec<_>>();
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
@@ -234,7 +259,13 @@ fn parse_branch_name_status_line(line: &str) -> Option<GitFileChange> {
         (first_path, second_path)
     };
 
-    Some(make_change(path, old_path, GitChangeSection::Branch, kind))
+    Some(make_change(
+        path,
+        old_path,
+        GitChangeSection::Branch,
+        kind,
+        None,
+    ))
 }
 
 fn make_change(
@@ -242,6 +273,7 @@ fn make_change(
     old_path: Option<String>,
     section: GitChangeSection,
     kind: GitChangeKind,
+    stats: Option<ChangeStats>,
 ) -> GitFileChange {
     let (can_stage, can_unstage, can_revert) = match section {
         GitChangeSection::Staged => (false, true, true),
@@ -250,7 +282,7 @@ fn make_change(
         GitChangeSection::Branch => (false, false, false),
     };
 
-    GitFileChange {
+    let mut change = GitFileChange {
         path,
         old_path,
         section,
@@ -260,7 +292,72 @@ fn make_change(
         can_stage,
         can_unstage,
         can_revert,
+    };
+    apply_stats(&mut change, stats);
+    change
+}
+
+fn apply_stats(change: &mut GitFileChange, stats: Option<ChangeStats>) {
+    if let Some(stats) = stats {
+        change.additions = Some(stats.additions);
+        change.deletions = Some(stats.deletions);
     }
+}
+
+fn read_numstat<I, A>(repo_root: &Path, args: I) -> AppResult<HashMap<String, ChangeStats>>
+where
+    I: IntoIterator<Item = A>,
+    A: AsRef<str>,
+{
+    let output = command_output(repo_root, args)?;
+    if !output.status.success() {
+        return Err(AppError::Git(stderr_message(&output.stderr)));
+    }
+
+    Ok(stdout_message(&output.stdout)
+        .lines()
+        .filter_map(parse_numstat_line)
+        .collect())
+}
+
+fn parse_numstat_line(line: &str) -> Option<(String, ChangeStats)> {
+    let mut parts = line.splitn(3, '\t');
+    let additions = parse_numstat_count(parts.next()?)?;
+    let deletions = parse_numstat_count(parts.next()?)?;
+    let path = normalize_numstat_path(parts.next()?);
+    Some((
+        path,
+        ChangeStats {
+            additions,
+            deletions,
+        },
+    ))
+}
+
+fn parse_numstat_count(value: &str) -> Option<u32> {
+    value.parse::<u32>().ok()
+}
+
+fn normalize_numstat_path(path: &str) -> String {
+    if let Some((prefix, rename)) = path.split_once('{') {
+        if let Some((rename_body, suffix)) = rename.split_once('}') {
+            if let Some((_, new_name)) = rename_body.split_once(" => ") {
+                return format!("{prefix}{new_name}{suffix}");
+            }
+        }
+    }
+
+    if let Some((_, new_path)) = path.split_once(" => ") {
+        return new_path.to_string();
+    }
+
+    path.to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChangeStats {
+    additions: u32,
+    deletions: u32,
 }
 
 fn collect_status_flags(buffer: &[u8]) -> AppResult<StatusFlags> {
@@ -421,7 +518,9 @@ struct ParsedStatusEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_branch_name_status_line, parse_xy};
+    use super::{
+        normalize_numstat_path, parse_branch_name_status_line, parse_numstat_line, parse_xy,
+    };
     use crate::domain::git_review::GitChangeKind;
 
     #[test]
@@ -436,5 +535,30 @@ mod tests {
         assert_eq!(change.path, "src/new.ts");
         assert_eq!(change.old_path.as_deref(), Some("src/old.ts"));
         assert_eq!(change.kind, GitChangeKind::Renamed);
+    }
+
+    #[test]
+    fn parses_text_numstat_lines() {
+        let (path, stats) = parse_numstat_line("12\t4\tsrc/app.ts").expect("numstat");
+        assert_eq!(path, "src/app.ts");
+        assert_eq!(stats.additions, 12);
+        assert_eq!(stats.deletions, 4);
+    }
+
+    #[test]
+    fn skips_binary_numstat_lines() {
+        assert!(parse_numstat_line("-\t-\tassets/icon.png").is_none());
+    }
+
+    #[test]
+    fn normalizes_numstat_rename_paths_to_the_new_path() {
+        assert_eq!(
+            normalize_numstat_path("src/{old.ts => new.ts}"),
+            "src/new.ts"
+        );
+        assert_eq!(
+            normalize_numstat_path("src/old.ts => src/new.ts"),
+            "src/new.ts"
+        );
     }
 }

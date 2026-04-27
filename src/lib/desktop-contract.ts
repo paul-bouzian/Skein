@@ -52,6 +52,7 @@ export const DESKTOP_BACKEND_COMMANDS = [
   "respond_to_approval_request",
   "respond_to_user_input_request",
   "restart_app",
+  "run_git_action",
   "revert_git_all",
   "revert_git_file",
   "run_project_action",

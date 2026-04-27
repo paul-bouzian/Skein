@@ -3,6 +3,8 @@ import { create } from "zustand";
 import * as bridge from "../lib/bridge";
 import type {
   CommitGitInput,
+  GitAction,
+  GitActionResult,
   GitChangeSection,
   GitFileChange,
   GitFileDiff,
@@ -52,6 +54,7 @@ type GitReviewState = {
   fetch: (environmentId: string) => Promise<void>;
   pull: (environmentId: string) => Promise<void>;
   push: (environmentId: string) => Promise<void>;
+  runAction: (environmentId: string, action: GitAction) => Promise<GitActionResult | null>;
 };
 
 type GitReviewSetter = (
@@ -61,6 +64,8 @@ type GitReviewSetter = (
     | ((state: GitReviewState) => GitReviewState | Partial<GitReviewState>),
   replace?: false,
 ) => void;
+
+const EMPTY_DIFF_COLLECTION: Record<string, GitFileDiff> = {};
 
 export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   scopeByEnvironmentId: {},
@@ -302,6 +307,11 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
     await runReviewMutation(environmentId, "push", (scope) =>
       bridge.pushGit({ environmentId, scope }), set, get);
   },
+
+  runAction: async (environmentId, action) => {
+    const result = await runGitActionMutation(environmentId, action, set, get);
+    return result;
+  },
 }));
 
 export function selectGitReviewScope(environmentId: string | null) {
@@ -329,7 +339,8 @@ export function selectGitReviewDiffCollection(
   scope: GitReviewScope,
 ) {
   return (state: GitReviewState) =>
-    (environmentId ? state.diffsByContext[reviewContextKey(environmentId, scope)] : null) ?? {};
+    (environmentId ? state.diffsByContext[reviewContextKey(environmentId, scope)] : null) ??
+    EMPTY_DIFF_COLLECTION;
 }
 
 export function selectGitReviewDiffError(environmentId: string | null, scope: GitReviewScope) {
@@ -354,6 +365,55 @@ async function runReviewMutation(
   set: GitReviewSetter,
   get: () => GitReviewState,
 ): Promise<boolean> {
+  return runSnapshotMutation({
+    environmentId,
+    action,
+    operation,
+    snapshotFromResult: (snapshot) => snapshot,
+    successFromResult: () => true,
+    failureResult: false,
+    set,
+    get,
+  });
+}
+
+async function runGitActionMutation(
+  environmentId: string,
+  action: GitAction,
+  set: GitReviewSetter,
+  get: () => GitReviewState,
+): Promise<GitActionResult | null> {
+  return runSnapshotMutation({
+    environmentId,
+    action,
+    operation: (scope) => bridge.runGitAction({ environmentId, scope, action }),
+    snapshotFromResult: (result) => result.snapshot,
+    successFromResult: (result) => result,
+    failureResult: null,
+    set,
+    get,
+  });
+}
+
+async function runSnapshotMutation<TResult, TReturn>({
+  environmentId,
+  action,
+  operation,
+  snapshotFromResult,
+  successFromResult,
+  failureResult,
+  set,
+  get,
+}: {
+  environmentId: string;
+  action: string;
+  operation: (scope: GitReviewScope) => Promise<TResult>;
+  snapshotFromResult: (result: TResult) => GitReviewSnapshot;
+  successFromResult: (result: TResult) => TReturn;
+  failureResult: TReturn;
+  set: GitReviewSetter;
+  get: () => GitReviewState;
+}): Promise<TReturn> {
   const scope = get().scopeByEnvironmentId[environmentId] ?? "uncommitted";
   const contextKey = reviewContextKey(environmentId, scope);
   const requestId = nextRequestId(get().reviewRequestIdByContext[contextKey]);
@@ -373,9 +433,9 @@ async function runReviewMutation(
   }));
 
   try {
-    const snapshot = await operation(scope);
-    await applySnapshot(snapshot, contextKey, requestId, set, get);
-    return true;
+    const result = await operation(scope);
+    await applySnapshot(snapshotFromResult(result), contextKey, requestId, set, get);
+    return successFromResult(result);
   } catch (cause: unknown) {
     const message =
       cause instanceof Error ? cause.message : "Git action failed";
@@ -389,7 +449,7 @@ async function runReviewMutation(
           }
         : {}),
     }));
-    return false;
+    return failureResult;
   } finally {
     set((state) => ({
       actionByEnvironmentId: {
@@ -518,7 +578,7 @@ async function loadDiffBundle(
   }));
 
   try {
-    const [selectedFile, adjacentFile] = orderedFiles;
+    const [selectedFile, ...remainingFiles] = orderedFiles;
     if (selectedFile) {
       const loaded = await fetchAndStoreDiff(
         environmentId,
@@ -532,6 +592,18 @@ async function loadDiffBundle(
       if (!loaded) {
         return;
       }
+    }
+
+    for (const file of remainingFiles) {
+      await fetchAndStoreDiff(
+        environmentId,
+        scope,
+        contextKey,
+        requestId,
+        file,
+        set,
+        get,
+      );
     }
 
     set((state) => ({
@@ -548,20 +620,6 @@ async function loadDiffBundle(
           }
         : {}),
     }));
-
-    if (adjacentFile) {
-      window.setTimeout(() => {
-        void prefetchAdjacentDiff(
-          environmentId,
-          scope,
-          contextKey,
-          requestId,
-          adjacentFile,
-          set,
-          get,
-        );
-      }, 150);
-    }
   } catch (cause: unknown) {
     const message =
       cause instanceof Error ? cause.message : "Failed to load the file diff";
@@ -579,39 +637,6 @@ async function loadDiffBundle(
           }
         : {}),
     }));
-  }
-}
-
-async function prefetchAdjacentDiff(
-  environmentId: string,
-  scope: GitReviewScope,
-  contextKey: string,
-  requestId: number,
-  file: GitFileChange,
-  set: GitReviewSetter,
-  get: () => GitReviewState,
-) {
-  const fileKey = changedFileKey(file.section, file.path);
-  if (
-    get().selectedFileByContext[contextKey] === null ||
-    get().diffRequestIdByContext[contextKey] !== requestId ||
-    get().diffsByContext[contextKey]?.[fileKey]
-  ) {
-    return;
-  }
-
-  try {
-    await fetchAndStoreDiff(
-      environmentId,
-      scope,
-      contextKey,
-      requestId,
-      file,
-      set,
-      get,
-    );
-  } catch {
-    // Ignore background prefetch failures; the selected diff load path already surfaces errors.
   }
 }
 

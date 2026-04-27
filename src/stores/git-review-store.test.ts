@@ -422,8 +422,7 @@ describe("git-review-store", () => {
     expect(mockedBridge.getGitFileDiff.mock.calls.length).toBeGreaterThan(initialCalls);
   });
 
-  it("cancels adjacent prefetch when the diff is closed", async () => {
-    vi.useFakeTimers();
+  it("loads the full diff bundle for the selected review snapshot", async () => {
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(
       makeGitReviewSnapshot({
         sections: [
@@ -458,21 +457,23 @@ describe("git-review-store", () => {
         ],
       }),
     );
-    mockedBridge.getGitFileDiff.mockResolvedValue(makeGitFileDiff());
+    mockedBridge.getGitFileDiff.mockImplementation(({ path }) =>
+      Promise.resolve(makeGitFileDiff({ path })),
+    );
 
     await useGitReviewStore.getState().loadReview("env-1");
     await useGitReviewStore
       .getState()
       .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
 
-    useGitReviewStore.getState().closeDiff("env-1", "uncommitted");
-    await vi.advanceTimersByTimeAsync(200);
-
-    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(1);
+    expect(useGitReviewStore.getState().diffsByContext["env-1:uncommitted"]).toMatchObject({
+      "unstaged:src/a.ts": expect.objectContaining({ path: "src/a.ts" }),
+      "unstaged:src/b.ts": expect.objectContaining({ path: "src/b.ts" }),
+    });
+    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(2);
   });
 
-  it("cancels adjacent prefetch when the diff is cleared", async () => {
-    vi.useFakeTimers();
+  it("clears the loaded diff bundle when the diff is cleared", async () => {
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(
       makeGitReviewSnapshot({
         sections: [
@@ -515,8 +516,8 @@ describe("git-review-store", () => {
       .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
 
     useGitReviewStore.getState().clearSelectedFile("env-1", "uncommitted");
-    await vi.advanceTimersByTimeAsync(200);
 
-    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(1);
+    expect(useGitReviewStore.getState().diffsByContext["env-1:uncommitted"]).toEqual({});
+    expect(useGitReviewStore.getState().selectedFileByContext["env-1:uncommitted"]).toBeNull();
   });
 });

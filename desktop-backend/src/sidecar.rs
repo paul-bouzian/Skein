@@ -282,6 +282,10 @@ async fn dispatch_request(
                 git_review::generate_git_commit_message_impl(state, &payload.environment_id).await,
             )
         }
+        "run_git_action" => {
+            let payload: InputEnvelope<git_review::RunGitActionInput> = decode_params(params)?;
+            encode_result(git_review::run_git_action_impl(state, payload.input).await)
+        }
         "open_thread_conversation" => {
             let payload: ThreadIdEnvelope = decode_params(params)?;
             encode_result(

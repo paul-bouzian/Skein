@@ -1,3 +1,4 @@
+mod action_runner;
 mod actions;
 mod diff;
 mod status;
@@ -8,6 +9,7 @@ use std::process::{Command, Output};
 use crate::domain::git_review::{GitChangeSection, GitFileDiff, GitReviewScope, GitReviewSnapshot};
 use crate::error::{AppError, AppResult};
 
+pub use action_runner::run_action;
 pub use actions::{
     commit, fetch, generate_commit_message, pull, push, revert_all, revert_file, stage_all,
     stage_file, unstage_all, unstage_file,
