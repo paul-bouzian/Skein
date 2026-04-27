@@ -54,6 +54,7 @@ let pendingUpdate: DesktopUpdate | null = null;
 let initialization: Promise<void> | null = null;
 let queuedManualCheck: Promise<void> | null = null;
 let simulationInterval: ReturnType<typeof setInterval> | null = null;
+let simulationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   state: "idle",
@@ -218,6 +219,8 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   startDownload: async () => {
+    if (get().state !== "available") return;
+
     if (get().simulating) {
       runSimulatedDownload(set, get);
       return;
@@ -265,7 +268,8 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
       console.info("[update] Simulation: install and restart triggered");
       const fakeNotes = snapshotToPendingNotes(get().snapshot);
       set({ state: "installing" });
-      setTimeout(() => {
+      simulationTimeout = setTimeout(() => {
+        simulationTimeout = null;
         clearSimulation();
         set({
           state: "idle",
@@ -368,16 +372,13 @@ function readPersistedReleaseNotes(): PendingReleaseNotes | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<PendingReleaseNotes>;
-    if (
-      typeof parsed?.version === "string" &&
-      typeof parsed?.releaseUrl === "string"
-    ) {
+    if (typeof parsed?.version === "string") {
       return {
         version: parsed.version,
         notes: typeof parsed.notes === "string" ? parsed.notes : null,
         releaseDate:
           typeof parsed.releaseDate === "string" ? parsed.releaseDate : null,
-        releaseUrl: parsed.releaseUrl,
+        releaseUrl: buildReleaseUrl(parsed.version),
       };
     }
   } catch {
@@ -451,6 +452,10 @@ function clearSimulation() {
   if (simulationInterval) {
     clearInterval(simulationInterval);
     simulationInterval = null;
+  }
+  if (simulationTimeout) {
+    clearTimeout(simulationTimeout);
+    simulationTimeout = null;
   }
 }
 
