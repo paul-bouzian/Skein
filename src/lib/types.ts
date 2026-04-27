@@ -527,6 +527,8 @@ export type AppUpdateState =
   | "idle"
   | "checking"
   | "available"
+  | "downloading"
+  | "downloaded"
   | "installing"
   | "latest"
   | "error";

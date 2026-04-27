@@ -9,6 +9,15 @@ import type {
 import { openExternalUrl, updater } from "../lib/shell";
 import type { AppUpdateSnapshot, AppUpdateState } from "../lib/types";
 
+const PENDING_RELEASE_NOTES_KEY = "skein-pending-release-notes";
+
+export type PendingReleaseNotes = {
+  version: string;
+  notes: string | null;
+  releaseDate: string | null;
+  releaseUrl: string;
+};
+
 type UpdateStore = {
   state: AppUpdateState;
   snapshot: AppUpdateSnapshot | null;
@@ -17,11 +26,17 @@ type UpdateStore = {
   contentLength: number | null;
   noticeVisible: boolean;
   hasInitialized: boolean;
+  simulating: boolean;
+  pendingReleaseNotes: PendingReleaseNotes | null;
   initialize: () => Promise<void>;
   checkNow: (options?: { announceNoUpdate?: boolean }) => Promise<void>;
   dismiss: () => void;
   viewChanges: () => Promise<void>;
-  install: () => Promise<void>;
+  startDownload: () => Promise<void>;
+  installAndRestart: () => Promise<void>;
+  simulateUpdateFlow: () => void;
+  consumePendingReleaseNotes: () => void;
+  dismissReleaseNotes: () => void;
 };
 
 type UpdateSetter = (
@@ -31,9 +46,15 @@ type UpdateSetter = (
     | ((state: UpdateStore) => UpdateStore | Partial<UpdateStore>),
 ) => void;
 
+const SIMULATED_TOTAL_BYTES = 50 * 1024 * 1024;
+const SIMULATED_TICK_BYTES = SIMULATED_TOTAL_BYTES / 20;
+const SIMULATED_TICK_MS = 250;
+
 let pendingUpdate: DesktopUpdate | null = null;
 let initialization: Promise<void> | null = null;
 let queuedManualCheck: Promise<void> | null = null;
+let simulationInterval: ReturnType<typeof setInterval> | null = null;
+let simulationTimeout: ReturnType<typeof setTimeout> | null = null;
 
 export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   state: "idle",
@@ -43,6 +64,8 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   contentLength: null,
   noticeVisible: false,
   hasInitialized: false,
+  simulating: false,
+  pendingReleaseNotes: null,
 
   initialize: async () => {
     if (get().hasInitialized) {
@@ -53,6 +76,8 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
       await initialization;
       return;
     }
+
+    get().consumePendingReleaseNotes();
 
     const task = get().checkNow({ announceNoUpdate: false });
     initialization = task;
@@ -67,12 +92,22 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   checkNow: async (options) => {
-    if (get().state === "installing") {
+    const currentState = get().state;
+    if (
+      currentState === "installing" ||
+      currentState === "downloading" ||
+      currentState === "downloaded" ||
+      get().simulating
+    ) {
       return;
     }
 
     const announceNoUpdate = options?.announceNoUpdate ?? true;
     const silent = !announceNoUpdate;
+
+    if (silent && currentState === "available") {
+      return;
+    }
 
     if (get().state === "checking") {
       if (!initialization || !announceNoUpdate) {
@@ -150,7 +185,11 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
 
   dismiss: () => {
     const state = get().state;
-    if (state === "installing") {
+    if (
+      state === "downloading" ||
+      state === "downloaded" ||
+      state === "installing"
+    ) {
       return;
     }
 
@@ -179,11 +218,18 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     await openExternalUrl(snapshot.releaseUrl);
   },
 
-  install: async () => {
+  startDownload: async () => {
+    if (get().state !== "available") return;
+
+    if (get().simulating) {
+      runSimulatedDownload(set, get);
+      return;
+    }
+
     if (!pendingUpdate || !get().snapshot) return;
 
     set({
-      state: "installing",
+      state: "downloading",
       error: null,
       noticeVisible: true,
       downloadedBytes: 0,
@@ -194,19 +240,162 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
       await updater.downloadAndInstall(pendingUpdate.id, (event) => {
         applyDownloadEvent(event, set);
       });
+      // Persist as soon as the bytes are on disk so the release notes card
+      // still surfaces if the user quits before pressing Install — Electron's
+      // updater is configured with autoInstallOnAppQuit, which would otherwise
+      // apply the update without us having stored the notes.
+      const pending = snapshotToPendingNotes(get().snapshot);
+      if (pending) {
+        persistPendingReleaseNotes(pending);
+      }
+      set({ state: "downloaded", error: null });
+    } catch (cause: unknown) {
+      const message =
+        cause instanceof Error ? cause.message : "Failed to download the update";
+      set({
+        state: "available",
+        error: message,
+        downloadedBytes: 0,
+        contentLength: null,
+      });
+    }
+  },
+
+  installAndRestart: async () => {
+    if (get().state !== "downloaded") return;
+
+    if (get().simulating) {
+      console.info("[update] Simulation: install and restart triggered");
+      const fakeNotes = snapshotToPendingNotes(get().snapshot);
+      set({ state: "installing" });
+      simulationTimeout = setTimeout(() => {
+        simulationTimeout = null;
+        clearSimulation();
+        set({
+          state: "idle",
+          snapshot: null,
+          error: null,
+          noticeVisible: false,
+          downloadedBytes: 0,
+          contentLength: null,
+          simulating: false,
+          pendingReleaseNotes: fakeNotes,
+        });
+      }, 1500);
+      return;
+    }
+
+    set({ state: "installing", error: null });
+
+    try {
       await replacePendingUpdate(null);
       await bridge.restartApp();
     } catch (cause: unknown) {
       const message =
         cause instanceof Error ? cause.message : "Failed to install the update";
-      set({
-        state: "available",
-        error: message,
-        noticeVisible: true,
-      });
+      set({ state: "downloaded", error: message });
     }
   },
+
+  simulateUpdateFlow: () => {
+    clearSimulation();
+    set({
+      simulating: true,
+      state: "available",
+      snapshot: {
+        currentVersion: "0.0.0",
+        availableVersion: "9.9.9-dev",
+        releaseDate: new Date().toISOString(),
+        notes: SIMULATED_RELEASE_NOTES,
+        releaseUrl: `${RELEASES_BASE_URL}/v9.9.9-dev`,
+      },
+      error: null,
+      noticeVisible: true,
+      downloadedBytes: 0,
+      contentLength: null,
+      pendingReleaseNotes: null,
+    });
+  },
+
+  consumePendingReleaseNotes: () => {
+    const stored = readPersistedReleaseNotes();
+    if (!stored) return;
+    clearPersistedReleaseNotes();
+    set({ pendingReleaseNotes: stored });
+  },
+
+  dismissReleaseNotes: () => {
+    set({ pendingReleaseNotes: null });
+  },
 }));
+
+const SIMULATED_RELEASE_NOTES = `## What's Changed
+
+- studio: glass-morphism sidebar with native macOS vibrancy by @paul-bouzian in #97
+- studio: new compact update pill in the sidebar header by @paul-bouzian in #98
+- fix: stream Claude work activity in real time by @paul-bouzian in #96
+- feat: refresh sidebar, work activity, composer & selectors UX by @paul-bouzian in #95
+- feat: replace browser iframe with native WebContentsView by @paul-bouzian in #93
+- fix: restore proper font rendering under Electron by @paul-bouzian in #92
+
+**Full Changelog**: https://github.com/paul-bouzian/Skein/compare/v0.1.24...v9.9.9-dev`;
+
+function snapshotToPendingNotes(
+  snapshot: AppUpdateSnapshot | null,
+): PendingReleaseNotes | null {
+  if (!snapshot) return null;
+  return {
+    version: snapshot.availableVersion,
+    notes: snapshot.notes ?? null,
+    releaseDate: snapshot.releaseDate ?? null,
+    releaseUrl: snapshot.releaseUrl,
+  };
+}
+
+function persistPendingReleaseNotes(value: PendingReleaseNotes) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(PENDING_RELEASE_NOTES_KEY, JSON.stringify(value));
+  } catch {
+    // Storage quota or privacy mode — fail silently, the card just won't show.
+  }
+}
+
+function readPersistedReleaseNotes(): PendingReleaseNotes | null {
+  if (typeof localStorage === "undefined") return null;
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(PENDING_RELEASE_NOTES_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PendingReleaseNotes>;
+    if (typeof parsed?.version === "string") {
+      return {
+        version: parsed.version,
+        notes: typeof parsed.notes === "string" ? parsed.notes : null,
+        releaseDate:
+          typeof parsed.releaseDate === "string" ? parsed.releaseDate : null,
+        releaseUrl: buildReleaseUrl(parsed.version),
+      };
+    }
+  } catch {
+    // Corrupted entry — clear it below.
+  }
+  clearPersistedReleaseNotes();
+  return null;
+}
+
+function clearPersistedReleaseNotes() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(PENDING_RELEASE_NOTES_KEY);
+  } catch {
+    // Ignore.
+  }
+}
 
 function applyDownloadEvent(event: DesktopUpdateDownloadEvent, set: UpdateSetter) {
   switch (event.event) {
@@ -226,6 +415,47 @@ function applyDownloadEvent(event: DesktopUpdateDownloadEvent, set: UpdateSetter
         downloadedBytes: state.contentLength ?? state.downloadedBytes,
       }));
       break;
+  }
+}
+
+function runSimulatedDownload(
+  set: UpdateSetter,
+  get: () => UpdateStore,
+) {
+  clearSimulation();
+  set({
+    state: "downloading",
+    error: null,
+    downloadedBytes: 0,
+    contentLength: SIMULATED_TOTAL_BYTES,
+  });
+
+  simulationInterval = setInterval(() => {
+    if (!get().simulating) {
+      clearSimulation();
+      return;
+    }
+    const next = get().downloadedBytes + SIMULATED_TICK_BYTES;
+    if (next >= SIMULATED_TOTAL_BYTES) {
+      clearSimulation();
+      set({
+        state: "downloaded",
+        downloadedBytes: SIMULATED_TOTAL_BYTES,
+      });
+      return;
+    }
+    set({ downloadedBytes: next });
+  }, SIMULATED_TICK_MS);
+}
+
+function clearSimulation() {
+  if (simulationInterval) {
+    clearInterval(simulationInterval);
+    simulationInterval = null;
+  }
+  if (simulationTimeout) {
+    clearTimeout(simulationTimeout);
+    simulationTimeout = null;
   }
 }
 

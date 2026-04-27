@@ -76,8 +76,8 @@ vi.mock("./GitDiffPanel", () => ({
   GitDiffPanel: () => <div data-testid="git-diff-panel" />,
 }));
 
-vi.mock("./AppUpdateNotice", () => ({
-  AppUpdateNotice: () => null,
+vi.mock("./SidebarUpdateButton", () => ({
+  SidebarUpdateButton: () => null,
 }));
 
 vi.mock("./StudioStatusBar", () => ({

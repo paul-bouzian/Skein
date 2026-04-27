@@ -37,6 +37,7 @@ import type {
   ThreadRecord,
 } from "../../lib/types";
 import { SidebarThreadRow } from "./SidebarThreadRow";
+import { SidebarUpdateButton } from "./SidebarUpdateButton";
 import { SidebarUtilityActions } from "./SidebarUtilityActions";
 import type { Theme } from "./StudioShell";
 import {
@@ -531,6 +532,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
     <aside className={`tree-sidebar ${collapsed ? "tree-sidebar--collapsed" : ""}`} inert={collapsed || undefined}>
       <div className="tree-sidebar__header">
         <span className="tree-sidebar__title tx-section-label">Workspace</span>
+        <SidebarUpdateButton />
       </div>
       <div className="tree-sidebar__projects">
         <div className="tree-sidebar__project-list">

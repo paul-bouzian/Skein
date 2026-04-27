@@ -13,10 +13,19 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
   const contentLength = useAppUpdateStore((store) => store.contentLength);
   const checkNow = useAppUpdateStore((store) => store.checkNow);
   const viewChanges = useAppUpdateStore((store) => store.viewChanges);
-  const install = useAppUpdateStore((store) => store.install);
+  const startDownload = useAppUpdateStore((store) => store.startDownload);
+  const installAndRestart = useAppUpdateStore(
+    (store) => store.installAndRestart,
+  );
 
-  const isBusy = disabled || state === "checking" || state === "installing";
-  const showInstallAction = state === "available" && snapshot;
+  const isBusy =
+    disabled ||
+    state === "checking" ||
+    state === "downloading" ||
+    state === "installing";
+  const showDownloadAction = state === "available" && snapshot;
+  const showInstallAction =
+    (state === "downloaded" || state === "installing") && snapshot;
   const progressLabel =
     contentLength && contentLength > 0
       ? `${Math.min(
@@ -58,7 +67,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
         >
           {state === "checking" ? "Checking..." : "Check for updates"}
         </button>
-        {showInstallAction ? (
+        {showDownloadAction ? (
           <>
             <button
               type="button"
@@ -72,11 +81,21 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
               type="button"
               className="tx-action-btn tx-action-btn--primary"
               disabled={isBusy}
-              onClick={() => void install()}
+              onClick={() => void startDownload()}
             >
-              Install and restart
+              Download update
             </button>
           </>
+        ) : null}
+        {showInstallAction ? (
+          <button
+            type="button"
+            className="tx-action-btn tx-action-btn--primary"
+            disabled={isBusy}
+            onClick={() => void installAndRestart()}
+          >
+            {state === "installing" ? "Restarting…" : "Install and restart"}
+          </button>
         ) : null}
       </div>
     </div>

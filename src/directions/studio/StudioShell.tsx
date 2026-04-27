@@ -33,7 +33,6 @@ import { InspectorPanel } from "./InspectorPanel";
 import { BrowserPanel } from "./BrowserPanel";
 import { GitDiffPanel } from "./GitDiffPanel";
 import { SidePanelResizer } from "./SidePanelResizer";
-import { AppUpdateNotice } from "./AppUpdateNotice";
 import { FirstPromptRenameFailureNotice } from "./FirstPromptRenameFailureNotice";
 import { StudioStatusBar } from "./StudioStatusBar";
 import { useLocalhostAutoDetect } from "./useLocalhostAutoDetect";
@@ -231,7 +230,6 @@ export function StudioShell() {
       />
       <div className="studio-notice-stack">
         <FirstPromptRenameFailureNotice />
-        <AppUpdateNotice />
       </div>
       <SettingsView
         open={settingsOpen}
