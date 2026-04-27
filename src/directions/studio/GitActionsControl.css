@@ -1,0 +1,116 @@
+.git-actions-control {
+  position: relative;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border-radius: var(--tx-radius-md);
+  border: 1px solid var(--tx-border-subtle);
+  background: color-mix(in srgb, var(--tx-bg-raised) 88%, transparent);
+  overflow: visible;
+}
+
+.git-actions-control__primary,
+.git-actions-control__chevron {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx-text-primary);
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast),
+    opacity var(--tx-transition-fast);
+}
+
+.git-actions-control__primary {
+  gap: 7px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 0 11px;
+  border-radius: calc(var(--tx-radius-md) - 1px) 0 0
+    calc(var(--tx-radius-md) - 1px);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-semibold);
+}
+
+.git-actions-control__primary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-actions-control__chevron {
+  width: 30px;
+  border-left: 1px solid var(--tx-border-subtle);
+  border-radius: 0 calc(var(--tx-radius-md) - 1px)
+    calc(var(--tx-radius-md) - 1px) 0;
+  color: var(--tx-text-secondary);
+}
+
+.git-actions-control__primary:hover:not(:disabled),
+.git-actions-control__chevron:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+.git-actions-control__primary:disabled,
+.git-actions-control__chevron:disabled {
+  color: var(--tx-text-disabled);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.git-actions-control__chevron svg {
+  transform: rotate(90deg);
+  transition: transform var(--tx-transition-fast);
+}
+
+.git-actions-control__chevron-icon--open {
+  transform: rotate(-90deg) !important;
+}
+
+.git-actions-control__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 80;
+  width: 210px;
+  padding: 10px;
+  display: grid;
+  gap: 2px;
+}
+
+.git-actions-control__menu-label {
+  padding: 4px 8px 8px;
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-semibold);
+}
+
+.git-actions-control__menu-item {
+  min-height: 34px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--tx-radius-sm);
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-semibold);
+  text-align: left;
+  transition:
+    background var(--tx-transition-fast),
+    color var(--tx-transition-fast);
+}
+
+.git-actions-control__menu-item:hover:not(:disabled) {
+  background: var(--tx-bg-hover);
+  color: var(--tx-text-primary);
+}
+
+.git-actions-control__menu-item:disabled {
+  color: var(--tx-text-disabled);
+  cursor: default;
+}

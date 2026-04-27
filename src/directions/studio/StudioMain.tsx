@@ -23,6 +23,11 @@ import {
   useTerminalStore,
 } from "../../stores/terminal-store";
 import {
+  selectGitReviewScope,
+  selectGitReviewSnapshot,
+  useGitReviewStore,
+} from "../../stores/git-review-store";
+import {
   ArrowRightIcon,
   GlobeIcon,
   PanelLeftIcon,
@@ -32,8 +37,9 @@ import {
 import { ProviderLogo } from "../../shared/ProviderLogo";
 import { Tooltip } from "../../shared/Tooltip";
 import { dialog } from "../../lib/shell";
-import type { ProviderKind, ThreadRecord } from "../../lib/types";
+import type { GitReviewSnapshot, ProviderKind, ThreadRecord } from "../../lib/types";
 import { EnvironmentActionControl } from "./EnvironmentActionControl";
+import { GitActionsControl } from "./GitActionsControl";
 import { OpenEnvironmentControl } from "./OpenEnvironmentControl";
 import { PaneDropOverlay, ThreadDragGhost } from "./PaneDropOverlay";
 import { PaneSplitter } from "./PaneSplitter";
@@ -84,6 +90,11 @@ export function StudioMain({
   const inspectorEnabled = actionableEnvironment !== null;
   const selectedEnvironmentId = actionableEnvironment?.id ?? null;
   const terminalSlot = useTerminalStore(selectTerminalSlot(selectedEnvironmentId));
+  const reviewScope = useGitReviewStore(selectGitReviewScope(selectedEnvironmentId));
+  const reviewSnapshot = useGitReviewStore(
+    selectGitReviewSnapshot(selectedEnvironmentId, reviewScope),
+  );
+  const reviewStats = resolveReviewStats(reviewSnapshot);
 
   const toggleTerminal = useTerminalStore((s) => s.toggleVisible);
   const setTerminalHeight = useTerminalStore((s) => s.setHeight);
@@ -135,6 +146,7 @@ export function StudioMain({
           ) : null}
         </div>
         <div className="studio-main__toolbar-actions">
+          <GitActionsControl />
           <EnvironmentActionControl
             environmentId={
               projectAffordancesEnabled ? (actionableEnvironment?.id ?? null) : null
@@ -200,37 +212,13 @@ export function StudioMain({
               <GlobeIcon size={14} />
             </button>
           </Tooltip>
-          <Tooltip
-            content={
-              !inspectorEnabled
-                ? inspectorUnavailableMessage
-                : inspectorOpen
-                  ? "Hide inspector"
-                  : "Show inspector"
-            }
-            side="bottom"
-          >
-            <button
-              type="button"
-              aria-label={
-                !inspectorEnabled
-                  ? inspectorUnavailableMessage
-                  : inspectorOpen
-                    ? "Hide inspector"
-                    : "Show inspector"
-              }
-              className={`studio-main__toggle-inspector ${inspectorOpen ? "studio-main__toggle-inspector--active" : ""}`}
-              disabled={!inspectorEnabled}
-              onClick={() => {
-                if (!inspectorEnabled) {
-                  return;
-                }
-                onToggleInspector();
-              }}
-            >
-              <PanelRightIcon size={14} />
-            </button>
-          </Tooltip>
+          <ReviewPanelToggle
+            enabled={inspectorEnabled}
+            open={inspectorOpen}
+            stats={reviewStats}
+            unavailableMessage={inspectorUnavailableMessage}
+            onToggle={onToggleInspector}
+          />
         </div>
       </div>
       <div className="studio-main__content">
@@ -270,6 +258,91 @@ export function StudioMain({
       </div>
     </main>
   );
+}
+
+function ReviewPanelToggle({
+  enabled,
+  open,
+  stats,
+  unavailableMessage,
+  onToggle,
+}: {
+  enabled: boolean;
+  open: boolean;
+  stats: ReviewStats | null;
+  unavailableMessage: string;
+  onToggle: () => void;
+}) {
+  const tooltip = !enabled
+    ? unavailableMessage
+    : open
+      ? "Hide review"
+      : "Show review";
+  const ariaLabel = stats
+    ? `${tooltip}, ${stats.additions} additions, ${stats.deletions} deletions`
+    : tooltip;
+
+  return (
+    <Tooltip content={tooltip} side="bottom">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        className={`studio-main__toggle-inspector ${
+          open ? "studio-main__toggle-inspector--active" : ""
+        } ${stats ? "studio-main__review-toggle" : ""}`}
+        disabled={!enabled}
+        onClick={() => {
+          if (!enabled) {
+            return;
+          }
+          onToggle();
+        }}
+      >
+        {stats ? (
+          <span className="studio-main__review-stats" aria-hidden="true">
+            <span className="studio-main__review-stat studio-main__review-stat--added">
+              +{formatDiffStat(stats.additions)}
+            </span>
+            <span className="studio-main__review-stat studio-main__review-stat--deleted">
+              -{formatDiffStat(stats.deletions)}
+            </span>
+          </span>
+        ) : null}
+        <PanelRightIcon size={14} />
+      </button>
+    </Tooltip>
+  );
+}
+
+type ReviewStats = {
+  additions: number;
+  deletions: number;
+};
+
+function resolveReviewStats(
+  snapshot: GitReviewSnapshot | null | undefined,
+): ReviewStats | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const stats = snapshot.sections.reduce(
+    (current, section) =>
+      section.files.reduce(
+        (next, file) => ({
+          additions: next.additions + (file.additions ?? 0),
+          deletions: next.deletions + (file.deletions ?? 0),
+        }),
+        current,
+      ),
+    { additions: 0, deletions: 0 },
+  );
+
+  return stats.additions > 0 || stats.deletions > 0 ? stats : null;
+}
+
+function formatDiffStat(value: number): string {
+  return value.toLocaleString("en-US");
 }
 
 function HandoffControl({ thread }: { thread: ThreadRecord | null }) {

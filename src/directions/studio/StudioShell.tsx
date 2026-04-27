@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
@@ -29,9 +29,10 @@ import {
 import { SettingsView } from "./SettingsView";
 import { TreeSidebar } from "./TreeSidebar";
 import { StudioMain } from "./StudioMain";
-import { InspectorPanel } from "./InspectorPanel";
-import { BrowserPanel } from "./BrowserPanel";
-import { GitDiffPanel } from "./GitDiffPanel";
+import {
+  WorkspaceRightPanel,
+  type WorkspaceRightPanelTab,
+} from "./WorkspaceRightPanel";
 import { SidePanelResizer } from "./SidePanelResizer";
 import { FirstPromptRenameFailureNotice } from "./FirstPromptRenameFailureNotice";
 import { StudioStatusBar } from "./StudioStatusBar";
@@ -55,11 +56,13 @@ function readTheme(): Theme {
   return "dark";
 }
 
-type RightPanel = "none" | "inspector" | "browser";
+type RightPanel = "none" | "workspace";
 
 export function StudioShell() {
   const [projectsSidebarOpen, setProjectsSidebarOpen] = useState(true);
   const [rightPanel, setRightPanel] = useState<RightPanel>("none");
+  const [rightPanelTab, setRightPanelTab] =
+    useState<WorkspaceRightPanelTab>("diff");
   const [sidePanelDragging, setSidePanelDragging] = useState(false);
   const sidePanelWidth = useSidePanelStore(selectSidePanelWidth);
   const setSidePanelWidth = useSidePanelStore((state) => state.setWidth);
@@ -83,19 +86,35 @@ export function StudioShell() {
   );
   const actionCreateProject =
     workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
-  const diffPanelOpen = Boolean(selectedFileKey);
   const actionCreateDialogOpen = !settingsOpen && actionCreateProject != null;
   const shortcutsBlocked = settingsOpen || actionCreateDialogOpen;
+  const previousSelectedFileRef = useRef<string | null>(null);
   const effectiveRightPanel: RightPanel =
-    rightPanel === "inspector" && !reviewEnvironment ? "none" : rightPanel;
-  const inspectorOpen = effectiveRightPanel === "inspector";
-  const browserOpen = effectiveRightPanel === "browser";
+    rightPanel === "workspace" && rightPanelTab !== "browser" && !reviewEnvironment
+      ? "none"
+      : rightPanel;
+  const rightPanelOpen = effectiveRightPanel !== "none";
+  const inspectorOpen = rightPanelOpen && rightPanelTab !== "browser";
+  const browserOpen = rightPanelOpen && rightPanelTab === "browser";
 
   useEffect(() => {
-    if (rightPanel === "inspector" && !reviewEnvironment) {
+    if (rightPanel === "workspace" && rightPanelTab !== "browser" && !reviewEnvironment) {
       setRightPanel("none");
     }
-  }, [reviewEnvironment, rightPanel]);
+  }, [reviewEnvironment, rightPanel, rightPanelTab]);
+
+  useEffect(() => {
+    const previousSelectedFile = previousSelectedFileRef.current;
+    previousSelectedFileRef.current = selectedFileKey;
+    if (!selectedFileKey || !reviewEnvironment) {
+      return;
+    }
+    if (selectedFileKey === previousSelectedFile) {
+      return;
+    }
+    setRightPanel("workspace");
+    setRightPanelTab("diff");
+  }, [reviewEnvironment, selectedFileKey]);
 
   const openSettingsDialog = useCallback(() => {
     setActionCreateProjectId(null);
@@ -106,13 +125,19 @@ export function StudioShell() {
     if (!reviewEnvironment) {
       return;
     }
-    setRightPanel((current) =>
-      current === "inspector" ? "none" : "inspector",
-    );
-  }, [reviewEnvironment]);
+    setRightPanel((current) => {
+      if (current === "workspace" && rightPanelTab !== "browser") return "none";
+      setRightPanelTab("diff");
+      return "workspace";
+    });
+  }, [reviewEnvironment, rightPanelTab]);
   const toggleBrowser = useCallback(() => {
-    setRightPanel((current) => (current === "browser" ? "none" : "browser"));
-  }, []);
+    setRightPanel((current) => {
+      if (current === "workspace" && rightPanelTab === "browser") return "none";
+      setRightPanelTab("browser");
+      return "workspace";
+    });
+  }, [rightPanelTab]);
 
   useStudioShortcuts({
     shortcutsBlocked,
@@ -173,8 +198,6 @@ export function StudioShell() {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }
 
-  const rightPanelOpen = effectiveRightPanel !== "none";
-
   const shellClassName = [
     "studio-shell",
     sidePanelDragging ? "studio-shell--resizing-side-panel" : null,
@@ -207,7 +230,6 @@ export function StudioShell() {
         onToggleInspector={toggleInspector}
         onToggleBrowser={toggleBrowser}
       />
-      {diffPanelOpen && <GitDiffPanel />}
       {rightPanelOpen && (
         <SidePanelResizer
           width={sidePanelWidth}
@@ -219,8 +241,15 @@ export function StudioShell() {
         className="studio-shell__right-panel"
         data-right-panel={effectiveRightPanel}
       >
-        <InspectorPanel collapsed={!inspectorOpen} />
-        <BrowserPanel collapsed={!browserOpen} />
+        <WorkspaceRightPanel
+          activeTab={rightPanelTab}
+          collapsed={!rightPanelOpen}
+          onClose={() => setRightPanel("none")}
+          onTabChange={(tab) => {
+            setRightPanelTab(tab);
+            setRightPanel("workspace");
+          }}
+        />
       </div>
       <ProjectActionCreateDialog
         open={actionCreateDialogOpen}

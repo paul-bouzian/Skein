@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::domain::git_review::{GitChangeSection, GitFileDiff, GitReviewScope, GitReviewSnapshot};
+use crate::domain::git_review::{
+    GitAction, GitActionResult, GitChangeSection, GitFileDiff, GitReviewScope, GitReviewSnapshot,
+};
 use crate::error::{AppError, CommandError};
 use crate::services::git;
 use crate::services::git::GitEnvironmentContext;
@@ -47,6 +49,14 @@ pub struct CommitGitInput {
     pub environment_id: String,
     pub scope: GitReviewScope,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunGitActionInput {
+    pub environment_id: String,
+    pub scope: GitReviewScope,
+    pub action: GitAction,
 }
 
 pub(crate) async fn get_git_review_snapshot_impl(
@@ -184,6 +194,22 @@ pub(crate) async fn generate_git_commit_message_impl(
         git::generate_commit_message(&context)
     })
     .await
+}
+
+pub(crate) async fn run_git_action_impl(
+    state: &AppState,
+    input: RunGitActionInput,
+) -> Result<GitActionResult, CommandError> {
+    let scope = input.scope;
+    let action = input.action;
+    let result = with_git_context(state, &input.environment_id, move |context| {
+        git::run_action(&context, scope, action)
+    })
+    .await?;
+    if result.pr.is_some() {
+        state.pull_requests.refresh_now();
+    }
+    Ok(result)
 }
 
 async fn run_git_update<F>(

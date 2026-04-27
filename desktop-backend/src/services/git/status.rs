@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::domain::git_review::{
@@ -7,8 +8,8 @@ use crate::domain::git_review::{
 use crate::error::{AppError, AppResult};
 
 use super::{
-    command_output, current_branch, resolve_base_reference, stderr_message, stdout_message,
-    upstream_branch, GitEnvironmentContext,
+    command_output, current_branch, resolve_base_reference, stderr_message, upstream_branch,
+    GitEnvironmentContext,
 };
 
 pub(super) fn read_review_snapshot(
@@ -99,6 +100,11 @@ fn build_repo_summary(
 }
 
 fn read_uncommitted_sections(repo_root: &Path) -> AppResult<Vec<GitChangeSectionSnapshot>> {
+    let staged_stats = read_numstat(
+        repo_root,
+        ["diff", "--cached", "--numstat", "--find-renames=50%"],
+    )?;
+    let unstaged_stats = read_numstat(repo_root, ["diff", "--numstat", "--find-renames=50%"])?;
     let output = command_output(
         repo_root,
         [
@@ -134,25 +140,30 @@ fn read_uncommitted_sections(repo_root: &Path) -> AppResult<Vec<GitChangeSection
                 None,
                 GitChangeSection::Untracked,
                 GitChangeKind::Added,
+                None,
             ));
             continue;
         }
 
         if let Some(entry) = parse_status_record(&record, &mut records)? {
             if let Some(kind) = entry.staged_kind {
+                let stats = staged_stats.get(&entry.path).copied();
                 staged.push(make_change(
                     entry.path.clone(),
                     entry.old_path.clone(),
                     GitChangeSection::Staged,
                     kind,
+                    stats,
                 ));
             }
             if let Some(kind) = entry.unstaged_kind {
+                let stats = unstaged_stats.get(&entry.path).copied();
                 unstaged.push(make_change(
                     entry.path,
                     entry.old_path,
                     GitChangeSection::Unstaged,
                     kind,
+                    stats,
                 ));
             }
         }
@@ -195,6 +206,7 @@ fn read_branch_sections(
             "diff",
             "--name-status",
             "--find-renames=50%",
+            "-z",
             &format!("{base_branch}...HEAD"),
         ],
     )?;
@@ -202,9 +214,22 @@ fn read_branch_sections(
         return Err(AppError::Git(stderr_message(&output.stderr)));
     }
 
-    let mut files = stdout_message(&output.stdout)
-        .lines()
-        .filter_map(parse_branch_name_status_line)
+    let stats_by_path = read_numstat(
+        repo_root,
+        [
+            "diff".to_string(),
+            "--numstat".to_string(),
+            "--find-renames=50%".to_string(),
+            format!("{base_branch}...HEAD"),
+        ],
+    )?;
+    let mut files = parse_branch_name_status_output(&output.stdout)
+        .into_iter()
+        .map(|mut file| {
+            let stats = stats_by_path.get(&file.path).copied();
+            apply_stats(&mut file, stats);
+            file
+        })
         .collect::<Vec<_>>();
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
@@ -222,11 +247,52 @@ fn compact_sections(sections: Vec<GitChangeSectionSnapshot>) -> Vec<GitChangeSec
         .collect()
 }
 
+fn parse_branch_name_status_output(output: &[u8]) -> Vec<GitFileChange> {
+    let mut files = Vec::new();
+    let mut records = output.split(|byte| *byte == 0);
+
+    while let Some(status_record) = records.next() {
+        if status_record.is_empty() {
+            continue;
+        }
+        let status = String::from_utf8_lossy(status_record);
+        let Some(first_path) = records
+            .next()
+            .filter(|path| !path.is_empty())
+            .map(|path| String::from_utf8_lossy(path).to_string())
+        else {
+            continue;
+        };
+        let kind = parse_diff_status(&status);
+        let second_path = if matches!(kind, GitChangeKind::Renamed | GitChangeKind::Copied) {
+            records
+                .next()
+                .filter(|path| !path.is_empty())
+                .map(|path| String::from_utf8_lossy(path).to_string())
+        } else {
+            None
+        };
+
+        files.push(make_branch_change(&status, first_path, second_path));
+    }
+
+    files
+}
+
+#[cfg(test)]
 fn parse_branch_name_status_line(line: &str) -> Option<GitFileChange> {
     let mut parts = line.split('\t');
     let status = parts.next()?;
     let first_path = parts.next()?.to_string();
     let second_path = parts.next().map(ToString::to_string);
+    Some(make_branch_change(status, first_path, second_path))
+}
+
+fn make_branch_change(
+    status: &str,
+    first_path: String,
+    second_path: Option<String>,
+) -> GitFileChange {
     let kind = parse_diff_status(status);
     let (path, old_path) = if matches!(kind, GitChangeKind::Renamed | GitChangeKind::Copied) {
         (second_path.unwrap_or(first_path.clone()), Some(first_path))
@@ -234,7 +300,7 @@ fn parse_branch_name_status_line(line: &str) -> Option<GitFileChange> {
         (first_path, second_path)
     };
 
-    Some(make_change(path, old_path, GitChangeSection::Branch, kind))
+    make_change(path, old_path, GitChangeSection::Branch, kind, None)
 }
 
 fn make_change(
@@ -242,6 +308,7 @@ fn make_change(
     old_path: Option<String>,
     section: GitChangeSection,
     kind: GitChangeKind,
+    stats: Option<ChangeStats>,
 ) -> GitFileChange {
     let (can_stage, can_unstage, can_revert) = match section {
         GitChangeSection::Staged => (false, true, true),
@@ -250,7 +317,7 @@ fn make_change(
         GitChangeSection::Branch => (false, false, false),
     };
 
-    GitFileChange {
+    let mut change = GitFileChange {
         path,
         old_path,
         section,
@@ -260,7 +327,106 @@ fn make_change(
         can_stage,
         can_unstage,
         can_revert,
+    };
+    apply_stats(&mut change, stats);
+    change
+}
+
+fn apply_stats(change: &mut GitFileChange, stats: Option<ChangeStats>) {
+    if let Some(stats) = stats {
+        change.additions = Some(stats.additions);
+        change.deletions = Some(stats.deletions);
     }
+}
+
+fn read_numstat<I, A>(repo_root: &Path, args: I) -> AppResult<HashMap<String, ChangeStats>>
+where
+    I: IntoIterator<Item = A>,
+    A: AsRef<str>,
+{
+    let mut args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string())
+        .collect::<Vec<_>>();
+    args.push("-z".to_string());
+
+    let output = command_output(repo_root, args)?;
+    if !output.status.success() {
+        return Err(AppError::Git(stderr_message(&output.stderr)));
+    }
+
+    Ok(parse_numstat_output(&output.stdout))
+}
+
+fn parse_numstat_output(output: &[u8]) -> HashMap<String, ChangeStats> {
+    let mut stats = HashMap::new();
+    let mut records = output.split(|byte| *byte == 0);
+
+    while let Some(record) = records.next() {
+        if record.is_empty() {
+            continue;
+        }
+
+        let line = String::from_utf8_lossy(record);
+        let Some((stats_value, path)) = parse_numstat_record_prefix(&line) else {
+            continue;
+        };
+        if path.is_empty() {
+            let _old_path = records.next();
+            if let Some(new_path) = records.next().filter(|path| !path.is_empty()) {
+                stats.insert(String::from_utf8_lossy(new_path).to_string(), stats_value);
+            }
+            continue;
+        }
+        stats.insert(normalize_numstat_path(path), stats_value);
+    }
+
+    stats
+}
+
+#[cfg(test)]
+fn parse_numstat_line(line: &str) -> Option<(String, ChangeStats)> {
+    let (stats, path) = parse_numstat_record_prefix(line)?;
+    Some((normalize_numstat_path(path), stats))
+}
+
+fn parse_numstat_record_prefix(line: &str) -> Option<(ChangeStats, &str)> {
+    let mut parts = line.splitn(3, '\t');
+    let additions = parse_numstat_count(parts.next()?)?;
+    let deletions = parse_numstat_count(parts.next()?)?;
+    Some((
+        ChangeStats {
+            additions,
+            deletions,
+        },
+        parts.next()?,
+    ))
+}
+
+fn parse_numstat_count(value: &str) -> Option<u32> {
+    value.parse::<u32>().ok()
+}
+
+fn normalize_numstat_path(path: &str) -> String {
+    if let Some((prefix, rename)) = path.split_once('{') {
+        if let Some((rename_body, suffix)) = rename.split_once('}') {
+            if let Some((_, new_name)) = rename_body.split_once(" => ") {
+                return format!("{prefix}{new_name}{suffix}");
+            }
+        }
+    }
+
+    if let Some((_, new_path)) = path.split_once(" => ") {
+        return new_path.to_string();
+    }
+
+    path.to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChangeStats {
+    additions: u32,
+    deletions: u32,
 }
 
 fn collect_status_flags(buffer: &[u8]) -> AppResult<StatusFlags> {
@@ -421,7 +587,10 @@ struct ParsedStatusEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_branch_name_status_line, parse_xy};
+    use super::{
+        normalize_numstat_path, parse_branch_name_status_line, parse_branch_name_status_output,
+        parse_numstat_line, parse_numstat_output, parse_xy,
+    };
     use crate::domain::git_review::GitChangeKind;
 
     #[test]
@@ -436,5 +605,74 @@ mod tests {
         assert_eq!(change.path, "src/new.ts");
         assert_eq!(change.old_path.as_deref(), Some("src/old.ts"));
         assert_eq!(change.kind, GitChangeKind::Renamed);
+    }
+
+    #[test]
+    fn parses_nul_delimited_branch_name_status_records() {
+        let changes = parse_branch_name_status_output(b"A\0src/file \"quoted\".ts\0");
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "src/file \"quoted\".ts");
+        assert_eq!(changes[0].kind, GitChangeKind::Added);
+    }
+
+    #[test]
+    fn parses_nul_delimited_branch_renames_to_the_new_path() {
+        let changes = parse_branch_name_status_output(b"R100\0src/old name.ts\0src/new name.ts\0");
+
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].path, "src/new name.ts");
+        assert_eq!(changes[0].old_path.as_deref(), Some("src/old name.ts"));
+        assert_eq!(changes[0].kind, GitChangeKind::Renamed);
+    }
+
+    #[test]
+    fn parses_text_numstat_lines() {
+        let (path, stats) = parse_numstat_line("12\t4\tsrc/app.ts").expect("numstat");
+        assert_eq!(path, "src/app.ts");
+        assert_eq!(stats.additions, 12);
+        assert_eq!(stats.deletions, 4);
+    }
+
+    #[test]
+    fn skips_binary_numstat_lines() {
+        assert!(parse_numstat_line("-\t-\tassets/icon.png").is_none());
+    }
+
+    #[test]
+    fn normalizes_numstat_rename_paths_to_the_new_path() {
+        assert_eq!(
+            normalize_numstat_path("src/{old.ts => new.ts}"),
+            "src/new.ts"
+        );
+        assert_eq!(
+            normalize_numstat_path("src/old.ts => src/new.ts"),
+            "src/new.ts"
+        );
+    }
+
+    #[test]
+    fn parses_nul_delimited_numstat_records() {
+        let stats = parse_numstat_output(b"12\t4\tsrc/app.ts\0");
+
+        assert_eq!(stats["src/app.ts"].additions, 12);
+        assert_eq!(stats["src/app.ts"].deletions, 4);
+    }
+
+    #[test]
+    fn parses_nul_delimited_rename_numstat_records_to_the_new_path() {
+        let stats = parse_numstat_output(b"5\t2\t\0src/old name.ts\0src/new name.ts\0");
+
+        assert_eq!(stats["src/new name.ts"].additions, 5);
+        assert_eq!(stats["src/new name.ts"].deletions, 2);
+        assert!(!stats.contains_key("src/old name.ts"));
+    }
+
+    #[test]
+    fn parses_nul_delimited_numstat_paths_ending_with_tab() {
+        let stats = parse_numstat_output(b"1\t2\tsrc/name\t\0");
+
+        assert_eq!(stats["src/name\t"].additions, 1);
+        assert_eq!(stats["src/name\t"].deletions, 2);
     }
 }

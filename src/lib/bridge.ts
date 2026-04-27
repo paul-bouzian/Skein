@@ -28,6 +28,7 @@ import type {
   EnvironmentCapabilitiesSnapshot,
   GitFileDiff,
   GitFileDiffInput,
+  GitActionResult,
   GitFileInput,
   GitReviewSnapshot,
   GitRevertFileInput,
@@ -51,6 +52,7 @@ import type {
   RespondToUserInputRequestInput,
   RenameProjectRequest,
   RenameThreadRequest,
+  RunGitActionInput,
   RuntimeStatusSnapshot,
   SaveDraftThreadStateInput,
   SendThreadMessageInput,
@@ -175,6 +177,12 @@ export function generateGitCommitMessage(
   environmentId: string,
 ): Promise<string> {
   return invoke<string>("generate_git_commit_message", { environmentId });
+}
+
+export function runGitAction(
+  input: RunGitActionInput,
+): Promise<GitActionResult> {
+  return invoke<GitActionResult>("run_git_action", { input });
 }
 
 export function openThreadConversation(

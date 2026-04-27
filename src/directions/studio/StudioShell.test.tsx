@@ -60,20 +60,20 @@ vi.mock("./StudioMain", () => ({
    ),
 }));
 
-vi.mock("./InspectorPanel", () => ({
-  InspectorPanel: ({ collapsed = false }: { collapsed?: boolean }) => (
-    <div data-testid="inspector-panel" data-collapsed={String(collapsed)} />
+vi.mock("./WorkspaceRightPanel", () => ({
+  WorkspaceRightPanel: ({
+    activeTab,
+    collapsed = false,
+  }: {
+    activeTab: string;
+    collapsed?: boolean;
+  }) => (
+    <div
+      data-testid="workspace-right-panel"
+      data-active-tab={activeTab}
+      data-collapsed={String(collapsed)}
+    />
   ),
-}));
-
-vi.mock("./BrowserPanel", () => ({
-  BrowserPanel: ({ collapsed = false }: { collapsed?: boolean }) => (
-    <div data-testid="browser-panel" data-collapsed={String(collapsed)} />
-  ),
-}));
-
-vi.mock("./GitDiffPanel", () => ({
-  GitDiffPanel: () => <div data-testid="git-diff-panel" />,
 }));
 
 vi.mock("./SidebarUpdateButton", () => ({
@@ -311,7 +311,7 @@ describe("StudioShell", () => {
   it("starts with the review panel closed and opens it from the toolbar toggle", async () => {
     render(<StudioShell />);
 
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "true",
     );
@@ -320,18 +320,22 @@ describe("StudioShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show inspector" }));
 
     await waitFor(() => {
-      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
         "data-collapsed",
         "false",
       );
     });
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "diff",
+    );
     expect(screen.getByRole("button", { name: "Hide inspector" })).toBeInTheDocument();
   });
 
   it("toggles the review panel with the global shortcut", async () => {
     render(<StudioShell />);
 
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "true",
     );
@@ -342,7 +346,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
         "data-collapsed",
         "false",
       );
@@ -354,7 +358,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
         "data-collapsed",
         "true",
       );
@@ -424,11 +428,7 @@ describe("StudioShell", () => {
   it("toggles exclusively between inspector and browser panels", async () => {
     render(<StudioShell />);
 
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
-      "data-collapsed",
-      "true",
-    );
-    expect(screen.getByTestId("browser-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "true",
     );
@@ -436,37 +436,71 @@ describe("StudioShell", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Show inspector" }),
     );
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "false",
     );
-    expect(screen.getByTestId("browser-panel")).toHaveAttribute(
-      "data-collapsed",
-      "true",
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "diff",
     );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Show browser" }),
     );
-    expect(screen.getByTestId("browser-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "false",
     );
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
-      "data-collapsed",
-      "true",
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "browser",
     );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Hide browser" }),
     );
-    expect(screen.getByTestId("browser-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "true",
     );
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
-      "data-collapsed",
-      "true",
+  });
+
+  it("keeps the browser tab open when the workspace refreshes with the same selected file", async () => {
+    render(<StudioShell />);
+
+    act(() => {
+      useGitReviewStore.setState((state) => ({
+        ...state,
+        selectedFileByContext: {
+          "env-1:uncommitted": "unstaged:src/app.ts",
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+        "data-active-tab",
+        "diff",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Show browser" }));
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "browser",
+    );
+
+    act(() => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: makeWorkspaceSnapshot(),
+      }));
+    });
+
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "browser",
     );
   });
 
@@ -500,7 +534,7 @@ describe("StudioShell", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Show inspector" }),
     );
-    expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "false",
     );
@@ -534,7 +568,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
         "data-collapsed",
         "true",
       );
@@ -551,7 +585,7 @@ describe("StudioShell", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("inspector-panel")).toHaveAttribute(
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
         "data-collapsed",
         "true",
       );
@@ -589,7 +623,14 @@ describe("StudioShell", () => {
     render(<StudioShell />);
 
     expect(useWorkspaceStore.getState().selectedEnvironmentId).toBeNull();
-    expect(screen.getByTestId("git-diff-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "diff",
+    );
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-collapsed",
+      "false",
+    );
   });
 
   it("toggles theme from the sidebar footer and persists the selected theme", async () => {

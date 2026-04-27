@@ -518,6 +518,48 @@ export function GitBranchIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function GitCommitIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.5 8h3.25M10.25 8h3.25" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="8" cy="8" r="2.25" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+export function CloudUploadIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M5.1 12.5H4.7A3.2 3.2 0 0 1 4.4 6.1 4.2 4.2 0 0 1 12.2 7.5h.2a2.5 2.5 0 0 1 .1 5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 13V8.4M8 8.4 6.2 10.2M8 8.4l1.8 1.8"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function GitHubIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 98 96" fill="currentColor" className={className} aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M48.9 0C21.9 0 0 21.9 0 48.9c0 21.6 14 39.9 33.4 46.4 2.4.4 3.3-1.1 3.3-2.4v-8.4c-13.6 3-16.5-6.6-16.5-6.6-2.2-5.7-5.4-7.2-5.4-7.2-4.4-3 .3-2.9.3-2.9 4.9.3 7.5 5 7.5 5 4.3 7.4 11.3 5.3 14.1 4 .4-3.1 1.7-5.3 3.1-6.5-10.9-1.2-22.3-5.4-22.3-24.2 0-5.4 1.9-9.8 5-13.2-.5-1.2-2.2-6.2.5-13 0 0 4.1-1.3 13.4 5a46.3 46.3 0 0 1 24.4 0c9.3-6.3 13.4-5 13.4-5 2.7 6.8 1 11.8.5 13 3.1 3.4 5 7.8 5 13.2 0 18.8-11.5 23-22.4 24.2 1.8 1.5 3.3 4.5 3.3 9.1v13.5c0 1.3.9 2.8 3.4 2.4A48.9 48.9 0 0 0 48.9 0Z"
+      />
+    </svg>
+  );
+}
+
 export function PencilIcon({ size = 14, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

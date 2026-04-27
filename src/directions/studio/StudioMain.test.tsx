@@ -1,12 +1,15 @@
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   makeEnvironment,
+  makeGitReviewSnapshot,
   makeProject,
   makeThread,
   makeWorkspaceSnapshot,
 } from "../../test/fixtures/conversation";
+import { useGitReviewStore } from "../../stores/git-review-store";
 import { useTerminalStore } from "../../stores/terminal-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
 import { StudioMain } from "./StudioMain";
@@ -28,9 +31,14 @@ vi.mock("../../shared/RuntimeIndicator", () => ({
 }));
 
 vi.mock("../../shared/Icons", () => ({
+  ArrowDownIcon: () => <span data-testid="icon-arrow-down" />,
   ArrowRightIcon: () => <span data-testid="icon-arrow-right" />,
+  ArrowUpIcon: () => <span data-testid="icon-arrow-up" />,
+  ChevronRightIcon: () => <span data-testid="icon-chevron-right" />,
+  GitBranchIcon: () => <span data-testid="icon-git-branch" />,
   PanelLeftIcon: () => <span data-testid="icon-panel-left" />,
   PanelRightIcon: () => <span data-testid="icon-panel-right" />,
+  SparklesIcon: () => <span data-testid="icon-sparkles" />,
   TerminalIcon: () => <span data-testid="icon-terminal" />,
   GlobeIcon: () => <span data-testid="icon-globe" />,
   ThreadIcon: () => <span data-testid="icon-thread" />,
@@ -44,6 +52,10 @@ vi.mock("./EnvironmentActionControl", () => ({
     latestEnvironmentActionControlProps = props;
     return <div data-testid="environment-action-control" />;
   },
+}));
+
+vi.mock("./GitActionsControl", () => ({
+  GitActionsControl: () => <div data-testid="git-actions-control" />,
 }));
 
 vi.mock("./OpenEnvironmentControl", () => ({
@@ -147,6 +159,24 @@ function renderStudioMain() {
   );
 }
 
+function renderStudioMainWithHandlers(
+  handlers: Partial<Pick<Parameters<typeof StudioMain>[0], "onToggleInspector">>,
+) {
+  return render(
+    <StudioMain
+      theme="dark"
+      projectsSidebarOpen={false}
+      inspectorOpen={false}
+      browserOpen={false}
+      composerFocusKey={0}
+      approveOrSubmitKey={0}
+      onToggleProjectsSidebar={() => {}}
+      onToggleInspector={handlers.onToggleInspector ?? (() => {})}
+      onToggleBrowser={() => {}}
+    />,
+  );
+}
+
 beforeEach(() => {
   latestEnvironmentActionControlProps = null;
   latestOpenEnvironmentControlProps = null;
@@ -200,6 +230,21 @@ beforeEach(() => {
       },
     },
   });
+  useGitReviewStore.setState((state) => ({
+    ...state,
+    scopeByEnvironmentId: {},
+    snapshotsByContext: {},
+    selectedFileByContext: {},
+    diffsByContext: {},
+    diffErrorByContext: {},
+    loadingByContext: {},
+    reviewRequestIdByContext: {},
+    diffLoadingByContext: {},
+    diffRequestIdByContext: {},
+    actionByEnvironmentId: {},
+    generatingCommitMessageByEnvironmentId: {},
+    errorByContext: {},
+  }));
 });
 
 describe("StudioMain", () => {
@@ -332,6 +377,48 @@ describe("StudioMain", () => {
     expect(classLists[0]).toContain("studio-main__toggle-terminal");
     expect(classLists[1]).toContain("studio-main__toggle-browser");
     expect(classLists[2]).toContain("studio-main__toggle-inspector");
+  });
+
+  it("includes Review diff stats inside the right panel toggle button", async () => {
+    const onToggleInspector = vi.fn();
+    useGitReviewStore.setState((state) => ({
+      ...state,
+      snapshotsByContext: {
+        "env-1:uncommitted": makeGitReviewSnapshot({
+          sections: [
+            {
+              id: "unstaged",
+              label: "Unstaged",
+              files: [
+                {
+                  path: "src/app.ts",
+                  oldPath: null,
+                  section: "unstaged",
+                  kind: "modified",
+                  additions: 2552,
+                  deletions: 1624,
+                  canStage: true,
+                  canUnstage: false,
+                  canRevert: true,
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    }));
+
+    renderStudioMainWithHandlers({ onToggleInspector });
+
+    const toggle = screen.getByRole("button", {
+      name: "Show review, 2552 additions, 1624 deletions",
+    });
+    expect(toggle).toContainElement(screen.getByText("+2,552"));
+    expect(toggle).toContainElement(screen.getByText("-1,624"));
+
+    await userEvent.click(screen.getByText("+2,552"));
+
+    expect(onToggleInspector).toHaveBeenCalledTimes(1);
   });
 
   it("hides handoff when no eligible thread is selected", () => {

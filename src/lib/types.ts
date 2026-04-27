@@ -23,6 +23,14 @@ export type WorkspaceEventKind =
   | "threadAutoRenamed";
 export type GitReviewScope = "uncommitted" | "branch";
 export type GitChangeSection = "staged" | "unstaged" | "untracked" | "branch";
+export type GitAction =
+  | "commit"
+  | "push"
+  | "pull"
+  | "commitPush"
+  | "createPr"
+  | "commitPushCreatePr"
+  | "viewPr";
 export type GitChangeKind =
   | "added"
   | "modified"
@@ -507,6 +515,40 @@ export type GitFileDiff = {
   emptyMessage?: string | null;
 };
 
+export type GitActionCommitResult = {
+  sha: string;
+  subject: string;
+};
+
+export type GitActionPushResult = {
+  branch: string;
+  upstreamBranch?: string | null;
+};
+
+export type GitActionPullResult = {
+  branch: string;
+  upstreamBranch?: string | null;
+};
+
+export type GitActionPullRequestResult = {
+  number: number;
+  title: string;
+  url: string;
+  baseBranch?: string | null;
+  headBranch?: string | null;
+};
+
+export type GitActionResult = {
+  environmentId: string;
+  action: GitAction;
+  snapshot: GitReviewSnapshot;
+  commit?: GitActionCommitResult | null;
+  push?: GitActionPushResult | null;
+  pull?: GitActionPullResult | null;
+  pr?: GitActionPullRequestResult | null;
+  error?: string | null;
+};
+
 /* ── Bootstrap ── */
 
 export type BootstrapStatus = {
@@ -965,6 +1007,12 @@ export type CommitGitInput = {
   environmentId: string;
   scope: GitReviewScope;
   message: string;
+};
+
+export type RunGitActionInput = {
+  environmentId: string;
+  scope: GitReviewScope;
+  action: GitAction;
 };
 
 export type SendThreadMessageInput = {

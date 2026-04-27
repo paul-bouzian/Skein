@@ -38,6 +38,18 @@ pub enum GitDiffLineKind {
     Removed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GitAction {
+    Commit,
+    Push,
+    Pull,
+    CommitPush,
+    CreatePr,
+    CommitPushCreatePr,
+    ViewPr,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitRepoSummary {
@@ -113,4 +125,48 @@ pub struct GitFileDiff {
     pub is_binary: bool,
     pub hunks: Vec<GitDiffHunk>,
     pub empty_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionCommitResult {
+    pub sha: String,
+    pub subject: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionPushResult {
+    pub branch: String,
+    pub upstream_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionPullResult {
+    pub branch: String,
+    pub upstream_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionPullRequestResult {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub base_branch: Option<String>,
+    pub head_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitActionResult {
+    pub environment_id: String,
+    pub action: GitAction,
+    pub snapshot: GitReviewSnapshot,
+    pub commit: Option<GitActionCommitResult>,
+    pub push: Option<GitActionPushResult>,
+    pub pull: Option<GitActionPullResult>,
+    pub pr: Option<GitActionPullRequestResult>,
+    pub error: Option<String>,
 }

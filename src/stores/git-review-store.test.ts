@@ -17,6 +17,7 @@ vi.mock("../lib/bridge", () => ({
   fetchGit: vi.fn(),
   pullGit: vi.fn(),
   pushGit: vi.fn(),
+  runGitAction: vi.fn(),
   generateGitCommitMessage: vi.fn(),
 }));
 
@@ -195,6 +196,7 @@ describe("git-review-store", () => {
 
   it("keeps the commit message when commit fails", async () => {
     mockedBridge.commitGit.mockRejectedValue(new Error("push rejected"));
+    mockedBridge.getGitReviewSnapshot.mockRejectedValue(new Error("refresh rejected"));
     useGitReviewStore.setState({
       scopeByEnvironmentId: { "env-1": "uncommitted" },
       commitMessageByEnvironmentId: { "env-1": "feat: keep me" },
@@ -204,6 +206,68 @@ describe("git-review-store", () => {
 
     const state = useGitReviewStore.getState();
     expect(state.commitMessageByEnvironmentId["env-1"]).toBe("feat: keep me");
+    expect(state.errorByContext["env-1:uncommitted"]).toBe("push rejected");
+  });
+
+  it("applies returned snapshots when stacked git actions report structured errors", async () => {
+    mockedBridge.runGitAction.mockResolvedValue({
+      environmentId: "env-1",
+      action: "commitPushCreatePr",
+      snapshot: makeGitReviewSnapshot({
+        summary: {
+          environmentId: "env-1",
+          repoPath: "/tmp/env-1",
+          branch: "feature/review",
+          baseBranch: "origin/main",
+          dirty: false,
+          ahead: 1,
+          behind: 0,
+          hasStagedChanges: false,
+          hasUnstagedChanges: false,
+          hasUntrackedChanges: false,
+        },
+      }),
+      commit: null,
+      push: { branch: "feature/review", upstreamBranch: "origin/feature/review" },
+      pull: null,
+      pr: null,
+      error: "gh pr create failed",
+    });
+
+    await useGitReviewStore.getState().runAction("env-1", "commitPushCreatePr");
+
+    const state = useGitReviewStore.getState();
+    expect(state.snapshotsByContext["env-1:uncommitted"].summary.ahead).toBe(1);
+    expect(state.errorByContext["env-1:uncommitted"]).toBe("gh pr create failed");
+  });
+
+  it("refreshes the review snapshot when a git action throws", async () => {
+    mockedBridge.runGitAction.mockRejectedValue(new Error("push rejected"));
+    mockedBridge.getGitReviewSnapshot.mockResolvedValue(
+      makeGitReviewSnapshot({
+        summary: {
+          environmentId: "env-1",
+          repoPath: "/tmp/env-1",
+          branch: "feature/review",
+          baseBranch: "origin/main",
+          dirty: false,
+          ahead: 1,
+          behind: 0,
+          hasStagedChanges: false,
+          hasUnstagedChanges: false,
+          hasUntrackedChanges: false,
+        },
+      }),
+    );
+
+    await useGitReviewStore.getState().runAction("env-1", "push");
+
+    const state = useGitReviewStore.getState();
+    expect(mockedBridge.getGitReviewSnapshot).toHaveBeenCalledWith({
+      environmentId: "env-1",
+      scope: "uncommitted",
+    });
+    expect(state.snapshotsByContext["env-1:uncommitted"].summary.ahead).toBe(1);
     expect(state.errorByContext["env-1:uncommitted"]).toBe("push rejected");
   });
 
@@ -422,8 +486,7 @@ describe("git-review-store", () => {
     expect(mockedBridge.getGitFileDiff.mock.calls.length).toBeGreaterThan(initialCalls);
   });
 
-  it("cancels adjacent prefetch when the diff is closed", async () => {
-    vi.useFakeTimers();
+  it("loads the full diff bundle for the selected review snapshot", async () => {
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(
       makeGitReviewSnapshot({
         sections: [
@@ -458,21 +521,23 @@ describe("git-review-store", () => {
         ],
       }),
     );
-    mockedBridge.getGitFileDiff.mockResolvedValue(makeGitFileDiff());
+    mockedBridge.getGitFileDiff.mockImplementation(({ path }) =>
+      Promise.resolve(makeGitFileDiff({ path })),
+    );
 
     await useGitReviewStore.getState().loadReview("env-1");
     await useGitReviewStore
       .getState()
       .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
 
-    useGitReviewStore.getState().closeDiff("env-1", "uncommitted");
-    await vi.advanceTimersByTimeAsync(200);
-
-    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(1);
+    expect(useGitReviewStore.getState().diffsByContext["env-1:uncommitted"]).toMatchObject({
+      "unstaged:src/a.ts": expect.objectContaining({ path: "src/a.ts" }),
+      "unstaged:src/b.ts": expect.objectContaining({ path: "src/b.ts" }),
+    });
+    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(2);
   });
 
-  it("cancels adjacent prefetch when the diff is cleared", async () => {
-    vi.useFakeTimers();
+  it("clears the loaded diff bundle when the diff is cleared", async () => {
     mockedBridge.getGitReviewSnapshot.mockResolvedValue(
       makeGitReviewSnapshot({
         sections: [
@@ -515,8 +580,8 @@ describe("git-review-store", () => {
       .selectFile("env-1", "uncommitted", "unstaged", "src/a.ts");
 
     useGitReviewStore.getState().clearSelectedFile("env-1", "uncommitted");
-    await vi.advanceTimersByTimeAsync(200);
 
-    expect(mockedBridge.getGitFileDiff).toHaveBeenCalledTimes(1);
+    expect(useGitReviewStore.getState().diffsByContext["env-1:uncommitted"]).toEqual({});
+    expect(useGitReviewStore.getState().selectedFileByContext["env-1:uncommitted"]).toBeNull();
   });
 });
