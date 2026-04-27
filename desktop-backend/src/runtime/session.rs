@@ -3033,6 +3033,7 @@ async fn record_subagent_thread_started(
                 continue;
             }
             let mut changed = false;
+            let accepts_late_running_status = can_accept_late_subagent_update(snapshot);
             if let Some(subagent) = snapshot
                 .subagents
                 .iter_mut()
@@ -3050,13 +3051,16 @@ async fn record_subagent_thread_started(
                     subagent.depth = subagent_start.snapshot.depth;
                     changed = true;
                 }
-                if matches!(
-                    subagent.status,
-                    crate::domain::conversation::SubagentStatus::Completed
-                ) && matches!(
-                    subagent_start.snapshot.status,
-                    crate::domain::conversation::SubagentStatus::Running
-                ) {
+                if accepts_late_running_status
+                    && matches!(
+                        subagent.status,
+                        crate::domain::conversation::SubagentStatus::Completed
+                    )
+                    && matches!(
+                        subagent_start.snapshot.status,
+                        crate::domain::conversation::SubagentStatus::Running
+                    )
+                {
                     subagent.status = crate::domain::conversation::SubagentStatus::Running;
                     changed = true;
                 }
@@ -4003,6 +4007,18 @@ mod tests {
                 is_streaming: false,
             }));
         snapshot
+    }
+
+    #[test]
+    fn late_subagent_updates_are_only_accepted_for_active_parent_snapshots() {
+        let mut snapshot = make_completed_snapshot();
+        assert!(!can_accept_late_subagent_update(&snapshot));
+
+        snapshot.status = ConversationStatus::WaitingForExternalAction;
+        assert!(can_accept_late_subagent_update(&snapshot));
+
+        snapshot.status = ConversationStatus::Running;
+        assert!(can_accept_late_subagent_update(&snapshot));
     }
 
     fn make_streaming_snapshot(text: &str) -> ThreadConversationSnapshot {
