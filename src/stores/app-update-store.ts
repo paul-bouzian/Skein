@@ -91,9 +91,11 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
   },
 
   checkNow: async (options) => {
+    const currentState = get().state;
     if (
-      get().state === "installing" ||
-      get().state === "downloading" ||
+      currentState === "installing" ||
+      currentState === "downloading" ||
+      currentState === "downloaded" ||
       get().simulating
     ) {
       return;

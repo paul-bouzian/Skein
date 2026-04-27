@@ -32,6 +32,7 @@ export function FirstPromptRenameFailureNotice() {
           type="button"
           className="tx-rename-failure-notice__dismiss"
           onClick={dismissLatestFailure}
+          aria-label="Dismiss rename failure notice"
           title="Dismiss rename failure notice"
         >
           <CloseIcon size={12} />

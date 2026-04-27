@@ -107,4 +107,26 @@ describe("App", () => {
 
     expect(vi.mocked(useAppUpdateStore.getState().checkNow)).toHaveBeenCalledTimes(1);
   });
+
+  it("triggers simulateUpdateFlow when the dev menu signal fires", async () => {
+    let callback: (() => void) | null = null;
+    mockedBridge.listenToMenuSimulateUpdate.mockImplementation(async (next) => {
+      callback = next;
+      return () => undefined;
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockedBridge.listenToMenuSimulateUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      callback?.();
+    });
+
+    expect(
+      vi.mocked(useAppUpdateStore.getState().simulateUpdateFlow),
+    ).toHaveBeenCalledTimes(1);
+  });
 });

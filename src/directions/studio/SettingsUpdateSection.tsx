@@ -91,7 +91,7 @@ export function SettingsUpdateSection({ disabled = false }: Props) {
           <button
             type="button"
             className="tx-action-btn tx-action-btn--primary"
-            disabled={state === "installing"}
+            disabled={isBusy}
             onClick={() => void installAndRestart()}
           >
             {state === "installing" ? "Restarting…" : "Install and restart"}
