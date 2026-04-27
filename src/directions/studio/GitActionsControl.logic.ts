@@ -27,11 +27,18 @@ export function resolveQuickGitAction(
   if (!summary.branch) {
     return disabledQuickAction("Commit", "Checkout a branch before running Git actions.");
   }
+  const defaultBranch = isDefaultBranch(summary.branch, summary.baseBranch);
   if (summary.behind > 0 && !summary.dirty) {
-    return { label: "Pull", action: "pull", disabled: false, disabledReason: null };
+    if (summary.ahead === 0) {
+      return { label: "Pull", action: "pull", disabled: false, disabledReason: null };
+    }
+    return disabledQuickAction("Pull", "Pull/rebase before pushing.");
   }
   if (summary.dirty) {
-    if (hasOpenPr || isDefaultBranch(summary.branch, summary.baseBranch)) {
+    if (summary.behind > 0) {
+      return { label: "Commit", action: "commit", disabled: false, disabledReason: null };
+    }
+    if (hasOpenPr || defaultBranch) {
       return {
         label: "Commit & push",
         action: "commitPush",
@@ -52,7 +59,12 @@ export function resolveQuickGitAction(
     }
     return { label: "View PR", action: "viewPr", disabled: false, disabledReason: null };
   }
-  if (summary.ahead > 0 || !isDefaultBranch(summary.branch, summary.baseBranch)) {
+  if (summary.ahead > 0) {
+    return defaultBranch
+      ? { label: "Push", action: "push", disabled: false, disabledReason: null }
+      : { label: "Create PR", action: "createPr", disabled: false, disabledReason: null };
+  }
+  if (!defaultBranch) {
     return { label: "Create PR", action: "createPr", disabled: false, disabledReason: null };
   }
   return disabledQuickAction("Commit", "Branch is clean and up to date.");

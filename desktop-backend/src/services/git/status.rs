@@ -309,28 +309,64 @@ where
     I: IntoIterator<Item = A>,
     A: AsRef<str>,
 {
+    let mut args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_string())
+        .collect::<Vec<_>>();
+    args.push("-z".to_string());
+
     let output = command_output(repo_root, args)?;
     if !output.status.success() {
         return Err(AppError::Git(stderr_message(&output.stderr)));
     }
 
-    Ok(stdout_message(&output.stdout)
-        .lines()
-        .filter_map(parse_numstat_line)
-        .collect())
+    Ok(parse_numstat_output(&output.stdout))
+}
+
+fn parse_numstat_output(output: &[u8]) -> HashMap<String, ChangeStats> {
+    let mut stats = HashMap::new();
+    let mut records = output.split(|byte| *byte == 0);
+
+    while let Some(record) = records.next() {
+        if record.is_empty() {
+            continue;
+        }
+
+        let line = String::from_utf8_lossy(record);
+        if line.ends_with('\t') {
+            let Some((stats_value, _)) = parse_numstat_record_prefix(&line) else {
+                continue;
+            };
+            let _old_path = records.next();
+            if let Some(new_path) = records.next().filter(|path| !path.is_empty()) {
+                stats.insert(String::from_utf8_lossy(new_path).to_string(), stats_value);
+            }
+            continue;
+        }
+
+        if let Some((path, stats_value)) = parse_numstat_line(&line) {
+            stats.insert(path, stats_value);
+        }
+    }
+
+    stats
 }
 
 fn parse_numstat_line(line: &str) -> Option<(String, ChangeStats)> {
+    let (stats, path) = parse_numstat_record_prefix(line)?;
+    Some((normalize_numstat_path(path), stats))
+}
+
+fn parse_numstat_record_prefix(line: &str) -> Option<(ChangeStats, &str)> {
     let mut parts = line.splitn(3, '\t');
     let additions = parse_numstat_count(parts.next()?)?;
     let deletions = parse_numstat_count(parts.next()?)?;
-    let path = normalize_numstat_path(parts.next()?);
     Some((
-        path,
         ChangeStats {
             additions,
             deletions,
         },
+        parts.next()?,
     ))
 }
 
@@ -519,7 +555,8 @@ struct ParsedStatusEntry {
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_numstat_path, parse_branch_name_status_line, parse_numstat_line, parse_xy,
+        normalize_numstat_path, parse_branch_name_status_line, parse_numstat_line,
+        parse_numstat_output, parse_xy,
     };
     use crate::domain::git_review::GitChangeKind;
 
@@ -560,5 +597,22 @@ mod tests {
             normalize_numstat_path("src/old.ts => src/new.ts"),
             "src/new.ts"
         );
+    }
+
+    #[test]
+    fn parses_nul_delimited_numstat_records() {
+        let stats = parse_numstat_output(b"12\t4\tsrc/app.ts\0");
+
+        assert_eq!(stats["src/app.ts"].additions, 12);
+        assert_eq!(stats["src/app.ts"].deletions, 4);
+    }
+
+    #[test]
+    fn parses_nul_delimited_rename_numstat_records_to_the_new_path() {
+        let stats = parse_numstat_output(b"5\t2\t\0src/old name.ts\0src/new name.ts\0");
+
+        assert_eq!(stats["src/new name.ts"].additions, 5);
+        assert_eq!(stats["src/new name.ts"].deletions, 2);
+        assert!(!stats.contains_key("src/old name.ts"));
     }
 }

@@ -410,7 +410,9 @@ describe("StudioMain", () => {
 
     renderStudioMainWithHandlers({ onToggleInspector });
 
-    const toggle = screen.getByRole("button", { name: "Show inspector" });
+    const toggle = screen.getByRole("button", {
+      name: "Show review, 2552 additions, 1624 deletions",
+    });
     expect(toggle).toContainElement(screen.getByText("+2,552"));
     expect(toggle).toContainElement(screen.getByText("-1,624"));
 

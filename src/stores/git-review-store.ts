@@ -595,15 +595,22 @@ async function loadDiffBundle(
     }
 
     for (const file of remainingFiles) {
-      await fetchAndStoreDiff(
-        environmentId,
-        scope,
-        contextKey,
-        requestId,
-        file,
-        set,
-        get,
-      );
+      try {
+        const loaded = await fetchAndStoreDiff(
+          environmentId,
+          scope,
+          contextKey,
+          requestId,
+          file,
+          set,
+          get,
+        );
+        if (!loaded) {
+          return;
+        }
+      } catch {
+        // Background diff preloads are best-effort; the selected diff path surfaces errors.
+      }
     }
 
     set((state) => ({

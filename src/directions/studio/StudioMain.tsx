@@ -276,14 +276,17 @@ function ReviewPanelToggle({
   const tooltip = !enabled
     ? unavailableMessage
     : open
-      ? "Hide inspector"
-      : "Show inspector";
+      ? "Hide review"
+      : "Show review";
+  const ariaLabel = stats
+    ? `${tooltip}, ${stats.additions} additions, ${stats.deletions} deletions`
+    : tooltip;
 
   return (
     <Tooltip content={tooltip} side="bottom">
       <button
         type="button"
-        aria-label={tooltip}
+        aria-label={ariaLabel}
         className={`studio-main__toggle-inspector ${
           open ? "studio-main__toggle-inspector--active" : ""
         } ${stats ? "studio-main__review-toggle" : ""}`}
@@ -296,10 +299,7 @@ function ReviewPanelToggle({
         }}
       >
         {stats ? (
-          <span
-            className="studio-main__review-stats"
-            aria-label={`${stats.additions} additions, ${stats.deletions} deletions`}
-          >
+          <span className="studio-main__review-stats" aria-hidden="true">
             <span className="studio-main__review-stat studio-main__review-stat--added">
               +{formatDiffStat(stats.additions)}
             </span>

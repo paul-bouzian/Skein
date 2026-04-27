@@ -35,6 +35,32 @@ describe("resolveQuickGitAction", () => {
     });
   });
 
+  it("does not offer pull when a clean branch has diverged", () => {
+    const snapshot = snapshotWithSummary({ dirty: false, ahead: 1, behind: 2 });
+
+    expect(resolveQuickGitAction(snapshot, true, false, false)).toMatchObject({
+      label: "Pull",
+      action: null,
+      disabled: true,
+    });
+  });
+
+  it("commits dirty branches that are behind before any push action", () => {
+    const snapshot = snapshotWithSummary({
+      branch: "feature/right-panel",
+      baseBranch: "origin/main",
+      dirty: true,
+      ahead: 0,
+      behind: 2,
+    });
+
+    expect(resolveQuickGitAction(snapshot, true, false, false)).toMatchObject({
+      label: "Commit",
+      action: "commit",
+      disabled: false,
+    });
+  });
+
   it("commits and pushes dirty default branches", () => {
     const snapshot = snapshotWithSummary({
       branch: "main",
@@ -109,6 +135,22 @@ describe("resolveQuickGitAction", () => {
     expect(resolveQuickGitAction(snapshot, true, false, false)).toMatchObject({
       label: "Create PR",
       action: "createPr",
+      disabled: false,
+    });
+  });
+
+  it("pushes clean local commits on the default branch", () => {
+    const snapshot = snapshotWithSummary({
+      branch: "main",
+      baseBranch: "origin/main",
+      dirty: false,
+      ahead: 1,
+      behind: 0,
+    });
+
+    expect(resolveQuickGitAction(snapshot, true, false, false)).toMatchObject({
+      label: "Push",
+      action: "push",
       disabled: false,
     });
   });

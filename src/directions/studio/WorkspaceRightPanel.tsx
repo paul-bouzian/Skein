@@ -201,7 +201,7 @@ export function WorkspaceRightPanel({
           role="tabpanel"
           aria-label="Browser"
         >
-          {activeTab === "browser" ? <BrowserPanel collapsed={collapsed} /> : null}
+          <BrowserPanel collapsed={collapsed || activeTab !== "browser"} />
         </section>
       </div>
     </aside>

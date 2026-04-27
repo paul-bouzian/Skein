@@ -50,7 +50,24 @@ pub fn run_action(
         GitAction::ViewPr => {
             pr_result = Some(resolve_existing_open_pr(repo_root)?);
         }
-        GitAction::CreatePr | GitAction::CommitPushCreatePr => {
+        GitAction::CreatePr => {
+            validate_can_create_pr(context, repo_root)?;
+            if has_working_tree_changes(repo_root)? {
+                return Err(AppError::Validation(
+                    "Commit local changes before creating a pull request.".to_string(),
+                ));
+            }
+            if let Some(existing) = find_open_pr(repo_root)? {
+                pr_result = Some(existing);
+            } else {
+                if needs_push(repo_root)? {
+                    push(repo_root)?;
+                    push_result = Some(push_result_snapshot(repo_root)?);
+                }
+                pr_result = Some(create_pull_request(context, repo_root, None)?);
+            }
+        }
+        GitAction::CommitPushCreatePr => {
             if let Some(existing) = find_open_pr(repo_root)? {
                 pr_result = Some(existing);
             } else {
@@ -400,6 +417,21 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn create_pr_rejects_dirty_work_tree_without_committing() -> AppResult<()> {
+        let repo = TestRepo::new()?;
+        repo.run(["switch", "-c", "feature/review"])?;
+        let context = repo.context_with_branch("feature/review", Some("origin/main"));
+        fs::write(repo.path.join("src.ts"), "export const value = 1;\n")?;
+
+        let error = run_action(&context, GitReviewScope::Uncommitted, GitAction::CreatePr)
+            .expect_err("dirty createPr should fail before committing");
+
+        assert!(error.to_string().contains("Commit local changes"));
+        assert!(repo.stdout(["rev-parse", "--verify", "HEAD"]).is_err());
+        Ok(())
+    }
+
     struct TestRepo {
         path: PathBuf,
     }
@@ -420,12 +452,30 @@ mod tests {
             crate::services::git::run_git(&self.path, args)
         }
 
+        fn stdout<const N: usize>(&self, args: [&str; N]) -> AppResult<String> {
+            let output = super::command_output(&self.path, args)?;
+            if !output.status.success() {
+                return Err(crate::error::AppError::Git(super::stderr_message(
+                    &output.stderr,
+                )));
+            }
+            Ok(super::stdout_message(&output.stdout))
+        }
+
         fn context(&self) -> GitEnvironmentContext {
+            self.context_with_branch("main", Some("origin/main"))
+        }
+
+        fn context_with_branch(
+            &self,
+            current_branch: &str,
+            base_branch: Option<&str>,
+        ) -> GitEnvironmentContext {
             GitEnvironmentContext {
                 environment_id: "env-1".to_string(),
                 environment_path: self.path.to_string_lossy().to_string(),
-                current_branch: Some("main".to_string()),
-                base_branch: Some("origin/main".to_string()),
+                current_branch: Some(current_branch.to_string()),
+                base_branch: base_branch.map(ToString::to_string),
                 codex_binary_path: None,
                 default_model: "gpt-5.4".to_string(),
             }

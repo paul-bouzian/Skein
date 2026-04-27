@@ -466,6 +466,44 @@ describe("StudioShell", () => {
     );
   });
 
+  it("keeps the browser tab open when the workspace refreshes with the same selected file", async () => {
+    render(<StudioShell />);
+
+    act(() => {
+      useGitReviewStore.setState((state) => ({
+        ...state,
+        selectedFileByContext: {
+          "env-1:uncommitted": "unstaged:src/app.ts",
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+        "data-active-tab",
+        "diff",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Show browser" }));
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "browser",
+    );
+
+    act(() => {
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        snapshot: makeWorkspaceSnapshot(),
+      }));
+    });
+
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "browser",
+    );
+  });
+
   it("closes the inspector when switching to a chat thread", async () => {
     const chatThread = makeThread({
       id: "chat-thread-1",

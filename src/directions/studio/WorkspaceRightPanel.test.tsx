@@ -104,10 +104,13 @@ describe("WorkspaceRightPanel", () => {
     );
   });
 
-  it("mounts the browser only when the Browser tab is active", () => {
+  it("keeps the browser mounted but collapsed while Review is active", () => {
     renderPanel("diff");
 
-    expect(screen.queryByTestId("browser-panel")).toBeNull();
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
   });
 
   it("loads expanded file diffs in the Review tab", async () => {

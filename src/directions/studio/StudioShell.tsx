@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
@@ -88,6 +88,7 @@ export function StudioShell() {
     workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const actionCreateDialogOpen = !settingsOpen && actionCreateProject != null;
   const shortcutsBlocked = settingsOpen || actionCreateDialogOpen;
+  const previousSelectedFileRef = useRef<string | null>(null);
   const effectiveRightPanel: RightPanel =
     rightPanel === "workspace" && rightPanelTab !== "browser" && !reviewEnvironment
       ? "none"
@@ -103,7 +104,12 @@ export function StudioShell() {
   }, [reviewEnvironment, rightPanel, rightPanelTab]);
 
   useEffect(() => {
+    const previousSelectedFile = previousSelectedFileRef.current;
+    previousSelectedFileRef.current = selectedFileKey;
     if (!selectedFileKey || !reviewEnvironment) {
+      return;
+    }
+    if (selectedFileKey === previousSelectedFile) {
       return;
     }
     setRightPanel("workspace");

@@ -49,7 +49,7 @@ export function GitActionsControl() {
   );
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const busy = Boolean(action);
+  const busy = Boolean(action) || loading;
   const openPr = environment?.pullRequest?.state === "open" ? environment.pullRequest : null;
 
   useEffect(() => {
@@ -105,7 +105,7 @@ export function GitActionsControl() {
         <button
           type="button"
           className="git-actions-control__primary"
-          disabled={quickAction.disabled || loading}
+          disabled={quickAction.disabled}
           onClick={() => void executeGitAction(quickAction.action)}
         >
           <GitActionIcon action={quickAction.action} />
@@ -196,7 +196,7 @@ function buildGitActionMenu(
     {
       id: "pr",
       label: hasOpenPr ? "View PR" : "Create PR",
-      action: hasOpenPr ? "viewPr" : "createPr",
+      action: hasOpenPr ? "viewPr" : dirty ? "commitPushCreatePr" : "createPr",
       disabled: !canCreateOrViewPr,
       disabledReason: resolvePrDisabledReason(
         unavailable,
