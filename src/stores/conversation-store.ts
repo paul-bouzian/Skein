@@ -945,6 +945,9 @@ function enqueueProjectionBackfill(snapshot: WorkspaceSnapshot | null) {
     const candidates = environment.threads
       .filter((thread) => thread.providerThreadId || thread.codexThreadId)
       .filter((thread) => {
+        if (conversationState.runtimeHydrationByThreadId[thread.id] === "error") {
+          return false;
+        }
         const existing = conversationState.snapshotsByThreadId[thread.id];
         return !existing || existing.items.length === 0;
       })
@@ -984,6 +987,9 @@ async function drainProjectionBackfillQueue(environmentId: string) {
       }
       projectionBackfillQueuesByEnvironment.set(environmentId, queue);
       const state = useConversationStore.getState();
+      if (state.runtimeHydrationByThreadId[threadId] === "error") {
+        continue;
+      }
       const snapshot = state.snapshotsByThreadId[threadId];
       if (snapshot && snapshot.items.length > 0) {
         continue;

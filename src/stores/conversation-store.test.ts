@@ -366,6 +366,41 @@ describe("conversation store", () => {
     ).toEqual(snapshot);
   });
 
+  it("does not keep retrying hidden backfill after a runtime hydration failure", async () => {
+    vi.useFakeTimers();
+    useConversationStore.setState((state) => ({
+      ...state,
+      runtimeHydrationByThreadId: { "thread-1": "error" },
+    }));
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                threads: [
+                  makeThread({
+                    id: "thread-1",
+                    environmentId: "env-1",
+                    providerThreadId: "provider-thread-1",
+                    codexThreadId: "provider-thread-1",
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    expect(mockedBridge.openThreadConversation).not.toHaveBeenCalled();
+  });
+
   it("deduplicates concurrent thread openings", async () => {
     const deferred = deferredPromise<{
       snapshot: ReturnType<typeof makeConversationSnapshot>;

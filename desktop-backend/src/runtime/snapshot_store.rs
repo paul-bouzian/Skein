@@ -18,29 +18,18 @@ struct SnapshotQueue {
 }
 
 pub fn install(database: AppDatabase) {
-    if SNAPSHOT_STORE.get().is_some() {
-        return;
-    }
-
-    let queue = Arc::new(SnapshotQueue {
-        pending: Mutex::new(HashMap::new()),
-        available: Condvar::new(),
-    });
-    let worker_queue = Arc::clone(&queue);
-    let worker_database = database.clone();
-    if let Err(error) = thread::Builder::new()
-        .name("skein-snapshot-store".to_string())
-        .spawn(move || loop {
-            let snapshots = {
-                let mut pending = match worker_queue.pending.lock() {
-                    Ok(pending) => pending,
-                    Err(error) => {
-                        tracing::warn!(?error, "conversation snapshot persistence queue poisoned");
-                        return;
-                    }
-                };
-                while pending.is_empty() {
-                    pending = match worker_queue.available.wait(pending) {
+    let _ = SNAPSHOT_STORE.get_or_init(|| {
+        let queue = Arc::new(SnapshotQueue {
+            pending: Mutex::new(HashMap::new()),
+            available: Condvar::new(),
+        });
+        let worker_queue = Arc::clone(&queue);
+        let worker_database = database.clone();
+        thread::Builder::new()
+            .name("skein-snapshot-store".to_string())
+            .spawn(move || loop {
+                let snapshots = {
+                    let mut pending = match worker_queue.pending.lock() {
                         Ok(pending) => pending,
                         Err(error) => {
                             tracing::warn!(
@@ -50,32 +39,37 @@ pub fn install(database: AppDatabase) {
                             return;
                         }
                     };
-                }
-                pending
-                    .drain()
-                    .map(|(_, snapshot)| snapshot)
-                    .collect::<Vec<_>>()
-            };
+                    while pending.is_empty() {
+                        pending = match worker_queue.available.wait(pending) {
+                            Ok(pending) => pending,
+                            Err(error) => {
+                                tracing::warn!(
+                                    ?error,
+                                    "conversation snapshot persistence queue poisoned"
+                                );
+                                return;
+                            }
+                        };
+                    }
+                    pending
+                        .drain()
+                        .map(|(_, snapshot)| snapshot)
+                        .collect::<Vec<_>>()
+                };
 
-            for snapshot in snapshots {
-                if let Err(error) = worker_database.save_conversation_snapshot(&snapshot) {
-                    tracing::warn!(
-                        thread_id = %snapshot.thread_id,
-                        ?error,
-                        "failed to persist conversation snapshot"
-                    );
+                for snapshot in snapshots {
+                    if let Err(error) = worker_database.save_conversation_snapshot(&snapshot) {
+                        tracing::warn!(
+                            thread_id = %snapshot.thread_id,
+                            ?error,
+                            "failed to persist conversation snapshot"
+                        );
+                    }
                 }
-            }
-        })
-    {
-        tracing::warn!(
-            ?error,
-            "failed to start conversation snapshot persistence worker"
-        );
-        return;
-    }
-
-    let _ = SNAPSHOT_STORE.set(SnapshotStore { database, queue });
+            })
+            .expect("conversation snapshot persistence worker should start");
+        SnapshotStore { database, queue }
+    });
 }
 
 fn store() -> Option<&'static SnapshotStore> {
