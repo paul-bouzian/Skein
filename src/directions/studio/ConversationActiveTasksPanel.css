@@ -1,0 +1,282 @@
+.tx-active-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tx-space-sm);
+  padding: var(--tx-space-sm) var(--tx-space-md);
+  border: 1px solid var(--tx-border-subtle);
+  border-radius: var(--tx-radius-lg);
+  background: color-mix(in srgb, var(--tx-bg-raised) 88%, transparent);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--tx-shadow-card);
+  animation: tx-active-tasks-enter 220ms ease-out;
+}
+
+@keyframes tx-active-tasks-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tx-active-tasks__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tx-space-md);
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--tx-text-primary);
+}
+
+.tx-active-tasks__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tx-space-sm);
+  min-width: 0;
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+  color: var(--tx-text-secondary);
+}
+
+.tx-active-tasks__title-icon {
+  flex-shrink: 0;
+  color: var(--tx-text-muted);
+}
+
+.tx-active-tasks__chevron {
+  flex-shrink: 0;
+  color: var(--tx-text-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--tx-transition-fast);
+}
+
+.tx-active-tasks__chevron--expanded {
+  transform: rotate(90deg);
+}
+
+.tx-active-tasks__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tx-space-sm);
+}
+
+.tx-active-tasks__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.tx-active-tasks__marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: var(--tx-weight-semibold);
+  border: 1.25px solid var(--tx-border-muted);
+  color: var(--tx-text-muted);
+  background: transparent;
+}
+
+.tx-active-tasks__marker-index {
+  line-height: 1;
+}
+
+.tx-active-tasks__marker--inProgress {
+  border-color: color-mix(in srgb, var(--tx-progress) 70%, transparent);
+  color: var(--tx-progress);
+  background: color-mix(in srgb, var(--tx-progress) 12%, transparent);
+}
+
+.tx-active-tasks__marker--completed {
+  border-color: color-mix(in srgb, var(--tx-success) 70%, transparent);
+  color: var(--tx-success);
+  background: color-mix(in srgb, var(--tx-success) 16%, transparent);
+}
+
+.tx-active-tasks__marker-spinner {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  border: 1.5px solid currentcolor;
+  border-right-color: transparent;
+  animation: tx-spin 0.85s linear infinite;
+}
+
+.tx-active-tasks__summary {
+  margin: 0;
+  padding: 0 var(--tx-space-xs);
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-sm);
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-active-tasks {
+    animation: none;
+  }
+  .tx-active-tasks__marker-spinner {
+    animation: none;
+  }
+}
+
+.tx-active-tasks__agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tx-space-xs);
+  padding-top: var(--tx-space-sm);
+  border-top: 1px solid color-mix(in srgb, var(--tx-border-subtle) 80%, transparent);
+}
+
+.tx-active-tasks__agents-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tx-space-md);
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--tx-text-secondary);
+}
+
+.tx-active-tasks__agents-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tx-space-xs);
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tx-text-muted);
+}
+
+.tx-active-tasks__agents-chevron {
+  color: var(--tx-text-muted);
+  transition: transform var(--tx-transition-fast);
+}
+
+.tx-active-tasks__agents-chevron--expanded {
+  transform: rotate(90deg);
+}
+
+.tx-active-tasks__agents-summary {
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-active-tasks__agents-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tx-space-xs);
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  max-height: 192px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.tx-active-tasks__agent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tx-space-md);
+  padding: 4px 0;
+}
+
+.tx-active-tasks__agent-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tx-space-sm);
+  min-width: 0;
+}
+
+.tx-active-tasks__agent-name {
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-medium);
+  color: var(--tx-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-active-tasks__agent-role {
+  font-size: var(--tx-text-xs);
+  color: var(--tx-text-muted);
+  text-transform: lowercase;
+}
+
+.tx-active-tasks__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--tx-space-sm);
+  padding: 4px 2px;
+  font-size: var(--tx-text-sm);
+  color: var(--tx-text-secondary);
+}
+
+.tx-active-tasks__item--inProgress {
+  color: var(--tx-text-primary);
+}
+
+.tx-active-tasks__item--completed {
+  color: var(--tx-text-muted);
+}
+
+.tx-active-tasks__item--completed .tx-active-tasks__step {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--tx-text-muted) 60%, transparent);
+}
+
+.tx-active-tasks__step {
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.tx-active-tasks__agent-status {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--tx-text-xs);
+  font-weight: var(--tx-weight-semibold);
+}
+
+.tx-active-tasks__agent-status--running {
+  color: var(--tx-progress);
+  background: color-mix(in srgb, var(--tx-progress) 16%, transparent);
+}
+
+.tx-active-tasks__agent-status--completed {
+  color: var(--tx-success);
+  background: color-mix(in srgb, var(--tx-success) 16%, transparent);
+}
+
+.tx-active-tasks__agent-status--failed {
+  color: var(--tx-danger);
+  background: color-mix(in srgb, var(--tx-danger) 16%, transparent);
+}

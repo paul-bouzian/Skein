@@ -1025,56 +1025,6 @@ ol.tx-markdown__list {
   margin-left: 5px;
 }
 
-.tx-work-activity__subagents {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
-}
-
-.tx-work-activity__subagents-label {
-  font-size: var(--tx-text-xs);
-  font-weight: var(--tx-weight-semibold);
-  color: var(--tx-text-muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.tx-work-activity__subagent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tx-work-activity__subagent {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--tx-space-sm);
-  font-size: var(--tx-text-xs);
-}
-
-.tx-work-activity__subagent-name {
-  color: var(--tx-text-secondary);
-  font-weight: var(--tx-weight-medium);
-}
-
-.tx-work-activity__subagent-role {
-  color: var(--tx-text-muted);
-}
-
-.tx-work-activity__subagent-status {
-  margin-left: auto;
-  color: var(--tx-text-muted);
-}
-
-.tx-work-activity__subagent-status--running {
-  color: var(--tx-progress);
-}
-
-.tx-work-activity__subagent-status--failed {
-  color: var(--tx-danger);
-}
-
 /* ── Composer ── */
 
 .tx-composer {

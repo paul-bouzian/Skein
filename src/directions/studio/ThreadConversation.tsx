@@ -33,6 +33,7 @@ import {
   type PendingFirstMessage,
 } from "../../stores/conversation-store";
 import { ContextWindowMeter } from "./ContextWindowMeter";
+import { ConversationActiveTasksPanel } from "./ConversationActiveTasksPanel";
 import { ConversationInteractionPanel } from "./ConversationInteractionPanel";
 import { ConversationBanner, ConversationItemRow } from "./ConversationItemRow";
 import { ConversationPlanCard } from "./ConversationPlanCard";
@@ -99,6 +100,7 @@ export function ThreadConversation({
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const timelineFollowBottomRef = useRef(true);
   const refreshInFlightRef = useRef(false);
+  const lastSubagentHydrationKeyRef = useRef<string | null>(null);
   const submitInFlightRef = useRef(false);
   const submitGenerationRef = useRef(0);
   const lastApproveOrSubmitKeyRef = useRef(approveOrSubmitKey);
@@ -184,8 +186,39 @@ export function ThreadConversation({
       return undefined;
     }
 
-    if (!snapshot.subagents.some((subagent) => subagent.status === "running")) {
+    if (snapshot.subagents.length === 0) {
       refreshInFlightRef.current = false;
+      lastSubagentHydrationKeyRef.current = null;
+      return undefined;
+    }
+
+    const hasUnnamedSubagent = snapshot.subagents.some(
+      (subagent) => !subagent.nickname,
+    );
+    const hasRunningSubagent = snapshot.subagents.some(
+      (subagent) => subagent.status === "running",
+    );
+    const shouldPollSubagents = hasRunningSubagent || hasUnnamedSubagent;
+    const hydrationKey = hasUnnamedSubagent
+      ? snapshot.subagents
+          .filter((subagent) => !subagent.nickname)
+          .map((subagent) => subagent.threadId)
+          .join("|")
+      : null;
+
+    if (
+      hydrationKey &&
+      hydrationKey !== lastSubagentHydrationKeyRef.current &&
+      !refreshInFlightRef.current
+    ) {
+      lastSubagentHydrationKeyRef.current = hydrationKey;
+      refreshInFlightRef.current = true;
+      void refreshThread(thread.id).finally(() => {
+        refreshInFlightRef.current = false;
+      });
+    }
+
+    if (!shouldPollSubagents) {
       return undefined;
     }
 
@@ -197,7 +230,7 @@ export function ThreadConversation({
       void refreshThread(thread.id).finally(() => {
         refreshInFlightRef.current = false;
       });
-    }, 10_000);
+    }, hasUnnamedSubagent ? 3_000 : 10_000);
 
     return () => window.clearInterval(interval);
   }, [
@@ -211,7 +244,15 @@ export function ThreadConversation({
   const activePlan = snapshot?.proposedPlan ?? null;
   const activeTaskPlan = snapshot?.taskPlan ?? null;
   const shouldRenderPlanCard = shouldRenderProposedPlan(activePlan);
-  const hasTaskPlanContent = hasRenderableTaskPlan(activeTaskPlan);
+  const hasActiveTaskPlanContent = Boolean(
+    snapshot &&
+      (snapshot.status === "running" ||
+        snapshot.status === "waitingForExternalAction") &&
+      activeTaskPlan?.status === "running" &&
+      (snapshot.activeTurnId === null ||
+        activeTaskPlan.turnId === snapshot.activeTurnId) &&
+      hasRenderableTaskPlan(activeTaskPlan),
+  );
   const handoffAssistantProviders = useMemo(
     () => handoffAssistantProviderMap(thread),
     [thread],
@@ -512,7 +553,7 @@ export function ThreadConversation({
           </div>
         ) : timelineEntries.length === 0 &&
         !shouldRenderPlanCard &&
-        !hasTaskPlanContent &&
+        !hasActiveTaskPlanContent &&
         transportReady ? (
           <ConversationEmpty />
         ) : null}
@@ -587,6 +628,15 @@ export function ThreadConversation({
           }
         />
       </div>
+      {snapshot ? (
+        <ConversationActiveTasksPanel
+          key={snapshot.activeTurnId ?? "idle"}
+          taskPlan={snapshot.taskPlan ?? null}
+          subagents={snapshot.subagents}
+          status={snapshot.status}
+          activeTurnId={snapshot.activeTurnId ?? null}
+        />
+      ) : null}
       <InlineComposer
         environmentId={environment.id}
         threadId={thread.id}

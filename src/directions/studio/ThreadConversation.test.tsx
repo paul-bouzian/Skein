@@ -1421,15 +1421,12 @@ describe("ThreadConversation", () => {
     expect(openExternalMock).toHaveBeenNthCalledWith(2, "https://skein.dev/reason");
   });
 
-  it("renders clickable bare URLs in plan and task explanations", async () => {
+  it("renders clickable bare URLs in proposed plan explanations", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
         proposedPlan: makeProposedPlan({
           explanation: "Plan docs: https://skein.dev/plan",
-        }),
-        taskPlan: makeTaskPlan({
-          explanation: "Task docs: https://skein.dev/task",
         }),
       }),
       capabilities: capabilitiesFixture,
@@ -1445,15 +1442,10 @@ describe("ThreadConversation", () => {
     const planLink = await screen.findByRole("link", {
       name: "https://skein.dev/plan",
     });
-    const taskLink = screen.getByRole("link", {
-      name: "https://skein.dev/task",
-    });
 
     await userEvent.click(planLink);
-    await userEvent.click(taskLink);
 
     expect(openExternalMock).toHaveBeenNthCalledWith(1, "https://skein.dev/plan");
-    expect(openExternalMock).toHaveBeenNthCalledWith(2, "https://skein.dev/task");
   });
 
   it("renders clickable bare URLs in unsupported interaction messages", async () => {
@@ -1568,7 +1560,7 @@ describe("ThreadConversation", () => {
     });
   });
 
-  it("renders the subagent strip and context meter for active turns", async () => {
+  it("renders subagents in the active tasks panel for active turns", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
@@ -1602,18 +1594,58 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    expect(
-      (await screen.findAllByRole("button", { name: "Toggle work activity" }))
-        .length,
-    ).toBeGreaterThan(0);
+    const agentsToggle = await screen.findByRole("button", {
+      name: /Background agents/i,
+    });
+    expect(agentsToggle).toHaveAttribute("aria-expanded", "false");
     expect(
       screen.getByLabelText("Context window 0% used"),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Scout")).toBeNull();
+    await userEvent.click(agentsToggle);
     expect(screen.getByText("Scout")).toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
   });
 
-  it("moves task progress and subagents into the compact work activity group", async () => {
+  it("keeps the active tasks panel visible while the turn is still running even if subagents are completed", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        subagents: [
+          makeSubagent({
+            threadId: "subagent-1",
+            nickname: "Azur",
+            status: "completed",
+          }),
+          makeSubagent({
+            threadId: "subagent-2",
+            nickname: "Cirrus",
+            status: "completed",
+          }),
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const agentsToggle = await screen.findByRole("button", {
+      name: /Background agents/i,
+    });
+    expect(agentsToggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(agentsToggle);
+    expect(screen.getByText("Azur")).toBeInTheDocument();
+    expect(screen.getByText("Cirrus")).toBeInTheDocument();
+    expect(screen.getAllByText("Done")).not.toHaveLength(0);
+  });
+
+  it("renders task progress and subagents in the active tasks panel during a running turn", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot(),
@@ -1634,7 +1666,13 @@ describe("ThreadConversation", () => {
             isStreaming: false,
           },
         ],
-        taskPlan: makeTaskPlan({ turnId: "turn-live-1" }),
+        taskPlan: makeTaskPlan({
+          turnId: "turn-live-1",
+          steps: [
+            { step: "Inspect the runtime layer", status: "completed" },
+            { step: "Implement the task UI", status: "inProgress" },
+          ],
+        }),
         subagents: [
           makeSubagent(),
           makeSubagent({
@@ -1656,18 +1694,17 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const toggle = await screen.findByRole("button", {
-      name: "Toggle work activity",
+    expect(
+      await screen.findByText("Inspect the runtime layer"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Implement the task UI")).toBeInTheDocument();
+    const agentsToggle = screen.getByRole("button", {
+      name: /Background agents/i,
     });
-    expect(toggle).toBeInTheDocument();
-
-    if (toggle.getAttribute("aria-expanded") !== "true") {
-      await userEvent.click(toggle);
-    }
-
+    expect(agentsToggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(agentsToggle);
     expect(screen.getByText("Scout")).toBeInTheDocument();
     expect(screen.getByText("Atlas")).toBeInTheDocument();
-    expect(screen.getAllByText("Tasks").length).toBeGreaterThan(0);
   });
 
   it("keeps the last assistant reply visible when trailing work items share the same turn", async () => {
@@ -2211,17 +2248,18 @@ describe("ThreadConversation", () => {
     );
   });
 
-  it("renders task progress inline without proposal actions and keeps the composer available", async () => {
+  it("renders task progress in the panel without proposal actions during a live turn", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
-        status: "completed",
+        status: "running",
+        activeTurnId: "turn-live-1",
         composer: { ...baseComposer, collaborationMode: "build" },
         taskPlan: makeTaskPlan({
-          status: "completed",
+          turnId: "turn-live-1",
           steps: [
             { step: "Inspect the runtime layer", status: "completed" },
-            { step: "Implement the task UI", status: "completed" },
+            { step: "Implement the task UI", status: "inProgress" },
           ],
           markdown:
             "## Tasks\n\n- Inspect the runtime layer\n- Implement the task UI",
@@ -2237,42 +2275,30 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const workToggles = await screen.findAllByRole("button", {
-      name: "Toggle work activity",
-    });
-    for (const toggle of workToggles) {
-      if (toggle.getAttribute("aria-expanded") !== "true") {
-        await userEvent.click(toggle);
-      }
-    }
-
-    expect((await screen.findAllByText("Tasks")).length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Codex is working through the implementation."),
+      await screen.findByText("Inspect the runtime layer"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Implement the task UI")).toBeInTheDocument();
     expect(
-      screen.getAllByText("Inspect the runtime layer").length,
-    ).toBeGreaterThan(0);
+      screen.getByText("1 out of 2 tasks completed"),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Refine" })).toBeNull();
     expect(screen.queryByText("Codex is still shaping the plan…")).toBeNull();
-    expect(
-      screen.getByPlaceholderText("Message Skein..."),
-    ).not.toBeDisabled();
   });
 
-  it("hides the first-turn empty state when a task tracker is the only visible output", async () => {
-    setCompactWorkActivity(false);
+  it("renders markdown-only task progress while waiting for external action", async () => {
     mockedBridge.openThreadConversation.mockResolvedValue({
       snapshot: makeConversationSnapshot({
-        items: [],
-        status: "completed",
+        status: "waitingForExternalAction",
+        activeTurnId: null,
         composer: { ...baseComposer, collaborationMode: "build" },
         taskPlan: makeTaskPlan({
-          status: "completed",
+          turnId: "turn-live-1",
           steps: [],
-          explanation: "",
-          markdown: "## Tasks\n\n- Inspect the runtime layer",
+          explanation: "Codex is waiting for approval before continuing.",
+          markdown: "## Tasks\n\n- Inspect runtime",
+          status: "running",
         }),
       }),
       capabilities: capabilitiesFixture,
@@ -2285,15 +2311,85 @@ describe("ThreadConversation", () => {
       />,
     );
 
-    const workToggle = await screen.findByRole("button", {
-      name: "Toggle work activity",
-    });
-    if (workToggle.getAttribute("aria-expanded") !== "true") {
-      await userEvent.click(workToggle);
-    }
     expect(
-      (await screen.findAllByText("Inspect the runtime layer")).length,
-    ).toBeGreaterThan(0);
+      await screen.findByText("Codex is waiting for approval before continuing."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Ready for the first turn")).toBeNull();
+  });
+
+  it("refreshes subagent metadata when a nickname is missing even if role exists", async () => {
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        subagents: [
+          makeSubagent({
+            threadId: "subagent-role-only",
+            nickname: null,
+            role: "worker",
+            status: "running",
+          }),
+        ],
+      }),
+      capabilities: capabilitiesFixture,
+    });
+    mockedBridge.refreshThreadConversation.mockResolvedValue(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live-1",
+        subagents: [
+          makeSubagent({
+            threadId: "subagent-role-only",
+            nickname: "Cirrus",
+            role: "worker",
+            status: "running",
+          }),
+        ],
+      }),
+    );
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.refreshThreadConversation).toHaveBeenCalledWith(
+        "thread-1",
+      );
+    });
+  });
+
+  it("hides the first-turn empty state when a task tracker is the only visible output", async () => {
+    setCompactWorkActivity(false);
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        items: [],
+        status: "running",
+        activeTurnId: "turn-live-1",
+        composer: { ...baseComposer, collaborationMode: "build" },
+        taskPlan: makeTaskPlan({
+          turnId: "turn-live-1",
+          steps: [{ step: "Inspect the runtime layer", status: "inProgress" }],
+          explanation: "",
+          markdown: "",
+        }),
+      }),
+      capabilities: capabilitiesFixture,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Inspect the runtime layer"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Ready for the first turn")).toBeNull();
   });
 

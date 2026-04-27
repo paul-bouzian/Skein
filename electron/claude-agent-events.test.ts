@@ -455,4 +455,367 @@ describe("Claude event normalizer", () => {
       }),
     ).toEqual([]);
   });
+
+  it("emits taskPlanUpdated for streamed TodoWrite tools and never as toolStarted", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_todo",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "Read README", activeForm: "Reading README", status: "pending" },
+                { content: "Run tests", activeForm: "Running tests", status: "in_progress" },
+              ],
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "taskPlanUpdated",
+        itemId: "toolu_todo",
+        steps: [
+          { content: "Read README", status: "pending" },
+          { content: "Run tests", status: "inProgress" },
+        ],
+      },
+    ]);
+
+    expect(
+      normalizer.processUserToolResults({
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_todo",
+              content: [{ type: "text", text: "ok" }],
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("re-emits taskPlanUpdated when TodoWrite todos change in subsequent calls", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    normalizer.processStreamMessage({
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_todo_1",
+          name: "TodoWrite",
+          input: {
+            todos: [
+              { content: "Step A", status: "pending" },
+              { content: "Step B", status: "pending" },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_todo_2",
+            name: "TodoWrite",
+            input: {
+              todos: [
+                { content: "Step A", status: "completed" },
+                { content: "Step B", status: "in_progress" },
+              ],
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "taskPlanUpdated",
+        itemId: "toolu_todo_2",
+        steps: [
+          { content: "Step A", status: "completed" },
+          { content: "Step B", status: "inProgress" },
+        ],
+      },
+    ]);
+  });
+
+  it("emits empty taskPlanUpdated when TodoWrite clears todos", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    normalizer.processStreamMessage({
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_todo",
+          name: "TodoWrite",
+          input: {
+            todos: [{ content: "Step A", status: "pending" }],
+          },
+        },
+      },
+    });
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 1,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_todo_clear",
+            name: "TodoWrite",
+            input: { todos: [] },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "taskPlanUpdated",
+        itemId: "toolu_todo_clear",
+        steps: [],
+      },
+    ]);
+  });
+
+  it("streams taskPlanUpdated as the TodoWrite input becomes parseable", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    normalizer.processStreamMessage({ event: { type: "message_start" } });
+    normalizer.processStreamMessage({
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_todo_stream",
+          name: "TodoWrite",
+        },
+      },
+    });
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: {
+            type: "input_json_delta",
+            partial_json: '{"todos":[{"content":"Build","status":"in_progress"}]}',
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "taskPlanUpdated",
+        itemId: "toolu_todo_stream",
+        steps: [{ content: "Build", status: "inProgress" }],
+      },
+    ]);
+  });
+
+  it("emits subagentStarted for Agent tool usage (Claude SDK)", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_agent",
+            name: "Agent",
+            input: {
+              description: "Find weather data",
+              subagent_type: "websearch",
+              prompt: "Search the web for tomorrow's forecast.",
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "subagentStarted",
+        itemId: "toolu_agent",
+        description: "Find weather data",
+        subagentType: "websearch",
+      },
+    ]);
+
+    expect(
+      normalizer.processUserToolResults({
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_agent",
+              content: [{ type: "text", text: "Done" }],
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      { kind: "subagentCompleted", itemId: "toolu_agent", isError: false },
+    ]);
+  });
+
+  it("emits subagentStarted then subagentCompleted for Task tool usage", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_task",
+            name: "Task",
+            input: {
+              description: "Audit tests",
+              subagent_type: "code-reviewer",
+              prompt: "Review the test suite.",
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "subagentStarted",
+        itemId: "toolu_task",
+        description: "Audit tests",
+        subagentType: "code-reviewer",
+      },
+    ]);
+
+    expect(
+      normalizer.processUserToolResults({
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_task",
+              content: [{ type: "text", text: "Done" }],
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      { kind: "subagentCompleted", itemId: "toolu_task", isError: false },
+    ]);
+  });
+
+  it("updates streamed subagent labels when the Agent input becomes parseable", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+
+    normalizer.processStreamMessage({ event: { type: "message_start" } });
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "toolu_agent_stream",
+            name: "Agent",
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "subagentStarted",
+        itemId: "toolu_agent_stream",
+        description: "",
+        subagentType: "agent",
+      },
+    ]);
+
+    expect(
+      normalizer.processStreamMessage({
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: {
+            type: "input_json_delta",
+            partial_json:
+              '{"description":"Find weather data","subagent_type":"websearch"}',
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        kind: "subagentStarted",
+        itemId: "toolu_agent_stream",
+        description: "Find weather data",
+        subagentType: "websearch",
+      },
+    ]);
+  });
+
+  it("does not duplicate TodoWrite or Task events when assistant messages replay them", () => {
+    const normalizer = createClaudeEventNormalizer("turn-1");
+    normalizer.processStreamMessage({
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_todo_a",
+          name: "TodoWrite",
+          input: { todos: [{ content: "A", status: "pending" }] },
+        },
+      },
+    });
+    normalizer.processStreamMessage({
+      event: {
+        type: "content_block_start",
+        index: 1,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_task_a",
+          name: "Task",
+          input: { description: "Inspect", subagent_type: "explore" },
+        },
+      },
+    });
+
+    expect(
+      normalizer.processAssistantMessage({
+        uuid: "assistant-replay",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_todo_a",
+              name: "TodoWrite",
+              input: { todos: [{ content: "A", status: "pending" }] },
+            },
+            {
+              type: "tool_use",
+              id: "toolu_task_a",
+              name: "Task",
+              input: { description: "Inspect", subagent_type: "explore" },
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
 });

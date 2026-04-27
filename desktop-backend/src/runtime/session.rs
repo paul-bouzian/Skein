@@ -42,21 +42,21 @@ use crate::runtime::protocol::{
     complete_task_plan, conversation_status_from_turn_status, error_snapshot, initialize_params,
     initialized_notification, is_hidden_assistant_control_item,
     is_hidden_assistant_control_message, is_hidden_assistant_control_message_prefix,
-    loaded_subagents_for_primary, mark_plan_approved, mark_plan_superseded,
-    merge_persisted_items, model_options_from_response, normalize_item,
-    normalize_server_interaction, parse_incoming_message, plan_approval_message,
-    proposed_plan_from_item,
+    loaded_subagents_for_primary, mark_plan_approved, mark_plan_superseded, merge_persisted_items,
+    model_options_from_response, normalize_item, normalize_server_interaction,
+    parse_incoming_message, plan_approval_message, proposed_plan_from_item,
     proposed_plan_from_turn_update, reconcile_snapshot_status, sandbox_policy_value,
-    subagents_from_collab_item, task_plan_from_item, task_plan_from_turn_update,
-    task_status_from_turn_status, token_usage_snapshot, upsert_item, user_input_payload,
-    AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire, AppsListResponse,
-    CollaborationModeListResponse, ErrorNotification, FuzzyFileSearchMatchTypeWire,
-    FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification, ItemNotification,
-    ModelListResponse, OutgoingNamedInput, OutgoingTextElement, OutgoingUserInputPayload,
-    PlanDeltaNotification, ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
-    ThreadLoadedListResponse, ThreadReadResponse, ThreadStartResponse, TokenUsageNotification,
-    TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse, TurnStartedNotification,
-    AGENT_MESSAGE_DELTA_METHOD, CONVERSATION_EVENT_NAME,
+    subagent_thread_start_from_thread, subagents_from_collab_item, task_plan_from_item,
+    task_plan_from_turn_update, task_status_from_turn_status, token_usage_snapshot, upsert_item,
+    user_input_payload, AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire,
+    AppsListResponse, CollaborationModeListResponse, ErrorNotification,
+    FuzzyFileSearchMatchTypeWire, FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification,
+    ItemNotification, ModelListResponse, OutgoingNamedInput, OutgoingTextElement,
+    OutgoingUserInputPayload, PlanDeltaNotification, ReasoningBoundaryNotification,
+    SkillsListResponse, ThreadListResponse, ThreadLoadedListResponse, ThreadMetadataReadResponse,
+    ThreadReadResponse, ThreadStartResponse, ThreadStatusChangedNotification,
+    TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
+    TurnStartedNotification, AGENT_MESSAGE_DELTA_METHOD, CONVERSATION_EVENT_NAME,
 };
 use crate::runtime::supervisor::RuntimeUsageUpdate;
 use crate::services::composer::{
@@ -98,7 +98,16 @@ struct SessionState {
     pending_server_requests: HashMap<String, PendingServerRequest>,
     turn_modes_by_id: HashMap<String, CollaborationMode>,
     pending_turn_mode_by_thread: HashMap<String, CollaborationMode>,
+    subagent_metadata_by_codex_thread_id: HashMap<String, SubagentMetadata>,
     stream_assistant_responses: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SubagentMetadata {
+    parent_thread_id: Option<String>,
+    nickname: Option<String>,
+    role: Option<String>,
+    depth: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +135,16 @@ struct SnapshotEmitSignature {
     task_plan_step_count: usize,
     subagent_count: usize,
     running_subagent_count: usize,
+    subagent_identity: Vec<SubagentIdentitySignature>,
     error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubagentIdentitySignature {
+    thread_id: String,
+    nickname: Option<String>,
+    role: Option<String>,
+    status: SubagentStatus,
 }
 
 #[derive(Default)]
@@ -156,6 +174,7 @@ impl Default for SessionState {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            subagent_metadata_by_codex_thread_id: HashMap::new(),
             stream_assistant_responses: true,
         }
     }
@@ -187,6 +206,16 @@ impl SnapshotEmitSignature {
                 .iter()
                 .filter(|subagent| matches!(subagent.status, SubagentStatus::Running))
                 .count(),
+            subagent_identity: snapshot
+                .subagents
+                .iter()
+                .map(|subagent| SubagentIdentitySignature {
+                    thread_id: subagent.thread_id.clone(),
+                    nickname: subagent.nickname.clone(),
+                    role: subagent.role.clone(),
+                    status: subagent.status,
+                })
+                .collect(),
             error_message: snapshot.error.as_ref().map(|error| error.message.clone()),
         }
     }
@@ -365,6 +394,7 @@ impl RuntimeSession {
                 pending_server_requests: HashMap::new(),
                 turn_modes_by_id: HashMap::new(),
                 pending_turn_mode_by_thread: HashMap::new(),
+                subagent_metadata_by_codex_thread_id: HashMap::new(),
                 stream_assistant_responses: true,
             })),
             next_request_id: AtomicU64::new(1),
@@ -1299,6 +1329,7 @@ impl RuntimeSession {
                 })?;
             snapshot.composer = context.composer.clone();
             snapshot.task_plan = None;
+            snapshot.subagents.clear();
             snapshot.active_turn_id =
                 matches!(status, ConversationStatus::Running).then_some(turn_response.turn.id);
             snapshot.status = status;
@@ -1457,14 +1488,13 @@ impl RuntimeSession {
         title: &str,
         body: &str,
     ) -> AppResult<ThreadConversationSnapshot> {
-        let item =
-            ConversationItem::System(crate::domain::conversation::ConversationSystemItem {
-                id: format!("system-{}", Uuid::now_v7()),
-                turn_id: None,
-                tone: crate::domain::conversation::ConversationTone::Info,
-                title: title.to_string(),
-                body: body.to_string(),
-            });
+        let item = ConversationItem::System(crate::domain::conversation::ConversationSystemItem {
+            id: format!("system-{}", Uuid::now_v7()),
+            turn_id: None,
+            tone: crate::domain::conversation::ConversationTone::Info,
+            title: title.to_string(),
+            body: body.to_string(),
+        });
         let item_for_persist = item.clone();
         let snapshot = self
             .mutate_snapshot(thread_id, move |snapshot| {
@@ -1523,6 +1553,11 @@ impl RuntimeSession {
             .load_subagents(
                 snapshot.codex_thread_id.as_deref(),
                 &context.environment_path,
+                snapshot
+                    .subagents
+                    .iter()
+                    .map(|subagent| subagent.thread_id.clone())
+                    .collect(),
             )
             .await?;
 
@@ -1549,17 +1584,36 @@ impl RuntimeSession {
         &self,
         codex_thread_id: Option<&str>,
         environment_path: &str,
+        known_subagent_thread_ids: Vec<String>,
     ) -> AppResult<Vec<crate::domain::conversation::SubagentThreadSnapshot>> {
         let Some(codex_thread_id) = codex_thread_id else {
             return Ok(Vec::new());
         };
 
-        let loaded_thread_ids = self.load_all_loaded_thread_ids().await?;
+        let known_subagent_thread_ids = Self::unique_nonempty_thread_ids(known_subagent_thread_ids);
+        let mut loaded_thread_ids = self.load_all_loaded_thread_ids().await?;
+        for thread_id in known_subagent_thread_ids.iter() {
+            Self::push_unique_thread_id(&mut loaded_thread_ids, thread_id);
+        }
         if loaded_thread_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let subagent_threads = self.load_all_subagent_threads(environment_path).await?;
+        let mut subagent_threads = self.load_all_subagent_threads(environment_path).await?;
+        let listed_thread_ids = subagent_threads
+            .iter()
+            .map(|thread| thread.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let missing_known_thread_ids = known_subagent_thread_ids
+            .iter()
+            .filter(|thread_id| thread_id.as_str() != codex_thread_id)
+            .filter(|thread_id| !listed_thread_ids.contains(thread_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        subagent_threads.extend(
+            self.load_subagent_threads_by_id(missing_known_thread_ids)
+                .await?,
+        );
         Ok(loaded_subagents_for_primary(
             codex_thread_id,
             &loaded_thread_ids,
@@ -1618,6 +1672,44 @@ impl RuntimeSession {
                 None => return Ok(threads),
             }
         }
+    }
+
+    async fn load_subagent_threads_by_id(
+        &self,
+        thread_ids: Vec<String>,
+    ) -> AppResult<Vec<crate::runtime::protocol::ThreadListEntryWire>> {
+        let mut threads = Vec::new();
+        for thread_id in thread_ids {
+            let response = self
+                .request_typed::<ThreadMetadataReadResponse>(
+                    "thread/read",
+                    serde_json::json!({
+                        "threadId": thread_id,
+                        "includeTurns": false
+                    }),
+                )
+                .await;
+            match response {
+                Ok(response) => threads.push(response.thread),
+                Err(error) => warn!("failed to read Codex subagent thread metadata: {error}"),
+            }
+        }
+        Ok(threads)
+    }
+
+    fn unique_nonempty_thread_ids(thread_ids: Vec<String>) -> Vec<String> {
+        let mut unique = Vec::new();
+        for thread_id in thread_ids {
+            Self::push_unique_thread_id(&mut unique, &thread_id);
+        }
+        unique
+    }
+
+    fn push_unique_thread_id(thread_ids: &mut Vec<String>, thread_id: &str) {
+        if thread_id.is_empty() || thread_ids.iter().any(|existing| existing == thread_id) {
+            return;
+        }
+        thread_ids.push(thread_id.to_string());
     }
 
     async fn load_skill_bindings(&self, environment_path: &str) -> AppResult<Vec<SkillBinding>> {
@@ -1939,6 +2031,7 @@ async fn handle_notification(
                         snapshot.status = ConversationStatus::Running;
                         snapshot.error = None;
                         snapshot.pending_interactions.clear();
+                        snapshot.subagents.clear();
                         snapshot.task_plan = None;
                         reconcile_snapshot_status(snapshot);
                     },
@@ -2060,6 +2153,7 @@ async fn handle_notification(
                     }
                     _ => None,
                 };
+                let mut collab_subagents = subagents_from_collab_item(&event.item);
                 let mut item_to_persist: Option<(String, ConversationItem)> = None;
                 let maybe_snapshot = {
                     let mut state = state.lock().await;
@@ -2092,6 +2186,10 @@ async fn handle_notification(
                         None
                     };
 
+                    if !collab_subagents.is_empty() {
+                        let subagent_metadata = state.subagent_metadata_by_codex_thread_id.clone();
+                        enrich_subagents_with_metadata(&mut collab_subagents, &subagent_metadata);
+                    }
                     let Some(snapshot) = state.snapshots_by_thread.get_mut(&local_thread_id) else {
                         return;
                     };
@@ -2167,9 +2265,8 @@ async fn handle_notification(
                         reconcile_snapshot_status(snapshot);
                         Some(snapshot.clone())
                     } else {
-                        let collab_subagents = subagents_from_collab_item(&event.item);
                         if !collab_subagents.is_empty() {
-                            apply_subagent_updates(snapshot, collab_subagents);
+                            apply_collab_subagent_updates(snapshot, collab_subagents);
                             reconcile_snapshot_status(snapshot);
                             Some(snapshot.clone())
                         } else if is_hidden_assistant_control_item(&event.item) {
@@ -2197,8 +2294,7 @@ async fn handle_notification(
                                     }
                                 })
                             {
-                                let normalized_item_id =
-                                    conversation_item_id(&item).to_string();
+                                let normalized_item_id = conversation_item_id(&item).to_string();
                                 upsert_item(&mut snapshot.items, item);
                                 // Persist the merged result so prior `summary`/`output`
                                 // preserved by `upsert_item` is not truncated to the
@@ -2212,8 +2308,7 @@ async fn handle_notification(
                                         })
                                         .cloned()
                                     {
-                                        item_to_persist =
-                                            Some((local_thread_id.clone(), merged));
+                                        item_to_persist = Some((local_thread_id.clone(), merged));
                                     }
                                 }
                             }
@@ -2483,6 +2578,28 @@ async fn handle_notification(
         }
         "thread/started" => {
             let _ = environment_id;
+            if let Some(thread) = notification.params.get("thread") {
+                if let Some(subagent_start) = subagent_thread_start_from_thread(thread) {
+                    record_subagent_thread_started(state, events, subagent_start).await;
+                }
+            }
+        }
+        "thread/status/changed" => {
+            if let Ok(event) =
+                serde_json::from_value::<ThreadStatusChangedNotification>(notification.params)
+            {
+                update_subagent_thread_status(state, events, &event.thread_id, &event.status).await;
+            }
+        }
+        "thread/closed" => {
+            if let Some(thread_id) = notification
+                .params
+                .get("threadId")
+                .or_else(|| notification.params.get("thread_id"))
+                .and_then(serde_json::Value::as_str)
+            {
+                close_subagent_thread(state, events, thread_id).await;
+            }
         }
         other => {
             warn!("unhandled codex notification: {other}");
@@ -2778,6 +2895,21 @@ fn merge_subagent_snapshots(
     existing: &[crate::domain::conversation::SubagentThreadSnapshot],
     incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
 ) -> Vec<crate::domain::conversation::SubagentThreadSnapshot> {
+    merge_subagent_snapshots_with_mode(existing, incoming, true)
+}
+
+fn merge_collab_subagent_snapshots(
+    existing: &[crate::domain::conversation::SubagentThreadSnapshot],
+    incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
+) -> Vec<crate::domain::conversation::SubagentThreadSnapshot> {
+    merge_subagent_snapshots_with_mode(existing, incoming, false)
+}
+
+fn merge_subagent_snapshots_with_mode(
+    existing: &[crate::domain::conversation::SubagentThreadSnapshot],
+    incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
+    overwrite_terminal_status: bool,
+) -> Vec<crate::domain::conversation::SubagentThreadSnapshot> {
     let mut merged = existing
         .iter()
         .cloned()
@@ -2797,7 +2929,19 @@ fn merge_subagent_snapshots(
                 if subagent.depth > 0 {
                     current.depth = subagent.depth;
                 }
-                current.status = subagent.status;
+                let regresses_terminal_status = !overwrite_terminal_status
+                    && matches!(
+                        current.status,
+                        crate::domain::conversation::SubagentStatus::Completed
+                            | crate::domain::conversation::SubagentStatus::Failed
+                    )
+                    && matches!(
+                        subagent.status,
+                        crate::domain::conversation::SubagentStatus::Running
+                    );
+                if !regresses_terminal_status {
+                    current.status = subagent.status;
+                }
             })
             .or_insert(subagent);
     }
@@ -2817,9 +2961,202 @@ fn apply_subagent_updates(
     incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
 ) {
     snapshot.subagents = merge_subagent_snapshots(&snapshot.subagents, incoming);
-    if !has_live_subagents(&snapshot.subagents) {
+    if !can_accept_late_subagent_update(snapshot) && !has_live_subagents(&snapshot.subagents) {
         snapshot.subagents.clear();
     }
+}
+
+fn apply_collab_subagent_updates(
+    snapshot: &mut ThreadConversationSnapshot,
+    incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
+) {
+    snapshot.subagents = merge_collab_subagent_snapshots(&snapshot.subagents, incoming);
+}
+
+fn enrich_subagents_with_metadata(
+    subagents: &mut [crate::domain::conversation::SubagentThreadSnapshot],
+    metadata: &HashMap<String, SubagentMetadata>,
+) {
+    for subagent in subagents.iter_mut() {
+        let Some(meta) = metadata.get(&subagent.thread_id) else {
+            continue;
+        };
+        if subagent.nickname.is_none() {
+            if let Some(nickname) = meta.nickname.as_ref() {
+                subagent.nickname = Some(nickname.clone());
+            }
+        }
+        if subagent.role.is_none() {
+            if let Some(role) = meta.role.as_ref() {
+                subagent.role = Some(role.clone());
+            }
+        }
+    }
+}
+
+async fn record_subagent_thread_started(
+    state: &Arc<Mutex<SessionState>>,
+    events: &EventSink,
+    subagent_start: crate::runtime::protocol::SubagentThreadStart,
+) {
+    let mut updated_snapshots: Vec<ThreadConversationSnapshot> = Vec::new();
+    {
+        let mut session_state = state.lock().await;
+        let thread_id = subagent_start.snapshot.thread_id.clone();
+        let entry = session_state
+            .subagent_metadata_by_codex_thread_id
+            .entry(thread_id.clone())
+            .or_default();
+        entry.parent_thread_id = Some(subagent_start.parent_thread_id.clone());
+        entry.depth = Some(subagent_start.snapshot.depth);
+        if let Some(value) = subagent_start.snapshot.nickname.as_ref() {
+            entry.nickname = Some(value.clone());
+        }
+        if let Some(value) = subagent_start.snapshot.role.as_ref() {
+            entry.role = Some(value.clone());
+        }
+
+        if let Some(local_parent_thread_id) = session_state
+            .local_thread_by_codex_id
+            .get(&subagent_start.parent_thread_id)
+            .cloned()
+        {
+            if let Some(snapshot) = session_state
+                .snapshots_by_thread
+                .get_mut(&local_parent_thread_id)
+            {
+                if can_accept_late_subagent_update(snapshot) {
+                    apply_subagent_updates(snapshot, vec![subagent_start.snapshot.clone()]);
+                    updated_snapshots.push(snapshot.clone());
+                }
+            }
+        }
+
+        for snapshot in session_state.snapshots_by_thread.values_mut() {
+            if updated_snapshots
+                .iter()
+                .any(|updated| updated.thread_id == snapshot.thread_id)
+            {
+                continue;
+            }
+            let mut changed = false;
+            let accepts_late_running_status = can_accept_late_subagent_update(snapshot);
+            if let Some(subagent) = snapshot
+                .subagents
+                .iter_mut()
+                .find(|candidate| candidate.thread_id == thread_id)
+            {
+                if subagent.nickname.is_none() && subagent_start.snapshot.nickname.is_some() {
+                    subagent.nickname = subagent_start.snapshot.nickname.clone();
+                    changed = true;
+                }
+                if subagent.role.is_none() && subagent_start.snapshot.role.is_some() {
+                    subagent.role = subagent_start.snapshot.role.clone();
+                    changed = true;
+                }
+                if subagent.depth == 0 && subagent_start.snapshot.depth > 0 {
+                    subagent.depth = subagent_start.snapshot.depth;
+                    changed = true;
+                }
+                if accepts_late_running_status
+                    && matches!(
+                        subagent.status,
+                        crate::domain::conversation::SubagentStatus::Completed
+                    )
+                    && matches!(
+                        subagent_start.snapshot.status,
+                        crate::domain::conversation::SubagentStatus::Running
+                    )
+                {
+                    subagent.status = crate::domain::conversation::SubagentStatus::Running;
+                    changed = true;
+                }
+            }
+            if changed {
+                updated_snapshots.push(snapshot.clone());
+            }
+        }
+    }
+
+    for snapshot in updated_snapshots {
+        emit_snapshot_from_handle(events, snapshot);
+    }
+}
+
+async fn update_subagent_thread_status(
+    state: &Arc<Mutex<SessionState>>,
+    events: &EventSink,
+    thread_id: &str,
+    status: &crate::runtime::protocol::ThreadStatusWire,
+) {
+    let mut updated_snapshots: Vec<ThreadConversationSnapshot> = Vec::new();
+    let next_status = crate::runtime::protocol::subagent_status_from_thread_status(status);
+    {
+        let mut session_state = state.lock().await;
+        let metadata = session_state
+            .subagent_metadata_by_codex_thread_id
+            .get(thread_id)
+            .cloned();
+        let existing_parent_local_thread_id = metadata
+            .as_ref()
+            .and_then(|meta| meta.parent_thread_id.as_deref())
+            .and_then(|parent_thread_id| {
+                session_state
+                    .local_thread_by_codex_id
+                    .get(parent_thread_id)
+                    .cloned()
+            });
+
+        if let Some(local_parent_thread_id) = existing_parent_local_thread_id {
+            if let Some(snapshot) = session_state
+                .snapshots_by_thread
+                .get_mut(&local_parent_thread_id)
+            {
+                if can_accept_late_subagent_update(snapshot)
+                    && !snapshot
+                        .subagents
+                        .iter()
+                        .any(|subagent| subagent.thread_id == thread_id)
+                {
+                    let subagent = crate::domain::conversation::SubagentThreadSnapshot {
+                        thread_id: thread_id.to_string(),
+                        nickname: metadata.as_ref().and_then(|meta| meta.nickname.clone()),
+                        role: metadata.as_ref().and_then(|meta| meta.role.clone()),
+                        depth: metadata.as_ref().and_then(|meta| meta.depth).unwrap_or(1),
+                        status: next_status,
+                    };
+                    apply_subagent_updates(snapshot, vec![subagent]);
+                    updated_snapshots.push(snapshot.clone());
+                }
+            }
+        }
+
+        for snapshot in session_state.snapshots_by_thread.values_mut() {
+            let mut changed = false;
+            for subagent in snapshot.subagents.iter_mut() {
+                if subagent.thread_id == thread_id && subagent.status != next_status {
+                    subagent.status = next_status;
+                    changed = true;
+                }
+            }
+            if changed {
+                updated_snapshots.push(snapshot.clone());
+            }
+        }
+    }
+
+    for snapshot in updated_snapshots {
+        emit_snapshot_from_handle(events, snapshot);
+    }
+}
+
+fn can_accept_late_subagent_update(snapshot: &ThreadConversationSnapshot) -> bool {
+    snapshot.active_turn_id.is_some()
+        || matches!(
+            snapshot.status,
+            crate::domain::conversation::ConversationStatus::Running
+                | crate::domain::conversation::ConversationStatus::WaitingForExternalAction
+        )
 }
 
 fn has_live_subagents(subagents: &[crate::domain::conversation::SubagentThreadSnapshot]) -> bool {
@@ -2829,6 +3166,42 @@ fn has_live_subagents(subagents: &[crate::domain::conversation::SubagentThreadSn
             crate::domain::conversation::SubagentStatus::Running
         )
     })
+}
+
+async fn close_subagent_thread(
+    state: &Arc<Mutex<SessionState>>,
+    events: &EventSink,
+    thread_id: &str,
+) {
+    let mut updated_snapshots: Vec<ThreadConversationSnapshot> = Vec::new();
+    {
+        let mut session_state = state.lock().await;
+        session_state
+            .subagent_metadata_by_codex_thread_id
+            .remove(thread_id);
+
+        for snapshot in session_state.snapshots_by_thread.values_mut() {
+            let mut changed = false;
+            for subagent in snapshot.subagents.iter_mut() {
+                if subagent.thread_id == thread_id
+                    && matches!(
+                        subagent.status,
+                        crate::domain::conversation::SubagentStatus::Running
+                    )
+                {
+                    subagent.status = crate::domain::conversation::SubagentStatus::Completed;
+                    changed = true;
+                }
+            }
+            if changed {
+                updated_snapshots.push(snapshot.clone());
+            }
+        }
+    }
+
+    for snapshot in updated_snapshots {
+        emit_snapshot_from_handle(events, snapshot);
+    }
 }
 
 fn subagent_sort_label(subagent: &crate::domain::conversation::SubagentThreadSnapshot) -> &str {
@@ -3483,6 +3856,39 @@ mod tests {
     }
 
     #[test]
+    fn subagent_label_changes_are_emitted_immediately() {
+        let mut entry = BufferedSnapshotEmit::default();
+        let mut unnamed = make_completed_snapshot();
+        unnamed.subagents = vec![crate::domain::conversation::SubagentThreadSnapshot {
+            thread_id: "subagent-1".to_string(),
+            nickname: None,
+            role: None,
+            depth: 1,
+            status: SubagentStatus::Running,
+        }];
+        let mut named = unnamed.clone();
+        named.subagents[0].nickname = Some("azur".to_string());
+
+        assert!(matches!(
+            update_buffered_snapshot_emit(
+                &mut entry,
+                SnapshotEmitSignature::from_snapshot(&unnamed),
+                unnamed
+            ),
+            BufferedSnapshotEmitAction::EmitNow
+        ));
+        assert!(matches!(
+            update_buffered_snapshot_emit(
+                &mut entry,
+                SnapshotEmitSignature::from_snapshot(&named),
+                named
+            ),
+            BufferedSnapshotEmitAction::EmitNow
+        ));
+        assert!(take_buffered_snapshot(&mut entry).is_none());
+    }
+
+    #[test]
     fn final_snapshot_updates_clear_stale_buffered_duplicates() {
         let mut entry = BufferedSnapshotEmit::default();
         let first = make_streaming_snapshot("First");
@@ -3568,6 +3974,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            subagent_metadata_by_codex_thread_id: HashMap::new(),
             stream_assistant_responses: true,
         }));
         let item = serde_json::json!({
@@ -3616,6 +4023,65 @@ mod tests {
                 is_streaming: false,
             }));
         snapshot
+    }
+
+    #[test]
+    fn late_subagent_updates_are_only_accepted_for_active_parent_snapshots() {
+        let mut snapshot = make_completed_snapshot();
+        assert!(!can_accept_late_subagent_update(&snapshot));
+
+        snapshot.status = ConversationStatus::WaitingForExternalAction;
+        assert!(can_accept_late_subagent_update(&snapshot));
+
+        snapshot.status = ConversationStatus::Running;
+        assert!(can_accept_late_subagent_update(&snapshot));
+    }
+
+    #[test]
+    fn collab_subagent_merge_allows_completion_but_blocks_terminal_regression() {
+        let running = crate::domain::conversation::SubagentThreadSnapshot {
+            thread_id: "subagent-1".to_string(),
+            nickname: Some("Scout".to_string()),
+            role: Some("worker".to_string()),
+            depth: 1,
+            status: crate::domain::conversation::SubagentStatus::Running,
+        };
+        let completed = crate::domain::conversation::SubagentThreadSnapshot {
+            status: crate::domain::conversation::SubagentStatus::Completed,
+            ..running.clone()
+        };
+
+        let merged = merge_collab_subagent_snapshots(
+            std::slice::from_ref(&running),
+            vec![completed.clone()],
+        );
+        assert_eq!(
+            merged[0].status,
+            crate::domain::conversation::SubagentStatus::Completed
+        );
+
+        let regressed = merge_collab_subagent_snapshots(&merged, vec![running]);
+        assert_eq!(
+            regressed[0].status,
+            crate::domain::conversation::SubagentStatus::Completed
+        );
+    }
+
+    #[test]
+    fn inactive_snapshot_subagent_refresh_drops_terminal_only_state() {
+        let mut snapshot = make_completed_snapshot();
+        apply_subagent_updates(
+            &mut snapshot,
+            vec![crate::domain::conversation::SubagentThreadSnapshot {
+                thread_id: "subagent-1".to_string(),
+                nickname: Some("Scout".to_string()),
+                role: Some("worker".to_string()),
+                depth: 1,
+                status: crate::domain::conversation::SubagentStatus::Completed,
+            }],
+        );
+
+        assert!(snapshot.subagents.is_empty());
     }
 
     fn make_streaming_snapshot(text: &str) -> ThreadConversationSnapshot {
@@ -3670,6 +4136,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::from([("turn-new".to_string(), CollaborationMode::Plan)]),
             pending_turn_mode_by_thread: HashMap::new(),
+            subagent_metadata_by_codex_thread_id: HashMap::new(),
             stream_assistant_responses: true,
         }));
 
@@ -3827,6 +4294,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            subagent_metadata_by_codex_thread_id: HashMap::new(),
             stream_assistant_responses: true,
         }));
 
@@ -4010,6 +4478,7 @@ mod tests {
             pending_server_requests: HashMap::new(),
             turn_modes_by_id: HashMap::new(),
             pending_turn_mode_by_thread: HashMap::new(),
+            subagent_metadata_by_codex_thread_id: HashMap::new(),
             stream_assistant_responses: true,
         }));
 

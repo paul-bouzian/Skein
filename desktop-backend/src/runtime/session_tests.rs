@@ -270,28 +270,52 @@ fn spawn_fake_codex(
                         ]
                     })
                 }
-                "thread/read" => json!({
-                    "thread": {
-                        "id": params["threadId"],
-                        "turns": [{
-                            "id": "turn-history-1",
-                            "status": "completed",
-                            "error": null,
-                            "items": [
-                                {
-                                    "id": "user-1",
-                                    "type": "userMessage",
-                                    "content": [{"type": "text", "text": "Inspect the repo"}]
+                "thread/read" => {
+                    if params["threadId"] == "subagent-new" {
+                        json!({
+                            "thread": {
+                                "id": "subagent-new",
+                                "agentNickname": "Random",
+                                "agentRole": "worker",
+                                "source": {
+                                    "subAgent": {
+                                        "thread_spawn": {
+                                            "parent_thread_id": "thr-new",
+                                            "depth": 1,
+                                            "agent_path": "/root/builder",
+                                            "agent_nickname": "Random",
+                                            "agent_role": "worker"
+                                        }
+                                    }
                                 },
-                                {
-                                    "id": "assistant-1",
-                                    "type": "agentMessage",
-                                    "text": "History loaded"
-                                }
-                            ]
-                        }]
+                                "status": { "type": "active" }
+                            }
+                        })
+                    } else {
+                        json!({
+                            "thread": {
+                                "id": params["threadId"],
+                                "turns": [{
+                                    "id": "turn-history-1",
+                                    "status": "completed",
+                                    "error": null,
+                                    "items": [
+                                        {
+                                            "id": "user-1",
+                                            "type": "userMessage",
+                                            "content": [{"type": "text", "text": "Inspect the repo"}]
+                                        },
+                                        {
+                                            "id": "assistant-1",
+                                            "type": "agentMessage",
+                                            "text": "History loaded"
+                                        }
+                                    ]
+                                }]
+                            }
+                        })
                     }
-                }),
+                }
                 "thread/loaded/list" => json!({
                     "data": ["thr-existing", "thr-new", "subagent-child", "subagent-grandchild"]
                 }),
@@ -329,22 +353,6 @@ fn spawn_fake_codex(
                             },
                             "status": { "type": "idle" }
                         },
-                        {
-                            "id": "subagent-new",
-                            "agentNickname": "Builder",
-                            "agentRole": "worker",
-                            "source": {
-                                "subAgent": {
-                                    "thread_spawn": {
-                                        "parent_thread_id": "thr-new",
-                                        "depth": 1,
-                                        "agent_nickname": "Builder",
-                                        "agent_role": "worker"
-                                    }
-                                }
-                            },
-                            "status": { "type": "active" }
-                        }
                     ]
                 }),
                 "thread/resume" => json!({}),
@@ -2305,7 +2313,301 @@ async fn collab_agent_notifications_update_subagent_strip_without_timeline_noise
         .expect("snapshot should reopen after completion")
         .snapshot;
 
-    assert!(completed_snapshot.subagents.is_empty());
+    assert_eq!(completed_snapshot.subagents.len(), 2);
+    assert!(completed_snapshot.subagents.iter().all(|subagent| matches!(
+        subagent.status,
+        crate::domain::conversation::SubagentStatus::Completed
+    )));
+}
+
+#[tokio::test]
+async fn thread_status_changed_updates_live_subagent_status_without_clearing_panel_state() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-7b",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Spawn a helper".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "item/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "collab-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "senderThreadId": "thr-new",
+                    "receiverThreadIds": ["subagent-child"],
+                    "agentsStates": {
+                        "subagent-child": { "status": "running" }
+                    }
+                }
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "thread/started",
+            json!({
+                "thread": {
+                    "id": "subagent-child",
+                    "status": { "type": "active" },
+                    "source": {
+                        "subAgent": {
+                            "threadSpawn": {
+                                "parentThreadId": "thr-new",
+                                "depth": 1,
+                                "agentPath": "/root/azur",
+                                "agentRole": "websearch"
+                            }
+                        }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    harness
+        .emit_notification(
+            "thread/status/changed",
+            json!({
+                "threadId": "subagent-child",
+                "status": { "type": "idle" }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let snapshot = session
+        .open_thread(context(
+            "thread-local-7b",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen")
+        .snapshot;
+
+    assert_eq!(snapshot.subagents.len(), 1);
+    assert_eq!(snapshot.subagents[0].nickname.as_deref(), Some("azur"));
+    assert_eq!(snapshot.subagents[0].role.as_deref(), Some("websearch"));
+    assert!(matches!(
+        snapshot.subagents[0].status,
+        crate::domain::conversation::SubagentStatus::Completed
+    ));
+}
+
+#[tokio::test]
+async fn late_subagent_start_after_turn_completion_does_not_resurrect_active_state() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-7late",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Spawn a helper".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "turn/completed",
+            json!({
+                "threadId": "thr-new",
+                "turn": {
+                    "id": "turn-live-1",
+                    "status": "completed",
+                    "error": null
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    harness
+        .emit_notification(
+            "thread/started",
+            json!({
+                "thread": {
+                    "id": "subagent-late",
+                    "status": { "type": "active" },
+                    "source": {
+                        "subAgent": {
+                            "threadSpawn": {
+                                "parentThreadId": "thr-new",
+                                "depth": 1,
+                                "agentPath": "/root/late",
+                                "agentRole": "worker"
+                            }
+                        }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let snapshot = session
+        .open_thread(context(
+            "thread-local-7late",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen")
+        .snapshot;
+
+    assert!(snapshot.active_turn_id.is_none());
+    assert!(snapshot.subagents.is_empty());
+}
+
+#[tokio::test]
+async fn collab_agent_metadata_names_subagents_in_open_snapshot() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-local-7c",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Spawn named helpers".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "item/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "collab-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "senderThreadId": "thr-new",
+                    "newThreadId": "subagent-azur",
+                    "newAgentNickname": "Azur",
+                    "newAgentRole": "websearch",
+                    "agentsStates": {
+                        "subagent-cirrus": {
+                            "status": "completed",
+                            "agentPath": "/root/cirrus",
+                            "agentRole": "explorer"
+                        }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let snapshot = session
+        .open_thread(context(
+            "thread-local-7c",
+            Some("thr-new"),
+            CollaborationMode::Build,
+            ApprovalPolicy::AskToEdit,
+        ))
+        .await
+        .expect("snapshot should reopen")
+        .snapshot;
+
+    assert_eq!(snapshot.subagents.len(), 2);
+    assert_eq!(snapshot.subagents[0].nickname.as_deref(), Some("Azur"));
+    assert_eq!(snapshot.subagents[0].role.as_deref(), Some("websearch"));
+    assert_eq!(snapshot.subagents[1].nickname.as_deref(), Some("cirrus"));
+    assert_eq!(snapshot.subagents[1].role.as_deref(), Some("explorer"));
+}
+
+#[tokio::test]
+async fn refresh_hydrates_known_unloaded_subagent_names_from_thread_metadata() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let runtime_context = context(
+        "thread-local-7d",
+        Some("thr-new"),
+        CollaborationMode::Build,
+        ApprovalPolicy::AskToEdit,
+    );
+
+    session
+        .send_message(
+            context(
+                "thread-local-7d",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AskToEdit,
+            ),
+            "Spawn named helpers".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "item/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "item": {
+                    "id": "collab-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "inProgress",
+                    "senderThreadId": "thr-new",
+                    "receiverThreadIds": ["subagent-new"],
+                    "agentsStates": {
+                        "subagent-new": { "status": "running" }
+                    }
+                }
+            }),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    let refreshed_snapshot = session
+        .refresh_thread(runtime_context)
+        .await
+        .expect("refresh should hydrate metadata for known subagent IDs");
+
+    assert_eq!(refreshed_snapshot.subagents.len(), 1);
+    assert_eq!(refreshed_snapshot.subagents[0].thread_id, "subagent-new");
+    assert_eq!(
+        refreshed_snapshot.subagents[0].nickname.as_deref(),
+        Some("builder")
+    );
+    assert_eq!(
+        refreshed_snapshot.subagents[0].role.as_deref(),
+        Some("worker")
+    );
 }
 
 #[tokio::test]

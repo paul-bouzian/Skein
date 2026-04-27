@@ -1,3 +1,10 @@
+export type ClaudeTaskStepStatus = "pending" | "inProgress" | "completed";
+
+export type ClaudeTaskStep = {
+  content: string;
+  status: ClaudeTaskStepStatus;
+};
+
 export type ClaudeEvent =
   | {
       kind: "session";
@@ -48,6 +55,22 @@ export type ClaudeEvent =
       kind: "planReady";
       itemId?: string;
       markdown: string;
+    }
+  | {
+      kind: "taskPlanUpdated";
+      itemId: string;
+      steps: ClaudeTaskStep[];
+    }
+  | {
+      kind: "subagentStarted";
+      itemId: string;
+      description: string;
+      subagentType: string;
+    }
+  | {
+      kind: "subagentCompleted";
+      itemId: string;
+      isError?: boolean;
     }
   | {
       kind: "userInputRequest";
@@ -104,6 +127,9 @@ type NormalizerState = {
   toolsById: Map<string, InFlightTool>;
   streamedReasoningIndexes: Set<number | null>;
   emittedToolIds: Set<string>;
+  todoWriteToolUseIds: Set<string>;
+  subagentToolUseIds: Set<string>;
+  todoWriteFingerprints: Map<string, string>;
 };
 
 export function createClaudeEventNormalizer(itemPrefix: string): ClaudeEventNormalizer {
@@ -115,6 +141,9 @@ export function createClaudeEventNormalizer(itemPrefix: string): ClaudeEventNorm
     toolsById: new Map(),
     streamedReasoningIndexes: new Set(),
     emittedToolIds: new Set(),
+    todoWriteToolUseIds: new Set(),
+    subagentToolUseIds: new Set(),
+    todoWriteFingerprints: new Map(),
   };
 
   return {
@@ -190,6 +219,22 @@ function startContentBlock(
     const plan = extractPlanFromInput(input);
     return plan ? [{ kind: "planReady", itemId, markdown: plan }] : [];
   }
+  if (toolName === "TodoWrite") {
+    state.emittedToolIds.add(itemId);
+    state.todoWriteToolUseIds.add(itemId);
+    const tool = createInFlightTool(itemId, toolName, input);
+    if (index !== null) state.toolsByIndex.set(index, tool);
+    state.toolsById.set(itemId, tool);
+    return emitTodoWritePlanIfChanged(state, itemId, input);
+  }
+  if (isSubagentToolName(toolName)) {
+    state.emittedToolIds.add(itemId);
+    state.subagentToolUseIds.add(itemId);
+    const tool = createInFlightTool(itemId, toolName, input);
+    if (index !== null) state.toolsByIndex.set(index, tool);
+    state.toolsById.set(itemId, tool);
+    return [buildSubagentStartedEvent(itemId, input)];
+  }
 
   const tool = createInFlightTool(itemId, toolName, input);
   if (index !== null) state.toolsByIndex.set(index, tool);
@@ -242,6 +287,12 @@ function deltaContentBlock(
   const fingerprint = compactJson(parsed);
   if (!fingerprint || fingerprint === tool.lastInputFingerprint) return [];
   tool.lastInputFingerprint = fingerprint;
+  if (state.todoWriteToolUseIds.has(tool.itemId)) {
+    return emitTodoWritePlanIfChanged(state, tool.itemId, parsed);
+  }
+  if (state.subagentToolUseIds.has(tool.itemId)) {
+    return [buildSubagentStartedEvent(tool.itemId, parsed)];
+  }
   tool.summary = summarizeTool(tool.toolName, parsed);
   return [{
     kind: "toolUpdated",
@@ -298,6 +349,23 @@ function processAssistantMessage(
       return;
     }
     const input = asRecord(block.input) ?? {};
+    if (toolName === "TodoWrite") {
+      state.emittedToolIds.add(itemId);
+      state.todoWriteToolUseIds.add(itemId);
+      const tool = createInFlightTool(itemId, toolName, input);
+      state.toolsById.set(itemId, tool);
+      const todoEvents = emitTodoWritePlanIfChanged(state, itemId, input);
+      for (const todoEvent of todoEvents) events.push(todoEvent);
+      return;
+    }
+    if (isSubagentToolName(toolName)) {
+      state.emittedToolIds.add(itemId);
+      state.subagentToolUseIds.add(itemId);
+      const tool = createInFlightTool(itemId, toolName, input);
+      state.toolsById.set(itemId, tool);
+      events.push(buildSubagentStartedEvent(itemId, input));
+      return;
+    }
     const tool = createInFlightTool(itemId, toolName, input);
     state.toolsById.set(itemId, tool);
     state.emittedToolIds.add(itemId);
@@ -325,8 +393,17 @@ function processUserToolResults(
     const toolUseId = stringFromUnknown(block.tool_use_id);
     const tool = state.toolsById.get(toolUseId);
     if (!tool) continue;
-    const output = toolResultText(block);
     const isError = block.is_error === true;
+    if (state.subagentToolUseIds.has(tool.itemId)) {
+      events.push({ kind: "subagentCompleted", itemId: tool.itemId, isError });
+      cleanupConsumedTool(state, toolUseId, tool.itemId);
+      continue;
+    }
+    if (state.todoWriteToolUseIds.has(tool.itemId)) {
+      cleanupConsumedTool(state, toolUseId, tool.itemId);
+      continue;
+    }
+    const output = toolResultText(block);
     if (output) {
       events.push({
         kind: "toolOutput",
@@ -348,8 +425,16 @@ function completeToolFromResultBlock(
   const toolUseId = stringFromUnknown(block.tool_use_id);
   const tool = state.toolsById.get(toolUseId);
   if (!tool) return [];
-  const output = toolResultText(block);
   const isError = block.is_error === true;
+  if (state.subagentToolUseIds.has(tool.itemId)) {
+    cleanupConsumedTool(state, toolUseId, tool.itemId);
+    return [{ kind: "subagentCompleted", itemId: tool.itemId, isError }];
+  }
+  if (state.todoWriteToolUseIds.has(tool.itemId)) {
+    cleanupConsumedTool(state, toolUseId, tool.itemId);
+    return [];
+  }
+  const output = toolResultText(block);
   const events: ClaudeEvent[] = [];
   if (output) {
     events.push({ kind: "toolOutput", itemId: tool.itemId, delta: output, isError });
@@ -357,6 +442,17 @@ function completeToolFromResultBlock(
   events.push({ kind: "toolCompleted", itemId: tool.itemId, isError });
   state.toolsById.delete(toolUseId);
   return events;
+}
+
+function cleanupConsumedTool(
+  state: NormalizerState,
+  toolUseId: string,
+  itemId: string,
+) {
+  state.toolsById.delete(toolUseId);
+  state.todoWriteToolUseIds.delete(itemId);
+  state.subagentToolUseIds.delete(itemId);
+  state.todoWriteFingerprints.delete(itemId);
 }
 
 function isToolUseBlock(block: Record<string, unknown>) {
@@ -530,6 +626,63 @@ export function compactJson(value: unknown) {
 export function extractPlanFromInput(input: Record<string, unknown>): string | null {
   const plan = input.plan;
   return typeof plan === "string" && plan.trim() ? plan.trim() : null;
+}
+
+function emitTodoWritePlanIfChanged(
+  state: NormalizerState,
+  itemId: string,
+  input: Record<string, unknown>,
+): ClaudeEvent[] {
+  const steps = stepsFromTodoWriteInput(input);
+  const fingerprint = compactJson(steps);
+  if (!fingerprint) return [];
+  if (state.todoWriteFingerprints.get(itemId) === fingerprint) return [];
+  state.todoWriteFingerprints.set(itemId, fingerprint);
+  return [{ kind: "taskPlanUpdated", itemId, steps }];
+}
+
+function stepsFromTodoWriteInput(input: Record<string, unknown>): ClaudeTaskStep[] {
+  const todos = Array.isArray(input.todos) ? input.todos : [];
+  const steps: ClaudeTaskStep[] = [];
+  for (const entry of todos) {
+    const todo = asRecord(entry);
+    if (!todo) continue;
+    const content =
+      stringFromUnknown(todo.content).trim() ||
+      stringFromUnknown(todo.activeForm).trim();
+    if (!content) continue;
+    steps.push({
+      content,
+      status: mapTodoStatus(stringFromUnknown(todo.status)),
+    });
+  }
+  return steps;
+}
+
+function mapTodoStatus(value: string): ClaudeTaskStepStatus {
+  if (value === "completed") return "completed";
+  if (value === "in_progress" || value === "inProgress") return "inProgress";
+  return "pending";
+}
+
+function buildSubagentStartedEvent(
+  itemId: string,
+  input: Record<string, unknown>,
+): ClaudeEvent {
+  const description =
+    stringFromUnknown(input.description).trim() ||
+    stringFromUnknown(input.name).trim() ||
+    stringFromUnknown(input.prompt).trim().slice(0, 80);
+  return {
+    kind: "subagentStarted",
+    itemId,
+    description,
+    subagentType: stringFromUnknown(input.subagent_type).trim() || "agent",
+  };
+}
+
+function isSubagentToolName(toolName: string): boolean {
+  return toolName === "Agent" || toolName === "Task";
 }
 
 function parsePartialJson(value: string): Record<string, unknown> | null {

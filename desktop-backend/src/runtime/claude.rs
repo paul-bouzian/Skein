@@ -15,13 +15,14 @@ use crate::domain::conversation::{
     ConversationApprovalKind, ConversationComposerSettings, ConversationErrorSnapshot,
     ConversationEventPayload, ConversationImageAttachment, ConversationInteraction,
     ConversationItem, ConversationItemStatus, ConversationMessageItem, ConversationRole,
-    ConversationStatus, ConversationTone, ConversationToolItem, EnvironmentCapabilitiesSnapshot,
-    FileChangeApprovalDecisionInput, InputModality, ModelOption, PendingApprovalRequest,
-    PendingUserInputOption, PendingUserInputQuestion, PendingUserInputRequest,
-    PermissionsApprovalDecisionInput, PlanDecisionAction, ProposedPlanSnapshot, ProposedPlanStatus,
-    ProviderOption, RespondToUserInputRequestInput, SubmitPlanDecisionInput,
-    ThreadConversationOpenResponse, ThreadConversationSnapshot, ThreadTokenUsageSnapshot,
-    TokenUsageBreakdown,
+    ConversationStatus, ConversationTaskSnapshot, ConversationTaskStatus, ConversationTone,
+    ConversationToolItem, EnvironmentCapabilitiesSnapshot, FileChangeApprovalDecisionInput,
+    InputModality, ModelOption, PendingApprovalRequest, PendingUserInputOption,
+    PendingUserInputQuestion, PendingUserInputRequest, PermissionsApprovalDecisionInput,
+    PlanDecisionAction, ProposedPlanSnapshot, ProposedPlanStatus, ProposedPlanStep,
+    ProposedPlanStepStatus, ProviderOption, RespondToUserInputRequestInput, SubagentStatus,
+    SubagentThreadSnapshot, SubmitPlanDecisionInput, ThreadConversationOpenResponse,
+    ThreadConversationSnapshot, ThreadTokenUsageSnapshot, TokenUsageBreakdown,
 };
 use crate::domain::settings::{
     ApprovalPolicy, CollaborationMode, ProviderKind, ReasoningEffort, ServiceTier,
@@ -155,6 +156,20 @@ enum ClaudeRuntimeEvent {
         item_id: Option<String>,
         markdown: String,
     },
+    TaskPlanUpdated {
+        item_id: String,
+        steps: Vec<ClaudeTaskStep>,
+    },
+    SubagentStarted {
+        item_id: String,
+        description: String,
+        subagent_type: String,
+    },
+    SubagentCompleted {
+        item_id: String,
+        #[serde(default)]
+        is_error: Option<bool>,
+    },
     UserInputRequest {
         interaction_id: String,
         item_id: String,
@@ -169,6 +184,13 @@ enum ClaudeRuntimeEvent {
         command: Option<String>,
         reason: Option<String>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeTaskStep {
+    content: String,
+    status: ProposedPlanStepStatus,
 }
 
 #[derive(Debug, Deserialize)]
@@ -603,6 +625,7 @@ impl ClaudeRuntimeSession {
         complete_current_claude_turn(&mut snapshot, show_user_message);
         clear_streaming_flags(&mut snapshot.items);
         complete_running_tools(&mut snapshot.items);
+        clear_claude_active_turn_state(&mut snapshot);
         persist_claude_items_for_turn(&context.thread_id, &snapshot.items, &active_turn_id);
         snapshot.active_turn_id = None;
         if show_user_message {
@@ -676,6 +699,7 @@ impl ClaudeRuntimeSession {
             snapshot.pending_interactions.clear();
             clear_streaming_flags(&mut snapshot.items);
             complete_running_tools(&mut snapshot.items);
+            clear_claude_active_turn_state(snapshot);
             let items_to_persist = active_turn_id
                 .clone()
                 .map(|turn_id| (turn_id, snapshot.items.clone()));
@@ -1575,6 +1599,9 @@ fn claude_event_item_id(event: &ClaudeRuntimeEvent) -> Option<&str> {
         ClaudeRuntimeEvent::Session { .. }
         | ClaudeRuntimeEvent::TokenUsage { .. }
         | ClaudeRuntimeEvent::PlanReady { .. }
+        | ClaudeRuntimeEvent::TaskPlanUpdated { .. }
+        | ClaudeRuntimeEvent::SubagentStarted { .. }
+        | ClaudeRuntimeEvent::SubagentCompleted { .. }
         | ClaudeRuntimeEvent::UserInputRequest { .. }
         | ClaudeRuntimeEvent::ApprovalRequest { .. } => None,
     }
@@ -1714,6 +1741,19 @@ fn apply_claude_event(
         }
         ClaudeRuntimeEvent::PlanReady { item_id, markdown } => {
             upsert_claude_plan(snapshot, item_id, markdown, ProposedPlanStatus::Ready, true);
+        }
+        ClaudeRuntimeEvent::TaskPlanUpdated { item_id, steps } => {
+            apply_claude_task_plan(snapshot, &turn_id, &item_id, steps);
+        }
+        ClaudeRuntimeEvent::SubagentStarted {
+            item_id,
+            description,
+            subagent_type,
+        } => {
+            apply_claude_subagent_started(snapshot, &item_id, description, subagent_type);
+        }
+        ClaudeRuntimeEvent::SubagentCompleted { item_id, is_error } => {
+            apply_claude_subagent_completed(snapshot, &item_id, is_error.unwrap_or(false));
         }
         ClaudeRuntimeEvent::UserInputRequest {
             interaction_id,
@@ -1985,6 +2025,117 @@ fn upsert_claude_plan(
         status,
         is_awaiting_decision,
     });
+}
+
+fn apply_claude_task_plan(
+    snapshot: &mut ThreadConversationSnapshot,
+    turn_id: &str,
+    item_id: &str,
+    steps: Vec<ClaudeTaskStep>,
+) {
+    if steps.is_empty() {
+        if snapshot
+            .task_plan
+            .as_ref()
+            .is_some_and(|plan| plan.turn_id == turn_id)
+        {
+            snapshot.task_plan = None;
+        }
+        return;
+    }
+    let mapped: Vec<ProposedPlanStep> = steps
+        .into_iter()
+        .map(|step| ProposedPlanStep {
+            step: step.content,
+            status: step.status,
+        })
+        .collect();
+    let (explanation, markdown) = match snapshot
+        .task_plan
+        .as_ref()
+        .filter(|plan| plan.turn_id == turn_id)
+    {
+        Some(existing) => (existing.explanation.clone(), existing.markdown.clone()),
+        None => (String::new(), String::new()),
+    };
+    snapshot.task_plan = Some(ConversationTaskSnapshot {
+        turn_id: turn_id.to_string(),
+        item_id: Some(item_id.to_string()),
+        explanation,
+        steps: mapped,
+        markdown,
+        status: ConversationTaskStatus::Running,
+    });
+}
+
+fn apply_claude_subagent_started(
+    snapshot: &mut ThreadConversationSnapshot,
+    item_id: &str,
+    description: String,
+    subagent_type: String,
+) {
+    if let Some(existing) = snapshot
+        .subagents
+        .iter_mut()
+        .find(|subagent| subagent.thread_id == item_id)
+    {
+        existing.status = SubagentStatus::Running;
+        let trimmed_description = description.trim();
+        if !trimmed_description.is_empty() {
+            existing.nickname = Some(trimmed_description.to_string());
+        }
+        let trimmed_role = subagent_type.trim();
+        if !trimmed_role.is_empty() {
+            existing.role = Some(trimmed_role.to_string());
+        }
+        return;
+    }
+    let nickname = {
+        let trimmed = description.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    };
+    let role = {
+        let trimmed = subagent_type.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    };
+    snapshot.subagents.push(SubagentThreadSnapshot {
+        thread_id: item_id.to_string(),
+        nickname,
+        role,
+        depth: 1,
+        status: SubagentStatus::Running,
+    });
+}
+
+fn apply_claude_subagent_completed(
+    snapshot: &mut ThreadConversationSnapshot,
+    item_id: &str,
+    is_error: bool,
+) {
+    if let Some(subagent) = snapshot
+        .subagents
+        .iter_mut()
+        .find(|candidate| candidate.thread_id == item_id)
+    {
+        subagent.status = if is_error {
+            SubagentStatus::Failed
+        } else {
+            SubagentStatus::Completed
+        };
+    }
+}
+
+fn clear_claude_active_turn_state(snapshot: &mut ThreadConversationSnapshot) {
+    snapshot.task_plan = None;
+    snapshot.subagents.clear();
 }
 
 fn supported_claude_service_tier(
@@ -2515,6 +2666,35 @@ printf '%s\n' '{"id":1,"ok":true,"result":{"providerThreadId":"provider-refreshe
                         && message.is_streaming
             )
         }));
+    }
+
+    #[test]
+    fn empty_claude_task_plan_update_clears_current_turn_plan() {
+        let mut snapshot = snapshot();
+        snapshot.active_turn_id = Some("turn-1".to_string());
+
+        apply_claude_event(
+            &mut snapshot,
+            "turn-1",
+            ClaudeRuntimeEvent::TaskPlanUpdated {
+                item_id: "todo-1".to_string(),
+                steps: vec![ClaudeTaskStep {
+                    content: "Inspect runtime".to_string(),
+                    status: ProposedPlanStepStatus::InProgress,
+                }],
+            },
+        );
+        assert!(snapshot.task_plan.is_some());
+
+        apply_claude_event(
+            &mut snapshot,
+            "turn-1",
+            ClaudeRuntimeEvent::TaskPlanUpdated {
+                item_id: "todo-1".to_string(),
+                steps: Vec::new(),
+            },
+        );
+        assert!(snapshot.task_plan.is_none());
     }
 
     #[test]

@@ -510,14 +510,15 @@ fn discovers_loaded_subagents_from_camel_case_spawn_fields() {
         &["thr-child".to_string()],
         vec![ThreadListEntryWire {
             id: "thr-child".to_string(),
-            agent_nickname: Some("Scout".to_string()),
+            agent_nickname: Some("Random".to_string()),
             agent_role: Some("explorer".to_string()),
             source: json!({
                 "subAgent": {
                     "threadSpawn": {
                         "parentThreadId": "thr-parent",
                         "depth": 1,
-                        "agentNickname": "Scout",
+                        "agentPath": "/root/scout",
+                        "agentNickname": "Random",
                         "agentRole": "explorer"
                     }
                 }
@@ -529,7 +530,36 @@ fn discovers_loaded_subagents_from_camel_case_spawn_fields() {
     );
 
     assert_eq!(subagents.len(), 1);
-    assert_eq!(subagents[0].nickname.as_deref(), Some("Scout"));
+    assert_eq!(subagents[0].nickname.as_deref(), Some("scout"));
+}
+
+#[test]
+fn discovers_loaded_subagents_from_snake_case_spawn_source() {
+    let subagents = loaded_subagents_for_primary(
+        "thr-parent",
+        &["thr-child".to_string()],
+        vec![ThreadListEntryWire {
+            id: "thr-child".to_string(),
+            agent_nickname: None,
+            agent_role: Some("explorer".to_string()),
+            source: json!({
+                "sub_agent": {
+                    "thread_spawn": {
+                        "parent_thread_id": "thr-parent",
+                        "depth": 1,
+                        "agent_path": "/root/cirrus",
+                        "agent_role": "explorer"
+                    }
+                }
+            }),
+            status: ThreadStatusWire {
+                kind: "active".to_string(),
+            },
+        }],
+    );
+
+    assert_eq!(subagents.len(), 1);
+    assert_eq!(subagents[0].nickname.as_deref(), Some("cirrus"));
 }
 
 #[test]
@@ -556,6 +586,68 @@ fn extracts_subagents_from_collab_agent_tool_items() {
     assert_eq!(subagents[1].thread_id, "thr-child-2");
     assert_eq!(
         subagents[1].status,
+        crate::domain::conversation::SubagentStatus::Completed
+    );
+}
+
+#[test]
+fn maps_failed_collab_agent_state_to_failed_subagent_status() {
+    let subagents = subagents_from_collab_item(&json!({
+        "id": "collab-1",
+        "type": "collabAgentToolCall",
+        "tool": "spawnAgent",
+        "status": "completed",
+        "senderThreadId": "thr-parent",
+        "receiverThreadIds": ["thr-child"],
+        "agentsStates": {
+            "thr-child": { "status": "failed" }
+        }
+    }));
+
+    assert_eq!(subagents.len(), 1);
+    assert_eq!(
+        subagents[0].status,
+        crate::domain::conversation::SubagentStatus::Failed
+    );
+}
+
+#[test]
+fn extracts_named_subagents_from_collab_agent_tool_metadata_variants() {
+    let subagents = subagents_from_collab_item(&json!({
+        "id": "collab-1",
+        "type": "collabAgentToolCall",
+        "tool": "spawnAgent",
+        "status": "completed",
+        "senderThreadId": "thr-parent",
+        "newThreadId": "thr-azur",
+        "newAgentPath": "/root/azur",
+        "newAgentRole": "websearch",
+        "receiver_agents": [{
+            "thread_id": "thr-cirrus",
+            "agent_path": "/root/cirrus",
+            "agent_role": "explorer"
+        }],
+        "agentsStates": {
+            "thr-mistral": {
+                "status": "completed",
+                "task_name": "mistral",
+                "agent_role": "worker"
+            }
+        }
+    }));
+
+    assert_eq!(subagents.len(), 3);
+    assert_eq!(subagents[0].thread_id, "thr-azur");
+    assert_eq!(subagents[0].nickname.as_deref(), Some("azur"));
+    assert_eq!(subagents[0].role.as_deref(), Some("websearch"));
+    assert_eq!(subagents[1].thread_id, "thr-cirrus");
+    assert_eq!(subagents[1].nickname.as_deref(), Some("cirrus"));
+    assert_eq!(subagents[1].role.as_deref(), Some("explorer"));
+    assert_eq!(subagents[2].thread_id, "thr-mistral");
+    assert_eq!(subagents[2].nickname.as_deref(), Some("mistral"));
+    assert_eq!(subagents[2].role.as_deref(), Some("worker"));
+    assert_eq!(
+        subagents[2].status,
         crate::domain::conversation::SubagentStatus::Completed
     );
 }

@@ -100,6 +100,12 @@ pub struct ThreadListResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ThreadMetadataReadResponse {
+    pub thread: ThreadListEntryWire,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ThreadWire {
     pub id: String,
     #[serde(default)]
@@ -126,6 +132,13 @@ pub struct ThreadStatusWire {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadStatusChangedNotification {
+    pub thread_id: String,
+    pub status: ThreadStatusWire,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ThreadSpawnSourceWire {
     #[serde(alias = "parentThreadId")]
     pub parent_thread_id: String,
@@ -136,6 +149,15 @@ pub struct ThreadSpawnSourceWire {
     #[serde(default)]
     #[serde(alias = "agentRole")]
     pub agent_role: Option<String>,
+    #[serde(default)]
+    #[serde(alias = "agentPath")]
+    pub agent_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubagentThreadStart {
+    pub parent_thread_id: String,
+    pub snapshot: SubagentThreadSnapshot,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1000,18 +1022,17 @@ pub fn loaded_subagents_for_primary(
         .into_iter()
         .filter_map(|thread| {
             let spawn = thread_spawn_source(&thread.source)?;
-            let spawn_data = (
-                spawn.parent_thread_id.clone(),
-                spawn.depth,
-                spawn.agent_nickname.clone(),
-                spawn.agent_role.clone(),
-            );
+            let nickname = spawn
+                .agent_path
+                .as_deref()
+                .and_then(last_path_segment)
+                .or_else(|| spawn.agent_nickname.clone());
             Some((
                 thread,
-                spawn_data.0,
-                spawn_data.1,
-                spawn_data.2,
-                spawn_data.3,
+                spawn.parent_thread_id.clone(),
+                spawn.depth,
+                nickname,
+                spawn.agent_role.clone(),
             ))
         })
         .filter(|(thread, ..)| loaded_ids.contains(thread.id.as_str()))
@@ -1032,10 +1053,9 @@ pub fn loaded_subagents_for_primary(
             queue.push(thread.id.clone());
             subagents.push(SubagentThreadSnapshot {
                 thread_id: thread.id.clone(),
-                nickname: thread
-                    .agent_nickname
+                nickname: spawn_nickname
                     .clone()
-                    .or_else(|| spawn_nickname.clone()),
+                    .or_else(|| thread.agent_nickname.clone()),
                 role: thread.agent_role.clone().or_else(|| spawn_role.clone()),
                 depth: *depth,
                 status: subagent_status_from_thread_status(&thread.status),
@@ -1060,35 +1080,391 @@ pub fn subagents_from_collab_item(value: &Value) -> Vec<SubagentThreadSnapshot> 
 
     let fallback_status =
         subagent_status_from_collab_tool_status(value.get("status").and_then(Value::as_str));
-    let receiver_ids = value
-        .get("receiverThreadIds")
+    let mut candidates = Vec::new();
+
+    for key in ["receiverThreadIds", "receiver_thread_ids"] {
+        for thread_id in string_array_field(value, key) {
+            push_collab_candidate(
+                &mut candidates,
+                CollabSubagentCandidate::from_thread_id(thread_id),
+            );
+        }
+    }
+
+    push_collab_ref_from_fields(
+        &mut candidates,
+        value,
+        &["receiverThreadId", "receiver_thread_id"],
+        &["receiverAgentNickname", "receiver_agent_nickname"],
+        &[
+            "receiverAgentPath",
+            "receiver_agent_path",
+            "agentPath",
+            "agent_path",
+        ],
+        &[
+            "receiverAgentRole",
+            "receiver_agent_role",
+            "receiverAgentType",
+            "receiver_agent_type",
+        ],
+    );
+    push_collab_ref_from_fields(
+        &mut candidates,
+        value,
+        &["newThreadId", "new_thread_id"],
+        &[
+            "newAgentNickname",
+            "new_agent_nickname",
+            "taskName",
+            "task_name",
+        ],
+        &["newAgentPath", "new_agent_path", "agentPath", "agent_path"],
+        &[
+            "newAgentRole",
+            "new_agent_role",
+            "newAgentType",
+            "new_agent_type",
+        ],
+    );
+
+    for key in ["receiverAgent", "receiver_agent"] {
+        if let Some(candidate) = value.get(key).and_then(collab_candidate_from_record) {
+            push_collab_candidate(&mut candidates, candidate);
+        }
+    }
+    for key in ["receiverAgents", "receiver_agents"] {
+        for candidate in candidates_from_array_field(value, key) {
+            push_collab_candidate(&mut candidates, candidate);
+        }
+    }
+    for key in ["agentStatuses", "agent_statuses"] {
+        for candidate in candidates_from_array_field(value, key) {
+            push_collab_candidate(&mut candidates, candidate);
+        }
+    }
+    for key in [
+        "statuses",
+        "agentStatus",
+        "agent_status",
+        "agentsStates",
+        "agents_states",
+    ] {
+        for candidate in candidates_from_status_map_field(value, key) {
+            push_collab_candidate(&mut candidates, candidate);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .map(|candidate| SubagentThreadSnapshot {
+            thread_id: candidate.thread_id,
+            nickname: candidate.nickname,
+            role: candidate.role,
+            depth: 1,
+            status: candidate.status.unwrap_or(fallback_status),
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+struct CollabSubagentCandidate {
+    thread_id: String,
+    nickname: Option<String>,
+    role: Option<String>,
+    status: Option<SubagentStatus>,
+}
+
+impl CollabSubagentCandidate {
+    fn from_thread_id(thread_id: String) -> Self {
+        Self {
+            thread_id,
+            nickname: None,
+            role: None,
+            status: None,
+        }
+    }
+}
+
+fn push_collab_candidate(
+    candidates: &mut Vec<CollabSubagentCandidate>,
+    candidate: CollabSubagentCandidate,
+) {
+    if candidate.thread_id.is_empty() {
+        return;
+    }
+    if let Some(existing) = candidates
+        .iter_mut()
+        .find(|existing| existing.thread_id == candidate.thread_id)
+    {
+        if existing.nickname.is_none() {
+            existing.nickname = candidate.nickname;
+        }
+        if existing.role.is_none() {
+            existing.role = candidate.role;
+        }
+        if candidate.status.is_some() {
+            existing.status = candidate.status;
+        }
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn push_collab_ref_from_fields(
+    candidates: &mut Vec<CollabSubagentCandidate>,
+    value: &Value,
+    thread_id_keys: &[&str],
+    nickname_keys: &[&str],
+    path_keys: &[&str],
+    role_keys: &[&str],
+) {
+    let Some(thread_id) = first_string_field(value, thread_id_keys) else {
+        return;
+    };
+    push_collab_candidate(
+        candidates,
+        CollabSubagentCandidate {
+            thread_id,
+            nickname: first_string_field(value, nickname_keys)
+                .or_else(|| agent_path_segment_from_fields(value, path_keys)),
+            role: first_string_field(value, role_keys),
+            status: None,
+        },
+    );
+}
+
+fn candidates_from_array_field(value: &Value, key: &str) -> Vec<CollabSubagentCandidate> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(collab_candidate_from_record)
+        .collect()
+}
+
+fn candidates_from_status_map_field(value: &Value, key: &str) -> Vec<CollabSubagentCandidate> {
+    value
+        .get(key)
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(thread_id, state)| {
+            let state_record = state.as_object();
+            let status = state_record
+                .and_then(|record| record.get("status"))
+                .and_then(Value::as_str)
+                .or_else(|| state.as_str())
+                .map(subagent_status_from_collab_state);
+            let mut candidate = CollabSubagentCandidate::from_thread_id(thread_id.clone());
+            if state_record.is_some() {
+                candidate.nickname = first_string_field(
+                    state,
+                    &[
+                        "agentNickname",
+                        "agent_nickname",
+                        "nickname",
+                        "taskName",
+                        "task_name",
+                    ],
+                )
+                .or_else(|| agent_path_segment_from_fields(state, &["agentPath", "agent_path"]));
+                candidate.role = first_string_field(
+                    state,
+                    &["agentRole", "agent_role", "agentType", "agent_type", "role"],
+                );
+            }
+            candidate.status = status;
+            candidate
+        })
+        .collect()
+}
+
+fn collab_candidate_from_record(value: &Value) -> Option<CollabSubagentCandidate> {
+    let thread_id = first_string_field(
+        value,
+        &[
+            "threadId",
+            "thread_id",
+            "id",
+            "newThreadId",
+            "new_thread_id",
+        ],
+    )?;
+    let status = first_string_field(value, &["status"])
+        .as_deref()
+        .map(subagent_status_from_collab_state);
+    Some(CollabSubagentCandidate {
+        thread_id,
+        nickname: first_string_field(
+            value,
+            &[
+                "agentNickname",
+                "agent_nickname",
+                "nickname",
+                "newAgentNickname",
+                "new_agent_nickname",
+                "taskName",
+                "task_name",
+            ],
+        )
+        .or_else(|| agent_path_segment_from_fields(value, &["agentPath", "agent_path"])),
+        role: first_string_field(
+            value,
+            &[
+                "agentRole",
+                "agent_role",
+                "agentType",
+                "agent_type",
+                "role",
+                "newAgentRole",
+                "new_agent_role",
+                "newAgentType",
+                "new_agent_type",
+            ],
+        ),
+        status,
+    })
+}
+
+fn first_string_field(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        let Some(text) = value.get(*key).and_then(Value::as_str) else {
+            continue;
+        };
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+fn string_array_field(value: &Value, key: &str) -> Vec<String> {
+    value
+        .get(key)
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
         .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    let agent_states = value.get("agentsStates").and_then(Value::as_object);
-
-    receiver_ids
-        .into_iter()
-        .map(|thread_id| {
-            let state = agent_states.and_then(|states| states.get(thread_id.as_str()));
-            let status = state
-                .and_then(|state| state.get("status"))
-                .and_then(Value::as_str)
-                .map(subagent_status_from_collab_state)
-                .unwrap_or(fallback_status);
-
-            SubagentThreadSnapshot {
-                thread_id,
-                nickname: None,
-                role: None,
-                depth: 1,
-                status,
-            }
-        })
         .collect()
+}
+
+fn agent_path_segment_from_fields(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        let Some(path) = value.get(*key).and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some(segment) = last_path_segment(path) {
+            return Some(segment);
+        }
+    }
+    None
+}
+
+pub fn subagent_metadata_from_thread(
+    value: &Value,
+) -> Option<(String, Option<String>, Option<String>)> {
+    let thread_id = value.get("id").and_then(Value::as_str)?.to_string();
+    let source = value.get("source");
+    let sub_agent =
+        source.and_then(|source| source.get("subAgent").or_else(|| source.get("sub_agent")));
+    let thread_spawn = sub_agent.and_then(|sub_agent| {
+        sub_agent
+            .get("threadSpawn")
+            .or_else(|| sub_agent.get("thread_spawn"))
+    });
+
+    let agent_path_segment = first_non_empty_string(&[
+        thread_spawn.and_then(|node| node.get("agentPath")),
+        thread_spawn.and_then(|node| node.get("agent_path")),
+        sub_agent.and_then(|node| node.get("agentPath")),
+        sub_agent.and_then(|node| node.get("agent_path")),
+    ])
+    .and_then(|path| last_path_segment(&path));
+
+    let nickname = agent_path_segment.or_else(|| {
+        first_non_empty_string(&[
+            value.get("agentNickname"),
+            value.get("agent_nickname"),
+            value.get("nickname"),
+            sub_agent.and_then(|node| node.get("agentNickname")),
+            sub_agent.and_then(|node| node.get("agent_nickname")),
+            thread_spawn.and_then(|node| node.get("agentNickname")),
+            thread_spawn.and_then(|node| node.get("agent_nickname")),
+        ])
+    });
+    let role = first_non_empty_string(&[
+        value.get("agentRole"),
+        value.get("agent_role"),
+        value.get("agentType"),
+        value.get("agent_type"),
+        value.get("role"),
+        sub_agent.and_then(|node| node.get("agentRole")),
+        sub_agent.and_then(|node| node.get("agent_role")),
+        sub_agent.and_then(|node| node.get("agentType")),
+        sub_agent.and_then(|node| node.get("agent_type")),
+        thread_spawn.and_then(|node| node.get("agentRole")),
+        thread_spawn.and_then(|node| node.get("agent_role")),
+        thread_spawn.and_then(|node| node.get("agentType")),
+        thread_spawn.and_then(|node| node.get("agent_type")),
+    ]);
+    Some((thread_id, nickname, role))
+}
+
+pub fn subagent_thread_start_from_thread(value: &Value) -> Option<SubagentThreadStart> {
+    let thread_id = value.get("id").and_then(Value::as_str)?.to_string();
+    let source = value.get("source");
+    let sub_agent =
+        source.and_then(|source| source.get("subAgent").or_else(|| source.get("sub_agent")));
+    let thread_spawn = sub_agent.and_then(|sub_agent| {
+        sub_agent
+            .get("threadSpawn")
+            .or_else(|| sub_agent.get("thread_spawn"))
+    })?;
+
+    let spawn = serde_json::from_value::<ThreadSpawnSourceWire>(thread_spawn.clone()).ok()?;
+    let (_, nickname, role) = subagent_metadata_from_thread(value)?;
+    let status = value
+        .get("status")
+        .cloned()
+        .and_then(|status| serde_json::from_value::<ThreadStatusWire>(status).ok())
+        .map(|status| subagent_status_from_thread_status(&status))
+        .unwrap_or(SubagentStatus::Running);
+
+    Some(SubagentThreadStart {
+        parent_thread_id: spawn.parent_thread_id,
+        snapshot: SubagentThreadSnapshot {
+            thread_id,
+            nickname,
+            role,
+            depth: spawn.depth,
+            status,
+        },
+    })
+}
+
+fn last_path_segment(path: &str) -> Option<String> {
+    path.rsplit('/')
+        .map(str::trim)
+        .find(|segment| !segment.is_empty())
+        .map(ToString::to_string)
+}
+
+fn first_non_empty_string(candidates: &[Option<&Value>]) -> Option<String> {
+    for candidate in candidates {
+        let Some(node) = candidate else { continue };
+        let Some(text) = node.as_str() else { continue };
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
 }
 
 pub fn item_status_from_wire(status: Option<&str>) -> ConversationItemStatus {
@@ -2157,7 +2533,7 @@ fn is_agent_path(value: &str) -> bool {
 }
 
 fn thread_spawn_source(source: &Value) -> Option<ThreadSpawnSourceWire> {
-    let subagent = source.get("subAgent")?;
+    let subagent = source.get("subAgent").or_else(|| source.get("sub_agent"))?;
     let thread_spawn = subagent
         .get("thread_spawn")
         .or_else(|| subagent.get("threadSpawn"))?;
@@ -2165,7 +2541,7 @@ fn thread_spawn_source(source: &Value) -> Option<ThreadSpawnSourceWire> {
     serde_json::from_value::<ThreadSpawnSourceWire>(thread_spawn.clone()).ok()
 }
 
-fn subagent_status_from_thread_status(status: &ThreadStatusWire) -> SubagentStatus {
+pub(crate) fn subagent_status_from_thread_status(status: &ThreadStatusWire) -> SubagentStatus {
     match status.kind.as_str() {
         "active" => SubagentStatus::Running,
         "systemError" => SubagentStatus::Failed,
@@ -2176,7 +2552,8 @@ fn subagent_status_from_thread_status(status: &ThreadStatusWire) -> SubagentStat
 fn subagent_status_from_collab_state(status: &str) -> SubagentStatus {
     match status {
         "pendingInit" | "running" => SubagentStatus::Running,
-        "errored" | "interrupted" | "notFound" => SubagentStatus::Failed,
+        "error" | "errored" | "failed" | "failure" | "notFound" => SubagentStatus::Failed,
+        "interrupted" | "shutdown" | "completed" => SubagentStatus::Completed,
         _ => SubagentStatus::Completed,
     }
 }

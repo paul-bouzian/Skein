@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { ProviderKind, SubagentThreadSnapshot } from "../../lib/types";
+import type { ProviderKind } from "../../lib/types";
 import { ChevronRightIcon } from "../../shared/Icons";
 import { ConversationItemRow } from "./ConversationItemRow";
-import { ConversationTaskCard } from "./ConversationTaskCard";
 import type {
   ConversationWorkActivityGroup as ConversationWorkActivityGroupData,
   WorkActivityStatus,
@@ -67,10 +66,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
     group.finishedAt,
   );
 
-  const hasContent =
-    group.items.length > 0 ||
-    group.subagents.length > 0 ||
-    group.taskPlan != null;
+  const hasContent = group.items.length > 0;
 
   return (
     <section className="tx-work-activity">
@@ -94,36 +90,6 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
       </button>
       {expanded && hasContent ? (
         <div className="tx-work-activity__body">
-          {group.taskPlan ? (
-            <ConversationTaskCard taskPlan={group.taskPlan} compact />
-          ) : null}
-          {group.subagents.length > 0 ? (
-            <div className="tx-work-activity__subagents">
-              <div className="tx-work-activity__subagents-label">Subagents</div>
-              <div className="tx-work-activity__subagent-list">
-                {group.subagents.map((subagent) => (
-                  <div
-                    key={subagent.threadId}
-                    className="tx-work-activity__subagent"
-                  >
-                    <span className="tx-work-activity__subagent-name">
-                      {labelForSubagent(subagent)}
-                    </span>
-                    {subagent.role ? (
-                      <span className="tx-work-activity__subagent-role">
-                        {subagent.role}
-                      </span>
-                    ) : null}
-                    <span
-                      className={`tx-work-activity__subagent-status tx-work-activity__subagent-status--${subagent.status}`}
-                    >
-                      {labelForSubagentStatus(subagent.status)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {group.items.map((item) => (
             <ConversationItemRow
               key={item.id}
@@ -154,14 +120,4 @@ function buildHeaderLabel(
   if (status === "failed") return `Failed${duration}`;
   if (status === "interrupted") return `Interrupted${duration}`;
   return duration ? `Worked${duration}` : "Worked";
-}
-
-function labelForSubagent(subagent: SubagentThreadSnapshot) {
-  return subagent.nickname ?? subagent.role ?? subagent.threadId.slice(0, 8);
-}
-
-function labelForSubagentStatus(status: SubagentThreadSnapshot["status"]) {
-  if (status === "running") return "Running";
-  if (status === "failed") return "Failed";
-  return "Done";
 }
