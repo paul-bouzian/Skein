@@ -151,6 +151,24 @@ describe("app-update-store", () => {
     expect(mockedBridge.restartApp).not.toHaveBeenCalled();
   });
 
+  it("skips silent refocus checks when an update is already available", async () => {
+    updaterCheckMock.mockResolvedValueOnce(makeUpdate());
+
+    await useAppUpdateStore.getState().initialize();
+    expect(useAppUpdateStore.getState().state).toBe("available");
+    expect(updaterCheckMock).toHaveBeenCalledTimes(1);
+
+    await useAppUpdateStore
+      .getState()
+      .checkNow({ announceNoUpdate: false });
+
+    expect(updaterCheckMock).toHaveBeenCalledTimes(1);
+    expect(useAppUpdateStore.getState().state).toBe("available");
+    expect(useAppUpdateStore.getState().snapshot?.availableVersion).toBe(
+      "0.2.0",
+    );
+  });
+
   it("restarts the app only when installAndRestart is called after download", async () => {
     updaterCheckMock.mockResolvedValue(makeUpdate());
     updaterDownloadAndInstallMock.mockImplementation(

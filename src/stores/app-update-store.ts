@@ -104,6 +104,10 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     const announceNoUpdate = options?.announceNoUpdate ?? true;
     const silent = !announceNoUpdate;
 
+    if (silent && currentState === "available") {
+      return;
+    }
+
     if (get().state === "checking") {
       if (!initialization || !announceNoUpdate) {
         return;
@@ -233,6 +237,14 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
       await updater.downloadAndInstall(pendingUpdate.id, (event) => {
         applyDownloadEvent(event, set);
       });
+      // Persist as soon as the bytes are on disk so the release notes card
+      // still surfaces if the user quits before pressing Install — Electron's
+      // updater is configured with autoInstallOnAppQuit, which would otherwise
+      // apply the update without us having stored the notes.
+      const pending = snapshotToPendingNotes(get().snapshot);
+      if (pending) {
+        persistPendingReleaseNotes(pending);
+      }
       set({ state: "downloaded", error: null });
     } catch (cause: unknown) {
       const message =
@@ -248,12 +260,11 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
 
   installAndRestart: async () => {
     if (get().state !== "downloaded") return;
-    const snapshot = get().snapshot;
 
     if (get().simulating) {
       console.info("[update] Simulation: install and restart triggered");
+      const fakeNotes = snapshotToPendingNotes(get().snapshot);
       set({ state: "installing" });
-      const fakeNotes = snapshotToPendingNotes(snapshot);
       setTimeout(() => {
         clearSimulation();
         set({
@@ -273,14 +284,9 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     set({ state: "installing", error: null });
 
     try {
-      const pending = snapshotToPendingNotes(snapshot);
-      if (pending) {
-        persistPendingReleaseNotes(pending);
-      }
       await replacePendingUpdate(null);
       await bridge.restartApp();
     } catch (cause: unknown) {
-      clearPersistedReleaseNotes();
       const message =
         cause instanceof Error ? cause.message : "Failed to install the update";
       set({ state: "downloaded", error: message });
