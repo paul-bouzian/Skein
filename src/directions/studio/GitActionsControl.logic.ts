@@ -145,8 +145,17 @@ export function isDefaultBranch(
   branch: string,
   baseBranch: string | null | undefined,
 ) {
-  const base = baseBranch?.replace(/^origin\//, "");
+  const base = normalizeBaseBranch(baseBranch);
   return branch === "main" || branch === "master" || (base ? branch === base : false);
+}
+
+function normalizeBaseBranch(baseBranch: string | null | undefined) {
+  const base = baseBranch?.trim();
+  if (!base) return null;
+  const refsRemote = base.match(/^refs\/remotes\/[^/]+\/(.+)$/);
+  if (refsRemote) return refsRemote[1];
+  const remoteBranch = base.match(/^[^/]+\/(.+)$/);
+  return remoteBranch ? remoteBranch[1] : base;
 }
 
 function disabledQuickAction(label: string, reason: string): QuickGitAction {

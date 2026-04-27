@@ -72,17 +72,20 @@ pub fn run_action(
             }
         }
         GitAction::CommitPushCreatePr => {
-            if let Some(existing) = find_open_pr(repo_root)? {
+            let existing_pr = find_open_pr(repo_root)?;
+            if existing_pr.is_none() {
+                validate_can_create_pr(context, repo_root)?;
+            }
+            if has_working_tree_changes(repo_root)? {
+                commit_result = Some(commit_all_with_generated_message(context)?);
+            }
+            if needs_push(repo_root)? {
+                push(repo_root)?;
+                push_result = Some(push_result_snapshot(repo_root)?);
+            }
+            if let Some(existing) = existing_pr {
                 pr_result = Some(existing);
             } else {
-                validate_can_create_pr(context, repo_root)?;
-                if has_working_tree_changes(repo_root)? {
-                    commit_result = Some(commit_all_with_generated_message(context)?);
-                }
-                if needs_push(repo_root)? {
-                    push(repo_root)?;
-                    push_result = Some(push_result_snapshot(repo_root)?);
-                }
                 match create_pull_request(context, repo_root, commit_result.as_ref()) {
                     Ok(pr) => pr_result = Some(pr),
                     Err(error) => action_error = Some(error.to_string()),

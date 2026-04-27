@@ -154,6 +154,22 @@ describe("resolveQuickGitAction", () => {
       disabled: false,
     });
   });
+
+  it("pushes clean local commits when the default branch tracks a non-origin remote", () => {
+    const snapshot = snapshotWithSummary({
+      branch: "develop",
+      baseBranch: "upstream/develop",
+      dirty: false,
+      ahead: 1,
+      behind: 0,
+    });
+
+    expect(resolveQuickGitAction(snapshot, true, false, false)).toMatchObject({
+      label: "Push",
+      action: "push",
+      disabled: false,
+    });
+  });
 });
 
 describe("buildGitActionMenu", () => {
