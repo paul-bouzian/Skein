@@ -2316,7 +2316,7 @@ async fn collab_agent_notifications_update_subagent_strip_without_timeline_noise
     assert_eq!(completed_snapshot.subagents.len(), 2);
     assert!(completed_snapshot.subagents.iter().all(|subagent| matches!(
         subagent.status,
-        crate::domain::conversation::SubagentStatus::Running
+        crate::domain::conversation::SubagentStatus::Completed
     )));
 }
 

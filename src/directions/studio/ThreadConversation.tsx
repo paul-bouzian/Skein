@@ -245,7 +245,13 @@ export function ThreadConversation({
   const activeTaskPlan = snapshot?.taskPlan ?? null;
   const shouldRenderPlanCard = shouldRenderProposedPlan(activePlan);
   const hasActiveTaskPlanContent = Boolean(
-    snapshot?.activeTurnId && hasRenderableTaskPlan(activeTaskPlan),
+    snapshot &&
+      (snapshot.status === "running" ||
+        snapshot.status === "waitingForExternalAction") &&
+      activeTaskPlan?.status === "running" &&
+      (snapshot.activeTurnId === null ||
+        activeTaskPlan.turnId === snapshot.activeTurnId) &&
+      hasRenderableTaskPlan(activeTaskPlan),
   );
   const handoffAssistantProviders = useMemo(
     () => handoffAssistantProviderMap(thread),

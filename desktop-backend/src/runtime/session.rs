@@ -1329,6 +1329,7 @@ impl RuntimeSession {
                 })?;
             snapshot.composer = context.composer.clone();
             snapshot.task_plan = None;
+            snapshot.subagents.clear();
             snapshot.active_turn_id =
                 matches!(status, ConversationStatus::Running).then_some(turn_response.turn.id);
             snapshot.status = status;
@@ -2030,6 +2031,7 @@ async fn handle_notification(
                         snapshot.status = ConversationStatus::Running;
                         snapshot.error = None;
                         snapshot.pending_interactions.clear();
+                        snapshot.subagents.clear();
                         snapshot.task_plan = None;
                         reconcile_snapshot_status(snapshot);
                     },
@@ -2927,15 +2929,17 @@ fn merge_subagent_snapshots_with_mode(
                 if subagent.depth > 0 {
                     current.depth = subagent.depth;
                 }
-                if overwrite_terminal_status
-                    || !matches!(
-                        (current.status, subagent.status),
-                        (
-                            crate::domain::conversation::SubagentStatus::Running,
-                            crate::domain::conversation::SubagentStatus::Completed
-                        )
+                let regresses_terminal_status = !overwrite_terminal_status
+                    && matches!(
+                        current.status,
+                        crate::domain::conversation::SubagentStatus::Completed
+                            | crate::domain::conversation::SubagentStatus::Failed
                     )
-                {
+                    && matches!(
+                        subagent.status,
+                        crate::domain::conversation::SubagentStatus::Running
+                    );
+                if !regresses_terminal_status {
                     current.status = subagent.status;
                 }
             })
@@ -2957,6 +2961,9 @@ fn apply_subagent_updates(
     incoming: Vec<crate::domain::conversation::SubagentThreadSnapshot>,
 ) {
     snapshot.subagents = merge_subagent_snapshots(&snapshot.subagents, incoming);
+    if !can_accept_late_subagent_update(snapshot) && !has_live_subagents(&snapshot.subagents) {
+        snapshot.subagents.clear();
+    }
 }
 
 fn apply_collab_subagent_updates(
@@ -3150,6 +3157,15 @@ fn can_accept_late_subagent_update(snapshot: &ThreadConversationSnapshot) -> boo
             crate::domain::conversation::ConversationStatus::Running
                 | crate::domain::conversation::ConversationStatus::WaitingForExternalAction
         )
+}
+
+fn has_live_subagents(subagents: &[crate::domain::conversation::SubagentThreadSnapshot]) -> bool {
+    subagents.iter().any(|subagent| {
+        matches!(
+            subagent.status,
+            crate::domain::conversation::SubagentStatus::Running
+        )
+    })
 }
 
 async fn close_subagent_thread(
@@ -4019,6 +4035,53 @@ mod tests {
 
         snapshot.status = ConversationStatus::Running;
         assert!(can_accept_late_subagent_update(&snapshot));
+    }
+
+    #[test]
+    fn collab_subagent_merge_allows_completion_but_blocks_terminal_regression() {
+        let running = crate::domain::conversation::SubagentThreadSnapshot {
+            thread_id: "subagent-1".to_string(),
+            nickname: Some("Scout".to_string()),
+            role: Some("worker".to_string()),
+            depth: 1,
+            status: crate::domain::conversation::SubagentStatus::Running,
+        };
+        let completed = crate::domain::conversation::SubagentThreadSnapshot {
+            status: crate::domain::conversation::SubagentStatus::Completed,
+            ..running.clone()
+        };
+
+        let merged = merge_collab_subagent_snapshots(
+            std::slice::from_ref(&running),
+            vec![completed.clone()],
+        );
+        assert_eq!(
+            merged[0].status,
+            crate::domain::conversation::SubagentStatus::Completed
+        );
+
+        let regressed = merge_collab_subagent_snapshots(&merged, vec![running]);
+        assert_eq!(
+            regressed[0].status,
+            crate::domain::conversation::SubagentStatus::Completed
+        );
+    }
+
+    #[test]
+    fn inactive_snapshot_subagent_refresh_drops_terminal_only_state() {
+        let mut snapshot = make_completed_snapshot();
+        apply_subagent_updates(
+            &mut snapshot,
+            vec![crate::domain::conversation::SubagentThreadSnapshot {
+                thread_id: "subagent-1".to_string(),
+                nickname: Some("Scout".to_string()),
+                role: Some("worker".to_string()),
+                depth: 1,
+                status: crate::domain::conversation::SubagentStatus::Completed,
+            }],
+        );
+
+        assert!(snapshot.subagents.is_empty());
     }
 
     fn make_streaming_snapshot(text: &str) -> ThreadConversationSnapshot {

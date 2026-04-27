@@ -2303,6 +2303,7 @@ describe("ThreadConversation", () => {
     expect(
       await screen.findByText("Codex is waiting for approval before continuing."),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Ready for the first turn")).toBeNull();
   });
 
   it("refreshes subagent metadata when a nickname is missing even if role exists", async () => {
