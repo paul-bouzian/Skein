@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as bridge from "../../lib/bridge";
 import {
   THEME_STORAGE_KEY,
@@ -9,11 +9,6 @@ import {
   readUiPreferenceWithMigration,
 } from "../../lib/ui-prefs";
 import { menuShell } from "../../lib/shell";
-import {
-  selectGitReviewScope,
-  selectGitReviewSelectedFile,
-  useGitReviewStore,
-} from "../../stores/git-review-store";
 import {
   selectEffectiveNonChatEnvironment,
   selectSelectedProject,
@@ -78,17 +73,10 @@ export function StudioShell() {
   const reconcileVoiceSessionSnapshot = useVoiceSessionStore(
     (state) => state.reconcileWorkspaceSnapshot,
   );
-  const scope = useGitReviewStore(
-    selectGitReviewScope(reviewEnvironment?.id ?? null),
-  );
-  const selectedFileKey = useGitReviewStore(
-    selectGitReviewSelectedFile(reviewEnvironment?.id ?? null, scope),
-  );
   const actionCreateProject =
     workspaceSnapshot?.projects.find((project) => project.id === actionCreateProjectId) ?? null;
   const actionCreateDialogOpen = !settingsOpen && actionCreateProject != null;
   const shortcutsBlocked = settingsOpen || actionCreateDialogOpen;
-  const previousSelectedFileRef = useRef<string | null>(null);
   const effectiveRightPanel: RightPanel =
     rightPanel === "workspace" && rightPanelTab !== "browser" && !reviewEnvironment
       ? "none"
@@ -102,19 +90,6 @@ export function StudioShell() {
       setRightPanel("none");
     }
   }, [reviewEnvironment, rightPanel, rightPanelTab]);
-
-  useEffect(() => {
-    const previousSelectedFile = previousSelectedFileRef.current;
-    previousSelectedFileRef.current = selectedFileKey;
-    if (!selectedFileKey || !reviewEnvironment) {
-      return;
-    }
-    if (selectedFileKey === previousSelectedFile) {
-      return;
-    }
-    setRightPanel("workspace");
-    setRightPanelTab("diff");
-  }, [reviewEnvironment, selectedFileKey]);
 
   const openSettingsDialog = useCallback(() => {
     setActionCreateProjectId(null);

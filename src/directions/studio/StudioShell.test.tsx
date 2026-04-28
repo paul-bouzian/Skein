@@ -504,6 +504,33 @@ describe("StudioShell", () => {
     );
   });
 
+  it("keeps the review panel closed when a diff file is selected while hidden", () => {
+    render(<StudioShell />);
+
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+
+    act(() => {
+      useGitReviewStore.setState((state) => ({
+        ...state,
+        selectedFileByContext: {
+          "env-1:uncommitted": "unstaged:src/app.ts",
+        },
+      }));
+    });
+
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-active-tab",
+      "diff",
+    );
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+  });
+
   it("closes the inspector when switching to a chat thread", async () => {
     const chatThread = makeThread({
       id: "chat-thread-1",
@@ -592,7 +619,7 @@ describe("StudioShell", () => {
     });
   });
 
-  it("opens the git diff panel for project drafts using the effective review environment", () => {
+  it("keeps the review panel closed for project drafts until explicitly opened", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
       snapshot: makeWorkspaceSnapshot(),
@@ -627,6 +654,13 @@ describe("StudioShell", () => {
       "data-active-tab",
       "diff",
     );
+    expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
+      "data-collapsed",
+      "true",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Show inspector" }));
+
     expect(screen.getByTestId("workspace-right-panel")).toHaveAttribute(
       "data-collapsed",
       "false",
