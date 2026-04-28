@@ -387,6 +387,26 @@ describe("terminal-store", () => {
     expect(slotForA().visible).toBe(false);
   });
 
+  it("keeps the terminal hidden when setVisible closes during the first shell spawn", async () => {
+    let resolveSpawn: (value: { ptyId: string; cwd: string }) => void = () => {};
+    const pendingSpawn = new Promise<{ ptyId: string; cwd: string }>((resolve) => {
+      resolveSpawn = resolve;
+    });
+    mockedBridge.spawnTerminal.mockImplementationOnce(() => pendingSpawn);
+
+    void useTerminalStore.getState().ensureVisible(ENV_A);
+    expect(slotForA().visible).toBe(true);
+
+    useTerminalStore.getState().setVisible(ENV_A, false);
+    expect(slotForA().visible).toBe(false);
+
+    resolveSpawn({ ptyId: "pty-pending", cwd: `/path/to/${ENV_A}` });
+    await flushAsyncWork();
+
+    expect(slotForA().tabs).toHaveLength(1);
+    expect(slotForA().visible).toBe(false);
+  });
+
   it("ensureVisible deduplicates concurrent initial shell opens", async () => {
     const [firstId, secondId] = await Promise.all([
       useTerminalStore.getState().ensureVisible(ENV_A),

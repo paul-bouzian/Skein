@@ -282,6 +282,16 @@ function isKnownEnvironment(
   return knownEnvironmentIds.includes(environmentId);
 }
 
+function syncPendingShellVisibility(environmentId: string, visible: boolean) {
+  if (visible) {
+    hiddenDuringPendingShellOpens.delete(environmentId);
+    return;
+  }
+  if (pendingShellTabOpens.has(environmentId)) {
+    hiddenDuringPendingShellOpens.add(environmentId);
+  }
+}
+
 async function killTerminalSession(ptyId: string) {
   try {
     await bridge.killTerminal({ ptyId });
@@ -462,9 +472,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
     toggleVisible: (environmentId) => {
       const slot = slotForEnvironment(get().byEnv, environmentId);
       if (slot.visible) {
-        if (pendingShellTabOpens.has(environmentId)) {
-          hiddenDuringPendingShellOpens.add(environmentId);
-        }
+        syncPendingShellVisibility(environmentId, false);
         updateSlot(environmentId, (existing) => ({
           ...existing,
           visible: false,
@@ -489,7 +497,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
         return activeTabId;
       }
 
-      hiddenDuringPendingShellOpens.delete(environmentId);
+      syncPendingShellVisibility(environmentId, true);
       updateSlot(environmentId, (existing) => ({
         ...existing,
         visible: true,
@@ -532,6 +540,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
     },
 
     setVisible: (environmentId, visible) => {
+      syncPendingShellVisibility(environmentId, visible);
       updateSlot(environmentId, (slot) => ({
         ...slot,
         visible,
