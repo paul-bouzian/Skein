@@ -8,10 +8,7 @@ import {
   type SetStateAction,
 } from "react";
 
-import {
-  getComposerCatalog,
-  searchComposerFiles,
-} from "../../../lib/bridge";
+import { getComposerCatalog, searchComposerFiles } from "../../../lib/bridge";
 import { APP_NAME } from "../../../lib/app-identity";
 import type {
   ComposerDraftMentionBinding,
@@ -24,7 +21,15 @@ import type {
   ReasoningEffort,
   ThreadComposerCatalog,
 } from "../../../lib/types";
-import { ArrowUpIcon, BoltIcon, CloseIcon, ImageIcon, MapIcon, MicIcon, StopIcon } from "../../../shared/Icons";
+import {
+  ArrowUpIcon,
+  BoltIcon,
+  CloseIcon,
+  ImageIcon,
+  MapIcon,
+  MicIcon,
+  StopIcon,
+} from "../../../shared/Icons";
 import { Tooltip } from "../../../shared/Tooltip";
 import { ComposerPicker } from "../ComposerPicker";
 import {
@@ -136,7 +141,7 @@ export function InlineComposer({
   const previousThreadIdRef = useRef(threadId);
   const lastNonFastServiceTierRef = useRef<
     ConversationComposerSettings["serviceTier"]
-  >(composer.serviceTier === "fast" ? null : composer.serviceTier ?? null);
+  >(composer.serviceTier === "fast" ? null : (composer.serviceTier ?? null));
   const [catalog, setCatalog] = useState<ThreadComposerCatalog | null>(null);
   const [fileResults, setFileResults] = useState<ComposerFileSearchResult[]>(
     [],
@@ -185,7 +190,8 @@ export function InlineComposer({
   } else if (fastModeEnabled) {
     fastModeLabel = "Fast mode is on. Faster responses use more quota.";
   } else {
-    fastModeLabel = "Fast mode is off. Enable faster responses at higher quota usage.";
+    fastModeLabel =
+      "Fast mode is off. Enable faster responses at higher quota usage.";
   }
   const imagesEnabled = modelSupportsImageInput(selectedModel);
   const hasAttachedImages = images.length > 0;
@@ -271,6 +277,7 @@ export function InlineComposer({
     }
 
     let cancelled = false;
+    setCatalog(null);
     void getComposerCatalog(catalogTarget)
       .then((nextCatalog) => {
         if (!cancelled) {
@@ -321,7 +328,7 @@ export function InlineComposer({
       previousThreadIdRef.current = threadId;
       previousDraftRef.current = draft;
       lastNonFastServiceTierRef.current =
-        composer.serviceTier === "fast" ? null : composer.serviceTier ?? null;
+        composer.serviceTier === "fast" ? null : (composer.serviceTier ?? null);
       setDismissedTokenKey(null);
     }
   }, [composer.serviceTier, draft, threadId]);
@@ -390,8 +397,16 @@ export function InlineComposer({
             activeToken,
             catalog,
             fileResults.map((result) => result.path),
+            composer.provider,
           ),
-    [activeToken, activeTokenKey, catalog, dismissedTokenKey, fileResults],
+    [
+      activeToken,
+      activeTokenKey,
+      catalog,
+      composer.provider,
+      dismissedTokenKey,
+      fileResults,
+    ],
   );
   const hasAutocompleteItems = autocompleteItems.length > 0;
 
@@ -526,6 +541,7 @@ export function InlineComposer({
             draft={draft}
             catalog={catalog}
             placeholder={placeholder}
+            provider={composer.provider}
             scrollTop={scrollTop}
           />
           <textarea
@@ -534,7 +550,9 @@ export function InlineComposer({
             rows={1}
             value={draft}
             aria-label={
-              isRefiningPlan ? "Refine the proposed plan" : `Message ${APP_NAME}`
+              isRefiningPlan
+                ? "Refine the proposed plan"
+                : `Message ${APP_NAME}`
             }
             placeholder={placeholder}
             disabled={inputDisabled}
@@ -634,7 +652,13 @@ export function InlineComposer({
 
       <div className="tx-composer__controls">
         <div className="tx-composer__controls-group">
-          <Tooltip content={imagesEnabled ? "Attach images" : modelImageSupportMessage(selectedModel)}>
+          <Tooltip
+            content={
+              imagesEnabled
+                ? "Attach images"
+                : modelImageSupportMessage(selectedModel)
+            }
+          >
             <button
               type="button"
               className="tx-composer__attach-button"
@@ -676,7 +700,11 @@ export function InlineComposer({
             }
           />
           <span className="tx-composer__controls-separator" />
-          <Tooltip content={canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel}>
+          <Tooltip
+            content={
+              canToggleMode ? `Switch to ${nextModeLabel}` : currentModeLabel
+            }
+          >
             <button
               type="button"
               className={[
@@ -692,9 +720,7 @@ export function InlineComposer({
               }
               aria-pressed={isPlanMode}
               disabled={controlsDisabled || !canToggleMode}
-              onClick={() =>
-                onUpdateComposer({ collaborationMode: nextMode })
-              }
+              onClick={() => onUpdateComposer({ collaborationMode: nextMode })}
             >
               <MapIcon size={14} />
             </button>
@@ -714,7 +740,7 @@ export function InlineComposer({
               onClick={() =>
                 onUpdateComposer({
                   serviceTier: fastModeEnabled
-                    ? lastNonFastServiceTierRef.current ?? null
+                    ? (lastNonFastServiceTierRef.current ?? null)
                     : "fast",
                 })
               }
@@ -731,7 +757,10 @@ export function InlineComposer({
               </span>
             ) : null}
             <Tooltip content={voiceButtonTitle}>
-              <span className="tx-composer__voice-button-anchor" title={voiceButtonTitle}>
+              <span
+                className="tx-composer__voice-button-anchor"
+                title={voiceButtonTitle}
+              >
                 <button
                   type="button"
                   className={voiceButtonClassName}

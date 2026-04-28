@@ -6,7 +6,6 @@ import type {
   CollaborationModeOption,
   ComposerDraftMentionBinding,
   ComposerMentionBindingInput,
-  ComposerTarget,
   ConversationComposerDraft,
   ConversationComposerSettings,
   ConversationImageAttachment,
@@ -259,8 +258,6 @@ const FALLBACK_MODEL_OPTIONS: ModelOption[] = [
 
 const PRIORITY_BRANCHES = ["main", "master"] as const;
 const PRIORITY_SET: ReadonlySet<string> = new Set(PRIORITY_BRANCHES);
-const CHAT_WORKSPACE_CATALOG_TARGET: ComposerTarget = { kind: "chatWorkspace" };
-
 function draftModelOptionsWithFallbacks(models: ModelOption[]): ModelOption[] {
   if (models.length === 0) {
     return FALLBACK_MODEL_OPTIONS;
@@ -350,21 +347,24 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const project = useMemo(
     () =>
       draft.kind === "project"
-        ? (projects.find((candidate) => candidate.id === draft.projectId) ?? null)
+        ? (projects.find((candidate) => candidate.id === draft.projectId) ??
+          null)
         : null,
     [draft, projects],
   );
 
   const localEnvironment = useMemo(
     () =>
-      project?.environments.find((environment) => environment.kind === "local") ??
-      null,
+      project?.environments.find(
+        (environment) => environment.kind === "local",
+      ) ?? null,
     [project],
   );
   const worktreeEnvironments = useMemo(
     () =>
-      project?.environments.filter((environment) => environment.kind !== "local") ??
-      [],
+      project?.environments.filter(
+        (environment) => environment.kind !== "local",
+      ) ?? [],
     [project],
   );
 
@@ -398,7 +398,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const defaultBaseBranch = branches[0] ?? localEnvironment?.gitBranch ?? null;
 
   useEffect(() => {
-    if (draft.kind !== "project" || selection.kind !== "new" || !branchesLoaded) return;
+    if (draft.kind !== "project" || selection.kind !== "new" || !branchesLoaded)
+      return;
     if (selection.baseBranch.length === 0) return;
     if (branches.includes(selection.baseBranch)) return;
     const fallback = defaultBaseBranch ?? "";
@@ -470,10 +471,12 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
           },
     [composer.provider, resolvedComposerEnvId],
   );
+  const chatCatalogTarget = useMemo(
+    () => ({ kind: "chatWorkspace" as const, provider: composer.provider }),
+    [composer.provider],
+  );
   const catalogTarget =
-    draft.kind === "chat"
-      ? CHAT_WORKSPACE_CATALOG_TARGET
-      : environmentCatalogTarget;
+    draft.kind === "chat" ? chatCatalogTarget : environmentCatalogTarget;
   const fileSearchTarget =
     draft.kind === "chat" ? null : environmentCatalogTarget;
 
@@ -492,7 +495,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   }, [composerCapabilityEnvironmentId, tryLoadEnvironmentCapabilities]);
 
   const cachedModels = capabilities?.models ?? [];
-  const modelOptions: ModelOption[] = draftModelOptionsWithFallbacks(cachedModels);
+  const modelOptions: ModelOption[] =
+    draftModelOptionsWithFallbacks(cachedModels);
   const collaborationModes: CollaborationModeOption[] =
     capabilities?.collaborationModes ?? FALLBACK_COLLABORATION_MODES;
   const selectedModel =
@@ -536,7 +540,10 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   ) {
     if (isSending) return;
     const previousComposerDraft = cloneComposerDraft(composerDraft);
-    const optimisticUserMessage = buildOptimisticUserMessage(sendText, sendImages);
+    const optimisticUserMessage = buildOptimisticUserMessage(
+      sendText,
+      sendImages,
+    );
     setIsSending(true);
     setError(null);
     if (optimisticUserMessage) {
@@ -651,7 +658,9 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         fileSearchTarget={fileSearchTarget}
         imageSupportNoticeEnabled
         transportEnabled={transportEnabled}
-        voiceEnabled={draft.kind === "project" && resolvedComposerEnvId !== "draft"}
+        voiceEnabled={
+          draft.kind === "project" && resolvedComposerEnvId !== "draft"
+        }
         providerLocked={false}
         onChangeImages={(nextImages) =>
           updateDraftThreadState(draft, (current) => ({
@@ -672,7 +681,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
             composerDraft: {
               ...current.composerDraft,
               text: value,
-              mentionBindings: bindings ?? current.composerDraft.mentionBindings,
+              mentionBindings:
+                bindings ?? current.composerDraft.mentionBindings,
             },
           }));
         }}
@@ -686,7 +696,12 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
           }))
         }
         onInterrupt={() => undefined}
-        onSend={(next, nextImages, nextMentionBindings, draftMentionBindings) => {
+        onSend={(
+          next,
+          nextImages,
+          nextMentionBindings,
+          draftMentionBindings,
+        ) => {
           void handleSend(
             next,
             nextImages,
@@ -707,7 +722,9 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       <EnvironmentSelector
         projects={projects}
         localEnvironment={draft.kind === "project" ? localEnvironment : null}
-        worktreeEnvironments={draft.kind === "project" ? worktreeEnvironments : []}
+        worktreeEnvironments={
+          draft.kind === "project" ? worktreeEnvironments : []
+        }
         availableBranches={branches}
         branchesLoading={!branchesLoaded}
         defaultBaseBranch={defaultBaseBranch}

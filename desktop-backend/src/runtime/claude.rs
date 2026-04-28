@@ -35,7 +35,7 @@ use crate::runtime::protocol::{
 };
 use crate::runtime::session::SendMessageResult;
 use crate::runtime::{item_store, snapshot_store};
-use crate::services::composer::{load_prompt_definitions, resolve_composer_text};
+use crate::services::composer::resolve_claude_composer_text;
 use crate::services::workspace::ThreadRuntimeContext;
 
 const CLAUDE_WORKER_PATH_ENV: &str = "SKEIN_CLAUDE_WORKER_PATH";
@@ -483,12 +483,7 @@ impl ClaudeRuntimeSession {
         show_user_message: bool,
         accept_plan_markdown: bool,
     ) -> AppResult<SendMessageResult> {
-        if !mention_bindings.is_empty() {
-            return Err(AppError::Validation(
-                "Claude threads currently support prompt expansion but not app or skill mentions."
-                    .to_string(),
-            ));
-        }
+        validate_claude_mention_bindings(&mention_bindings)?;
         let visible_text = text.trim();
         validate_claude_message_content(visible_text, &images)?;
 
@@ -1265,12 +1260,23 @@ fn resolve_text_for_claude(
     context: &ThreadRuntimeContext,
     visible_text: &str,
 ) -> AppResult<String> {
-    if !visible_text.contains("/prompts:") {
-        return Ok(visible_text.to_string());
+    resolve_claude_composer_text(&context.environment_path, visible_text)
+}
+
+fn validate_claude_mention_bindings(
+    bindings: &[crate::domain::conversation::ComposerMentionBindingInput],
+) -> AppResult<()> {
+    if bindings.iter().any(|binding| {
+        matches!(
+            binding.kind,
+            crate::domain::conversation::ComposerMentionBindingKind::App
+        )
+    }) {
+        return Err(AppError::Validation(
+            "Claude threads do not support app mentions.".to_string(),
+        ));
     }
-    let prompts = load_prompt_definitions(&context.environment_path).unwrap_or_default();
-    let resolved = resolve_composer_text(visible_text, &prompts, &[], &[], &[])?;
-    Ok(resolved.text)
+    Ok(())
 }
 
 fn validate_claude_message_content(

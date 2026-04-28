@@ -655,7 +655,7 @@ fn validate_composer_target(target: &ComposerTarget) -> Result<(), CommandError>
                 );
             }
         }
-        ComposerTarget::ChatWorkspace {} => {}
+        ComposerTarget::ChatWorkspace { .. } => {}
     }
 
     Ok(())

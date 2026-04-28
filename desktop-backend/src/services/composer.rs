@@ -9,6 +9,14 @@ use crate::domain::conversation::{
 };
 use crate::error::{AppError, AppResult};
 
+#[path = "composer/claude.rs"]
+mod claude;
+
+pub use claude::{
+    build_claude_thread_catalog, load_claude_command_definitions, load_claude_skill_definitions,
+    resolve_claude_composer_text,
+};
+
 const PROMPT_PREFIX: &str = "/prompts:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

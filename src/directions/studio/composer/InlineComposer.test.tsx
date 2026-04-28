@@ -1,11 +1,22 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useMemo, useState, type ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dialogOpenMock } from "../../../test/desktop-mock";
 
 import * as bridge from "../../../lib/bridge";
-import type { ComposerDraftMentionBinding, ModelOption } from "../../../lib/types";
+import type {
+  ComposerDraftMentionBinding,
+  ModelOption,
+  ThreadComposerCatalog,
+} from "../../../lib/types";
 import {
   baseComposer,
   capabilitiesFixture,
@@ -31,8 +42,6 @@ vi.mock("./composer-voice-audio", () => ({
   MAX_RECORDING_DURATION_MS: 120_000,
   startVoiceCapture: vi.fn(),
 }));
-
-
 
 const mockedBridge = vi.mocked(bridge);
 const mockedStartVoiceCapture = vi.mocked(startVoiceCapture);
@@ -188,9 +197,7 @@ describe("InlineComposer voice dictation", () => {
       "title",
       "Voice transcription requires Sign in with ChatGPT. API-key auth is not supported.",
     );
-    expect(
-      screen.queryByText("Voice unavailable"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Voice unavailable")).not.toBeInTheDocument();
   });
 
   it("exposes locked-state copy on the disabled microphone button", async () => {
@@ -251,7 +258,9 @@ describe("InlineComposer voice dictation", () => {
   it("appends the transcript onto the latest draft state after async transcription", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
-    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(transcription.promise);
+    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(
+      transcription.promise,
+    );
 
     renderComposerWithExternalDraftAction("Plan:");
 
@@ -283,7 +292,9 @@ describe("InlineComposer voice dictation", () => {
   it("updates the microphone copy while transcription is pending", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
-    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(transcription.promise);
+    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(
+      transcription.promise,
+    );
 
     renderComposer("");
 
@@ -302,13 +313,17 @@ describe("InlineComposer voice dictation", () => {
     const transcribingButton = await screen.findByRole("button", {
       name: "Transcribing voice dictation",
     });
-    const voiceControl = transcribingButton.closest(".tx-composer__voice-control");
+    const voiceControl = transcribingButton.closest(
+      ".tx-composer__voice-control",
+    );
     expect(transcribingButton).toBeDisabled();
     expect(transcribingButton.parentElement).toHaveAttribute(
       "title",
       "Transcribing voice recording",
     );
-    expect(voiceControl?.querySelector(".tx-composer__voice-spinner")).not.toBeNull();
+    expect(
+      voiceControl?.querySelector(".tx-composer__voice-spinner"),
+    ).not.toBeNull();
     expect(voiceControl).not.toHaveTextContent(/\d{2}:\d{2}/);
 
     transcription.resolve({ text: "voice note" });
@@ -341,7 +356,9 @@ describe("InlineComposer voice dictation", () => {
       "title",
       "Starting microphone capture. Click to cancel.",
     );
-    expect(voiceControl?.querySelector(".tx-composer__voice-spinner")).not.toBeNull();
+    expect(
+      voiceControl?.querySelector(".tx-composer__voice-spinner"),
+    ).not.toBeNull();
 
     await userEvent.click(startingButton);
     startCapture.resolve(capture);
@@ -372,11 +389,13 @@ describe("InlineComposer voice dictation", () => {
     const recordingButton = await screen.findByRole("button", {
       name: "Stop voice dictation",
     });
-    expect(recordingButton.closest(".tx-composer__voice-control")).toHaveTextContent(
-      /\d{2}:\d{2}/,
-    );
+    expect(
+      recordingButton.closest(".tx-composer__voice-control"),
+    ).toHaveTextContent(/\d{2}:\d{2}/);
 
-    await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Switch to thread 2" }),
+    );
 
     const threadTwoVoiceButton = await screen.findByRole("button", {
       name: "Start voice dictation",
@@ -391,7 +410,9 @@ describe("InlineComposer voice dictation", () => {
     ).not.toHaveTextContent(/\d{2}:\d{2}/);
     expect(capture.cancel).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Switch to thread 1" }),
+    );
 
     const resumedRecordingButton = await screen.findByRole("button", {
       name: "Stop voice dictation",
@@ -420,7 +441,9 @@ describe("InlineComposer voice dictation", () => {
     const stopButton = await screen.findByRole("button", {
       name: "Stop voice dictation",
     });
-    await userEvent.click(screen.getByRole("button", { name: "Disable transport" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Disable transport" }),
+    );
 
     expect(stopButton).toBeEnabled();
     await userEvent.click(stopButton);
@@ -463,10 +486,46 @@ describe("InlineComposer voice dictation", () => {
     });
   });
 
+  it("clears stale autocomplete items while a provider catalog reloads", async () => {
+    const claudeCatalog = createDeferred<ThreadComposerCatalog>();
+    mockedBridge.getComposerCatalog
+      .mockResolvedValueOnce({
+        prompts: [
+          {
+            name: "release",
+            description: "Draft a release note",
+            argumentMode: "none",
+            argumentNames: [],
+            positionalCount: 0,
+            argumentHint: null,
+          },
+        ],
+        skills: [],
+        apps: [],
+      })
+      .mockReturnValueOnce(claudeCatalog.promise);
+
+    renderComposerWithProviderToggle("/rel");
+
+    expect(await screen.findByText("prompts:release")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Use Claude" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.getComposerCatalog).toHaveBeenLastCalledWith({
+        kind: "chatWorkspace",
+        provider: "claude",
+      });
+    });
+    expect(screen.queryByText("prompts:release")).toBeNull();
+  });
+
   it("applies a completed transcript after returning to the owner thread", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
-    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(transcription.promise);
+    mockedBridge.transcribeEnvironmentVoice.mockReturnValue(
+      transcription.promise,
+    );
 
     renderComposerWithDynamicThread("Plan:");
 
@@ -486,11 +545,15 @@ describe("InlineComposer voice dictation", () => {
       expect(mockedBridge.transcribeEnvironmentVoice).toHaveBeenCalledTimes(1);
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Switch to thread 2" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Switch to thread 2" }),
+    );
     transcription.resolve({ text: "voice note" });
     expect(screen.getByPlaceholderText("Message Skein...")).toHaveValue("");
 
-    await userEvent.click(screen.getByRole("button", { name: "Switch to thread 1" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Switch to thread 1" }),
+    );
 
     expect(
       await screen.findByDisplayValue("Plan: voice note"),
@@ -515,9 +578,12 @@ describe("InlineComposer image attachments", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("", [
-      { type: "localImage", path: "/tmp/screenshot.png" },
-    ], [], []);
+    expect(onSend).toHaveBeenCalledWith(
+      "",
+      [{ type: "localImage", path: "/tmp/screenshot.png" }],
+      [],
+      [],
+    );
   });
 
   it("ignores picker failures and keeps the composer usable", async () => {
@@ -546,13 +612,16 @@ describe("InlineComposer image attachments", () => {
       public result: string | ArrayBuffer | null = null;
       public error: DOMException | null = null;
       public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
-      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null =
+        null;
 
       readAsDataURL(file: File) {
         queueMicrotask(() => {
           if (file.name === "broken.png") {
             this.error = new DOMException("failed");
-            this.onerror?.(new ProgressEvent("error") as ProgressEvent<FileReader>);
+            this.onerror?.(
+              new ProgressEvent("error") as ProgressEvent<FileReader>,
+            );
             return;
           }
           this.result = "data:image/png;base64,c3VjY2Vzcw==";
@@ -606,7 +675,8 @@ describe("InlineComposer image attachments", () => {
       public result: string | ArrayBuffer | null = null;
       public error: DOMException | null = null;
       public onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
-      public onerror: ((event: ProgressEvent<FileReader>) => void) | null = null;
+      public onerror: ((event: ProgressEvent<FileReader>) => void) | null =
+        null;
 
       readAsDataURL() {
         completeRead = () => {
@@ -671,9 +741,7 @@ describe("InlineComposer image attachments", () => {
     });
     expect(attachButton).toBeDisabled();
     expect(
-      screen.getByText(
-        "Image attachments are unavailable for GPT-5.4.",
-      ),
+      screen.getByText("Image attachments are unavailable for GPT-5.4."),
     ).toBeInTheDocument();
   });
 
@@ -690,8 +758,7 @@ describe("InlineComposer image attachments", () => {
         "GPT-5.5 is unavailable for the active runtime. Switch to an available model.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Send message" }))
-      .toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -708,9 +775,7 @@ describe("InlineComposer image attachments", () => {
     });
 
     expect(
-      await screen.findByText(
-        "Image attachments are unavailable for GPT-5.4.",
-      ),
+      await screen.findByText("Image attachments are unavailable for GPT-5.4."),
     ).toBeInTheDocument();
   });
 
@@ -752,22 +817,25 @@ describe("InlineComposer image attachments", () => {
       ],
     });
 
-    await userEvent.click(await screen.findByRole("button", { name: "Model picker" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Model picker" }),
+    );
     const providers = screen.getByRole("listbox", { name: "Provider options" });
-    expect(within(providers).getByRole("option", { name: /OpenAI/ })).toBeInTheDocument();
-    expect(within(providers).getByRole("option", { name: /Anthropic/ })).toBeInTheDocument();
+    expect(
+      within(providers).getByRole("option", { name: /OpenAI/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(providers).getByRole("option", { name: /Anthropic/ }),
+    ).toBeInTheDocument();
     expect(within(providers).queryByText("GPT-5.4")).toBeNull();
     expect(
-      within(screen.getByRole("listbox", { name: "OpenAI model options" })).getByRole(
-        "option",
-        { name: "GPT-5.4" },
-      ),
+      within(
+        screen.getByRole("listbox", { name: "OpenAI model options" }),
+      ).getByRole("option", { name: "GPT-5.4" }),
     ).toBeInTheDocument();
 
     await userEvent.hover(screen.getByRole("option", { name: /Anthropic/ }));
-    await userEvent.click(
-      screen.getByRole("option", { name: "Sonnet 4.6" }),
-    );
+    await userEvent.click(screen.getByRole("option", { name: "Sonnet 4.6" }));
 
     expect(onUpdateComposer).toHaveBeenCalledWith({
       provider: "claude",
@@ -807,20 +875,27 @@ describe("InlineComposer image attachments", () => {
       onUpdateComposer,
     });
 
-    expect(screen.getByRole("button", { name: "Model picker" }))
-      .toHaveTextContent("Opus 4.7");
-    expect(screen.getByRole("button", { name: "Thinking picker" }))
-      .toHaveTextContent("Extra High · 1M");
+    expect(
+      screen.getByRole("button", { name: "Model picker" }),
+    ).toHaveTextContent("Opus 4.7");
+    expect(
+      screen.getByRole("button", { name: "Thinking picker" }),
+    ).toHaveTextContent("Extra High · 1M");
 
     await userEvent.click(screen.getByRole("button", { name: "Model picker" }));
     const modelMenu = screen.getByRole("listbox", { name: "Model options" });
     expect(within(modelMenu).getAllByRole("option")).toHaveLength(1);
-    expect(within(modelMenu).getByRole("option", { name: "Opus 4.7" }))
-      .toBeInTheDocument();
+    expect(
+      within(modelMenu).getByRole("option", { name: "Opus 4.7" }),
+    ).toBeInTheDocument();
     expect(within(modelMenu).queryByText("Opus 4.7 1M")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: "Thinking picker" }));
-    await userEvent.click(screen.getByRole("option", { name: "Default context" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Thinking picker" }),
+    );
+    await userEvent.click(
+      screen.getByRole("option", { name: "Default context" }),
+    );
     expect(onUpdateComposer).toHaveBeenCalledWith({
       model: "claude-opus-4-7",
     });
@@ -877,10 +952,14 @@ function renderComposer(
     disabled?: boolean;
     modelOptions?: typeof capabilitiesFixture.models;
     onSend?: ComponentProps<typeof InlineComposer>["onSend"];
-    onUpdateComposer?: ComponentProps<typeof InlineComposer>["onUpdateComposer"];
+    onUpdateComposer?: ComponentProps<
+      typeof InlineComposer
+    >["onUpdateComposer"];
     threadId?: string;
     catalogTarget?: ComponentProps<typeof InlineComposer>["catalogTarget"];
-    fileSearchTarget?: ComponentProps<typeof InlineComposer>["fileSearchTarget"];
+    fileSearchTarget?: ComponentProps<
+      typeof InlineComposer
+    >["fileSearchTarget"];
     imageSupportNoticeEnabled?: ComponentProps<
       typeof InlineComposer
     >["imageSupportNoticeEnabled"];
@@ -929,10 +1008,14 @@ function renderComposer(
         onSend={(...args) => options.onSend?.(...args)}
         onUpdateComposer={(patch) => options.onUpdateComposer?.(patch)}
         catalogTarget={
-          options.catalogTarget === undefined ? defaultTarget : options.catalogTarget
+          options.catalogTarget === undefined
+            ? defaultTarget
+            : options.catalogTarget
         }
         fileSearchTarget={
-          options.fileSearchTarget === undefined ? defaultTarget : options.fileSearchTarget
+          options.fileSearchTarget === undefined
+            ? defaultTarget
+            : options.fileSearchTarget
         }
         imageSupportNoticeEnabled={options.imageSupportNoticeEnabled}
         transportEnabled={options.transportEnabled}
@@ -996,7 +1079,9 @@ function renderComposerWithExternalDraftAction(initialDraft: string) {
   return render(<Harness />);
 }
 
-function renderComposerWithManagedServiceTier(initialServiceTier: "fast" | "flex") {
+function renderComposerWithManagedServiceTier(
+  initialServiceTier: "fast" | "flex",
+) {
   function Harness() {
     const [composer, setComposer] = useState<
       ComponentProps<typeof InlineComposer>["composer"]
@@ -1046,6 +1131,87 @@ function renderComposerWithManagedServiceTier(initialServiceTier: "fast" | "flex
               ...patch,
             }))
           }
+        />
+      </>
+    );
+  }
+
+  return render(<Harness />);
+}
+
+function renderComposerWithProviderToggle(initialDraft: string) {
+  const claudeModel: ModelOption = {
+    provider: "claude",
+    id: "claude-sonnet-4-6",
+    displayName: "Claude Sonnet 4.6",
+    description: "Balanced Anthropic model.",
+    defaultReasoningEffort: "high",
+    supportedReasoningEfforts: ["low", "medium", "high", "max"],
+    inputModalities: ["text", "image"],
+    supportedServiceTiers: [],
+    supportsThinking: true,
+    isDefault: false,
+  };
+
+  function Harness() {
+    const [composer, setComposer] =
+      useState<ComponentProps<typeof InlineComposer>["composer"]>(baseComposer);
+    const [draft, setDraft] = useState(initialDraft);
+    const [images, setImages] = useState<
+      Array<
+        { type: "image"; url: string } | { type: "localImage"; path: string }
+      >
+    >([]);
+    const [mentionBindings, setMentionBindings] = useState<
+      ComposerDraftMentionBinding[]
+    >([]);
+    const catalogTarget = useMemo(
+      () => ({ kind: "chatWorkspace" as const, provider: composer.provider }),
+      [composer.provider],
+    );
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() =>
+            setComposer({
+              ...baseComposer,
+              provider: "claude",
+              model: claudeModel.id,
+              reasoningEffort: "high",
+              serviceTier: null,
+            })
+          }
+        >
+          Use Claude
+        </button>
+        <InlineComposer
+          environmentId="env-1"
+          threadId="thread-1"
+          composer={composer}
+          collaborationModes={capabilitiesFixture.collaborationModes}
+          disabled={false}
+          draft={draft}
+          effortOptions={["low", "medium", "high", "xhigh"]}
+          focusKey="thread-1"
+          images={images}
+          isBusy={false}
+          isSending={false}
+          isRefiningPlan={false}
+          mentionBindings={mentionBindings}
+          modelOptions={[...capabilitiesFixture.models, claudeModel]}
+          onChangeImages={setImages}
+          onCancelRefine={() => undefined}
+          onChangeDraft={setDraft}
+          onChangeMentionBindings={setMentionBindings}
+          onInterrupt={() => undefined}
+          onSend={() => undefined}
+          onUpdateComposer={(patch) =>
+            setComposer((currentComposer) => ({ ...currentComposer, ...patch }))
+          }
+          catalogTarget={catalogTarget}
+          fileSearchTarget={null}
         />
       </>
     );

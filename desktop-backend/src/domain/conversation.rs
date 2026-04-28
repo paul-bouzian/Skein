@@ -75,7 +75,10 @@ pub enum ComposerTarget {
         #[serde(default)]
         provider: Option<ProviderKind>,
     },
-    ChatWorkspace {},
+    ChatWorkspace {
+        #[serde(default)]
+        provider: Option<ProviderKind>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -715,6 +718,9 @@ mod tests {
             "kind": "chatWorkspace",
         }))
         .expect("chat workspace target should deserialize");
-        assert_eq!(chat_workspace_target, ComposerTarget::ChatWorkspace {});
+        assert_eq!(
+            chat_workspace_target,
+            ComposerTarget::ChatWorkspace { provider: None }
+        );
     }
 }

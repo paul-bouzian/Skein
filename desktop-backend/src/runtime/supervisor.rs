@@ -27,7 +27,9 @@ use crate::runtime::codex_paths::resolve_codex_binary_path;
 use crate::runtime::protocol::AccountReadResponse;
 use crate::runtime::session::{AppServerAuthStatus, RuntimeSession, SendMessageResult};
 use crate::serde_helpers::deserialize_explicit_optional;
-use crate::services::composer::{build_thread_catalog, load_prompt_definitions};
+use crate::services::composer::{
+    build_claude_thread_catalog, load_claude_command_definitions, load_claude_skill_definitions,
+};
 use crate::services::workspace::{
     ComposerTargetContext, EnvironmentRuntimeTarget, ThreadRuntimeContext,
 };
@@ -787,8 +789,9 @@ impl RuntimeSupervisor {
         context: ComposerTargetContext,
     ) -> AppResult<ThreadComposerCatalog> {
         if matches!(context.provider, ProviderKind::Claude) {
-            let prompts = load_prompt_definitions(&context.environment_path).unwrap_or_default();
-            return Ok(build_thread_catalog(&prompts, &[], &[]));
+            let commands = load_claude_command_definitions(&context.environment_path)?;
+            let skills = load_claude_skill_definitions(&context.environment_path)?;
+            return Ok(build_claude_thread_catalog(&commands, &skills));
         }
         let read_target = self
             .resolve_read_target(

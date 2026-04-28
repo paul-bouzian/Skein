@@ -1,4 +1,4 @@
-import type { ThreadComposerCatalog } from "../../../lib/types";
+import type { ProviderKind, ThreadComposerCatalog } from "../../../lib/types";
 import {
   decorateComposerText,
   type ComposerMirrorPart,
@@ -8,6 +8,7 @@ type Props = {
   draft: string;
   catalog: ThreadComposerCatalog | null;
   placeholder: string;
+  provider: ProviderKind;
   scrollTop: number;
 };
 
@@ -15,15 +16,20 @@ export function ComposerTextMirror({
   draft,
   catalog,
   placeholder,
+  provider,
   scrollTop,
 }: Props) {
-  const segments = decorateComposerText(draft, catalog);
+  const segments = decorateComposerText(draft, catalog, provider);
 
   return (
     <div className="tx-inline-composer__mirror" aria-hidden="true">
       <div
         className="tx-inline-composer__mirror-content"
-        style={draft.length === 0 ? undefined : { transform: `translateY(-${scrollTop}px)` }}
+        style={
+          draft.length === 0
+            ? undefined
+            : { transform: `translateY(-${scrollTop}px)` }
+        }
       >
         {draft.length === 0 ? (
           <span className="tx-inline-composer__placeholder">{placeholder}</span>
@@ -34,12 +40,12 @@ export function ComposerTextMirror({
             }
             if (segment.kind === "prompt") {
               return (
-                <span key={`prompt-${index}`} className="tx-inline-token tx-inline-token--prompt">
+                <span
+                  key={`prompt-${index}`}
+                  className="tx-inline-token tx-inline-token--prompt"
+                >
                   {segment.parts.map((part, partIndex) => (
-                    <MirrorPart
-                      key={`prompt-part-${partIndex}`}
-                      part={part}
-                    />
+                    <MirrorPart key={`prompt-part-${partIndex}`} part={part} />
                   ))}
                 </span>
               );

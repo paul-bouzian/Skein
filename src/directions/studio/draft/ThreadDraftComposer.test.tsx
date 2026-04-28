@@ -200,7 +200,9 @@ describe("ThreadDraftComposer", () => {
     });
 
     await waitFor(() => {
-      expect(latestInlineComposerProps?.modelOptions.map((model) => model.id)).toEqual(
+      expect(
+        latestInlineComposerProps?.modelOptions.map((model) => model.id),
+      ).toEqual(
         expect.arrayContaining([
           "gpt-5.4",
           "gpt-5.4-mini",
@@ -208,8 +210,9 @@ describe("ThreadDraftComposer", () => {
         ]),
       );
       expect(
-        latestInlineComposerProps?.modelOptions.find((model) => model.id === "gpt-5.4")
-          ?.inputModalities,
+        latestInlineComposerProps?.modelOptions.find(
+          (model) => model.id === "gpt-5.4",
+        )?.inputModalities,
       ).toContain("image");
     });
   });
@@ -242,7 +245,9 @@ describe("ThreadDraftComposer", () => {
     );
 
     await waitFor(() => {
-      expect(latestInlineComposerProps?.modelOptions.map((model) => model.id)).toEqual(
+      expect(
+        latestInlineComposerProps?.modelOptions.map((model) => model.id),
+      ).toEqual(
         expect.arrayContaining([
           "gpt-5.5",
           "gpt-5.4",
@@ -470,6 +475,37 @@ describe("ThreadDraftComposer", () => {
 
     expect(latestInlineComposerProps?.catalogTarget).toEqual({
       kind: "chatWorkspace",
+      provider: "codex",
+    });
+    expect(latestInlineComposerProps?.fileSearchTarget).toBeNull();
+  });
+
+  it("passes the selected chat provider to standalone chat autocomplete", async () => {
+    mockedBridge.getDraftThreadState.mockResolvedValueOnce({
+      composerDraft: {
+        text: "",
+        images: [],
+        mentionBindings: [],
+        isRefiningPlan: false,
+      },
+      composer: {
+        provider: "claude",
+        model: "claude-sonnet-4-6",
+        reasoningEffort: "high",
+        collaborationMode: "build",
+        approvalPolicy: "askToEdit",
+        serviceTier: null,
+      },
+      projectSelection: null,
+    });
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.catalogTarget).toEqual({
+        kind: "chatWorkspace",
+        provider: "claude",
+      });
     });
     expect(latestInlineComposerProps?.fileSearchTarget).toBeNull();
   });

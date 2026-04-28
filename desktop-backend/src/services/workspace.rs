@@ -1829,16 +1829,17 @@ impl WorkspaceService {
                     file_search_enabled: true,
                 })
             }
-            ComposerTarget::ChatWorkspace {} => {
+            ComposerTarget::ChatWorkspace { provider } => {
                 std::fs::create_dir_all(&self.chats_root)?;
                 let connection = self.database.open()?;
                 let settings = self.read_or_seed_settings(&connection)?;
                 let environment_id = CHAT_WORKSPACE_PROJECT_ID.to_string();
+                let selected_provider = provider.unwrap_or(settings.default_provider);
 
                 Ok(ComposerTargetContext {
                     environment_id: environment_id.clone(),
                     environment_path: self.chats_root.to_string_lossy().to_string(),
-                    provider: settings.default_provider,
+                    provider: selected_provider,
                     codex_thread_id: None,
                     codex_binary_path: settings.codex_binary_path,
                     file_search_enabled: false,
@@ -4608,7 +4609,7 @@ mod tests {
 
         let context = harness
             .service
-            .composer_target_context(&ComposerTarget::ChatWorkspace {})
+            .composer_target_context(&ComposerTarget::ChatWorkspace { provider: None })
             .expect("chat workspace target should resolve");
 
         assert_eq!(context.environment_id, CHAT_WORKSPACE_PROJECT_ID);

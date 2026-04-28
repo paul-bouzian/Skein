@@ -622,7 +622,7 @@ export type ComposerAppOption = {
 export type ComposerTarget =
   | { kind: "thread"; threadId: string }
   | { kind: "environment"; environmentId: string; provider?: ProviderKind }
-  | { kind: "chatWorkspace" };
+  | { kind: "chatWorkspace"; provider?: ProviderKind };
 
 export type ThreadComposerCatalog = {
   prompts: ComposerPromptOption[];

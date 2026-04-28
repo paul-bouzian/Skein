@@ -2,6 +2,7 @@ import type {
   ComposerMentionBindingInput,
   ComposerPromptArgumentMode,
   ComposerPromptOption,
+  ProviderKind,
   ThreadComposerCatalog,
 } from "../../../lib/types";
 
@@ -25,7 +26,7 @@ export type ActiveComposerToken =
 
 export type ComposerAutocompleteItem = {
   id: string;
-  group: "Prompts" | "Skills" | "Apps" | "Files";
+  group: "Commands" | "Prompts" | "Skills" | "Apps" | "Files";
   label: string;
   description?: string;
   hint?: string;
@@ -88,11 +89,11 @@ export function buildPromptInsertText(prompt: ComposerPromptOption) {
   const values =
     prompt.argumentMode === "named"
       ? prompt.argumentNames.map((name) => `${name}=""`)
-      : Array.from({ length: Math.max(prompt.positionalCount, 1) }, () => "\"\"");
+      : Array.from({ length: Math.max(prompt.positionalCount, 1) }, () => '""');
   const text = `${base}(${values.join(", ")})`;
   return {
     text,
-    cursorOffset: text.indexOf("\"\"") + 1,
+    cursorOffset: text.indexOf('""') + 1,
     appendSpace: false,
   };
 }
@@ -102,7 +103,11 @@ export function findActiveComposerToken(
   selectionStart: number | null,
   selectionEnd: number | null,
 ): ActiveComposerToken | null {
-  if (selectionStart === null || selectionEnd === null || selectionStart !== selectionEnd) {
+  if (
+    selectionStart === null ||
+    selectionEnd === null ||
+    selectionStart !== selectionEnd
+  ) {
     return null;
   }
 
@@ -162,12 +167,17 @@ export function buildAutocompleteItems(
   token: ActiveComposerToken | null,
   catalog: ThreadComposerCatalog | null,
   filePaths: string[],
+  provider: ProviderKind = "codex",
 ): ComposerAutocompleteItem[] {
   if (!token) {
     return [];
   }
 
   if (token.kind === "prompt") {
+    if (provider === "claude") {
+      return buildClaudeSlashAutocompleteItems(token, catalog);
+    }
+
     const query = token.query.toLowerCase();
     const prompts = catalog?.prompts ?? [];
     return prompts
@@ -195,6 +205,10 @@ export function buildAutocompleteItems(
   }
 
   if (token.kind === "mention") {
+    if (provider === "claude") {
+      return buildClaudeMentionAutocompleteItems(token, catalog);
+    }
+
     const query = token.query.toLowerCase();
     const skills = (catalog?.skills ?? [])
       .filter((skill) => {
@@ -250,6 +264,60 @@ export function buildAutocompleteItems(
   }));
 }
 
+function buildClaudeSlashAutocompleteItems(
+  token: ActiveComposerToken,
+  catalog: ThreadComposerCatalog | null,
+) {
+  const query = token.query.toLowerCase();
+  const skills = catalog?.skills ?? [];
+  const skillNames = new Set(skills.map((skill) => skill.name.toLowerCase()));
+  const commands = (catalog?.prompts ?? [])
+    .filter((command) => !skillNames.has(command.name.toLowerCase()))
+    .filter((command) => matchesClaudeCommandQuery(command.name, query))
+    .map<ComposerAutocompleteItem>((command) => ({
+      id: `claude-command:${command.name}`,
+      group: "Commands",
+      label: `/${command.name}`,
+      description: command.description ?? undefined,
+      hint: command.argumentHint ?? undefined,
+      insertText: `/${command.name}`,
+      appendSpace: true,
+    }));
+  const skillItems = skills
+    .filter((skill) => matchesClaudeCommandQuery(skill.name, query))
+    .map<ComposerAutocompleteItem>((skill) => ({
+      id: `claude-skill:${skill.name}`,
+      group: "Skills",
+      label: `/${skill.name}`,
+      description: skill.description,
+      insertText: `/${skill.name}`,
+      appendSpace: true,
+    }));
+  return [...commands, ...skillItems];
+}
+
+function buildClaudeMentionAutocompleteItems(
+  token: ActiveComposerToken,
+  catalog: ThreadComposerCatalog | null,
+) {
+  const query = token.query.toLowerCase();
+  return (catalog?.skills ?? [])
+    .filter((skill) => matchesClaudeCommandQuery(skill.name, query))
+    .map<ComposerAutocompleteItem>((skill) => ({
+      id: `claude-skill-mention:${skill.name}`,
+      group: "Skills",
+      label: formatSlugLabel(skill.name),
+      description: skill.description,
+      insertText: `$${skill.name}`,
+      appendSpace: true,
+    }));
+}
+
+function matchesClaudeCommandQuery(name: string, query: string) {
+  const normalized = name.toLowerCase();
+  return normalized.startsWith(query) || normalized.includes(query);
+}
+
 export function replaceComposerToken(
   text: string,
   token: ActiveComposerToken,
@@ -257,12 +325,17 @@ export function replaceComposerToken(
 ) {
   const suffix = text.slice(token.end);
   const cursorOffset = item.cursorOffset ?? item.insertText.length;
-  const shouldAppendTrailingSpace = item.appendSpace === true && shouldAppendSpace(suffix);
-  const insertedText = shouldAppendTrailingSpace ? `${item.insertText} ` : item.insertText;
+  const shouldAppendTrailingSpace =
+    item.appendSpace === true && shouldAppendSpace(suffix);
+  const insertedText = shouldAppendTrailingSpace
+    ? `${item.insertText} `
+    : item.insertText;
   const nextText = `${text.slice(0, token.start)}${insertedText}${suffix}`;
   const baseCursor = token.start + cursorOffset;
   const cursor =
-    shouldAppendTrailingSpace && cursorOffset >= item.insertText.length ? baseCursor + 1 : baseCursor;
+    shouldAppendTrailingSpace && cursorOffset >= item.insertText.length
+      ? baseCursor + 1
+      : baseCursor;
   return { text: nextText, cursor };
 }
 
@@ -277,15 +350,23 @@ function shouldAppendSpace(suffix: string) {
 export function decorateComposerText(
   text: string,
   catalog: ThreadComposerCatalog | null,
+  provider: ProviderKind = "codex",
 ): ComposerMirrorSegment[] {
   if (!text) {
     return [];
   }
 
-  const promptMap = new Map((catalog?.prompts ?? []).map((prompt) => [prompt.name, prompt]));
-  const skillMap = new Map((catalog?.skills ?? []).map((skill) => [skill.name.toLowerCase(), skill]));
-  const appMap = new Map((catalog?.apps ?? []).map((app) => [app.slug.toLowerCase(), app]));
-  const promptInvocations = parsePromptInvocations(text);
+  const promptMap = new Map(
+    (catalog?.prompts ?? []).map((prompt) => [prompt.name, prompt]),
+  );
+  const skillMap = new Map(
+    (catalog?.skills ?? []).map((skill) => [skill.name.toLowerCase(), skill]),
+  );
+  const appMap = new Map(
+    (catalog?.apps ?? []).map((app) => [app.slug.toLowerCase(), app]),
+  );
+  const promptInvocations =
+    provider === "claude" ? [] : parsePromptInvocations(text);
   const occupied = promptInvocations.map((invocation) => ({
     start: invocation.start,
     end: invocation.end,
@@ -300,6 +381,29 @@ export function decorateComposerText(
       end: invocation.end,
     }));
   const mentionTokens: DecoratedToken[] = [];
+  if (provider === "claude") {
+    for (const token of collectSpecialTokens(text, "/", occupied)) {
+      const normalized = token.text.slice(1).toLowerCase();
+      if (skillMap.has(normalized)) {
+        mentionTokens.push({
+          kind: "skill",
+          text: token.text,
+          start: token.start,
+          end: token.end,
+        });
+        continue;
+      }
+      if (promptMap.has(normalized)) {
+        mentionTokens.push({
+          kind: "prompt",
+          text: token.text,
+          parts: [{ text: token.text, tone: "base" }],
+          start: token.start,
+          end: token.end,
+        });
+      }
+    }
+  }
   for (const token of collectSpecialTokens(text, "$", occupied)) {
     const normalized = token.text.slice(1).toLowerCase();
     if (skillMap.has(normalized)) {
@@ -320,15 +424,21 @@ export function decorateComposerText(
       });
     }
   }
-  const fileTokens: DecoratedToken[] = collectSpecialTokens(text, "@", occupied).map((token) => ({
+  const fileTokens: DecoratedToken[] = collectSpecialTokens(
+    text,
+    "@",
+    occupied,
+  ).map((token) => ({
     kind: "file",
     text: token.text,
     start: token.start,
     end: token.end,
   }));
-  const tokens: DecoratedToken[] = [...promptTokens, ...mentionTokens, ...fileTokens].sort(
-    (left, right) => left.start - right.start,
-  );
+  const tokens: DecoratedToken[] = [
+    ...promptTokens,
+    ...mentionTokens,
+    ...fileTokens,
+  ].sort((left, right) => left.start - right.start);
 
   const segments: ComposerMirrorSegment[] = [];
   let cursor = 0;
@@ -384,7 +494,7 @@ function parsePromptInvocations(text: string): PromptInvocation[] {
 }
 
 function findClosingParen(text: string, openParenIndex: number) {
-  let quote: "\"" | "'" | null = null;
+  let quote: '"' | "'" | null = null;
   let escaped = false;
   for (let index = openParenIndex + 1; index < text.length; index += 1) {
     const character = text[index] ?? "";
@@ -402,7 +512,7 @@ function findClosingParen(text: string, openParenIndex: number) {
       }
       continue;
     }
-    if (character === "\"" || character === "'") {
+    if (character === '"' || character === "'") {
       quote = character;
       continue;
     }
@@ -415,7 +525,7 @@ function findClosingParen(text: string, openParenIndex: number) {
 
 function collectSpecialTokens(
   text: string,
-  trigger: "$" | "@",
+  trigger: "$" | "@" | "/",
   occupied: Array<{ start: number; end: number }>,
 ) {
   const tokens: Array<{ start: number; end: number; text: string }> = [];
@@ -429,7 +539,7 @@ function collectSpecialTokens(
       index = start + 1;
       continue;
     }
-    const previous = start > 0 ? text[start - 1] ?? "" : "";
+    const previous = start > 0 ? (text[start - 1] ?? "") : "";
     if (previous && !TOKEN_BOUNDARY.test(previous)) {
       index = start + 1;
       continue;
@@ -460,12 +570,14 @@ function buildPromptMirrorParts(raw: string): ComposerMirrorPart[] {
     return [{ text: raw, tone: "base" }];
   }
 
-  const parts: ComposerMirrorPart[] = [{ text: raw.slice(0, openIndex), tone: "base" }];
+  const parts: ComposerMirrorPart[] = [
+    { text: raw.slice(0, openIndex), tone: "base" },
+  ];
   let index = openIndex;
 
   while (index < raw.length) {
     const character = raw[index] ?? "";
-    if (character === "\"" || character === "'") {
+    if (character === '"' || character === "'") {
       const end = findClosingQuote(raw, index);
       parts.push({
         text: raw.slice(index, end + 1),
@@ -496,13 +608,13 @@ function buildPromptMirrorParts(raw: string): ComposerMirrorPart[] {
 }
 
 function isArgumentNameStart(raw: string, index: number) {
-  const previous = index > 0 ? raw[index - 1] ?? "" : "";
+  const previous = index > 0 ? (raw[index - 1] ?? "") : "";
   const nextEquals = raw.slice(index).match(/^[A-Z][A-Z0-9_]*(?=\s*=)/);
   return (!previous || /[(,\s]/.test(previous)) && Boolean(nextEquals);
 }
 
 function findClosingQuote(text: string, start: number) {
-  const quote = text[start] ?? "\"";
+  const quote = text[start] ?? '"';
   let escaped = false;
   for (let index = start + 1; index < text.length; index += 1) {
     const character = text[index] ?? "";
