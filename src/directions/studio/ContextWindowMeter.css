@@ -55,8 +55,9 @@
 .tx-context-meter__value {
   position: relative;
   z-index: 1;
-  font-size: 9px;
+  font-size: 7px;
   font-weight: var(--tx-weight-medium);
+  line-height: 1;
   color: var(--tx-text-secondary);
 }
 
