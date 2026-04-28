@@ -407,6 +407,56 @@ describe("terminal-store", () => {
     expect(slotForA().visible).toBe(false);
   });
 
+  it("keeps the terminal visible when a new shell tab opens before the first shell spawn resolves", async () => {
+    let resolveSpawn: (value: { ptyId: string; cwd: string }) => void = () => {};
+    const pendingSpawn = new Promise<{ ptyId: string; cwd: string }>((resolve) => {
+      resolveSpawn = resolve;
+    });
+    mockedBridge.spawnTerminal.mockImplementationOnce(() => pendingSpawn);
+
+    void useTerminalStore.getState().ensureVisible(ENV_A);
+    expect(slotForA().visible).toBe(true);
+
+    useTerminalStore.getState().setVisible(ENV_A, false);
+    expect(slotForA().visible).toBe(false);
+
+    await useTerminalStore.getState().openTab(ENV_A);
+    expect(slotForA().visible).toBe(true);
+
+    resolveSpawn({ ptyId: "pty-pending", cwd: `/path/to/${ENV_A}` });
+    await flushAsyncWork();
+
+    expect(slotForA().tabs).toHaveLength(2);
+    expect(slotForA().visible).toBe(true);
+  });
+
+  it("keeps the terminal visible when an action tab opens before the first shell spawn resolves", async () => {
+    let resolveSpawn: (value: { ptyId: string; cwd: string }) => void = () => {};
+    const pendingSpawn = new Promise<{ ptyId: string; cwd: string }>((resolve) => {
+      resolveSpawn = resolve;
+    });
+    mockedBridge.spawnTerminal.mockImplementationOnce(() => pendingSpawn);
+
+    void useTerminalStore.getState().ensureVisible(ENV_A);
+    expect(slotForA().visible).toBe(true);
+
+    useTerminalStore.getState().setVisible(ENV_A, false);
+    expect(slotForA().visible).toBe(false);
+
+    await useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    expect(slotForA().visible).toBe(true);
+
+    resolveSpawn({ ptyId: "pty-pending", cwd: `/path/to/${ENV_A}` });
+    await flushAsyncWork();
+
+    expect(slotForA().tabs).toHaveLength(2);
+    expect(slotForA().visible).toBe(true);
+  });
+
   it("ensureVisible deduplicates concurrent initial shell opens", async () => {
     const [firstId, secondId] = await Promise.all([
       useTerminalStore.getState().ensureVisible(ENV_A),
@@ -749,6 +799,45 @@ describe("terminal-store", () => {
     expect(slotForA().tabs).toHaveLength(1);
     expect(slotForA().tabs[0]?.ptyId).toBe("pty-pending");
     expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears pending manual action launches when event subscriptions reset", async () => {
+    let resolveRun: (
+      value: Awaited<ReturnType<typeof bridge.runProjectAction>>,
+    ) => void = () => {};
+    const pendingRun = new Promise<Awaited<ReturnType<typeof bridge.runProjectAction>>>(
+      (resolve) => {
+        resolveRun = resolve;
+      },
+    );
+    mockedBridge.runProjectAction.mockImplementationOnce(() => pendingRun);
+
+    const firstOpen = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    await flushAsyncWork();
+    __resetTerminalEventSubscriptions();
+
+    const secondOpen = useTerminalStore.getState().openActionTab(ENV_A, {
+      id: "dev",
+      label: "Dev",
+      icon: "play",
+    });
+    await flushAsyncWork();
+
+    expect(mockedBridge.runProjectAction).toHaveBeenCalledTimes(2);
+    await expect(secondOpen).resolves.not.toBeNull();
+
+    resolveRun({
+      ptyId: "pty-pending",
+      cwd: `/path/to/${ENV_A}`,
+      actionId: "dev",
+      actionLabel: "Dev",
+      actionIcon: "play",
+    });
+    await expect(firstOpen).resolves.not.toBeNull();
   });
 
   it("deduplicates concurrent reruns of the same idle manual action", async () => {

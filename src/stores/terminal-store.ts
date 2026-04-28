@@ -410,6 +410,7 @@ export function __resetTerminalEventSubscriptions(): void {
   clearTerminalEventSubscriptions();
   pendingShellTabOpens.clear();
   hiddenDuringPendingShellOpens.clear();
+  pendingActionTabOpens.clear();
   pendingProjectActionStates.clear();
   terminalEventSubscriptionsPromise = null;
 }
@@ -465,6 +466,59 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
     return nextSlot;
   }
 
+  async function openShellTab(
+    environmentId: string,
+    options: { clearPendingHideOnShow: boolean },
+  ) {
+    const slot = slotForEnvironment(get().byEnv, environmentId);
+    if (slot.tabs.length >= MAX_TABS) return null;
+    // Attach the output bus BEFORE spawning so any bytes emitted between
+    // spawn and the TerminalView subscribe are buffered, not dropped.
+    await Promise.all([
+      ensureTerminalOutputBusReady(),
+      ensureTerminalEventSubscriptionsReady(),
+    ]);
+    // Generous defaults; FitAddon will resize immediately after mount.
+    const { ptyId, cwd } = await bridge.spawnTerminal({
+      environmentId,
+      cols: 80,
+      rows: 24,
+    });
+    // Re-check the cap after the async spawn: concurrent openTab calls can
+    // both pass the initial check. If we raced past the cap, kill the PTY we
+    // just created and bail.
+    const slotAfter = slotForEnvironment(get().byEnv, environmentId);
+    if (
+      !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
+      slotAfter.tabs.length >= MAX_TABS
+    ) {
+      await killTerminalSession(ptyId);
+      return null;
+    }
+
+    const id = crypto.randomUUID();
+    if (options.clearPendingHideOnShow) {
+      syncPendingShellVisibility(environmentId, true);
+    }
+    updateSlot(environmentId, (existing) => ({
+      ...existing,
+      visible: true,
+      tabs: [
+        ...existing.tabs,
+        {
+          id,
+          ptyId,
+          cwd,
+          title: basenameOf(cwd),
+          exited: false,
+          kind: "shell",
+        },
+      ],
+      activeTabId: id,
+    }));
+    return id;
+  }
+
   return {
     byEnv: {},
     knownEnvironmentIds: [],
@@ -510,7 +564,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 
       const openPromise = (async () => {
         try {
-          const tabId = await get().openTab(environmentId);
+          const tabId = await openShellTab(environmentId, {
+            clearPendingHideOnShow: false,
+          });
           const shouldHideAfterOpen =
             hiddenDuringPendingShellOpens.delete(environmentId);
           if (
@@ -604,50 +660,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
     },
 
     openTab: async (environmentId) => {
-      const slot = slotForEnvironment(get().byEnv, environmentId);
-      if (slot.tabs.length >= MAX_TABS) return null;
-      // Attach the output bus BEFORE spawning so any bytes emitted between
-      // spawn and the TerminalView subscribe are buffered, not dropped.
-      await Promise.all([
-        ensureTerminalOutputBusReady(),
-        ensureTerminalEventSubscriptionsReady(),
-      ]);
-      // Generous defaults; FitAddon will resize immediately after mount.
-      const { ptyId, cwd } = await bridge.spawnTerminal({
-        environmentId,
-        cols: 80,
-        rows: 24,
-      });
-      // Re-check the cap after the async spawn: concurrent openTab calls can
-      // both pass the initial check. If we raced past the cap, kill the PTY we
-      // just created and bail.
-      const slotAfter = slotForEnvironment(get().byEnv, environmentId);
-      if (
-        !isKnownEnvironment(get().knownEnvironmentIds, environmentId) ||
-        slotAfter.tabs.length >= MAX_TABS
-      ) {
-        await killTerminalSession(ptyId);
-        return null;
-      }
-
-      const id = crypto.randomUUID();
-      updateSlot(environmentId, (existing) => ({
-        ...existing,
-        visible: true,
-        tabs: [
-          ...existing.tabs,
-          {
-            id,
-            ptyId,
-            cwd,
-            title: basenameOf(cwd),
-            exited: false,
-            kind: "shell",
-          },
-        ],
-        activeTabId: id,
-      }));
-      return id;
+      return openShellTab(environmentId, { clearPendingHideOnShow: true });
     },
 
     openActionTab: async (environmentId, action) => {
@@ -656,6 +669,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
         (tab) => tab.kind === "manualAction" && tab.actionId === action.id,
       );
       if (actionTab && actionRunStateFor(actionTab) === "running") {
+        syncPendingShellVisibility(environmentId, true);
         updateSlot(environmentId, (existing) => ({
           ...existing,
           visible: true,
@@ -677,6 +691,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
       }
 
       if (replacementTab) {
+        syncPendingShellVisibility(environmentId, true);
         updateSlot(environmentId, (existing) => ({
           ...existing,
           visible: true,
@@ -732,6 +747,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
         };
         const previousPtyId = currentReplacementTab?.ptyId ?? null;
 
+        syncPendingShellVisibility(environmentId, true);
         updateSlot(environmentId, (existing) => ({
           ...existing,
           visible: true,
