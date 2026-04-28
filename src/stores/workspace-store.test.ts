@@ -1502,6 +1502,67 @@ describe("workspace store — grid 2x2 panes", () => {
       expect(mockedBridge.getDraftThreadState).toHaveBeenCalledTimes(1);
     });
 
+    it("moves a draft thread state to a project target and clears the source target", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const movedState: SavedDraftThreadState = {
+        composerDraft: {
+          text: "Move this into the project",
+          images: [{ type: "localImage", path: "/tmp/chat-draft.png" }],
+          mentionBindings: [
+            {
+              mention: "$skein-standards",
+              kind: "skill",
+              path: "/skills/skein-standards",
+              start: 5,
+              end: 21,
+            },
+          ],
+          isRefiningPlan: true,
+        },
+        composer: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+          reasoningEffort: "xhigh",
+          collaborationMode: "plan",
+          approvalPolicy: "fullAccess",
+          serviceTier: "fast",
+        },
+        projectSelection: { kind: "local" },
+      };
+
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        draftStateByTargetKey: {
+          chat: makeSavedDraftState("Old chat draft"),
+          "project:project-a": makeSavedDraftState("Old project draft"),
+        },
+      }));
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      expect(useWorkspaceStore.getState().draftStateByTargetKey.chat).toBeUndefined();
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toEqual(movedState);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: chatTarget,
+        state: null,
+      });
+    });
+
     it("keeps newer local draft edits when hydration resolves late", async () => {
       seedTwoThreadWorkspace();
       let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =

@@ -298,6 +298,9 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const updateDraftThreadState = useWorkspaceStore(
     (state) => state.updateDraftThreadState,
   );
+  const moveDraftThreadState = useWorkspaceStore(
+    (state) => state.moveDraftThreadState,
+  );
   const updateThreadDraftTarget = useWorkspaceStore(
     (state) => state.updateThreadDraftTarget,
   );
@@ -518,16 +521,21 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       kind: "project",
       projectId: next.projectId,
     };
+    if (draft.kind === "chat") {
+      moveDraftThreadState(draft, nextTarget, {
+        composerDraft: cloneComposerDraft(composerDraft),
+        composer: { ...composer },
+        projectSelection: next.target as DraftProjectSelection,
+      });
+      updateThreadDraftTarget(paneId, nextTarget);
+      return;
+    }
+
     updateThreadDraftTarget(paneId, nextTarget);
     void hydrateDraftThreadState(nextTarget).then(() => {
       updateDraftThreadState(nextTarget, (current) => ({
         ...current,
-        projectSelection:
-          draft.kind === "chat" &&
-          next.target.kind === "local" &&
-          current.projectSelection
-            ? current.projectSelection
-            : (next.target as DraftProjectSelection),
+        projectSelection: next.target as DraftProjectSelection,
       }));
     });
   }
