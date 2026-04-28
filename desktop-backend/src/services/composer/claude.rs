@@ -191,12 +191,12 @@ fn claude_roots(environment_path: &str, directory_name: &str) -> Vec<PathBuf> {
     let project_root = Path::new(environment_path)
         .join(".claude")
         .join(directory_name);
-    if project_root.is_dir() {
+    if is_regular_dir(&project_root) {
         roots.push(project_root);
     }
     if let Some(home_dir) = home_dir() {
         let user_root = home_dir.join(".claude").join(directory_name);
-        if user_root.is_dir() {
+        if is_regular_dir(&user_root) {
             roots.push(user_root);
         }
     }
@@ -404,6 +404,12 @@ fn is_regular_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_regular_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+}
+
 fn parse_claude_definition_file(
     raw: &str,
     fallback_name: &str,
@@ -592,17 +598,7 @@ fn render_claude_definition(
     }
     let mut rendered = render_claude_template(&definition.content, &replacements);
 
-    let has_argument_placeholder = definition.content.contains("$ARGUMENTS")
-        || (0..parsed_arguments.len()).any(|position| {
-            definition
-                .content
-                .contains(&format!("$ARGUMENTS[{position}]"))
-                || definition.content.contains(&format!("${position}"))
-        })
-        || definition
-            .argument_names
-            .iter()
-            .any(|name| definition.content.contains(&format!("${name}")));
+    let has_argument_placeholder = content_uses_argument_placeholder(&definition.content);
     if !argument_text.is_empty() && !has_argument_placeholder {
         rendered = format!("{}\n\nARGUMENTS: {}", rendered.trim_end(), argument_text);
     }
@@ -634,6 +630,25 @@ fn render_claude_template(template: &str, replacements: &HashMap<String, String>
     rendered
 }
 
+fn content_uses_argument_placeholder(template: &str) -> bool {
+    let mut cursor = 0usize;
+    while cursor < template.len() {
+        let Some(relative_index) = template[cursor..].find('$') else {
+            return false;
+        };
+        let start = cursor + relative_index;
+        let Some((placeholder, end)) = claude_placeholder_at(template, start) else {
+            cursor = start + 1;
+            continue;
+        };
+        if placeholder != "${CLAUDE_SKILL_DIR}" {
+            return true;
+        }
+        cursor = end;
+    }
+    false
+}
+
 fn claude_placeholder_at(template: &str, start: usize) -> Option<(&str, usize)> {
     let rest = template.get(start..)?;
     if rest.starts_with("${CLAUDE_SKILL_DIR}") {
@@ -660,10 +675,11 @@ fn claude_placeholder_at(template: &str, start: usize) -> Option<(&str, usize)> 
         }
     }
     if rest.starts_with("$ARGUMENTS") {
-        return Some((
-            &template[start..start + "$ARGUMENTS".len()],
-            start + "$ARGUMENTS".len(),
-        ));
+        let end = start + "$ARGUMENTS".len();
+        if is_claude_placeholder_boundary(template, end) {
+            return Some((&template[start..end], end));
+        }
+        return None;
     }
     let name_start = start + '$'.len_utf8();
     let mut name_end = name_start;
@@ -677,6 +693,14 @@ fn claude_placeholder_at(template: &str, start: usize) -> Option<(&str, usize)> 
         name_end += candidate.len_utf8();
     }
     (name_end > name_start).then_some((&template[start..name_end], name_end))
+}
+
+fn is_claude_placeholder_boundary(template: &str, index: usize) -> bool {
+    template[index..]
+        .chars()
+        .next()
+        .map(|character| !is_name_char(character) && character != '[')
+        .unwrap_or(true)
 }
 
 fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
@@ -1109,6 +1133,30 @@ mod tests {
         assert!(!commands.iter().any(|command| command.name == command_name));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn skips_symlinked_claude_roots() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new();
+        let outside_dir = TestDir::new();
+        let claude_dir = test_dir.path.join(".claude");
+        let command_name = unique_claude_name("outside");
+        fs::create_dir_all(&claude_dir).expect("claude dir should be created");
+        fs::write(
+            outside_dir.path.join(format!("{command_name}.md")),
+            "Outside command",
+        )
+        .expect("outside command should be written");
+        symlink(&outside_dir.path, claude_dir.join("commands"))
+            .expect("symlinked command root should be created");
+
+        let commands =
+            load_claude_command_definitions(&test_dir.path.to_string_lossy()).expect("commands");
+
+        assert!(!commands.iter().any(|command| command.name == command_name));
+    }
+
     #[test]
     fn preserves_single_quoted_backslashes_in_claude_arguments() {
         let test_dir = TestDir::new();
@@ -1146,6 +1194,51 @@ mod tests {
         .expect("argument should resolve");
 
         assert_eq!(resolved, "First: Second:value Third:");
+    }
+
+    #[test]
+    fn matches_claude_arguments_placeholder_only_on_boundaries() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("args");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::write(
+            command_root.join(format!("{command_name}.md")),
+            "Keep $ARGUMENTS_JSON and $ARGUMENTS[]\nArgs: $ARGUMENTS",
+        )
+        .expect("command should be written");
+
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/{command_name} one two"),
+        )
+        .expect("argument should resolve");
+
+        assert_eq!(
+            resolved,
+            "Keep $ARGUMENTS_JSON and $ARGUMENTS[]\nArgs: one two"
+        );
+    }
+
+    #[test]
+    fn appends_claude_arguments_when_only_prefixed_argument_literal_exists() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("args");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::write(
+            command_root.join(format!("{command_name}.md")),
+            "Keep $ARGUMENTS_SUFFIX",
+        )
+        .expect("command should be written");
+
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/{command_name} value"),
+        )
+        .expect("argument should resolve");
+
+        assert_eq!(resolved, "Keep $ARGUMENTS_SUFFIX\n\nARGUMENTS: value");
     }
 
     #[test]
