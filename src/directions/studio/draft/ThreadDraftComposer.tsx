@@ -13,6 +13,7 @@ import type {
   DraftProjectSelection,
   ModelOption,
   ReasoningEffort,
+  SavedDraftThreadState,
 } from "../../../lib/types";
 import { useConversationStore } from "../../../stores/conversation-store";
 import { EMPTY_CONVERSATION_COMPOSER_DRAFT } from "../../../stores/conversation-drafts";
@@ -310,6 +311,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoaded, setBranchesLoaded] = useState(draft.kind === "chat");
   const [isSending, setIsSending] = useState(false);
+  const [isRetargeting, setIsRetargeting] = useState(false);
   const [hasSentOnce, setHasSentOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optimisticMessage, setOptimisticMessage] =
@@ -323,6 +325,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     setOptimisticMessage(null);
     setError(null);
     setIsSending(false);
+    setIsRetargeting(false);
   }, [draftKey]);
 
   useEffect(() => {
@@ -522,12 +525,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       projectId: next.projectId,
     };
     if (draft.kind === "chat") {
-      moveDraftThreadState(draft, nextTarget, {
-        composerDraft: cloneComposerDraft(composerDraft),
-        composer: { ...composer },
-        projectSelection: next.target as DraftProjectSelection,
-      });
-      updateThreadDraftTarget(paneId, nextTarget);
+      void moveChatDraftToProject(next, nextTarget);
       return;
     }
 
@@ -538,6 +536,47 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         projectSelection: next.target as DraftProjectSelection,
       }));
     });
+  }
+
+  async function moveChatDraftToProject(
+    next: DraftLocationSelection & { kind: "project" },
+    nextTarget: ThreadDraftState,
+  ) {
+    const sourceTarget = draft;
+    const fallbackSourceState: SavedDraftThreadState = {
+      composerDraft: cloneComposerDraft(composerDraft),
+      composer: { ...composer },
+      projectSelection: null,
+    };
+    const sourceKey = draftThreadTargetKey(sourceTarget);
+    let latestSourceState =
+      selectDraftThreadState(sourceTarget)(useWorkspaceStore.getState()) ?? null;
+
+    if (!latestSourceState) {
+      setIsRetargeting(true);
+      setError(null);
+      await hydrateDraftThreadState(sourceTarget);
+      const workspaceState = useWorkspaceStore.getState();
+      latestSourceState =
+        selectDraftThreadState(sourceTarget)(workspaceState) ?? null;
+      if (
+        !latestSourceState &&
+        workspaceState.draftHydrationByTargetKey[sourceKey] === "error"
+      ) {
+        setError("Unable to load the chat draft. Try moving it again.");
+        setIsRetargeting(false);
+        return;
+      }
+      setIsRetargeting(false);
+    }
+
+    const sourceState = latestSourceState ?? fallbackSourceState;
+    moveDraftThreadState(sourceTarget, nextTarget, {
+      composerDraft: cloneComposerDraft(sourceState.composerDraft),
+      composer: { ...sourceState.composer },
+      projectSelection: next.target as DraftProjectSelection,
+    });
+    updateThreadDraftTarget(paneId, nextTarget);
   }
 
   async function handleSend(
@@ -746,7 +785,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
               }
         }
         onChange={handleLocationChange}
-        disabled={isSending}
+        disabled={isSending || isRetargeting}
       />
       {error ? <p className="thread-draft__error">{error}</p> : null}
     </div>

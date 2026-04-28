@@ -29,6 +29,7 @@ import {
   normalizeDraftThreadState,
   persistedDraftThreadState,
   persistenceModeForDraftThreadChange,
+  scheduleDraftThreadMovePersistence,
   scheduleDraftThreadPersistence,
   sameDraftThreadState,
 } from "./draft-threads";
@@ -855,14 +856,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!normalizedDestination) {
       return;
     }
-    scheduleDraftThreadPersistence(
+    scheduleDraftThreadMovePersistence(
+      source,
       destination,
       persistedDestination,
-      "immediate",
     );
-    if (sourceKey !== destinationKey) {
-      scheduleDraftThreadPersistence(source, null, "immediate");
-    }
   },
 
   clearDraftThreadState: (target) => {

@@ -29,9 +29,20 @@ type DraftThreadPersistenceController = {
   timeoutId: ReturnType<typeof setTimeout> | null;
 };
 
+type DraftThreadMovePersistenceController = {
+  destinationKey: string;
+  epoch: number;
+  sourceKey: string;
+  timeoutId: ReturnType<typeof setTimeout> | null;
+};
+
 const draftThreadPersistenceByKey = new Map<
   string,
   DraftThreadPersistenceController
+>();
+const draftThreadMovePersistenceByKey = new Map<
+  string,
+  DraftThreadMovePersistenceController
 >();
 
 export function draftThreadTargetKey(target: DraftThreadTarget) {
@@ -114,6 +125,7 @@ export function scheduleDraftThreadPersistence(
   mode: DraftThreadPersistenceMode,
 ) {
   const key = draftThreadTargetKey(target);
+  clearDraftThreadMovePersistenceForTargetKey(key);
   const controller = ensureDraftThreadPersistenceController(key);
   controller.queued = state == null ? null : normalizeDraftThreadState(target, state);
 
@@ -133,17 +145,59 @@ export function scheduleDraftThreadPersistence(
   void flushDraftThreadPersistence(target);
 }
 
+export function scheduleDraftThreadMovePersistence(
+  source: DraftThreadTarget,
+  destination: DraftThreadTarget,
+  destinationState: SavedDraftThreadState | null,
+) {
+  const sourceKey = draftThreadTargetKey(source);
+  const destinationKey = draftThreadTargetKey(destination);
+  if (sourceKey === destinationKey) {
+    scheduleDraftThreadPersistence(destination, destinationState, "immediate");
+    return;
+  }
+
+  clearDraftThreadPersistenceByKey(sourceKey);
+  clearDraftThreadPersistenceByKey(destinationKey);
+  clearDraftThreadMovePersistenceForTargetKey(sourceKey);
+  clearDraftThreadMovePersistenceForTargetKey(destinationKey);
+
+  const moveKey = draftThreadMovePersistenceKey(sourceKey, destinationKey);
+  const controller: DraftThreadMovePersistenceController = {
+    destinationKey,
+    epoch: 0,
+    sourceKey,
+    timeoutId: null,
+  };
+  draftThreadMovePersistenceByKey.set(moveKey, controller);
+  void flushDraftThreadMovePersistence(
+    source,
+    destination,
+    destinationState,
+    moveKey,
+    controller.epoch,
+  );
+}
+
 export function clearDraftThreadPersistenceControllers() {
   for (const controller of draftThreadPersistenceByKey.values()) {
     if (controller.timeoutId) {
       clearTimeout(controller.timeoutId);
     }
   }
+  for (const controller of draftThreadMovePersistenceByKey.values()) {
+    if (controller.timeoutId) {
+      clearTimeout(controller.timeoutId);
+    }
+  }
   draftThreadPersistenceByKey.clear();
+  draftThreadMovePersistenceByKey.clear();
 }
 
 export function clearDraftThreadPersistence(target: DraftThreadTarget) {
-  clearDraftThreadPersistenceByKey(draftThreadTargetKey(target));
+  const key = draftThreadTargetKey(target);
+  clearDraftThreadPersistenceByKey(key);
+  clearDraftThreadMovePersistenceForTargetKey(key);
 }
 
 export function clearInvalidDraftThreadPersistenceControllers(
@@ -152,6 +206,17 @@ export function clearInvalidDraftThreadPersistenceControllers(
   for (const key of draftThreadPersistenceByKey.keys()) {
     if (!validKeys.has(key)) {
       clearDraftThreadPersistenceByKey(key);
+    }
+  }
+  for (const [
+    key,
+    controller,
+  ] of draftThreadMovePersistenceByKey.entries()) {
+    if (
+      !validKeys.has(controller.sourceKey) ||
+      !validKeys.has(controller.destinationKey)
+    ) {
+      clearDraftThreadMovePersistenceByKey(key);
     }
   }
 }
@@ -252,6 +317,58 @@ function scheduleDraftThreadRetry(
   }, DRAFT_THREAD_PERSIST_RETRY_MS);
 }
 
+async function flushDraftThreadMovePersistence(
+  source: DraftThreadTarget,
+  destination: DraftThreadTarget,
+  destinationState: SavedDraftThreadState | null,
+  moveKey: string,
+  epoch: number,
+) {
+  if (!isActiveDraftThreadMovePersistence(moveKey, epoch)) {
+    return;
+  }
+
+  try {
+    await bridge.saveDraftThreadState({
+      target: destination,
+      state: destinationState,
+    });
+    if (!isActiveDraftThreadMovePersistence(moveKey, epoch)) {
+      return;
+    }
+
+    await bridge.saveDraftThreadState({
+      target: source,
+      state: null,
+    });
+    if (!isActiveDraftThreadMovePersistence(moveKey, epoch)) {
+      return;
+    }
+
+    draftThreadMovePersistenceByKey.delete(moveKey);
+  } catch {
+    const controller = draftThreadMovePersistenceByKey.get(moveKey);
+    if (!controller || controller.epoch !== epoch || controller.timeoutId) {
+      return;
+    }
+    controller.timeoutId = setTimeout(() => {
+      controller.timeoutId = null;
+      void flushDraftThreadMovePersistence(
+        source,
+        destination,
+        destinationState,
+        moveKey,
+        epoch,
+      );
+    }, DRAFT_THREAD_PERSIST_RETRY_MS);
+  }
+}
+
+function isActiveDraftThreadMovePersistence(moveKey: string, epoch: number) {
+  const controller = draftThreadMovePersistenceByKey.get(moveKey);
+  return controller !== undefined && controller.epoch === epoch;
+}
+
 function clearDraftThreadPersistenceByKey(key: string) {
   const controller = draftThreadPersistenceByKey.get(key);
   if (!controller) {
@@ -265,6 +382,38 @@ function clearDraftThreadPersistenceByKey(key: string) {
     controller.timeoutId = null;
   }
   maybeDisposeDraftThreadPersistenceController(key);
+}
+
+function draftThreadMovePersistenceKey(sourceKey: string, destinationKey: string) {
+  return `${sourceKey}\n${destinationKey}`;
+}
+
+function clearDraftThreadMovePersistenceForTargetKey(targetKey: string) {
+  for (const [
+    key,
+    controller,
+  ] of draftThreadMovePersistenceByKey.entries()) {
+    if (
+      controller.sourceKey === targetKey ||
+      controller.destinationKey === targetKey
+    ) {
+      clearDraftThreadMovePersistenceByKey(key);
+    }
+  }
+}
+
+function clearDraftThreadMovePersistenceByKey(key: string) {
+  const controller = draftThreadMovePersistenceByKey.get(key);
+  if (!controller) {
+    return;
+  }
+
+  controller.epoch += 1;
+  if (controller.timeoutId) {
+    clearTimeout(controller.timeoutId);
+    controller.timeoutId = null;
+  }
+  draftThreadMovePersistenceByKey.delete(key);
 }
 
 function sameComposer(

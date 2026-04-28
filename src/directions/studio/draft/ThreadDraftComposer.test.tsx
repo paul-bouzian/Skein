@@ -125,6 +125,14 @@ function resetConversationState() {
   });
 }
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 function makeDraftThreadState(
   overrides: {
     text?: string;
@@ -443,6 +451,84 @@ describe("ThreadDraftComposer", () => {
       await Promise.resolve();
     });
 
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "project", projectId: "project-1" },
+      state: expectedProjectState,
+    });
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "chat" },
+      state: null,
+    });
+  });
+
+  it("waits for cold chat draft hydration before moving it into a project", async () => {
+    const persistedChatDraft = makeDraftThreadState({
+      text: "Persisted chat survives retarget",
+      images: [{ type: "localImage", path: "/tmp/persisted-chat.png" }],
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+      },
+    });
+    const loadedChatDraft = deferred<SavedDraftThreadState | null>();
+    mockedBridge.getDraftThreadState.mockReturnValueOnce(loadedChatDraft.promise);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestEnvironmentSelectorProps).not.toBeNull();
+    });
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+    });
+
+    expect(
+      useWorkspaceStore.getState().draftStateByTargetKey["project:project-1"],
+    ).toBeUndefined();
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      kind: "chat",
+    });
+    expect(mockedBridge.saveDraftThreadState).not.toHaveBeenCalled();
+
+    await act(async () => {
+      loadedChatDraft.resolve(persistedChatDraft);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const expectedProjectState = makeDraftThreadState({
+      text: "Persisted chat survives retarget",
+      images: [{ type: "localImage", path: "/tmp/persisted-chat.png" }],
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+      },
+      projectSelection: { kind: "local" },
+    });
+
+    await waitFor(() => {
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-1"],
+      ).toEqual(expectedProjectState);
+    });
+    expect(useWorkspaceStore.getState().draftStateByTargetKey.chat).toBeUndefined();
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      kind: "project",
+      projectId: "project-1",
+    });
     expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
       target: { kind: "project", projectId: "project-1" },
       state: expectedProjectState,

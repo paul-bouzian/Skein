@@ -1563,6 +1563,48 @@ describe("workspace store — grid 2x2 panes", () => {
       });
     });
 
+    it("clears the source draft only after the destination draft is persisted", async () => {
+      vi.useFakeTimers();
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const movedState = makeSavedDraftState("Retry after destination save");
+      mockedBridge.saveDraftThreadState.mockRejectedValueOnce(
+        new Error("destination write failed"),
+      );
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(1, {
+        target: projectTarget,
+        state: movedState,
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(2, {
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(3, {
+        target: chatTarget,
+        state: null,
+      });
+      vi.useRealTimers();
+    });
+
     it("keeps newer local draft edits when hydration resolves late", async () => {
       seedTwoThreadWorkspace();
       let resolvePersisted: ((state: SavedDraftThreadState | null) => void) | null =
