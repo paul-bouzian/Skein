@@ -1,7 +1,7 @@
 {
   "name": "skein",
   "private": true,
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Skein is a local-first macOS desktop app for Codex with native review, plans, approvals, and Git workflows",
   "author": "Paul Bouzian",
   "packageManager": "bun@1.2.19",
