@@ -1256,10 +1256,12 @@ describe("workspace store — grid 2x2 panes", () => {
 
     function deferred<T>() {
       let resolve: (value: T) => void = () => {};
-      const promise = new Promise<T>((nextResolve) => {
+      let reject: (reason?: unknown) => void = () => {};
+      const promise = new Promise<T>((nextResolve, nextReject) => {
         resolve = nextResolve;
+        reject = nextReject;
       });
-      return { promise, resolve };
+      return { promise, reject, resolve };
     }
 
     it("openThreadDraft seeds topLeft when the layout is empty", () => {
@@ -1651,6 +1653,58 @@ describe("workspace store — grid 2x2 panes", () => {
         target: chatTarget,
         state: null,
       });
+    });
+
+    it("reflushes a moved destination draft after a previous inflight save fails", async () => {
+      vi.useFakeTimers();
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const previousBaseState = makeSavedDraftState("Previous destination draft");
+      const previousState = {
+        ...previousBaseState,
+        composer: {
+          ...previousBaseState.composer,
+          model: "gpt-5.4-mini",
+        },
+      };
+      const movedState = makeSavedDraftState("Moved after failed save");
+      const firstDestinationSave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(
+        firstDestinationSave.promise,
+      );
+
+      useWorkspaceStore
+        .getState()
+        .updateDraftThreadState(projectTarget, previousState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      await act(async () => {
+        firstDestinationSave.reject(new Error("transient write failure"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(2, {
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(3, {
+        target: chatTarget,
+        state: null,
+      });
+      vi.useRealTimers();
     });
 
     it("keeps newer local draft edits when hydration resolves late", async () => {

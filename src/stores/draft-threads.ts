@@ -164,7 +164,6 @@ export function scheduleDraftThreadMovePersistence(
   }
 
   clearDraftThreadPersistenceByKey(sourceKey);
-  clearDraftThreadPersistenceByKey(destinationKey);
   clearDraftThreadMovePersistenceForSourceKey(sourceKey);
   clearDraftThreadMovePersistenceForSourceKey(destinationKey);
 
