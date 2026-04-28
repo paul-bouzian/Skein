@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::domain::conversation::{
     ComposerPromptArgumentMode, ComposerPromptOption, ComposerSkillOption, ThreadComposerCatalog,
@@ -214,13 +214,10 @@ fn load_claude_commands_from_root(
     commands: &mut HashMap<String, ClaudeCommandDefinition>,
 ) -> AppResult<()> {
     for path in markdown_files_recursively(root)? {
-        let Some(fallback_name) = valid_claude_fallback_name(
-            &path,
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(str::trim),
-            "command",
-        ) else {
+        let fallback_name = claude_command_fallback_name(root, &path);
+        let Some(fallback_name) =
+            valid_claude_fallback_name(&path, fallback_name.as_deref(), "command")
+        else {
             continue;
         };
         let raw = match fs::read_to_string(&path) {
@@ -241,6 +238,29 @@ fn load_claude_commands_from_root(
             .or_insert(parsed);
     }
     Ok(())
+}
+
+fn claude_command_fallback_name(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let mut parts = relative
+        .components()
+        .map(|component| match component {
+            Component::Normal(segment) => segment
+                .to_str()
+                .map(str::trim)
+                .filter(|segment| !segment.is_empty())
+                .map(ToString::to_string),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let file_name = parts.last_mut()?;
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|stem| !stem.is_empty())?;
+    *file_name = stem.to_string();
+    Some(parts.join(":"))
 }
 
 fn valid_claude_fallback_name<'a>(
@@ -884,6 +904,33 @@ mod tests {
 
         assert!(resolved.contains("Deploy to production as canary"));
         assert!(resolved.contains("Use Review the current task too"));
+    }
+
+    #[test]
+    fn loads_nested_claude_commands_with_colon_names() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("create-pr");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        let nested_root = command_root.join("git");
+        fs::create_dir_all(&nested_root).expect("nested command root should be created");
+        fs::write(
+            nested_root.join(format!("{command_name}.md")),
+            "Create PR for $ARGUMENTS",
+        )
+        .expect("nested command should be written");
+
+        let commands =
+            load_claude_command_definitions(&test_dir.path.to_string_lossy()).expect("commands");
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/git:{command_name} current branch"),
+        )
+        .expect("nested command should resolve");
+
+        assert!(commands
+            .iter()
+            .any(|command| command.name == format!("git:{command_name}")));
+        assert_eq!(resolved, "Create PR for current branch");
     }
 
     #[test]
