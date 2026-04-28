@@ -445,7 +445,7 @@ fn parse_claude_definition_file(
     ClaudeCommandDefinition {
         name,
         description,
-        content: content.trim().to_string(),
+        content: content.to_string(),
         path: path.to_string(),
         argument_names,
         argument_hint,
@@ -566,19 +566,19 @@ fn render_claude_definition(
 ) -> AppResult<String> {
     let parsed_arguments = split_shell_arguments(arguments)?;
     let argument_text = parsed_arguments.join(" ");
-    let mut rendered = definition.content.clone();
-    rendered = rendered.replace(
-        "${CLAUDE_SKILL_DIR}",
-        &Path::new(&definition.path)
+    let mut replacements = HashMap::<String, String>::new();
+    replacements.insert(
+        "${CLAUDE_SKILL_DIR}".to_string(),
+        Path::new(&definition.path)
             .parent()
             .map(|path| path.to_string_lossy().to_string())
             .unwrap_or_default(),
     );
     for (index, value) in parsed_arguments.iter().enumerate().rev() {
-        rendered = rendered.replace(&format!("$ARGUMENTS[{index}]"), value);
-        rendered = rendered.replace(&format!("${index}"), value);
+        replacements.insert(format!("$ARGUMENTS[{index}]"), value.clone());
+        replacements.insert(format!("${index}"), value.clone());
     }
-    rendered = rendered.replace("$ARGUMENTS", &argument_text);
+    replacements.insert("$ARGUMENTS".to_string(), argument_text.clone());
     let mut named_arguments = definition
         .argument_names
         .iter()
@@ -587,9 +587,10 @@ fn render_claude_definition(
     named_arguments.sort_by_key(|(_, name)| std::cmp::Reverse(name.len()));
     for (index, name) in named_arguments {
         if let Some(value) = parsed_arguments.get(index) {
-            rendered = rendered.replace(&format!("${name}"), value);
+            replacements.insert(format!("${name}"), value.clone());
         }
     }
+    let mut rendered = render_claude_template(&definition.content, &replacements);
 
     let has_argument_placeholder = definition.content.contains("$ARGUMENTS")
         || (0..parsed_arguments.len()).any(|position| {
@@ -606,6 +607,76 @@ fn render_claude_definition(
         rendered = format!("{}\n\nARGUMENTS: {}", rendered.trim_end(), argument_text);
     }
     Ok(rendered)
+}
+
+fn render_claude_template(template: &str, replacements: &HashMap<String, String>) -> String {
+    let mut rendered = String::with_capacity(template.len());
+    let mut cursor = 0usize;
+    while cursor < template.len() {
+        let Some(relative_index) = template[cursor..].find('$') else {
+            rendered.push_str(&template[cursor..]);
+            break;
+        };
+        let start = cursor + relative_index;
+        rendered.push_str(&template[cursor..start]);
+        let Some((placeholder, end)) = claude_placeholder_at(template, start) else {
+            rendered.push('$');
+            cursor = start + 1;
+            continue;
+        };
+        if let Some(value) = replacements.get(placeholder) {
+            rendered.push_str(value);
+        } else {
+            rendered.push_str(placeholder);
+        }
+        cursor = end;
+    }
+    rendered
+}
+
+fn claude_placeholder_at(template: &str, start: usize) -> Option<(&str, usize)> {
+    let rest = template.get(start..)?;
+    if rest.starts_with("${CLAUDE_SKILL_DIR}") {
+        return Some((
+            &template[start..start + "${CLAUDE_SKILL_DIR}".len()],
+            start + "${CLAUDE_SKILL_DIR}".len(),
+        ));
+    }
+    if rest.starts_with("$ARGUMENTS[") {
+        let digits_start = start + "$ARGUMENTS[".len();
+        let mut end = digits_start;
+        while end < template.len() {
+            let Some(candidate) = template[end..].chars().next() else {
+                break;
+            };
+            if !candidate.is_ascii_digit() {
+                break;
+            }
+            end += candidate.len_utf8();
+        }
+        if end > digits_start && template[end..].starts_with(']') {
+            let close = end + 1;
+            return Some((&template[start..close], close));
+        }
+    }
+    if rest.starts_with("$ARGUMENTS") {
+        return Some((
+            &template[start..start + "$ARGUMENTS".len()],
+            start + "$ARGUMENTS".len(),
+        ));
+    }
+    let name_start = start + '$'.len_utf8();
+    let mut name_end = name_start;
+    while name_end < template.len() {
+        let Some(candidate) = template[name_end..].chars().next() else {
+            break;
+        };
+        if !is_name_char(candidate) {
+            break;
+        }
+        name_end += candidate.len_utf8();
+    }
+    (name_end > name_start).then_some((&template[start..name_end], name_end))
 }
 
 fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
@@ -922,6 +993,48 @@ mod tests {
         .expect("command should resolve");
 
         assert_eq!(resolved, "Move src to dst");
+    }
+
+    #[test]
+    fn preserves_claude_definition_body_whitespace() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("code");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::write(
+            command_root.join(format!("{command_name}.md")),
+            "---\ndescription: Code block\n---\n\n    fn main() {}\n",
+        )
+        .expect("command should be written");
+
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/{command_name}"),
+        )
+        .expect("command should resolve");
+
+        assert_eq!(resolved, "\n    fn main() {}\n");
+    }
+
+    #[test]
+    fn does_not_expand_placeholders_inside_claude_argument_values() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("literal");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::write(
+            command_root.join(format!("{command_name}.md")),
+            "---\narguments: [first, second]\n---\nUse $0 and $first",
+        )
+        .expect("command should be written");
+
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/{command_name} '$second' value"),
+        )
+        .expect("command should resolve");
+
+        assert_eq!(resolved, "Use $second and $second");
     }
 
     #[test]
