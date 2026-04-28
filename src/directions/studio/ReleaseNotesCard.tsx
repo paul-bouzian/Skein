@@ -5,12 +5,11 @@ import { APP_NAME } from "../../lib/app-identity";
 import { openExternalUrl } from "../../lib/shell";
 import { CloseIcon } from "../../shared/Icons";
 import { useAppUpdateStore } from "../../stores/app-update-store";
+import {
+  parseReleaseNotes,
+  type ReleaseNotesBlock,
+} from "./release-notes-parser";
 import "./ReleaseNotesCard.css";
-
-type Block =
-  | { kind: "heading"; text: string }
-  | { kind: "paragraph"; text: string }
-  | { kind: "list"; items: string[] };
 
 export function ReleaseNotesCard() {
   const pending = useAppUpdateStore((store) => store.pendingReleaseNotes);
@@ -91,7 +90,7 @@ export function ReleaseNotesCard() {
   );
 }
 
-function renderBlock(block: Block, index: number): ReactNode {
+function renderBlock(block: ReleaseNotesBlock, index: number): ReactNode {
   switch (block.kind) {
     case "heading":
       return (
@@ -124,67 +123,6 @@ function renderInline(text: string): ReactNode {
     }
     return <Fragment key={index}>{segment}</Fragment>;
   });
-}
-
-function parseReleaseNotes(raw: string | null): Block[] {
-  if (!raw) return [];
-
-  const blocks: Block[] = [];
-  let currentList: string[] | null = null;
-  let currentParagraph: string[] | null = null;
-
-  function flushList() {
-    if (currentList && currentList.length > 0) {
-      blocks.push({ kind: "list", items: currentList });
-    }
-    currentList = null;
-  }
-  function flushParagraph() {
-    if (currentParagraph && currentParagraph.length > 0) {
-      blocks.push({
-        kind: "paragraph",
-        text: currentParagraph.join(" ").trim(),
-      });
-    }
-    currentParagraph = null;
-  }
-
-  for (const line of raw.split("\n").map((value) => value.trim())) {
-    if (!line || isFullChangelogLine(line)) {
-      flushList();
-      flushParagraph();
-      continue;
-    }
-    if (line.startsWith("##") || line.startsWith("# ")) {
-      flushList();
-      flushParagraph();
-      blocks.push({
-        kind: "heading",
-        text: line.replace(/^#+\s*/, "").trim(),
-      });
-      continue;
-    }
-    if (line.startsWith("- ") || line.startsWith("* ")) {
-      flushParagraph();
-      currentList = currentList ?? [];
-      currentList.push(stripAuthorAndPrSuffix(line.slice(2).trim()));
-      continue;
-    }
-    flushList();
-    currentParagraph = currentParagraph ?? [];
-    currentParagraph.push(line);
-  }
-  flushList();
-  flushParagraph();
-  return blocks;
-}
-
-function isFullChangelogLine(line: string): boolean {
-  return /^\*\*Full Changelog\*\*:/i.test(line);
-}
-
-function stripAuthorAndPrSuffix(item: string): string {
-  return item.replace(/\s+by\s+@[\w-]+(?:\s+in\s+#\d+)?\s*$/i, "").trim();
 }
 
 function formatReleaseDate(value: string | null): string | null {
