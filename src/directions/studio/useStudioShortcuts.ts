@@ -87,6 +87,8 @@ export function useStudioShortcuts({
       const standardShortcutBlocked = shouldIgnoreStandardShortcut(event);
       const composerShortcutAllowed =
         !standardShortcutBlocked || isComposerTarget(event.target);
+      const terminalShortcutAllowed =
+        !standardShortcutBlocked || isComposerTarget(event.target);
       const {
         onOpenSettings,
         onRequestApproveOrSubmit,
@@ -174,6 +176,15 @@ export function useStudioShortcuts({
         }
       }
 
+      if (terminalShortcutAllowed && matchesShortcut(event, shortcuts.toggleTerminal)) {
+        event.preventDefault();
+        if (!terminalEnvironmentId) {
+          return;
+        }
+        toggleVisible(terminalEnvironmentId);
+        return;
+      }
+
       if (standardShortcutBlocked) {
         return;
       }
@@ -187,15 +198,6 @@ export function useStudioShortcuts({
       if (matchesShortcut(event, shortcuts.toggleReviewPanel)) {
         event.preventDefault();
         onToggleReviewPanel();
-        return;
-      }
-
-      if (matchesShortcut(event, shortcuts.toggleTerminal)) {
-        event.preventDefault();
-        if (!terminalEnvironmentId) {
-          return;
-        }
-        toggleVisible(terminalEnvironmentId);
         return;
       }
 

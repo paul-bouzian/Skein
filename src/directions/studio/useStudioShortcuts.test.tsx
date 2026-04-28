@@ -238,6 +238,35 @@ describe("useStudioShortcuts", () => {
     expect(useConversationStore.getState().composerByThreadId["thread-1"]).toBeUndefined();
   });
 
+  it("allows the terminal shortcut from the composer textarea", () => {
+    const toggleVisible = vi.fn();
+    useTerminalStore.setState({ toggleVisible });
+
+    render(<Harness renderComposerInput />);
+
+    fireEvent.keyDown(screen.getByLabelText("Composer input"), {
+      key: "J",
+      ...primaryModifier(),
+    });
+
+    expect(toggleVisible).toHaveBeenCalledTimes(1);
+    expect(toggleVisible).toHaveBeenCalledWith("env-1");
+  });
+
+  it("keeps the terminal shortcut blocked in unrelated editable fields", () => {
+    const toggleVisible = vi.fn();
+    useTerminalStore.setState({ toggleVisible });
+
+    render(<Harness />);
+
+    fireEvent.keyDown(screen.getByLabelText("Other input"), {
+      key: "J",
+      ...primaryModifier(),
+    });
+
+    expect(toggleVisible).not.toHaveBeenCalled();
+  });
+
   it("skips studio shortcuts while a modal blocks them", async () => {
     render(<Harness shortcutsBlocked />);
 

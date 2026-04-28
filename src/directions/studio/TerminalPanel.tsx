@@ -15,30 +15,13 @@ import { TerminalView } from "./TerminalView";
 import type { Theme } from "./StudioShell";
 import "./TerminalPanel.css";
 
-const bootstrapOpenPromises = new Map<string, Promise<string | null>>();
-
 type Props = {
   theme: Theme;
 };
 
-function ensureBootstrapTab(
-  environmentId: string,
-  openTab: (environmentId: string) => Promise<string | null>,
-) {
-  const existing = bootstrapOpenPromises.get(environmentId);
-  if (existing) return existing;
-
-  const promise = openTab(environmentId).finally(() => {
-    if (bootstrapOpenPromises.get(environmentId) === promise) {
-      bootstrapOpenPromises.delete(environmentId);
-    }
-  });
-  bootstrapOpenPromises.set(environmentId, promise);
-  return promise;
-}
-
 export function TerminalPanel({ theme }: Props) {
   const openTab = useTerminalStore((s) => s.openTab);
+  const ensureVisible = useTerminalStore((s) => s.ensureVisible);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const activateTab = useTerminalStore((s) => s.activateTab);
   const setVisible = useTerminalStore((s) => s.setVisible);
@@ -83,7 +66,7 @@ export function TerminalPanel({ theme }: Props) {
     if (bootstrapInFlight) return;
     if (bootstrapFailedEnvId === environmentId) return;
     setBootstrapInFlight(true);
-    ensureBootstrapTab(environmentId, openTab)
+    ensureVisible(environmentId)
       .then(() => {
         setBootstrapFailedEnvId(null);
       })
@@ -96,7 +79,7 @@ export function TerminalPanel({ theme }: Props) {
     visible,
     environmentId,
     tabs.length,
-    openTab,
+    ensureVisible,
     bootstrapInFlight,
     bootstrapFailedEnvId,
   ]);
