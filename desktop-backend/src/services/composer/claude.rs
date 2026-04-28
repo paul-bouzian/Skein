@@ -214,12 +214,13 @@ fn load_claude_commands_from_root(
     commands: &mut HashMap<String, ClaudeCommandDefinition>,
 ) -> AppResult<()> {
     for path in markdown_files_recursively(root)? {
-        let Some(fallback_name) = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .map(str::trim)
-            .filter(|stem| !stem.is_empty())
-        else {
+        let Some(fallback_name) = valid_claude_fallback_name(
+            &path,
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::trim),
+            "command",
+        ) else {
             continue;
         };
         let raw = match fs::read_to_string(&path) {
@@ -242,6 +243,24 @@ fn load_claude_commands_from_root(
     Ok(())
 }
 
+fn valid_claude_fallback_name<'a>(
+    path: &Path,
+    candidate: Option<&'a str>,
+    definition_type: &str,
+) -> Option<&'a str> {
+    let name = candidate.filter(|name| !name.is_empty())?;
+    if is_valid_claude_definition_name(name) {
+        return Some(name);
+    }
+    tracing::warn!(
+        path = %path.display(),
+        name,
+        definition_type,
+        "skipping Claude definition with invalid fallback name"
+    );
+    None
+}
+
 fn load_claude_skills_from_root(
     root: &Path,
     skills: &mut HashMap<String, ClaudeCommandDefinition>,
@@ -257,6 +276,7 @@ fn load_claude_skills_from_root(
             return Ok(());
         }
     };
+    let mut directories = Vec::new();
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -284,16 +304,21 @@ fn load_claude_skills_from_root(
             continue;
         }
         let directory = entry.path();
-        let path = directory.join("SKILL.md");
-        if !is_regular_file(&path) {
-            continue;
+        if is_regular_file(&directory.join("SKILL.md")) {
+            directories.push(directory);
         }
-        let Some(fallback_name) = directory
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        else {
+    }
+    directories.sort();
+    for directory in directories {
+        let path = directory.join("SKILL.md");
+        let Some(fallback_name) = valid_claude_fallback_name(
+            &directory,
+            directory
+                .file_name()
+                .and_then(|stem| stem.to_str())
+                .map(str::trim),
+            "skill",
+        ) else {
             continue;
         };
         let raw = match fs::read_to_string(&path) {
@@ -532,11 +557,7 @@ fn first_markdown_paragraph(content: &str) -> Option<String> {
 }
 
 fn is_valid_claude_definition_name(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.chars().all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-        })
+    !value.is_empty() && value.len() <= 64 && value.chars().all(is_name_char)
 }
 
 fn render_claude_definition(
@@ -563,7 +584,7 @@ fn render_claude_definition(
         .iter()
         .enumerate()
         .collect::<Vec<_>>();
-    named_arguments.sort_by(|(_, left), (_, right)| right.len().cmp(&left.len()));
+    named_arguments.sort_by_key(|(_, name)| std::cmp::Reverse(name.len()));
     for (index, name) in named_arguments {
         if let Some(value) = parsed_arguments.get(index) {
             rendered = rendered.replace(&format!("${name}"), value);
@@ -592,6 +613,7 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
     let mut current = String::new();
     let mut quote = None::<char>;
     let mut escaped = false;
+    let mut argument_started = false;
 
     for character in source.chars() {
         if character.is_control() && character != '\t' {
@@ -602,6 +624,7 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
         if escaped {
             current.push(character);
             escaped = false;
+            argument_started = true;
             continue;
         }
         if let Some(active_quote) = quote {
@@ -610,6 +633,7 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
                     quote = None;
                 } else {
                     current.push(character);
+                    argument_started = true;
                 }
                 continue;
             }
@@ -621,6 +645,7 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
                 quote = None;
             } else {
                 current.push(character);
+                argument_started = true;
             }
             continue;
         }
@@ -630,15 +655,18 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
         }
         if character == '"' || character == '\'' {
             quote = Some(character);
+            argument_started = true;
             continue;
         }
         if character.is_whitespace() {
-            if !current.is_empty() {
+            if argument_started {
                 arguments.push(std::mem::take(&mut current));
+                argument_started = false;
             }
             continue;
         }
         current.push(character);
+        argument_started = true;
     }
 
     if escaped {
@@ -651,7 +679,7 @@ fn split_shell_arguments(source: &str) -> AppResult<Vec<String>> {
             "Claude command arguments must close quoted values.".to_string(),
         ));
     }
-    if !current.is_empty() {
+    if argument_started {
         arguments.push(current);
     }
     Ok(arguments)
@@ -824,6 +852,58 @@ mod tests {
     }
 
     #[test]
+    fn skips_claude_definitions_with_invalid_fallback_names() {
+        let test_dir = TestDir::new();
+        let command_root = test_dir.path.join(".claude").join("commands");
+        let invalid_skill_root = test_dir.path.join(".claude").join("skills").join("fix bug");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::create_dir_all(&invalid_skill_root).expect("skill root should be created");
+        fs::write(command_root.join("fix bug.md"), "Bad command")
+            .expect("command should be written");
+        fs::write(invalid_skill_root.join("SKILL.md"), "Bad skill")
+            .expect("skill should be written");
+
+        let mut commands = HashMap::new();
+        let mut skills = HashMap::new();
+        load_claude_commands_from_root(&command_root, &mut commands).expect("commands");
+        load_claude_skills_from_root(&test_dir.path.join(".claude").join("skills"), &mut skills)
+            .expect("skills");
+
+        assert!(commands.is_empty());
+        assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn same_root_claude_skill_collisions_are_sorted_by_directory() {
+        let test_dir = TestDir::new();
+        let skill_name = unique_claude_name("shared");
+        let first_skill = test_dir.path.join(".claude").join("skills").join("alpha");
+        let second_skill = test_dir.path.join(".claude").join("skills").join("zeta");
+        fs::create_dir_all(&first_skill).expect("first skill root should be created");
+        fs::create_dir_all(&second_skill).expect("second skill root should be created");
+        fs::write(
+            first_skill.join("SKILL.md"),
+            format!("---\nname: {skill_name}\n---\nFirst skill"),
+        )
+        .expect("first skill should be written");
+        fs::write(
+            second_skill.join("SKILL.md"),
+            format!("---\nname: {skill_name}\n---\nSecond skill"),
+        )
+        .expect("second skill should be written");
+
+        let mut skills = HashMap::new();
+        load_claude_skills_from_root(&test_dir.path.join(".claude").join("skills"), &mut skills)
+            .expect("skills");
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(
+            skills.get(&skill_name).map(|skill| skill.content.as_str()),
+            Some("First skill")
+        );
+    }
+
+    #[test]
     fn replaces_longer_claude_named_arguments_before_prefixes() {
         let test_dir = TestDir::new();
         let command_name = unique_claude_name("paths");
@@ -932,6 +1012,27 @@ mod tests {
         .expect("argument should resolve");
 
         assert_eq!(resolved, "Path: C:\\tmp\\foo");
+    }
+
+    #[test]
+    fn preserves_empty_quoted_claude_arguments() {
+        let test_dir = TestDir::new();
+        let command_name = unique_claude_name("deploy");
+        let command_root = test_dir.path.join(".claude").join("commands");
+        fs::create_dir_all(&command_root).expect("command root should be created");
+        fs::write(
+            command_root.join(format!("{command_name}.md")),
+            "First:$0 Second:$1 Third:$2",
+        )
+        .expect("command should be written");
+
+        let resolved = resolve_claude_composer_text(
+            &test_dir.path.to_string_lossy(),
+            &format!("/{command_name} \"\" value ''"),
+        )
+        .expect("argument should resolve");
+
+        assert_eq!(resolved, "First: Second:value Third:");
     }
 
     #[test]
