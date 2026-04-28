@@ -156,5 +156,10 @@ function stripHtml(value: string) {
 }
 
 function stripAuthorAndPrSuffix(item: string): string {
-  return item.replace(/\s+by\s+@[\w-]+(?:\s+in\s+#\d+)?\s*$/i, "").trim();
+  return item
+    .replace(
+      /\s+by\s+@[\w-]+(?:\s+in\s+(?:#\d+|https?:\/\/\S+\/pull\/\d+))?\s*$/i,
+      "",
+    )
+    .trim();
 }

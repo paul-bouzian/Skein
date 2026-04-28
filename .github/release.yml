@@ -21,6 +21,6 @@ changelog:
     - title: Documentation
       labels:
         - docs
-    - title: What's Changed
+    - title: Updates
       labels:
         - "*"

@@ -10,7 +10,7 @@ describe("ReleaseNotesCard release note parsing", () => {
 ## What's Changed
 
 - feat: add native updates by @paul-bouzian in #123
-- fix: render notes
+- fix: render notes by @paul-bouzian in https://github.com/paul-bouzian/Skein/pull/124
 
 **Full Changelog**: https://github.com/paul-bouzian/Skein/compare/v0.1.29...v0.1.30`),
     ).toEqual([
