@@ -88,6 +88,12 @@ struct ClaudeSendResult {
     plan_markdown: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct HiddenProviderMessageMarkers {
+    ids: Vec<String>,
+    texts: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(
     tag = "type",
@@ -334,9 +340,10 @@ impl ClaudeRuntimeSession {
         &self,
         context: &ThreadRuntimeContext,
     ) -> AppResult<ThreadConversationSnapshot> {
-        let hidden_provider_message_ids = self
-            .hidden_provider_message_ids_for_thread(&context.thread_id)
+        let mut hidden_provider_markers = self
+            .hidden_provider_message_markers_for_thread(&context.thread_id)
             .await;
+        let persisted_items = item_store::load(&context.thread_id);
         if let Some(provider_thread_id) = context.provider_thread_id.clone() {
             let result = run_claude_worker::<_, ClaudeOpenResult>(
                 None,
@@ -347,16 +354,23 @@ impl ClaudeRuntimeSession {
                 },
             )
             .await?;
+            promote_hidden_provider_message_texts(&mut hidden_provider_markers, &result.messages);
+            promote_legacy_hidden_plan_approval_message(
+                &mut hidden_provider_markers,
+                &result.messages,
+                &persisted_items,
+            );
             let mut snapshot = snapshot_from_claude_messages(
                 context,
                 result.provider_thread_id.or(Some(provider_thread_id)),
                 result.messages,
                 ConversationStatus::Completed,
                 None,
-                &hidden_provider_message_ids,
+                &hidden_provider_markers.ids,
             );
-            snapshot.hidden_provider_message_ids = hidden_provider_message_ids;
-            merge_persisted_claude_items(&mut snapshot, &context.thread_id);
+            snapshot.hidden_provider_message_ids = hidden_provider_markers.ids;
+            snapshot.hidden_provider_message_texts = hidden_provider_markers.texts;
+            merge_persisted_claude_items(&mut snapshot, persisted_items);
             Ok(snapshot)
         } else {
             let messages = context
@@ -375,29 +389,39 @@ impl ClaudeRuntimeSession {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            promote_hidden_provider_message_texts(&mut hidden_provider_markers, &messages);
+            promote_legacy_hidden_plan_approval_message(
+                &mut hidden_provider_markers,
+                &messages,
+                &persisted_items,
+            );
             let mut snapshot = snapshot_from_claude_messages(
                 context,
                 None,
                 messages,
                 ConversationStatus::Idle,
                 None,
-                &hidden_provider_message_ids,
+                &hidden_provider_markers.ids,
             );
-            snapshot.hidden_provider_message_ids = hidden_provider_message_ids;
-            merge_persisted_claude_items(&mut snapshot, &context.thread_id);
+            snapshot.hidden_provider_message_ids = hidden_provider_markers.ids;
+            snapshot.hidden_provider_message_texts = hidden_provider_markers.texts;
+            merge_persisted_claude_items(&mut snapshot, persisted_items);
             Ok(snapshot)
         }
     }
 
-    async fn hidden_provider_message_ids_for_thread(&self, thread_id: &str) -> Vec<String> {
-        let live_ids = self
+    async fn hidden_provider_message_markers_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> HiddenProviderMessageMarkers {
+        let live_markers = self
             .state
             .lock()
             .await
             .snapshots_by_thread
             .get(thread_id)
-            .map(|snapshot| snapshot.hidden_provider_message_ids.clone());
-        live_ids.unwrap_or_else(|| load_hidden_provider_message_ids(thread_id))
+            .map(hidden_provider_message_markers_from_snapshot);
+        live_markers.unwrap_or_else(|| load_hidden_provider_message_markers(thread_id))
     }
 
     pub async fn send_message(
@@ -641,9 +665,29 @@ impl ClaudeRuntimeSession {
         snapshot.provider_thread_id = provider_thread_id.clone();
         snapshot.status = ConversationStatus::Completed;
         snapshot.pending_interactions.clear();
-        if result.messages_authoritative.unwrap_or(true) {
-            let current_outgoing_user_message_id =
-                current_outgoing_user_message_id(&result.messages, &outgoing_text);
+        let messages_authoritative = result.messages_authoritative.unwrap_or(true);
+        let current_outgoing_user_message_id = if messages_authoritative {
+            current_outgoing_user_message_id(&result.messages, &outgoing_text)
+        } else {
+            None
+        };
+        if show_user_message {
+            forget_hidden_provider_message_text(&mut snapshot, &outgoing_text);
+            if let Some(id) = current_outgoing_user_message_id.as_deref() {
+                forget_hidden_provider_message_id(&mut snapshot, id);
+            }
+        } else if let Some(id) = current_outgoing_user_message_id.clone() {
+            remember_hidden_provider_message_id(&mut snapshot, id);
+            forget_hidden_provider_message_text(&mut snapshot, &outgoing_text);
+        } else {
+            remember_hidden_provider_message_text(&mut snapshot, &outgoing_text);
+        }
+        if messages_authoritative {
+            let mut hidden_provider_markers =
+                hidden_provider_message_markers_from_snapshot(&snapshot);
+            promote_hidden_provider_message_texts(&mut hidden_provider_markers, &result.messages);
+            snapshot.hidden_provider_message_ids = hidden_provider_markers.ids;
+            snapshot.hidden_provider_message_texts = hidden_provider_markers.texts;
             let messages = normalize_claude_history_messages(
                 result.messages,
                 hidden_handoff_context.as_deref(),
@@ -652,13 +696,6 @@ impl ClaudeRuntimeSession {
                 show_user_message,
                 &snapshot.hidden_provider_message_ids,
             );
-            if show_user_message {
-                if let Some(id) = current_outgoing_user_message_id {
-                    forget_hidden_provider_message_id(&mut snapshot, &id);
-                }
-            } else if let Some(id) = current_outgoing_user_message_id {
-                remember_hidden_provider_message_id(&mut snapshot, id);
-            }
             merge_claude_messages(&mut snapshot, messages);
         }
         if accept_plan_markdown {
@@ -1492,9 +1529,7 @@ fn normalize_claude_history_messages(
                     ) {
                         message.text = visible_text.to_string();
                     }
-                } else if is_hidden_provider_message(&message, hidden_provider_message_ids)
-                    || is_hidden_handoff_plan_approval_message(&message, hidden_context)
-                {
+                } else if is_hidden_provider_message(&message, hidden_provider_message_ids) {
                     return None;
                 } else {
                     if let Some(visible_text) =
@@ -1562,15 +1597,6 @@ fn is_hidden_provider_message(
             .any(|hidden_id| hidden_id == &message.id)
 }
 
-fn is_hidden_handoff_plan_approval_message(
-    message: &ClaudeSimpleMessage,
-    hidden_context: Option<&str>,
-) -> bool {
-    matches!(message.role, ConversationRole::User)
-        && claude_text_without_hidden_handoff_context(message.text.trim(), hidden_context)
-            .is_some_and(|visible_text| visible_text == plan_approval_message().trim())
-}
-
 fn should_project_current_visible_user_text(
     message_text: &str,
     visible_text: &str,
@@ -1604,16 +1630,28 @@ fn conversation_item_id(item: &ConversationItem) -> &str {
     }
 }
 
-fn merge_persisted_claude_items(snapshot: &mut ThreadConversationSnapshot, thread_id: &str) {
-    merge_persisted_items(&mut snapshot.items, item_store::load(thread_id));
+fn merge_persisted_claude_items(
+    snapshot: &mut ThreadConversationSnapshot,
+    persisted_items: Vec<ConversationItem>,
+) {
+    merge_persisted_items(&mut snapshot.items, persisted_items);
     finalize_opened_claude_snapshot(snapshot);
     reconcile_snapshot_status(snapshot);
 }
 
-fn load_hidden_provider_message_ids(thread_id: &str) -> Vec<String> {
+fn load_hidden_provider_message_markers(thread_id: &str) -> HiddenProviderMessageMarkers {
     snapshot_store::load(thread_id)
-        .map(|snapshot| snapshot.hidden_provider_message_ids)
+        .map(|snapshot| hidden_provider_message_markers_from_snapshot(&snapshot))
         .unwrap_or_default()
+}
+
+fn hidden_provider_message_markers_from_snapshot(
+    snapshot: &ThreadConversationSnapshot,
+) -> HiddenProviderMessageMarkers {
+    HiddenProviderMessageMarkers {
+        ids: snapshot.hidden_provider_message_ids.clone(),
+        texts: snapshot.hidden_provider_message_texts.clone(),
+    }
 }
 
 fn remember_hidden_provider_message_id(snapshot: &mut ThreadConversationSnapshot, id: String) {
@@ -1626,10 +1664,101 @@ fn remember_hidden_provider_message_id(snapshot: &mut ThreadConversationSnapshot
     }
 }
 
+fn remember_hidden_provider_message_text(snapshot: &mut ThreadConversationSnapshot, text: &str) {
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    if !snapshot
+        .hidden_provider_message_texts
+        .iter()
+        .any(|existing_text| existing_text == text)
+    {
+        snapshot
+            .hidden_provider_message_texts
+            .push(text.to_string());
+    }
+}
+
 fn forget_hidden_provider_message_id(snapshot: &mut ThreadConversationSnapshot, id: &str) {
     snapshot
         .hidden_provider_message_ids
         .retain(|existing_id| existing_id != id);
+}
+
+fn forget_hidden_provider_message_text(snapshot: &mut ThreadConversationSnapshot, text: &str) {
+    let text = text.trim();
+    snapshot
+        .hidden_provider_message_texts
+        .retain(|existing_text| existing_text != text);
+}
+
+fn promote_hidden_provider_message_texts(
+    markers: &mut HiddenProviderMessageMarkers,
+    messages: &[ClaudeSimpleMessage],
+) {
+    let mut pending_texts = Vec::new();
+    for text in std::mem::take(&mut markers.texts) {
+        if let Some(id) = latest_user_message_id_with_text(messages, &text) {
+            remember_hidden_provider_message_marker_id(markers, id);
+        } else {
+            pending_texts.push(text);
+        }
+    }
+    markers.texts = pending_texts;
+}
+
+fn promote_legacy_hidden_plan_approval_message(
+    markers: &mut HiddenProviderMessageMarkers,
+    messages: &[ClaudeSimpleMessage],
+    persisted_items: &[ConversationItem],
+) {
+    if !markers.ids.is_empty()
+        || !markers.texts.is_empty()
+        || !persisted_items_contain_plan_approval(persisted_items)
+    {
+        return;
+    }
+    if let Some(id) = latest_user_message_id_with_text(messages, plan_approval_message()) {
+        remember_hidden_provider_message_marker_id(markers, id);
+    }
+}
+
+fn latest_user_message_id_with_text(
+    messages: &[ClaudeSimpleMessage],
+    text: &str,
+) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    messages
+        .iter()
+        .rev()
+        .find(|message| {
+            matches!(message.role, ConversationRole::User) && message.text.trim() == text
+        })
+        .map(|message| message.id.clone())
+}
+
+fn remember_hidden_provider_message_marker_id(
+    markers: &mut HiddenProviderMessageMarkers,
+    id: String,
+) {
+    if !markers.ids.iter().any(|existing_id| existing_id == &id) {
+        markers.ids.push(id);
+    }
+}
+
+fn persisted_items_contain_plan_approval(items: &[ConversationItem]) -> bool {
+    items.iter().any(|item| {
+        matches!(
+            item,
+            ConversationItem::System(system)
+                if system.title == "Plan approved"
+                    && system.body.contains("approved the current plan")
+        )
+    })
 }
 
 fn finalize_opened_claude_snapshot(snapshot: &mut ThreadConversationSnapshot) {
@@ -3622,6 +3751,81 @@ printf '%s\n' '{"id":1,"ok":true,"result":{"providerThreadId":"provider-refreshe
     }
 
     #[test]
+    fn pending_hidden_provider_message_text_promotes_latest_matching_provider_id() {
+        let mut markers = HiddenProviderMessageMarkers {
+            ids: Vec::new(),
+            texts: vec![plan_approval_message().to_string()],
+        };
+        let messages = vec![
+            ClaudeSimpleMessage {
+                id: "user-literal".to_string(),
+                role: ConversationRole::User,
+                text: plan_approval_message().to_string(),
+                images: None,
+            },
+            ClaudeSimpleMessage {
+                id: "assistant-old".to_string(),
+                role: ConversationRole::Assistant,
+                text: "Old answer.".to_string(),
+                images: None,
+            },
+            ClaudeSimpleMessage {
+                id: "user-hidden-current".to_string(),
+                role: ConversationRole::User,
+                text: plan_approval_message().to_string(),
+                images: None,
+            },
+        ];
+
+        promote_hidden_provider_message_texts(&mut markers, &messages);
+        let snapshot = snapshot_from_claude_messages(
+            &context(),
+            Some("provider-thread".to_string()),
+            messages,
+            ConversationStatus::Idle,
+            None,
+            &markers.ids,
+        );
+
+        assert_eq!(markers.ids, ["user-hidden-current"]);
+        assert!(markers.texts.is_empty());
+        assert_eq!(snapshot.items.len(), 2);
+        assert!(matches!(
+            &snapshot.items[0],
+            ConversationItem::Message(message)
+                if message.id == "user-literal" && message.text == plan_approval_message()
+        ));
+    }
+
+    #[test]
+    fn legacy_plan_approval_promotion_requires_local_system_item() {
+        let messages = vec![ClaudeSimpleMessage {
+            id: "user-hidden".to_string(),
+            role: ConversationRole::User,
+            text: plan_approval_message().to_string(),
+            images: None,
+        }];
+        let mut markers = HiddenProviderMessageMarkers::default();
+
+        promote_legacy_hidden_plan_approval_message(&mut markers, &messages, &[]);
+        assert!(markers.ids.is_empty());
+
+        let persisted_items = vec![ConversationItem::System(
+            crate::domain::conversation::ConversationSystemItem {
+                id: "system-plan-approved".to_string(),
+                turn_id: None,
+                tone: ConversationTone::Info,
+                title: "Plan approved".to_string(),
+                body: "Skein approved the current plan and switched the thread to Build mode."
+                    .to_string(),
+            },
+        )];
+
+        promote_legacy_hidden_plan_approval_message(&mut markers, &messages, &persisted_items);
+        assert_eq!(markers.ids, ["user-hidden"]);
+    }
+
+    #[test]
     fn claude_history_normalizer_projects_resolved_current_user_message() {
         let visible_text = "C'est super tu peux /code-simplifier puis /git:create-pr";
         let outgoing_text = "C'est super tu peux You are an expert code simplification specialist.";
@@ -3836,6 +4040,44 @@ printf '%s\n' '{"id":1,"ok":true,"result":{"providerThreadId":"provider-refreshe
         assert_eq!(visible.len(), 2);
         assert_eq!(visible[0].id, "assistant-old");
         assert_eq!(visible[1].id, "user-current");
+    }
+
+    #[test]
+    fn claude_history_normalizer_preserves_unmarked_handoff_plan_approval_text() {
+        let hidden = "<handoff_context>\nsource_provider: Codex\n</handoff_context>";
+        let messages = vec![
+            ClaudeSimpleMessage {
+                id: "user-handoff-plan".to_string(),
+                role: ConversationRole::User,
+                text: format!("{hidden}\n\n{}", plan_approval_message()),
+                images: None,
+            },
+            ClaudeSimpleMessage {
+                id: "assistant-old".to_string(),
+                role: ConversationRole::Assistant,
+                text: "Old answer.".to_string(),
+                images: None,
+            },
+            ClaudeSimpleMessage {
+                id: "user-current".to_string(),
+                role: ConversationRole::User,
+                text: "New request".to_string(),
+                images: None,
+            },
+        ];
+
+        let visible = normalize_claude_history_messages(
+            messages,
+            Some(hidden),
+            "New request",
+            "New request",
+            true,
+            &[],
+        );
+
+        assert_eq!(visible.len(), 3);
+        assert_eq!(visible[0].id, "user-handoff-plan");
+        assert_eq!(visible[0].text, plan_approval_message());
     }
 
     #[test]

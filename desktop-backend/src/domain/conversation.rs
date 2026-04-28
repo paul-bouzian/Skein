@@ -596,6 +596,8 @@ pub struct ThreadConversationSnapshot {
     pub codex_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_provider_message_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_provider_message_texts: Vec<String>,
     pub status: ConversationStatus,
     pub active_turn_id: Option<String>,
     pub items: Vec<ConversationItem>,
@@ -640,6 +642,7 @@ impl ThreadConversationSnapshot {
             provider_thread_id,
             codex_thread_id,
             hidden_provider_message_ids: Vec::new(),
+            hidden_provider_message_texts: Vec::new(),
             status: ConversationStatus::Idle,
             active_turn_id: None,
             items: Vec::new(),
