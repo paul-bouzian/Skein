@@ -22,6 +22,7 @@ import {
   type UserInputQuestion,
 } from "./claude-agent-events.js";
 import { allowClaudeTool } from "./claude-agent-permissions.js";
+import { resolveClaudeCodeExecutablePath } from "./claude-code-executable.js";
 
 type WorkerRequest<T = unknown> = {
   id: number;
@@ -161,7 +162,9 @@ function optionsFor(
     resume: payload.providerThreadId?.trim() || undefined,
     permissionMode: mode,
     allowDangerouslySkipPermissions: mode === "bypassPermissions" ? true : undefined,
-    pathToClaudeCodeExecutable: payload.claudeBinaryPath?.trim() || undefined,
+    pathToClaudeCodeExecutable: resolveClaudeCodeExecutablePath({
+      explicitPath: payload.claudeBinaryPath,
+    }),
     effort: payload.effort,
     thinking: payload.supportsThinking
       ? { type: "adaptive", display: "summarized" } as Options["thinking"]

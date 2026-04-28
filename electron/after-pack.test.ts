@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 describe("electron afterPack", () => {
@@ -42,5 +45,15 @@ describe("electron afterPack", () => {
       "-o",
       "/tmp/Skein.app/Contents/MacOS/Skein",
     ]);
+  });
+
+  it("keeps the Claude native binary outside app.asar for child_process spawn", async () => {
+    const packageJson = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8"),
+    ) as { build?: { asarUnpack?: string[] } };
+
+    expect(packageJson.build?.asarUnpack).toContain(
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*",
+    );
   });
 });

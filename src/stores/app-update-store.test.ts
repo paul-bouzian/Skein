@@ -151,6 +151,30 @@ describe("app-update-store", () => {
     expect(mockedBridge.restartApp).not.toHaveBeenCalled();
   });
 
+  it("surfaces a stale update offer instead of ignoring the download click", async () => {
+    useAppUpdateStore.setState({
+      state: "available",
+      snapshot: {
+        currentVersion: "0.1.0",
+        availableVersion: "0.2.0",
+        releaseDate: "2026-04-04T10:00:00Z",
+        notes: "Adds native updater support.",
+        releaseUrl: "https://github.com/paul-bouzian/Skein/releases/tag/v0.2.0",
+      },
+      error: null,
+      noticeVisible: true,
+    });
+
+    await useAppUpdateStore.getState().startDownload();
+
+    expect(updaterDownloadAndInstallMock).not.toHaveBeenCalled();
+    expect(useAppUpdateStore.getState().state).toBe("error");
+    expect(useAppUpdateStore.getState().error).toBe(
+      "Update download is no longer available. Check for updates again.",
+    );
+    expect(useAppUpdateStore.getState().noticeVisible).toBe(true);
+  });
+
   it("skips silent refocus checks when an update is already available", async () => {
     updaterCheckMock.mockResolvedValueOnce(makeUpdate());
 

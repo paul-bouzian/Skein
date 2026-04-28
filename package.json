@@ -74,6 +74,9 @@
     "appId": "com.paulbouzian.skein",
     "productName": "Skein",
     "asar": true,
+    "asarUnpack": [
+      "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*"
+    ],
     "electronUpdaterCompatibility": ">=2.16",
     "directories": {
       "output": "release-artifacts/electron"

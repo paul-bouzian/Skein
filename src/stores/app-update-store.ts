@@ -226,7 +226,19 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
       return;
     }
 
-    if (!pendingUpdate || !get().snapshot) return;
+    const update = pendingUpdate;
+    const snapshot = get().snapshot;
+    if (!update || !snapshot) {
+      await replacePendingUpdate(null);
+      set({
+        state: "error",
+        error: "Update download is no longer available. Check for updates again.",
+        noticeVisible: true,
+        downloadedBytes: 0,
+        contentLength: null,
+      });
+      return;
+    }
 
     set({
       state: "downloading",
@@ -237,14 +249,14 @@ export const useAppUpdateStore = create<UpdateStore>((set, get) => ({
     });
 
     try {
-      await updater.downloadAndInstall(pendingUpdate.id, (event) => {
+      await updater.downloadAndInstall(update.id, (event) => {
         applyDownloadEvent(event, set);
       });
       // Persist as soon as the bytes are on disk so the release notes card
       // still surfaces if the user quits before pressing Install — Electron's
       // updater is configured with autoInstallOnAppQuit, which would otherwise
       // apply the update without us having stored the notes.
-      const pending = snapshotToPendingNotes(get().snapshot);
+      const pending = snapshotToPendingNotes(snapshot);
       if (pending) {
         persistPendingReleaseNotes(pending);
       }
