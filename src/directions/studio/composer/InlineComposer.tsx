@@ -25,6 +25,7 @@ import {
   ArrowUpIcon,
   BoltIcon,
   CloseIcon,
+  HammerIcon,
   ImageIcon,
   MapIcon,
   MicIcon,
@@ -722,7 +723,7 @@ export function InlineComposer({
               disabled={controlsDisabled || !canToggleMode}
               onClick={() => onUpdateComposer({ collaborationMode: nextMode })}
             >
-              <MapIcon size={14} />
+              {isPlanMode ? <MapIcon size={14} /> : <HammerIcon size={16} />}
             </button>
           </Tooltip>
           <Tooltip content={fastModeLabel}>
