@@ -76,6 +76,11 @@
   overflow-x: hidden;
   overflow-y: auto;
   padding-right: var(--tx-space-xs);
+  scrollbar-width: none;
+}
+
+.tx-conversation__timeline::-webkit-scrollbar {
+  display: none;
 }
 
 .tx-conversation__timeline > * {
