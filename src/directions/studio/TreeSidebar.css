@@ -54,7 +54,7 @@
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--tx-space-sm) 0;
+  padding: var(--tx-space-sm) 0 var(--tx-space-xl);
   -webkit-mask-image: linear-gradient(
     to bottom,
     black 0,
