@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../../../lib/bridge";
+import type { SavedDraftThreadState } from "../../../lib/types";
 import {
   INITIAL_CONVERSATION_STATE,
   teardownConversationListener,
@@ -32,7 +33,9 @@ let latestInlineComposerProps: {
     provider?: string;
   }>;
   catalogTarget?: unknown;
+  disabled?: boolean;
   fileSearchTarget?: unknown;
+  isBusy?: boolean;
   transportEnabled?: boolean;
   onSend: (
     text: string,
@@ -56,8 +59,10 @@ vi.mock("../composer/InlineComposer", () => ({
     draft,
     images,
     catalogTarget,
+    disabled,
     modelOptions,
     fileSearchTarget,
+    isBusy,
     transportEnabled,
     onSend,
   }: {
@@ -65,6 +70,7 @@ vi.mock("../composer/InlineComposer", () => ({
     draft: string;
     images: Array<{ type: string }>;
     catalogTarget?: unknown;
+    disabled?: boolean;
     modelOptions: Array<{
       id: string;
       displayName: string;
@@ -72,6 +78,7 @@ vi.mock("../composer/InlineComposer", () => ({
       provider?: string;
     }>;
     fileSearchTarget?: unknown;
+    isBusy?: boolean;
     transportEnabled?: boolean;
     onSend: (
       text: string,
@@ -86,7 +93,9 @@ vi.mock("../composer/InlineComposer", () => ({
       images,
       modelOptions,
       catalogTarget,
+      disabled,
       fileSearchTarget,
+      isBusy,
       transportEnabled,
       onSend,
     };
@@ -122,6 +131,44 @@ function resetConversationState() {
     ...state,
     ...INITIAL_CONVERSATION_STATE,
   });
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+function makeDraftThreadState(
+  overrides: {
+    text?: string;
+    images?: SavedDraftThreadState["composerDraft"]["images"];
+    mentionBindings?: SavedDraftThreadState["composerDraft"]["mentionBindings"];
+    isRefiningPlan?: boolean;
+    composer?: Partial<SavedDraftThreadState["composer"]>;
+    projectSelection?: SavedDraftThreadState["projectSelection"];
+  } = {},
+): SavedDraftThreadState {
+  return {
+    composerDraft: {
+      text: overrides.text ?? "",
+      images: overrides.images ?? [],
+      mentionBindings: overrides.mentionBindings ?? [],
+      isRefiningPlan: overrides.isRefiningPlan ?? false,
+    },
+    composer: {
+      provider: "codex",
+      model: "gpt-5.4",
+      reasoningEffort: "high",
+      collaborationMode: "build",
+      approvalPolicy: "askToEdit",
+      serviceTier: null,
+      ...overrides.composer,
+    },
+    projectSelection: overrides.projectSelection ?? null,
+  };
 }
 
 describe("ThreadDraftComposer", () => {
@@ -314,7 +361,282 @@ describe("ThreadDraftComposer", () => {
     });
   });
 
-  it("preserves the previous project target when switching chat mode back to a project", async () => {
+  it("moves the chat draft into the selected project and clears the chat draft", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      layout: {
+        ...state.layout,
+        slots: {
+          ...state.layout.slots,
+          topLeft: {
+            projectId: state.snapshot?.chat.projectId ?? null,
+            environmentId: null,
+            threadId: null,
+          },
+        },
+        focusedSlot: "topLeft",
+      },
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+      draftStateByTargetKey: {
+        chat: makeDraftThreadState({
+          text: "Move this chat draft",
+          images: [{ type: "localImage", path: "/tmp/chat-image.png" }],
+          mentionBindings: [
+            {
+              mention: "$skein-standards",
+              kind: "skill",
+              path: "/skills/skein-standards",
+              start: 5,
+              end: 21,
+            },
+          ],
+          isRefiningPlan: true,
+          composer: {
+            model: "gpt-5.4-mini",
+            reasoningEffort: "xhigh",
+            collaborationMode: "plan",
+            approvalPolicy: "fullAccess",
+            serviceTier: "fast",
+          },
+        }),
+      },
+    }));
+
+    const expectedProjectState = makeDraftThreadState({
+      text: "Move this chat draft",
+      images: [{ type: "localImage", path: "/tmp/chat-image.png" }],
+      mentionBindings: [
+        {
+          mention: "$skein-standards",
+          kind: "skill",
+          path: "/skills/skein-standards",
+          start: 5,
+          end: 21,
+        },
+      ],
+      isRefiningPlan: true,
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "xhigh",
+        collaborationMode: "plan",
+        approvalPolicy: "fullAccess",
+        serviceTier: "fast",
+      },
+      projectSelection: { kind: "local" },
+    });
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps).toMatchObject({
+        draft: "Move this chat draft",
+        composer: { model: "gpt-5.4-mini" },
+        images: [{ type: "localImage" }],
+      });
+    });
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+    });
+
+    const state = useWorkspaceStore.getState();
+    expect(state.draftStateByTargetKey.chat).toBeUndefined();
+    expect(state.draftStateByTargetKey["project:project-1"]).toEqual(
+      expectedProjectState,
+    );
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      kind: "project",
+      projectId: "project-1",
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "project", projectId: "project-1" },
+      state: expectedProjectState,
+    });
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "chat" },
+      state: null,
+    });
+  });
+
+  it("waits for cold chat draft hydration before moving it into a project", async () => {
+    const persistedChatDraft = makeDraftThreadState({
+      text: "Persisted chat survives retarget",
+      images: [{ type: "localImage", path: "/tmp/persisted-chat.png" }],
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+      },
+    });
+    const loadedChatDraft = deferred<SavedDraftThreadState | null>();
+    mockedBridge.getDraftThreadState.mockReturnValueOnce(loadedChatDraft.promise);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestEnvironmentSelectorProps).not.toBeNull();
+    });
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+    });
+
+    expect(
+      useWorkspaceStore.getState().draftStateByTargetKey["project:project-1"],
+    ).toBeUndefined();
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      kind: "chat",
+    });
+    expect(mockedBridge.saveDraftThreadState).not.toHaveBeenCalled();
+
+    await act(async () => {
+      loadedChatDraft.resolve(persistedChatDraft);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const expectedProjectState = makeDraftThreadState({
+      text: "Persisted chat survives retarget",
+      images: [{ type: "localImage", path: "/tmp/persisted-chat.png" }],
+      composer: {
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        collaborationMode: "plan",
+      },
+      projectSelection: { kind: "local" },
+    });
+
+    await waitFor(() => {
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-1"],
+      ).toEqual(expectedProjectState);
+    });
+    expect(useWorkspaceStore.getState().draftStateByTargetKey.chat).toBeUndefined();
+    expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+      kind: "project",
+      projectId: "project-1",
+    });
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "project", projectId: "project-1" },
+      state: expectedProjectState,
+    });
+    expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+      target: { kind: "chat" },
+      state: null,
+    });
+  });
+
+  it("does not retarget the pane when chat hydration resolves after the slot changed", async () => {
+    const loadedChatDraft = deferred<SavedDraftThreadState | null>();
+    mockedBridge.getDraftThreadState.mockReturnValueOnce(loadedChatDraft.promise);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestEnvironmentSelectorProps).not.toBeNull();
+    });
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        draftBySlot: {
+          topLeft: { kind: "project", projectId: "project-1" },
+        },
+      }));
+    });
+
+    await act(async () => {
+      loadedChatDraft.resolve(makeDraftThreadState({ text: "Too late" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(useWorkspaceStore.getState().draftStateByTargetKey.chat).toEqual(
+      makeDraftThreadState({ text: "Too late" }),
+    );
+    expect(
+      useWorkspaceStore.getState().draftStateByTargetKey["project:project-1"],
+    ).toBeUndefined();
+    expect(mockedBridge.saveDraftThreadState).not.toHaveBeenCalled();
+  });
+
+  it("blocks sends while chat draft retargeting is hydrating", async () => {
+    const loadedChatDraft = deferred<SavedDraftThreadState | null>();
+    mockedBridge.getDraftThreadState.mockReturnValueOnce(loadedChatDraft.promise);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
+
+    render(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+
+    await waitFor(() => {
+      expect(latestEnvironmentSelectorProps).not.toBeNull();
+    });
+
+    act(() => {
+      latestEnvironmentSelectorProps?.onChange({
+        kind: "project",
+        projectId: "project-1",
+        target: { kind: "local" },
+      });
+    });
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps).toMatchObject({
+        disabled: true,
+        isBusy: true,
+      });
+    });
+
+    act(() => {
+      latestInlineComposerProps?.onSend("Do not send yet", [], [], []);
+    });
+
+    expect(mockedSendThreadDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      loadedChatDraft.resolve(makeDraftThreadState({ text: "Move after load" }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  });
+
+  it("replaces the previous project target when moving a chat draft into that project", async () => {
     const { rerender } = render(
       <ThreadDraftComposer
         draft={{ kind: "project", projectId: "project-1" }}
@@ -333,6 +655,12 @@ describe("ThreadDraftComposer", () => {
     });
 
     rerender(<ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />);
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
 
     act(() => {
       latestEnvironmentSelectorProps?.onChange({
@@ -353,40 +681,52 @@ describe("ThreadDraftComposer", () => {
       expect(latestEnvironmentSelectorProps?.value).toEqual({
         kind: "project",
         projectId: "project-1",
-        target: { kind: "new", baseBranch: "main", name: "feature-chat" },
+        target: { kind: "local" },
       });
     });
   });
 
-  it("hydrates the target project draft before applying the chat-to-project local fallback", async () => {
+  it("replaces persisted project draft content when moving a chat draft into that project", async () => {
     mockedBridge.listProjectBranches.mockResolvedValueOnce(["release", "main"]);
-    mockedBridge.getDraftThreadState
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        composerDraft: {
+    mockedBridge.getDraftThreadState.mockResolvedValueOnce(
+      makeDraftThreadState({
+        text: "Chat text wins",
+        images: [{ type: "localImage", path: "/tmp/chat.png" }],
+      }),
+    );
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftStateByTargetKey: {
+        "project:project-1": makeDraftThreadState({
           text: "Persisted project text",
-          images: [],
-          mentionBindings: [],
-          isRefiningPlan: false,
-        },
-        composer: {
-          provider: "codex",
-          model: "gpt-5.4-mini",
-          reasoningEffort: "medium",
-          collaborationMode: "plan",
-          approvalPolicy: "askToEdit",
-          serviceTier: null,
-        },
-        projectSelection: {
-          kind: "new",
-          baseBranch: "release",
-          name: "persisted-worktree",
-        },
-      });
+          composer: {
+            model: "gpt-5.4-mini",
+            reasoningEffort: "medium",
+            collaborationMode: "plan",
+          },
+          projectSelection: {
+            kind: "new",
+            baseBranch: "release",
+            name: "persisted-worktree",
+          },
+        }),
+      },
+    }));
 
     const { rerender } = render(
       <ThreadDraftComposer draft={{ kind: "chat" }} paneId="topLeft" />,
     );
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.draft).toBe("Chat text wins");
+    });
+
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      draftBySlot: {
+        topLeft: { kind: "chat" },
+      },
+    }));
 
     await act(async () => {
       latestEnvironmentSelectorProps?.onChange({
@@ -406,18 +746,16 @@ describe("ThreadDraftComposer", () => {
 
     await waitFor(() => {
       expect(latestInlineComposerProps).toMatchObject({
-        draft: "Persisted project text",
-        composer: { model: "gpt-5.4-mini" },
+        draft: "Chat text wins",
+        composer: { model: "gpt-5.4" },
+        images: [{ type: "localImage" }],
       });
     });
 
-    expect(latestEnvironmentSelectorProps?.value).toMatchObject({
+    expect(latestEnvironmentSelectorProps?.value).toEqual({
       kind: "project",
       projectId: "project-1",
-      target: {
-        kind: "new",
-        name: "persisted-worktree",
-      },
+      target: { kind: "local" },
     });
   });
 

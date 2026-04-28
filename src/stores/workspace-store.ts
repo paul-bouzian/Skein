@@ -22,6 +22,7 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import {
+  clearDraftThreadPersistence,
   clearInvalidDraftThreadPersistenceControllers,
   clearDraftThreadPersistenceControllers,
   defaultDraftThreadState,
@@ -29,6 +30,7 @@ import {
   normalizeDraftThreadState,
   persistedDraftThreadState,
   persistenceModeForDraftThreadChange,
+  scheduleDraftThreadMovePersistence,
   scheduleDraftThreadPersistence,
   sameDraftThreadState,
 } from "./draft-threads";
@@ -191,6 +193,11 @@ type WorkspaceState = {
     updater:
       | SavedDraftThreadState
       | ((state: SavedDraftThreadState) => SavedDraftThreadState),
+  ) => void;
+  moveDraftThreadState: (
+    source: DraftThreadTarget,
+    destination: DraftThreadTarget,
+    state: SavedDraftThreadState,
   ) => void;
   clearDraftThreadState: (target: DraftThreadTarget) => void;
 };
@@ -806,6 +813,57 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  moveDraftThreadState: (source, destination, nextDraftState) => {
+    const sourceKey = draftThreadTargetKey(source);
+    const destinationKey = draftThreadTargetKey(destination);
+    let normalizedDestination: SavedDraftThreadState | null = null;
+    let persistedDestination: SavedDraftThreadState | null = null;
+
+    set((state) => {
+      const settings = state.snapshot?.settings ?? null;
+      if (!settings) {
+        return state;
+      }
+      const normalized = normalizeDraftThreadState(destination, nextDraftState);
+      normalizedDestination = normalized;
+      persistedDestination = persistedDraftThreadState(
+        destination,
+        normalized,
+        settings,
+      );
+      const draftStateByTargetKey = {
+        ...state.draftStateByTargetKey,
+        [destinationKey]: normalized,
+      };
+      if (sourceKey !== destinationKey) {
+        delete draftStateByTargetKey[sourceKey];
+      }
+      return {
+        draftStateByTargetKey,
+        draftHydrationByTargetKey: {
+          ...state.draftHydrationByTargetKey,
+          [sourceKey]: "ready",
+          [destinationKey]: "ready",
+        },
+        draftRevisionByTargetKey: {
+          ...state.draftRevisionByTargetKey,
+          [sourceKey]: (state.draftRevisionByTargetKey[sourceKey] ?? 0) + 1,
+          [destinationKey]:
+            (state.draftRevisionByTargetKey[destinationKey] ?? 0) + 1,
+        },
+      };
+    });
+
+    if (!normalizedDestination) {
+      return;
+    }
+    scheduleDraftThreadMovePersistence(
+      source,
+      destination,
+      persistedDestination,
+    );
+  },
+
   clearDraftThreadState: (target) => {
     const key = draftThreadTargetKey(target);
     set((state) => {
@@ -823,6 +881,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         },
       };
     });
+    clearDraftThreadPersistence(target);
     scheduleDraftThreadPersistence(target, null, "immediate");
   },
 }));

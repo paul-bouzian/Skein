@@ -1254,6 +1254,16 @@ describe("workspace store — grid 2x2 panes", () => {
       };
     }
 
+    function deferred<T>() {
+      let resolve: (value: T) => void = () => {};
+      let reject: (reason?: unknown) => void = () => {};
+      const promise = new Promise<T>((nextResolve, nextReject) => {
+        resolve = nextResolve;
+        reject = nextReject;
+      });
+      return { promise, reject, resolve };
+    }
+
     it("openThreadDraft seeds topLeft when the layout is empty", () => {
       seedTwoThreadWorkspace();
 
@@ -1500,6 +1510,325 @@ describe("workspace store — grid 2x2 panes", () => {
       });
 
       expect(mockedBridge.getDraftThreadState).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves a draft thread state to a project target and clears the source target", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const movedState: SavedDraftThreadState = {
+        composerDraft: {
+          text: "Move this into the project",
+          images: [{ type: "localImage", path: "/tmp/chat-draft.png" }],
+          mentionBindings: [
+            {
+              mention: "$skein-standards",
+              kind: "skill",
+              path: "/skills/skein-standards",
+              start: 5,
+              end: 21,
+            },
+          ],
+          isRefiningPlan: true,
+        },
+        composer: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+          reasoningEffort: "xhigh",
+          collaborationMode: "plan",
+          approvalPolicy: "fullAccess",
+          serviceTier: "fast",
+        },
+        projectSelection: { kind: "local" },
+      };
+
+      useWorkspaceStore.setState((state) => ({
+        ...state,
+        draftStateByTargetKey: {
+          chat: makeSavedDraftState("Old chat draft"),
+          "project:project-a": makeSavedDraftState("Old project draft"),
+        },
+      }));
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      expect(useWorkspaceStore.getState().draftStateByTargetKey.chat).toBeUndefined();
+      expect(
+        useWorkspaceStore.getState().draftStateByTargetKey["project:project-a"],
+      ).toEqual(movedState);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: chatTarget,
+        state: null,
+      });
+    });
+
+    it("clears the source draft only after the destination draft is persisted", async () => {
+      vi.useFakeTimers();
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const movedState = makeSavedDraftState("Retry after destination save");
+      mockedBridge.saveDraftThreadState.mockRejectedValueOnce(
+        new Error("destination write failed"),
+      );
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(1, {
+        target: projectTarget,
+        state: movedState,
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(2, {
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(3, {
+        target: chatTarget,
+        state: null,
+      });
+      vi.useRealTimers();
+    });
+
+    it("still clears the source after destination edits queue behind the move save", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const movedState = makeSavedDraftState("Moved draft");
+      const editedState = makeSavedDraftState("Destination edit");
+      const firstDestinationSave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(
+        firstDestinationSave.promise,
+      );
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore
+        .getState()
+        .updateDraftThreadState(projectTarget, editedState);
+
+      await act(async () => {
+        firstDestinationSave.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectTarget,
+        state: editedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: chatTarget,
+        state: null,
+      });
+    });
+
+    it("clears the source when the move matches an inflight destination save", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const baseMovedState = makeSavedDraftState("Already saving destination");
+      const movedState = {
+        ...baseMovedState,
+        composer: {
+          ...baseMovedState.composer,
+          model: "gpt-5.4-mini",
+        },
+      };
+      const destinationSave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(
+        destinationSave.promise,
+      );
+
+      useWorkspaceStore
+        .getState()
+        .updateDraftThreadState(projectTarget, movedState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      await act(async () => {
+        destinationSave.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(2);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(2, {
+        target: chatTarget,
+        state: null,
+      });
+    });
+
+    it("reflushes a moved destination draft after a previous inflight save fails", async () => {
+      vi.useFakeTimers();
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectTarget = { kind: "project", projectId: "project-a" } as const;
+      const previousBaseState = makeSavedDraftState("Previous destination draft");
+      const previousState = {
+        ...previousBaseState,
+        composer: {
+          ...previousBaseState.composer,
+          model: "gpt-5.4-mini",
+        },
+      };
+      const movedState = makeSavedDraftState("Moved after failed save");
+      const firstDestinationSave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(
+        firstDestinationSave.promise,
+      );
+
+      useWorkspaceStore
+        .getState()
+        .updateDraftThreadState(projectTarget, previousState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectTarget, movedState);
+
+      await act(async () => {
+        firstDestinationSave.reject(new Error("transient write failure"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(2, {
+        target: projectTarget,
+        state: movedState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenNthCalledWith(3, {
+        target: chatTarget,
+        state: null,
+      });
+      vi.useRealTimers();
+    });
+
+    it("preserves upstream source cleanup when a move is retargeted again", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectATarget = { kind: "project", projectId: "project-a" } as const;
+      const projectBTarget = { kind: "project", projectId: "project-b" } as const;
+      const projectAState = makeSavedDraftState("Moved into project A");
+      const projectBState = makeSavedDraftState("Moved into project B");
+      const projectASave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(projectASave.promise);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectATarget, projectAState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(projectATarget, projectBTarget, projectBState);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectBTarget,
+        state: projectBState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: chatTarget,
+        state: null,
+      });
+
+      await act(async () => {
+        projectASave.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectATarget,
+        state: null,
+      });
+    });
+
+    it("does not reuse a cleared destination move as an upstream source", async () => {
+      seedTwoThreadWorkspace();
+      const chatTarget = { kind: "chat" } as const;
+      const projectATarget = { kind: "project", projectId: "project-a" } as const;
+      const projectBTarget = { kind: "project", projectId: "project-b" } as const;
+      const projectAState = makeSavedDraftState("Abandoned project A move");
+      const projectBState = makeSavedDraftState("Move project A to B");
+      const projectASave = deferred<void>();
+      mockedBridge.saveDraftThreadState.mockReturnValueOnce(projectASave.promise);
+
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(chatTarget, projectATarget, projectAState);
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledTimes(1);
+
+      useWorkspaceStore.getState().clearDraftThreadState(projectATarget);
+      useWorkspaceStore
+        .getState()
+        .moveDraftThreadState(projectATarget, projectBTarget, projectBState);
+
+      await act(async () => {
+        projectASave.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectBTarget,
+        state: projectBState,
+      });
+      expect(mockedBridge.saveDraftThreadState).toHaveBeenCalledWith({
+        target: projectATarget,
+        state: null,
+      });
+      expect(mockedBridge.saveDraftThreadState).not.toHaveBeenCalledWith({
+        target: chatTarget,
+        state: null,
+      });
     });
 
     it("keeps newer local draft edits when hydration resolves late", async () => {
