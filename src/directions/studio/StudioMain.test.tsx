@@ -35,6 +35,7 @@ vi.mock("../../shared/Icons", () => ({
   ArrowRightIcon: () => <span data-testid="icon-arrow-right" />,
   ArrowUpIcon: () => <span data-testid="icon-arrow-up" />,
   ChevronRightIcon: () => <span data-testid="icon-chevron-right" />,
+  CloseIcon: () => <span data-testid="icon-close" />,
   GitBranchIcon: () => <span data-testid="icon-git-branch" />,
   PanelLeftIcon: () => <span data-testid="icon-panel-left" />,
   PanelRightIcon: () => <span data-testid="icon-panel-right" />,
@@ -362,6 +363,58 @@ describe("StudioMain", () => {
     expect(updatedComposer.getAttribute("data-instance-id")).toBe(initialInstanceId);
     expect(updatedComposer.getAttribute("data-draft-kind")).toBe("project");
     expect(updatedComposer.getAttribute("data-project-id")).toBe("project-1");
+  });
+
+  it("renders split pane close buttons and closes the selected pane", async () => {
+    const threadA = makeThread({ id: "thread-a", title: "Thread A" });
+    const threadB = makeThread({ id: "thread-b", title: "Thread B" });
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        projects: [
+          makeProject({
+            environments: [
+              makeEnvironment({
+                id: "env-1",
+                path: "/tmp/env-1",
+                threads: [threadA, threadB],
+              }),
+            ],
+          }),
+        ],
+      }),
+      layout: {
+        ...makeEmptyLayout(),
+        slots: {
+          topLeft: {
+            projectId: "project-1",
+            environmentId: "env-1",
+            threadId: "thread-a",
+          },
+          topRight: {
+            projectId: "project-1",
+            environmentId: "env-1",
+            threadId: "thread-b",
+          },
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusedSlot: "topRight",
+      },
+      selectedProjectId: "project-1",
+      selectedEnvironmentId: "env-1",
+      selectedThreadId: "thread-b",
+    }));
+
+    renderStudioMain();
+
+    const closeButtons = screen.getAllByRole("button", { name: "Close pane" });
+    expect(closeButtons).toHaveLength(2);
+
+    await userEvent.click(closeButtons[1]);
+
+    expect(useWorkspaceStore.getState().layout.slots.topRight).toBeNull();
+    expect(screen.getAllByTestId("thread-conversation")).toHaveLength(1);
   });
 
   it("renders the browser toggle button between terminal and inspector", () => {

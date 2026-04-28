@@ -88,20 +88,22 @@ export function StudioPane({
     >
       <div className="studio-main__pane-scroll">{content}</div>
       {isSplit && (
-        <Tooltip content="Close pane" side="bottom">
-          <button
-            type="button"
-            aria-label="Close pane"
-            className="studio-main__pane-close"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              closePane(paneId);
-            }}
-          >
-            <CloseIcon size={12} />
-          </button>
-        </Tooltip>
+        <div className="studio-main__pane-close-shell">
+          <Tooltip content="Close pane" side="bottom">
+            <button
+              type="button"
+              aria-label="Close pane"
+              className="studio-main__pane-close"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                closePane(paneId);
+              }}
+            >
+              <CloseIcon size={12} />
+            </button>
+          </Tooltip>
+        </div>
       )}
     </section>
   );
