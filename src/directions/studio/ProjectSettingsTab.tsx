@@ -138,8 +138,8 @@ export function ProjectSettingsTab({
                     Setup Script
                   </label>
                   <p className="settings-field__help">
-                    Runs once after {APP_NAME} creates the worktree, from the worktree dir.
-                    Non-blocking.
+                    Saved in skein.json. Runs once after {APP_NAME} creates the worktree, from
+                    the worktree dir. Non-blocking.
                   </p>
                   <textarea
                     id={`${project.id}-setup-script`}
@@ -171,8 +171,8 @@ export function ProjectSettingsTab({
                     Teardown Script
                   </label>
                   <p className="settings-field__help">
-                    Runs after {APP_NAME} deletes the worktree, from the project root. `SKEIN_*`
-                    env vars expose context.
+                    Saved in skein.json. Runs after {APP_NAME} deletes the worktree, from the
+                    project root. `SKEIN_*` env vars expose context.
                   </p>
                   <textarea
                     id={`${project.id}-teardown-script`}
@@ -201,8 +201,7 @@ export function ProjectSettingsTab({
                     <div className="settings-project-actions__copy">
                       <h3 className="settings-project-actions__title">Actions</h3>
                       <p className="settings-field__help">
-                        Reusable actions for every environment in this project, shown beside the
-                        terminal and Open In controls.
+                        Saved in skein.json and available in every environment in this project.
                       </p>
                     </div>
                     <button

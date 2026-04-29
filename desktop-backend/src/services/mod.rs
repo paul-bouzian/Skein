@@ -1,6 +1,7 @@
 pub mod composer;
 pub mod git;
 pub mod open;
+pub mod project_config;
 pub mod prompt_naming;
 pub mod provider_usage;
 pub mod pull_requests;

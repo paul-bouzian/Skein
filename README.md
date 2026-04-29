@@ -32,6 +32,33 @@ Skein is intentionally:
 
 The local repository itself is the default environment for a project. Worktrees become additional environments under that project, while multiple threads can coexist inside the same environment.
 
+## Repository configuration
+
+Project worktree scripts and reusable terminal actions are stored in `skein.json` at the repository root. Commit this file when you want everyone using Skein on the same repo to share setup scripts, teardown scripts, and actions.
+
+Example:
+
+```json
+{
+  "version": 1,
+  "worktree": {
+    "setupScript": "bun install",
+    "teardownScript": "./scripts/cleanup.sh"
+  },
+  "actions": [
+    {
+      "id": "dev",
+      "label": "Dev",
+      "icon": "play",
+      "script": "bun run dev",
+      "shortcut": "Cmd+Shift+D"
+    }
+  ]
+}
+```
+
+Do not store secrets in `skein.json`; keep credentials in environment variables or your existing secret store.
+
 ## Current status
 
 Skein is already usable as a serious local Codex desktop workflow, but it is still an early public build.

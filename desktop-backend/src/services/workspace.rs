@@ -24,6 +24,7 @@ use crate::domain::workspace::{
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::database::AppDatabase;
 use crate::services::git::{self, GitEnvironmentContext};
+use crate::services::project_config;
 use crate::services::worktree_scripts::{WorktreeScriptRequest, WorktreeScriptService};
 use crate::services::{prompt_naming, thread_titles, worktree_names};
 
@@ -549,38 +550,41 @@ impl WorkspaceService {
         &self,
         input: UpdateProjectSettingsRequest,
     ) -> AppResult<ProjectRecord> {
-        let mut connection = self.database.open()?;
+        let connection = self.database.open()?;
         self.ensure_repository_project_with_connection(&connection, &input.project_id)?;
-        let transaction = connection.transaction()?;
-        let global_settings = self.read_or_seed_stored_settings(&transaction)?;
-        let settings_json = transaction
+        let global_settings = self.read_or_seed_stored_settings(&connection)?;
+        let (root_path, settings_json) = connection
             .query_row(
                 "
-                SELECT settings_json
+                SELECT root_path, settings_json
                 FROM projects
                 WHERE id = ?1 AND archived_at IS NULL AND kind = 'repository'
                 ",
                 params![input.project_id],
-                |row| row.get::<_, String>(0),
+                |row| {
+                    Ok((
+                        PathBuf::from(row.get::<_, String>(0)?),
+                        row.get::<_, String>(1)?,
+                    ))
+                },
             )
             .optional()?
             .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
-        let mut settings = project_settings_from_json(&settings_json, 0)?;
+        let stored_settings = project_settings_from_json(&settings_json, 1)?;
+        let mut settings = project_config::read_project_settings(&root_path, &stored_settings)?;
         settings.apply_patch(input.patch);
         settings
             .validate(Some(&global_settings.shortcuts))
             .map_err(AppError::Validation)?;
-        let payload = serde_json::to_string(&settings)
-            .map_err(|error| AppError::Validation(error.to_string()))?;
-        transaction.execute(
+        project_config::write_project_settings(&root_path, &settings)?;
+        connection.execute(
             "
             UPDATE projects
-            SET settings_json = ?1, updated_at = ?2
-            WHERE id = ?3 AND archived_at IS NULL AND kind = 'repository'
+            SET updated_at = ?1
+            WHERE id = ?2 AND archived_at IS NULL AND kind = 'repository'
             ",
-            params![payload, Utc::now(), input.project_id],
+            params![Utc::now(), input.project_id],
         )?;
-        transaction.commit()?;
 
         self.project_by_id(&input.project_id, Vec::new())
     }
@@ -2353,7 +2357,7 @@ impl WorkspaceService {
 
     fn project_metadata(&self, project_id: &str) -> AppResult<ProjectMetadata> {
         let connection = self.database.open()?;
-        connection
+        let metadata = connection
             .query_row(
                 "
                 SELECT kind, name, root_path, settings_json
@@ -2371,7 +2375,20 @@ impl WorkspaceService {
                 },
             )
             .optional()?
-            .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))
+            .ok_or_else(|| AppError::NotFound("Project not found.".to_string()))?;
+
+        Ok(ProjectMetadata {
+            settings: self.effective_project_settings(&metadata.root_path, &metadata.settings)?,
+            ..metadata
+        })
+    }
+
+    fn effective_project_settings(
+        &self,
+        project_root: &Path,
+        stored_settings: &ProjectSettings,
+    ) -> AppResult<ProjectSettings> {
+        project_config::read_project_settings(project_root, stored_settings)
     }
 
     fn validate_draft_thread_target_with_connection(
@@ -2620,7 +2637,7 @@ impl WorkspaceService {
         environment_id: &str,
     ) -> AppResult<ProjectActionEnvironmentMetadata> {
         let connection = self.database.open()?;
-        connection
+        let metadata = connection
             .query_row(
                 "
                 SELECT
@@ -2653,7 +2670,13 @@ impl WorkspaceService {
                 },
             )
             .optional()?
-            .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))
+            .ok_or_else(|| AppError::NotFound("Environment not found.".to_string()))?;
+
+        Ok(ProjectActionEnvironmentMetadata {
+            project_settings: self
+                .effective_project_settings(&metadata.project_root, &metadata.project_settings)?,
+            ..metadata
+        })
     }
 
     fn deletable_worktree_environment_metadata(
@@ -2834,7 +2857,9 @@ impl WorkspaceService {
 
         let mut projects = Vec::new();
         let mut project_index = HashMap::new();
-        for project in project_rows.collect::<Result<Vec<_>, _>>()? {
+        for mut project in project_rows.collect::<Result<Vec<_>, _>>()? {
+            project.settings =
+                self.effective_project_settings(Path::new(&project.root_path), &project.settings)?;
             let index = projects.len();
             project_index.insert(project.id.clone(), index);
             projects.push(project);
@@ -3399,20 +3424,23 @@ fn validate_project_shortcuts_against_global_settings(
 ) -> AppResult<()> {
     let mut statement = connection.prepare(
         "
-        SELECT name, settings_json
+        SELECT name, root_path, settings_json
         FROM projects
-        WHERE archived_at IS NULL
+        WHERE archived_at IS NULL AND kind = 'repository'
         ",
     )?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
-            project_settings_from_json(&row.get::<_, String>(1)?, 1)?,
+            PathBuf::from(row.get::<_, String>(1)?),
+            project_settings_from_json(&row.get::<_, String>(2)?, 2)?,
         ))
     })?;
 
     for row in rows {
-        let (project_name, project_settings) = row?;
+        let (project_name, project_root, stored_settings) = row?;
+        let project_settings =
+            project_config::read_project_settings(&project_root, &stored_settings)?;
         project_settings
             .validate(Some(shortcuts))
             .map_err(|error| {
@@ -3453,8 +3481,8 @@ mod tests {
     use crate::domain::shortcuts::{ShortcutSettings, ShortcutSettingsPatch};
     use crate::domain::workspace::{
         DraftProjectSelection, DraftThreadTarget, EnvironmentKind, EnvironmentPullRequestSnapshot,
-        ProjectActionIcon, ProjectManualAction, ProjectSettingsPatch, PullRequestState,
-        SavedDraftThreadState, ThreadOverrides, ThreadStatus,
+        ProjectActionIcon, ProjectManualAction, ProjectSettings, ProjectSettingsPatch,
+        PullRequestState, SavedDraftThreadState, ThreadOverrides, ThreadStatus,
     };
     use crate::error::AppError;
     use crate::services::git;
@@ -3595,6 +3623,128 @@ mod tests {
 
         assert!(error.to_string().contains("Project \"skein\""));
         assert!(error.to_string().contains("Toggle terminal"));
+    }
+
+    #[test]
+    fn update_project_settings_persists_shared_repo_config() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("skein"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+
+        let updated = harness
+            .service
+            .update_project_settings(UpdateProjectSettingsRequest {
+                project_id: project.id.clone(),
+                patch: ProjectSettingsPatch {
+                    worktree_setup_script: Some(Some("bun install".to_string())),
+                    worktree_teardown_script: Some(Some("./scripts/cleanup.sh".to_string())),
+                    manual_actions: Some(Some(vec![ProjectManualAction {
+                        id: "dev".to_string(),
+                        label: "Dev".to_string(),
+                        icon: ProjectActionIcon::Play,
+                        script: "bun run dev".to_string(),
+                        shortcut: None,
+                    }])),
+                },
+            })
+            .expect("project settings should update");
+
+        let config = fs::read_to_string(repo.path.join("skein.json"))
+            .expect("shared project config should be written");
+        assert!(config.contains("\"version\": 1"));
+        assert!(config.contains("\"setupScript\": \"bun install\""));
+        assert!(config.contains("\"teardownScript\": \"./scripts/cleanup.sh\""));
+        assert!(config.contains("\"actions\""));
+        assert_eq!(
+            updated.settings,
+            ProjectSettings {
+                worktree_setup_script: Some("bun install".to_string()),
+                worktree_teardown_script: Some("./scripts/cleanup.sh".to_string()),
+                manual_actions: vec![ProjectManualAction {
+                    id: "dev".to_string(),
+                    label: "Dev".to_string(),
+                    icon: ProjectActionIcon::Play,
+                    script: "bun run dev".to_string(),
+                    shortcut: None,
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn snapshot_loads_shared_repo_config_over_stored_settings() {
+        let harness = WorkspaceHarness::new().expect("harness");
+        let repo = harness
+            .create_repo(&harness.temp_root.join("repos").join("skein"))
+            .expect("repo");
+        let project = harness
+            .service
+            .add_project(AddProjectRequest {
+                path: repo.path.to_string_lossy().to_string(),
+                name: None,
+            })
+            .expect("project should be added");
+        let stored_settings = ProjectSettings {
+            worktree_setup_script: Some("legacy setup".to_string()),
+            worktree_teardown_script: None,
+            manual_actions: Vec::new(),
+        };
+        harness
+            .open_connection()
+            .execute(
+                "UPDATE projects SET settings_json = ?1 WHERE id = ?2",
+                params![
+                    serde_json::to_string(&stored_settings).expect("stored settings json"),
+                    project.id
+                ],
+            )
+            .expect("stored settings should update");
+        fs::write(
+            repo.path.join("skein.json"),
+            r#"{
+  "version": 1,
+  "worktree": {
+    "setupScript": "bun install"
+  },
+  "actions": [
+    {
+      "id": "test",
+      "label": "Test",
+      "icon": "test",
+      "script": "bun test",
+      "shortcut": null
+    }
+  ]
+}
+"#,
+        )
+        .expect("shared config should be written");
+
+        let snapshot = harness
+            .service
+            .snapshot(Vec::new())
+            .expect("snapshot should load");
+        let project = snapshot
+            .projects
+            .into_iter()
+            .find(|candidate| candidate.id == project.id)
+            .expect("project should exist");
+
+        assert_eq!(
+            project.settings.worktree_setup_script.as_deref(),
+            Some("bun install")
+        );
+        assert_eq!(project.settings.worktree_teardown_script, None);
+        assert_eq!(project.settings.manual_actions.len(), 1);
+        assert_eq!(project.settings.manual_actions[0].id, "test");
     }
 
     #[test]
