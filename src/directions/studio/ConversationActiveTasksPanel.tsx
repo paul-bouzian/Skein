@@ -7,6 +7,7 @@ import type {
   SubagentThreadSnapshot,
 } from "../../lib/types";
 import { CheckIcon, ChecklistIcon, ChevronRightIcon } from "../../shared/Icons";
+import { SmoothCollapse } from "../../shared/SmoothCollapse";
 import "./ConversationActiveTasksPanel.css";
 
 type Props = {
@@ -68,7 +69,7 @@ export function ConversationActiveTasksPanel({
           }`}
         />
       </button>
-      {expanded ? (
+      <SmoothCollapse open={expanded}>
         <div className="tx-active-tasks__body">
           {hasTasks ? (
             <ol className="tx-active-tasks__list">
@@ -93,7 +94,7 @@ export function ConversationActiveTasksPanel({
             />
           ) : null}
         </div>
-      ) : null}
+      </SmoothCollapse>
     </aside>
   );
 }
@@ -181,7 +182,7 @@ function BackgroundAgentsSection({
         </span>
         <span className="tx-active-tasks__agents-summary">{summary}</span>
       </button>
-      {expanded ? (
+      <SmoothCollapse open={expanded}>
         <ul className="tx-active-tasks__agents-list">
           {subagents.map((subagent, index) => (
             <li
@@ -206,7 +207,7 @@ function BackgroundAgentsSection({
             </li>
           ))}
         </ul>
-      ) : null}
+      </SmoothCollapse>
     </div>
   );
 }

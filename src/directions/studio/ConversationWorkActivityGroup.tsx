@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ProviderKind } from "../../lib/types";
 import { ChevronRightIcon } from "../../shared/Icons";
+import { SmoothCollapse } from "../../shared/SmoothCollapse";
 import { ConversationItemRow } from "./ConversationItemRow";
 import type {
   ConversationWorkActivityGroup as ConversationWorkActivityGroupData,
@@ -88,7 +89,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
         />
         <span className="tx-work-activity__label">{headerLabel}</span>
       </button>
-      {expanded && hasContent ? (
+      <SmoothCollapse open={expanded && hasContent}>
         <div className="tx-work-activity__body">
           {group.items.map((item) => (
             <ConversationItemRow
@@ -99,7 +100,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
             />
           ))}
         </div>
-      ) : null}
+      </SmoothCollapse>
     </section>
   );
 }

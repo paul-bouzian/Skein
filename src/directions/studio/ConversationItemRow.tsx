@@ -19,6 +19,7 @@ import {
   WrenchIcon,
   type IconProps,
 } from "../../shared/Icons";
+import { SmoothCollapse } from "../../shared/SmoothCollapse";
 import { ConversationLinkedText } from "./ConversationLinkedText";
 import { ConversationMessageImages } from "./ConversationMessageImages";
 import { ConversationMarkdown } from "./ConversationMarkdown";
@@ -64,7 +65,7 @@ export function ConversationItemRow({
             </span>
           </div>
         </button>
-        {expanded ? (
+        <SmoothCollapse open={expanded}>
           <div className="tx-item__body">
             {item.summary ? (
               <ConversationMarkdown
@@ -79,7 +80,7 @@ export function ConversationItemRow({
               />
             ) : null}
           </div>
-        ) : null}
+        </SmoothCollapse>
       </div>
     );
   }
@@ -107,20 +108,22 @@ export function ConversationItemRow({
             </span>
           </div>
         </button>
-        {expanded && item.summary ? (
-          <ConversationLinkedText
-            as="p"
-            className="tx-item__summary"
-            text={item.summary}
-          />
-        ) : null}
-        {expanded && item.output ? (
-          <ConversationLinkedText
-            as="pre"
-            className="tx-item__body tx-item__body--tool"
-            text={item.output}
-          />
-        ) : null}
+        <SmoothCollapse open={expanded}>
+          {item.summary ? (
+            <ConversationLinkedText
+              as="p"
+              className="tx-item__summary"
+              text={item.summary}
+            />
+          ) : null}
+          {item.output ? (
+            <ConversationLinkedText
+              as="pre"
+              className="tx-item__body tx-item__body--tool"
+              text={item.output}
+            />
+          ) : null}
+        </SmoothCollapse>
       </div>
     );
   }

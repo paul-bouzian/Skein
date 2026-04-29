@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -41,7 +41,9 @@ describe("ConversationWorkActivityGroup", () => {
     expect(toggle).not.toBeNull();
     await userEvent.click(toggle as HTMLElement);
 
-    expect(container.querySelector(".tx-work-activity__body")).toBeNull();
+    await waitFor(() => {
+      expect(container.querySelector(".tx-work-activity__body")).toBeNull();
+    });
   });
 });
 

@@ -30,6 +30,7 @@ import {
   SquarePenIcon,
   ThreadIcon,
 } from "../../shared/Icons";
+import { SmoothCollapse } from "../../shared/SmoothCollapse";
 import { Tooltip } from "../../shared/Tooltip";
 import type {
   EnvironmentRecord,
@@ -712,8 +713,9 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                     </button>
                   </Tooltip>
                 </div>
-                {!project.sidebarCollapsed &&
-                  renderProjectThreads(project)}
+                <SmoothCollapse open={!project.sidebarCollapsed}>
+                  {renderProjectThreads(project)}
+                </SmoothCollapse>
               </section>
               ))
             )}
