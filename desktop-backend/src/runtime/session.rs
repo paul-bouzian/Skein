@@ -881,17 +881,10 @@ impl RuntimeSession {
 
     pub async fn has_keep_alive_work(&self) -> bool {
         let state = self.state.lock().await;
-        state.snapshots_by_thread.values().any(|snapshot| {
-            matches!(
-                snapshot.status,
-                ConversationStatus::Running | ConversationStatus::WaitingForExternalAction
-            ) || snapshot.active_turn_id.is_some()
-                || !snapshot.pending_interactions.is_empty()
-                || snapshot
-                    .subagents
-                    .iter()
-                    .any(|subagent| matches!(subagent.status, SubagentStatus::Running))
-        })
+        state
+            .snapshots_by_thread
+            .values()
+            .any(snapshot_has_runtime_work)
     }
 
     pub async fn read_account_rate_limits(&self) -> AppResult<CodexRateLimitSnapshot> {
@@ -3366,27 +3359,12 @@ async fn mark_runtime_disconnected(events: &EventSink, state: &Arc<Mutex<Session
         state
             .snapshots_by_thread
             .values_mut()
-            .map(|snapshot| {
-                if let Some(task_plan) = snapshot.task_plan.as_mut() {
-                    let is_active_task = snapshot
-                        .active_turn_id
-                        .as_deref()
-                        .is_some_and(|turn_id| turn_id == task_plan.turn_id);
-                    if is_active_task || matches!(task_plan.status, ConversationTaskStatus::Running)
-                    {
-                        task_plan.status = ConversationTaskStatus::Failed;
-                    }
+            .filter_map(|snapshot| {
+                if !snapshot_has_runtime_work(snapshot) {
+                    return None;
                 }
-                snapshot.active_turn_id = None;
-                snapshot.status = ConversationStatus::Failed;
-                snapshot.subagents.clear();
-                snapshot.pending_interactions.clear();
-                snapshot.error = Some(crate::domain::conversation::ConversationErrorSnapshot {
-                    message: "The Codex runtime disconnected unexpectedly.".to_string(),
-                    codex_error_info: None,
-                    additional_details: None,
-                });
-                snapshot.clone()
+                fail_snapshot_for_runtime_disconnect(snapshot);
+                Some(snapshot.clone())
             })
             .collect::<Vec<_>>()
     };
@@ -3394,6 +3372,43 @@ async fn mark_runtime_disconnected(events: &EventSink, state: &Arc<Mutex<Session
     for snapshot in snapshots {
         emit_snapshot_from_handle(events, snapshot);
     }
+}
+
+fn snapshot_has_runtime_work(snapshot: &ThreadConversationSnapshot) -> bool {
+    matches!(
+        snapshot.status,
+        ConversationStatus::Running | ConversationStatus::WaitingForExternalAction
+    ) || snapshot.active_turn_id.is_some()
+        || !snapshot.pending_interactions.is_empty()
+        || snapshot
+            .task_plan
+            .as_ref()
+            .is_some_and(|plan| matches!(plan.status, ConversationTaskStatus::Running))
+        || snapshot
+            .subagents
+            .iter()
+            .any(|subagent| matches!(subagent.status, SubagentStatus::Running))
+}
+
+fn fail_snapshot_for_runtime_disconnect(snapshot: &mut ThreadConversationSnapshot) {
+    if let Some(task_plan) = snapshot.task_plan.as_mut() {
+        let is_active_task = snapshot
+            .active_turn_id
+            .as_deref()
+            .is_some_and(|turn_id| turn_id == task_plan.turn_id);
+        if is_active_task || matches!(task_plan.status, ConversationTaskStatus::Running) {
+            task_plan.status = ConversationTaskStatus::Failed;
+        }
+    }
+    snapshot.active_turn_id = None;
+    snapshot.status = ConversationStatus::Failed;
+    snapshot.subagents.clear();
+    snapshot.pending_interactions.clear();
+    snapshot.error = Some(crate::domain::conversation::ConversationErrorSnapshot {
+        message: "The Codex runtime disconnected unexpectedly.".to_string(),
+        codex_error_info: None,
+        additional_details: None,
+    });
 }
 
 fn emit_snapshot_from_handle(events: &EventSink, snapshot: ThreadConversationSnapshot) {
@@ -4278,6 +4293,36 @@ mod tests {
             .proposed_plan
             .as_ref()
             .is_some_and(|plan| plan.is_awaiting_decision));
+    }
+
+    #[tokio::test]
+    async fn mark_runtime_disconnected_preserves_idle_snapshots() {
+        let mut snapshot = ThreadConversationSnapshot::new(
+            "thread-1".to_string(),
+            "env-1".to_string(),
+            Some("thr_codex".to_string()),
+            ConversationComposerSettings {
+                provider: ProviderKind::Codex,
+                model: "gpt-5.4".to_string(),
+                reasoning_effort: ReasoningEffort::High,
+                collaboration_mode: CollaborationMode::Build,
+                approval_policy: ApprovalPolicy::AskToEdit,
+                service_tier: None,
+            },
+        );
+        snapshot.status = ConversationStatus::Completed;
+        let session = test_session_with_snapshot(snapshot);
+
+        mark_runtime_disconnected(&EventSink::noop(), &session.state).await;
+
+        let state = session.state.lock().await;
+        let snapshot = state
+            .snapshots_by_thread
+            .get("thread-1")
+            .expect("snapshot should exist");
+        assert!(matches!(snapshot.status, ConversationStatus::Completed));
+        assert!(snapshot.error.is_none());
+        assert!(snapshot.active_turn_id.is_none());
     }
 
     #[tokio::test]
