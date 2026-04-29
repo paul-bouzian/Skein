@@ -68,6 +68,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
   );
 
   const hasContent = group.items.length > 0;
+  const isOpen = expanded && hasContent;
 
   return (
     <section className="tx-work-activity">
@@ -76,7 +77,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
         className={`tx-work-activity__toggle ${
           expanded ? "tx-work-activity__toggle--expanded" : ""
         } tx-work-activity__toggle--${group.status}`}
-        aria-expanded={expanded}
+        aria-expanded={isOpen}
         aria-label="Toggle work activity"
         onClick={() => setExpanded((value) => !value)}
         disabled={!hasContent}
@@ -89,7 +90,7 @@ export function ConversationWorkActivityGroup({ group, provider }: Props) {
         />
         <span className="tx-work-activity__label">{headerLabel}</span>
       </button>
-      <SmoothCollapse open={expanded && hasContent}>
+      <SmoothCollapse open={isOpen}>
         {() => (
           <div className="tx-work-activity__body">
             {group.items.map((item) => (
