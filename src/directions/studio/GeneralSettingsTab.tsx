@@ -1,6 +1,7 @@
 import type {
   ApprovalPolicy,
   CollaborationMode,
+  DefaultDraftEnvironment,
   GlobalSettings,
   GlobalSettingsPatch,
   ModelOption,
@@ -13,6 +14,7 @@ import { SettingsSection } from "./SettingsSection";
 import {
   APPROVAL_OPTIONS,
   COLLABORATION_OPTIONS,
+  DRAFT_ENVIRONMENT_OPTIONS,
   PROVIDER_OPTIONS,
   REASONING_OPTIONS,
   SPEED_MODE_OPTIONS,
@@ -137,6 +139,24 @@ export function GeneralSettingsTab({
             menuZIndex={menuZIndex}
             onChange={(value) =>
               onChange({ defaultCollaborationMode: value as CollaborationMode })
+            }
+          />
+        }
+      />
+      <SettingsRow
+        title="Environment"
+        description="Default destination for new project draft threads."
+        control={
+          <SettingsSelect
+            label="Default environment"
+            value={settings.defaultDraftEnvironment}
+            options={DRAFT_ENVIRONMENT_OPTIONS}
+            disabled={disabled}
+            menuZIndex={menuZIndex}
+            onChange={(value) =>
+              onChange({
+                defaultDraftEnvironment: value as DefaultDraftEnvironment,
+              })
             }
           />
         }

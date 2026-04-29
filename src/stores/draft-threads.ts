@@ -67,6 +67,14 @@ export function composerFromSettings(settings: GlobalSettings) {
   };
 }
 
+export function defaultProjectSelectionFromSettings(
+  settings: GlobalSettings,
+): DraftProjectSelection {
+  return settings.defaultDraftEnvironment === "newWorktree"
+    ? { kind: "new", baseBranch: "", name: "" }
+    : { kind: "local" };
+}
+
 export function defaultDraftThreadState(
   target: DraftThreadTarget,
   settings: GlobalSettings,
@@ -76,9 +84,7 @@ export function defaultDraftThreadState(
     composer: composerFromSettings(settings),
     projectSelection:
       target.kind === "project"
-        ? ({
-            kind: "local",
-          } satisfies DraftProjectSelection)
+        ? defaultProjectSelectionFromSettings(settings)
         : null,
   };
 }

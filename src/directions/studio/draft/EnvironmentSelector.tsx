@@ -15,6 +15,7 @@ export type DraftLocationSelection =
 
 type Props = {
   projects: ProjectRecord[];
+  defaultProjectTarget: EnvSelection;
   localEnvironment: EnvironmentRecord | null;
   worktreeEnvironments: EnvironmentRecord[];
   availableBranches: string[];
@@ -27,6 +28,7 @@ type Props = {
 
 export function EnvironmentSelector({
   projects,
+  defaultProjectTarget,
   localEnvironment,
   worktreeEnvironments,
   availableBranches,
@@ -92,7 +94,7 @@ export function EnvironmentSelector({
     onChange({
       kind: "project",
       projectId,
-      target: { kind: "local" },
+      target: defaultProjectTarget,
     });
     setEnvMenuOpen(false);
   }

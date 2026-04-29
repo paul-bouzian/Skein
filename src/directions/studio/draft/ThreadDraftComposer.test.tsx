@@ -12,6 +12,7 @@ import { useWorkspaceStore } from "../../../stores/workspace-store";
 import {
   capabilitiesFixture,
   makeEnvironment,
+  makeGlobalSettings,
   makeProject,
   makeWorkspaceSnapshot,
 } from "../../../test/fixtures/conversation";
@@ -19,6 +20,7 @@ import { sendThreadDraft } from "../studioActions";
 import { ThreadDraftComposer } from "./ThreadDraftComposer";
 
 let latestEnvironmentSelectorProps: {
+  defaultProjectTarget: unknown;
   value: unknown;
   onChange: (value: unknown) => void;
 } | null = null;
@@ -109,6 +111,7 @@ vi.mock("../composer/InlineComposer", () => ({
 
 vi.mock("./EnvironmentSelector", () => ({
   EnvironmentSelector: (props: {
+    defaultProjectTarget: unknown;
     value: unknown;
     onChange: (value: unknown) => void;
   }) => {
@@ -261,6 +264,47 @@ describe("ThreadDraftComposer", () => {
           (model) => model.id === "gpt-5.4",
         )?.inputModalities,
       ).toContain("image");
+    });
+  });
+
+  it("uses the configured default draft environment for project drafts", async () => {
+    useWorkspaceStore.setState((state) => ({
+      ...state,
+      snapshot: makeWorkspaceSnapshot({
+        settings: makeGlobalSettings({
+          defaultDraftEnvironment: "newWorktree",
+        }),
+        projects: [
+          makeProject({
+            id: "project-1",
+            environments: [
+              makeEnvironment({
+                id: "env-local",
+                kind: "local",
+                name: "Local",
+              }),
+            ],
+          }),
+        ],
+      }),
+    }));
+
+    render(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    expect(latestEnvironmentSelectorProps?.defaultProjectTarget).toEqual({
+      kind: "new",
+      baseBranch: "",
+      name: "",
+    });
+    expect(latestEnvironmentSelectorProps?.value).toMatchObject({
+      kind: "project",
+      projectId: "project-1",
+      target: { kind: "new", baseBranch: "", name: "" },
     });
   });
 

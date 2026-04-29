@@ -48,6 +48,7 @@ export type CollaborationMode = "build" | "plan";
 export type ApprovalPolicy = "askToEdit" | "fullAccess";
 export type OpenTargetKind = "app" | "fileManager";
 export type ServiceTier = "fast" | "flex";
+export type DefaultDraftEnvironment = "local" | "newWorktree";
 export type InputModality = "text" | "image";
 export type ProjectActionIcon =
   | "play"
@@ -292,6 +293,7 @@ export type GlobalSettings = {
   defaultCollaborationMode: CollaborationMode;
   defaultApprovalPolicy: ApprovalPolicy;
   defaultServiceTier?: ServiceTier | null;
+  defaultDraftEnvironment: DefaultDraftEnvironment;
   desktopNotificationsEnabled: boolean;
   streamAssistantResponses: boolean;
   multiAgentNudgeEnabled: boolean;
@@ -1090,6 +1092,7 @@ export type GlobalSettingsPatch = {
   defaultCollaborationMode?: CollaborationMode;
   defaultApprovalPolicy?: ApprovalPolicy;
   defaultServiceTier?: ServiceTier | null;
+  defaultDraftEnvironment?: DefaultDraftEnvironment;
   desktopNotificationsEnabled?: boolean;
   streamAssistantResponses?: boolean;
   multiAgentNudgeEnabled?: boolean;

@@ -88,6 +88,14 @@ pub enum ServiceTier {
     Flex,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum DefaultDraftEnvironment {
+    #[default]
+    Local,
+    NewWorktree,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ApprovalPolicy {
     #[serde(rename = "askToEdit")]
@@ -154,6 +162,8 @@ pub struct GlobalSettings {
     pub default_collaboration_mode: CollaborationMode,
     pub default_approval_policy: ApprovalPolicy,
     pub default_service_tier: Option<ServiceTier>,
+    #[serde(default)]
+    pub default_draft_environment: DefaultDraftEnvironment,
     #[serde(default = "default_collapse_work_activity")]
     pub collapse_work_activity: bool,
     #[serde(default = "default_desktop_notifications_enabled")]
@@ -186,6 +196,7 @@ impl Default for GlobalSettings {
             default_collaboration_mode: CollaborationMode::Build,
             default_approval_policy: ApprovalPolicy::AskToEdit,
             default_service_tier: None,
+            default_draft_environment: DefaultDraftEnvironment::Local,
             collapse_work_activity: true,
             desktop_notifications_enabled: false,
             stream_assistant_responses: true,
@@ -211,6 +222,7 @@ pub struct GlobalSettingsPatch {
     pub default_approval_policy: Option<ApprovalPolicy>,
     #[serde(default, deserialize_with = "deserialize_explicit_optional")]
     pub default_service_tier: Option<Option<ServiceTier>>,
+    pub default_draft_environment: Option<DefaultDraftEnvironment>,
     pub collapse_work_activity: Option<bool>,
     pub desktop_notifications_enabled: Option<bool>,
     pub stream_assistant_responses: Option<bool>,
@@ -259,6 +271,9 @@ impl GlobalSettings {
         }
         if let Some(default_service_tier) = patch.default_service_tier {
             self.default_service_tier = default_service_tier;
+        }
+        if let Some(default_draft_environment) = patch.default_draft_environment {
+            self.default_draft_environment = default_draft_environment;
         }
         if let Some(collapse_work_activity) = patch.collapse_work_activity {
             self.collapse_work_activity = collapse_work_activity;
@@ -714,9 +729,9 @@ fn default_open_targets_for_platform() -> Vec<OpenTarget> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApprovalPolicy, CollaborationMode, GlobalSettings, GlobalSettingsPatch,
-        NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget, OpenTargetKind,
-        ReasoningEffort, ServiceTier,
+        ApprovalPolicy, CollaborationMode, DefaultDraftEnvironment, GlobalSettings,
+        GlobalSettingsPatch, NotificationSoundId, NotificationSoundSettingsPatch, OpenTarget,
+        OpenTargetKind, ReasoningEffort, ServiceTier,
     };
     use crate::domain::shortcuts::ShortcutSettingsPatch;
 
@@ -731,6 +746,7 @@ mod tests {
             default_collaboration_mode: None,
             default_approval_policy: Some(ApprovalPolicy::FullAccess),
             default_service_tier: Some(Some(ServiceTier::Fast)),
+            default_draft_environment: Some(DefaultDraftEnvironment::NewWorktree),
             collapse_work_activity: Some(true),
             desktop_notifications_enabled: Some(true),
             stream_assistant_responses: Some(false),
@@ -776,6 +792,10 @@ mod tests {
             ApprovalPolicy::FullAccess
         ));
         assert_eq!(settings.default_service_tier, Some(ServiceTier::Fast));
+        assert_eq!(
+            settings.default_draft_environment,
+            DefaultDraftEnvironment::NewWorktree
+        );
         assert!(settings.collapse_work_activity);
         assert!(settings.desktop_notifications_enabled);
         assert!(!settings.stream_assistant_responses);
@@ -839,6 +859,26 @@ mod tests {
             .expect("service tier patch should deserialize");
 
         assert_eq!(patch.default_service_tier, Some(None));
+    }
+
+    #[test]
+    fn deserializes_missing_draft_environment_as_local() {
+        let settings: GlobalSettings = serde_json::from_str(
+            r#"{
+                "defaultProvider":"codex",
+                "defaultModel":"gpt-5.4",
+                "defaultReasoningEffort":"high",
+                "defaultCollaborationMode":"build",
+                "defaultApprovalPolicy":"askToEdit",
+                "defaultServiceTier":null
+            }"#,
+        )
+        .expect("legacy settings should deserialize");
+
+        assert_eq!(
+            settings.default_draft_environment,
+            DefaultDraftEnvironment::Local
+        );
     }
 
     #[test]

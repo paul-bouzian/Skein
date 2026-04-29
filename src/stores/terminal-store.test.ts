@@ -985,6 +985,7 @@ describe("terminal-store", () => {
         defaultReasoningEffort: "high",
         defaultCollaborationMode: "build",
         defaultApprovalPolicy: "askToEdit",
+        defaultDraftEnvironment: "local",
         streamAssistantResponses: true,
         desktopNotificationsEnabled: false,
         multiAgentNudgeEnabled: false,
