@@ -66,6 +66,10 @@ export function SmoothCollapse({ open, children, className, id }: Props) {
     return clearPending;
   }, [open]);
 
+  if (!mounted) {
+    return null;
+  }
+
   const wrapperClassName = [
     "tx-collapse",
     visualOpen ? "tx-collapse--open" : null,
@@ -74,11 +78,8 @@ export function SmoothCollapse({ open, children, className, id }: Props) {
     .filter(Boolean)
     .join(" ");
 
-  const innerContent = mounted
-    ? typeof children === "function"
-      ? children()
-      : children
-    : null;
+  const renderedChildren =
+    typeof children === "function" ? children() : children;
 
   return (
     <div
@@ -87,7 +88,7 @@ export function SmoothCollapse({ open, children, className, id }: Props) {
       inert={!open}
       id={id}
     >
-      <div className="tx-collapse__inner">{innerContent}</div>
+      <div className="tx-collapse__inner">{renderedChildren}</div>
     </div>
   );
 }
