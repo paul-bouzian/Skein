@@ -1,7 +1,9 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::domain::workspace::{ProjectManualAction, ProjectSettings, ProjectSettingsPatch};
 use crate::error::{AppError, AppResult};
@@ -50,6 +52,7 @@ pub fn read_project_settings(
 }
 
 pub fn write_project_settings(project_root: &Path, settings: &ProjectSettings) -> AppResult<()> {
+    let path = project_config_path(project_root);
     let config = ProjectConfig {
         version: PROJECT_CONFIG_VERSION,
         worktree: WorktreeConfig {
@@ -60,8 +63,27 @@ pub fn write_project_settings(project_root: &Path, settings: &ProjectSettings) -
     };
     let payload = serde_json::to_string_pretty(&config)
         .map_err(|error| AppError::Validation(error.to_string()))?;
-    fs::write(project_config_path(project_root), format!("{payload}\n"))?;
-    Ok(())
+    write_atomically(
+        &path,
+        &project_root.join(format!(".{PROJECT_CONFIG_FILE}.{}.tmp", Uuid::now_v7())),
+        format!("{payload}\n").as_bytes(),
+    )
+}
+
+fn write_atomically(path: &Path, temp_path: &Path, payload: &[u8]) -> AppResult<()> {
+    let result = (|| -> AppResult<()> {
+        let mut file = fs::File::create(temp_path)?;
+        file.write_all(payload)?;
+        file.sync_all()?;
+        fs::rename(temp_path, path)?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(temp_path);
+    }
+
+    result
 }
 
 fn read_project_config(project_root: &Path) -> AppResult<Option<ProjectConfig>> {
@@ -146,6 +168,12 @@ mod tests {
         assert!(payload.contains("\"version\": 1"));
         assert!(payload.contains("\"setupScript\": \"bun install\""));
         assert!(payload.contains("\"actions\""));
+        let temp_entries = fs::read_dir(temp.path())
+            .expect("project root should be readable")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(temp_entries, 0);
         assert_eq!(
             read_project_settings(temp.path(), &ProjectSettings::default())
                 .expect("config should read"),

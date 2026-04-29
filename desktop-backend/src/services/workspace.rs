@@ -550,10 +550,11 @@ impl WorkspaceService {
         &self,
         input: UpdateProjectSettingsRequest,
     ) -> AppResult<ProjectRecord> {
-        let connection = self.database.open()?;
+        let mut connection = self.database.open()?;
         self.ensure_repository_project_with_connection(&connection, &input.project_id)?;
-        let global_settings = self.read_or_seed_stored_settings(&connection)?;
-        let (root_path, settings_json) = connection
+        let transaction = connection.transaction()?;
+        let global_settings = self.read_or_seed_stored_settings(&transaction)?;
+        let (root_path, settings_json) = transaction
             .query_row(
                 "
                 SELECT root_path, settings_json
@@ -576,15 +577,21 @@ impl WorkspaceService {
         settings
             .validate(Some(&global_settings.shortcuts))
             .map_err(AppError::Validation)?;
+        let settings_json = serde_json::to_string(&settings)
+            .map_err(|error| AppError::Validation(error.to_string()))?;
         project_config::write_project_settings(&root_path, &settings)?;
-        connection.execute(
+        let affected = transaction.execute(
             "
             UPDATE projects
-            SET updated_at = ?1
-            WHERE id = ?2 AND archived_at IS NULL AND kind = 'repository'
+            SET settings_json = ?1, updated_at = ?2
+            WHERE id = ?3 AND archived_at IS NULL AND kind = 'repository'
             ",
-            params![Utc::now(), input.project_id],
+            params![settings_json, Utc::now(), input.project_id],
         )?;
+        if affected == 0 {
+            return Err(AppError::NotFound("Project not found.".to_string()));
+        }
+        transaction.commit()?;
 
         self.project_by_id(&input.project_id, Vec::new())
     }
@@ -3663,6 +3670,16 @@ mod tests {
         assert!(config.contains("\"setupScript\": \"bun install\""));
         assert!(config.contains("\"teardownScript\": \"./scripts/cleanup.sh\""));
         assert!(config.contains("\"actions\""));
+        let stored_settings_json = harness
+            .open_connection()
+            .query_row(
+                "SELECT settings_json FROM projects WHERE id = ?1",
+                params![project.id],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("stored settings should read");
+        let stored_settings = serde_json::from_str::<ProjectSettings>(&stored_settings_json)
+            .expect("stored settings should parse");
         assert_eq!(
             updated.settings,
             ProjectSettings {
@@ -3677,6 +3694,7 @@ mod tests {
                 }],
             }
         );
+        assert_eq!(stored_settings, updated.settings);
     }
 
     #[test]
