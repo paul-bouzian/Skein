@@ -57,6 +57,7 @@ export type ComposerMirrorSegment =
 
 export type DecorateComposerTextOptions = {
   decorateAllProviderTokens?: boolean;
+  decorateFileTokens?: boolean;
   decorateUnknownTokens?: boolean;
   mentionBindings?: ComposerMentionBindingInput[];
 };
@@ -358,6 +359,7 @@ export function decorateComposerText(
   }
 
   const decorateAllProviderTokens = options.decorateAllProviderTokens === true;
+  const decorateFileTokens = options.decorateFileTokens !== false;
   const decorateUnknownTokens = options.decorateUnknownTokens === true;
   const mentionBindingMap = new Map(
     (options.mentionBindings ?? []).map((binding) => [
@@ -431,16 +433,14 @@ export function decorateComposerText(
       });
     }
   }
-  const fileTokens: DecoratedToken[] = collectSpecialTokens(
-    text,
-    "@",
-    occupied,
-  ).map((token) => ({
-    kind: "file",
-    text: token.text,
-    start: token.start,
-    end: token.end,
-  }));
+  const fileTokens: DecoratedToken[] = decorateFileTokens
+    ? collectSpecialTokens(text, "@", occupied).map((token) => ({
+        kind: "file",
+        text: token.text,
+        start: token.start,
+        end: token.end,
+      }))
+    : [];
   const tokens: DecoratedToken[] = [
     ...promptTokens,
     ...mentionTokens,

@@ -361,6 +361,16 @@ describe("composer-model", () => {
     ]);
   });
 
+  it("can leave file mention text undecorated", () => {
+    const segments = decorateComposerText("Ask @alice about @src/app.tsx", null, "codex", {
+      decorateFileTokens: false,
+    });
+
+    expect(segments).toEqual([
+      { kind: "text", text: "Ask @alice about @src/app.tsx" },
+    ]);
+  });
+
   it("can decorate submitted commands without relying on the current provider", () => {
     const segments = decorateComposerText(
       "Use /prompts:review() then /release-notes but keep /workspace /run /mnt raw",

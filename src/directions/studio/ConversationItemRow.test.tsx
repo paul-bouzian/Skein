@@ -72,6 +72,22 @@ describe("ConversationItemRow", () => {
 
     expect(container.querySelector(".tx-inline-token-badge")).toBeNull();
   });
+
+  it("does not render arbitrary user at-mentions as file badges", () => {
+    const { container } = render(
+      <ConversationItemRow
+        provider="codex"
+        item={messageItem({
+          id: "user-at-mention-text",
+          role: "user",
+          text: "Please ask @alice and @qa-team.",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Please ask @alice and @qa-team.")).toBeInTheDocument();
+    expect(container.querySelector(".tx-inline-token--file")).toBeNull();
+  });
 });
 
 function messageItem(

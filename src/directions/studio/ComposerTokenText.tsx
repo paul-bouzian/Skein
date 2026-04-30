@@ -24,6 +24,7 @@ type ComposerTokenTextProps = {
   provider: ProviderKind;
   cursorIndex?: number | null;
   decorateAllProviderTokens?: boolean;
+  decorateFileTokens?: boolean;
   decorateUnknownTokens?: boolean;
   keyPrefix: string;
   linkifyText?: boolean;
@@ -37,6 +38,7 @@ export function ComposerTokenText({
   provider,
   cursorIndex = null,
   decorateAllProviderTokens = false,
+  decorateFileTokens = true,
   decorateUnknownTokens = false,
   keyPrefix,
   linkifyText = false,
@@ -45,6 +47,7 @@ export function ComposerTokenText({
 }: ComposerTokenTextProps) {
   const segments = decorateComposerText(text, catalog, provider, {
     decorateAllProviderTokens,
+    decorateFileTokens,
     decorateUnknownTokens,
     mentionBindings,
   });
