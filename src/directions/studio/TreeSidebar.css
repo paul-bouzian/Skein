@@ -2,7 +2,6 @@
   position: relative;
   width: var(--tx-sidebar-width);
   background: var(--tx-bg-translucent);
-  border-right: 1px solid var(--tx-border-subtle);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -11,7 +10,6 @@
 
 .tree-sidebar--collapsed {
   width: 0;
-  border-right-color: transparent;
 }
 
 .tree-sidebar__header {

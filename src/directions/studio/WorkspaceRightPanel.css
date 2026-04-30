@@ -4,7 +4,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: inset 1px 0 0 var(--tx-border-subtle);
   transition: width 250ms var(--tx-ease-spring);
 }
 

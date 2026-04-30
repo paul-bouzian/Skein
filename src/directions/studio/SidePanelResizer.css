@@ -3,7 +3,6 @@
   flex-shrink: 0;
   cursor: col-resize;
   position: relative;
-  background: var(--tx-bg-base);
   z-index: 2;
 }
 
@@ -13,6 +12,10 @@
   bottom: var(--tx-statusbar-height);
   left: calc(var(--tx-sidebar-width) - 3px);
   z-index: 20;
+}
+
+.side-panel-resizer--right {
+  background: var(--tx-bg-base);
 }
 
 .side-panel-resizer::after {
