@@ -19,6 +19,7 @@ import { useConversationStore } from "../../../stores/conversation-store";
 import { EMPTY_CONVERSATION_COMPOSER_DRAFT } from "../../../stores/conversation-drafts";
 import {
   composerFromSettings,
+  defaultProjectSelectionFromSettings,
   draftThreadTargetKey,
 } from "../../../stores/draft-threads";
 import {
@@ -341,14 +342,18 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     mentionBindings: [],
     isRefiningPlan: false,
   };
+  const defaultProjectSelection = useMemo<EnvSelection>(
+    () =>
+      settings ? defaultProjectSelectionFromSettings(settings) : { kind: "local" },
+    [settings],
+  );
   const selection = useMemo<EnvSelection>(
     () =>
       draft.kind === "project"
-        ? ((persistedDraftState?.projectSelection as EnvSelection | null) ?? {
-            kind: "local",
-          })
+        ? ((persistedDraftState?.projectSelection as EnvSelection | null) ??
+          defaultProjectSelection)
         : { kind: "local" },
-    [draft, persistedDraftState?.projectSelection],
+    [defaultProjectSelection, draft, persistedDraftState?.projectSelection],
   );
   const project = useMemo(
     () =>
@@ -784,6 +789,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
       />
       <EnvironmentSelector
         projects={projects}
+        defaultProjectTarget={defaultProjectSelection}
         localEnvironment={draft.kind === "project" ? localEnvironment : null}
         worktreeEnvironments={
           draft.kind === "project" ? worktreeEnvironments : []

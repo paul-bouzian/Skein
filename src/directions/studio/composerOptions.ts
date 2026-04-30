@@ -1,6 +1,7 @@
 import type {
   ApprovalPolicy,
   CollaborationMode,
+  DefaultDraftEnvironment,
   ModelOption,
   ProviderKind,
   ReasoningEffort,
@@ -89,6 +90,11 @@ export const APPROVAL_OPTIONS: ComposerPickerOption<ApprovalPolicy>[] = [
 export const SPEED_MODE_OPTIONS: ComposerPickerOption<ServiceTier>[] = [
   { value: "flex", label: "Normal" },
   { value: "fast", label: "Fast" },
+];
+
+export const DRAFT_ENVIRONMENT_OPTIONS: ComposerPickerOption<DefaultDraftEnvironment>[] = [
+  { value: "local", label: "Local" },
+  { value: "newWorktree", label: "New worktree" },
 ];
 
 export function composerModelOptions(

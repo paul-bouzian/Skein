@@ -836,6 +836,22 @@ describe("StudioShell", () => {
     });
   });
 
+  it("saves the default draft environment from settings", async () => {
+    render(<StudioShell />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Default environment picker" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: "New worktree" }));
+
+    await waitFor(() => {
+      expect(mockedBridge.updateGlobalSettings).toHaveBeenCalledWith({
+        defaultDraftEnvironment: "newWorktree",
+      });
+    });
+  });
+
   it("saves Normal speed as the backend flex tier", async () => {
     useWorkspaceStore.setState((state) => ({
       ...state,
