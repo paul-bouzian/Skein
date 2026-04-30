@@ -18,6 +18,7 @@ import {
 import { ProjectActionCreateDialog } from "./ProjectActionCreateDialog";
 import { useVoiceSessionStore } from "../../stores/voice-session-store";
 import {
+  selectSidebarPanelWidth,
   selectSidePanelWidth,
   useSidePanelStore,
 } from "../../stores/side-panel-store";
@@ -58,7 +59,10 @@ export function StudioShell() {
   const [rightPanel, setRightPanel] = useState<RightPanel>("none");
   const [rightPanelTab, setRightPanelTab] =
     useState<WorkspaceRightPanelTab>("diff");
+  const [sidebarDragging, setSidebarDragging] = useState(false);
   const [sidePanelDragging, setSidePanelDragging] = useState(false);
+  const sidebarWidth = useSidePanelStore(selectSidebarPanelWidth);
+  const setSidebarWidth = useSidePanelStore((state) => state.setSidebarWidth);
   const sidePanelWidth = useSidePanelStore(selectSidePanelWidth);
   const setSidePanelWidth = useSidePanelStore((state) => state.setWidth);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -134,10 +138,14 @@ export function StudioShell() {
 
   useEffect(() => {
     document.documentElement.style.setProperty(
+      "--tx-sidebar-width",
+      `${sidebarWidth}px`,
+    );
+    document.documentElement.style.setProperty(
       "--tx-side-panel-width",
       `${sidePanelWidth}px`,
     );
-  }, [sidePanelWidth]);
+  }, [sidebarWidth, sidePanelWidth]);
 
   useEffect(() => {
     void menuShell
@@ -175,6 +183,7 @@ export function StudioShell() {
 
   const shellClassName = [
     "studio-shell",
+    sidebarDragging ? "studio-shell--resizing-sidebar" : null,
     sidePanelDragging ? "studio-shell--resizing-side-panel" : null,
     settingsOpen ? "studio-shell--settings-open" : null,
   ]
@@ -189,6 +198,14 @@ export function StudioShell() {
         onOpenSettings={openSettingsDialog}
         onToggleTheme={toggleTheme}
       />
+      {projectsSidebarOpen && (
+        <SidePanelResizer
+          side="left"
+          width={sidebarWidth}
+          onResize={setSidebarWidth}
+          onDraggingChange={setSidebarDragging}
+        />
+      )}
       <StudioMain
         theme={theme}
         projectsSidebarOpen={projectsSidebarOpen}

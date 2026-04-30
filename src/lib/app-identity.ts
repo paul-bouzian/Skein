@@ -170,6 +170,12 @@ export const SIDE_PANEL_WIDTH_STORAGE_KEY = buildStorageKey(
 );
 export const LEGACY_SIDE_PANEL_WIDTH_STORAGE_KEYS =
   buildLegacyStorageKeys("side-panel-width");
+export const SIDEBAR_WIDTH_STORAGE_KEY = buildStorageKey(
+  APP_SLUG,
+  "sidebar-width",
+);
+export const LEGACY_SIDEBAR_WIDTH_STORAGE_KEYS =
+  buildLegacyStorageKeys("sidebar-width");
 export const SIDEBAR_PROJECTS_SORT_STORAGE_KEY = buildStorageKey(
   APP_SLUG,
   "sidebar-projects-sort",

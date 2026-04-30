@@ -22,6 +22,11 @@ import { useCodexUsageStore } from "../../stores/codex-usage-store";
 import { useConversationStore } from "../../stores/conversation-store";
 import { useFirstPromptRenameStore } from "../../stores/first-prompt-rename-store";
 import { useGitReviewStore } from "../../stores/git-review-store";
+import {
+  SIDEBAR_PANEL_DEFAULT_WIDTH,
+  SIDE_PANEL_DEFAULT_WIDTH,
+  useSidePanelStore,
+} from "../../stores/side-panel-store";
 import { selectTerminalSlot, useTerminalStore } from "../../stores/terminal-store";
 import {
   resetVoiceSessionStore,
@@ -153,6 +158,12 @@ beforeEach(async () => {
     },
   });
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.style.removeProperty("--tx-sidebar-width");
+  document.documentElement.style.removeProperty("--tx-side-panel-width");
+  useSidePanelStore.setState({
+    width: SIDE_PANEL_DEFAULT_WIDTH,
+    sidebarWidth: SIDEBAR_PANEL_DEFAULT_WIDTH,
+  });
 
   useWorkspaceStore.setState((state) => ({
     ...state,
@@ -330,6 +341,27 @@ describe("StudioShell", () => {
       "diff",
     );
     expect(screen.getByRole("button", { name: "Hide inspector" })).toBeInTheDocument();
+  });
+
+  it("resizes the projects sidebar from the studio boundary", () => {
+    render(<StudioShell />);
+
+    const handle = screen.getByRole("separator", {
+      name: "Resize projects sidebar",
+    });
+    handle.setPointerCapture = vi.fn();
+    handle.releasePointerCapture = vi.fn();
+    handle.hasPointerCapture = vi.fn(() => true);
+
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 256 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 320 });
+
+    expect(
+      document.documentElement.style.getPropertyValue("--tx-sidebar-width"),
+    ).toBe("320px");
+
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 320 });
+    expect(useSidePanelStore.getState().sidebarWidth).toBe(320);
   });
 
   it("toggles the review panel with the global shortcut", async () => {

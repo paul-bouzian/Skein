@@ -7,6 +7,14 @@
   z-index: 2;
 }
 
+.side-panel-resizer--left {
+  position: absolute;
+  top: 0;
+  bottom: var(--tx-statusbar-height);
+  left: calc(var(--tx-sidebar-width) - 3px);
+  z-index: 20;
+}
+
 .side-panel-resizer::after {
   content: "";
   position: absolute;
@@ -20,7 +28,8 @@
 
 .side-panel-resizer:hover::after,
 .side-panel-resizer:focus-visible::after,
-.studio-shell--resizing-side-panel .side-panel-resizer::after {
+.studio-shell--resizing-side-panel .side-panel-resizer--right::after,
+.studio-shell--resizing-sidebar .side-panel-resizer--left::after {
   background: var(--tx-accent);
 }
 
@@ -33,7 +42,16 @@
   user-select: none;
 }
 
+.studio-shell--resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .studio-shell--resizing-side-panel .workspace-right-panel,
 .studio-shell--resizing-side-panel .browser-panel {
+  transition: none !important;
+}
+
+.studio-shell--resizing-sidebar .tree-sidebar {
   transition: none !important;
 }
