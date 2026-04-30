@@ -58,6 +58,7 @@ export type ComposerMirrorSegment =
 export type DecorateComposerTextOptions = {
   decorateAllProviderTokens?: boolean;
   decorateUnknownTokens?: boolean;
+  mentionBindings?: ComposerMentionBindingInput[];
 };
 
 type DecoratedToken =
@@ -358,6 +359,12 @@ export function decorateComposerText(
 
   const decorateAllProviderTokens = options.decorateAllProviderTokens === true;
   const decorateUnknownTokens = options.decorateUnknownTokens === true;
+  const mentionBindingMap = new Map(
+    (options.mentionBindings ?? []).map((binding) => [
+      binding.mention.toLowerCase(),
+      binding.kind,
+    ]),
+  );
   const promptMap = new Map(
     (catalog?.prompts ?? []).map((prompt) => [prompt.name, prompt]),
   );
@@ -407,6 +414,25 @@ export function decorateComposerText(
   }
   for (const token of collectSpecialTokens(text, "$", occupied)) {
     const normalized = token.text.slice(1).toLowerCase();
+    const explicitKind = mentionBindingMap.get(normalized);
+    if (explicitKind === "skill") {
+      mentionTokens.push({
+        kind: "skill",
+        text: token.text,
+        start: token.start,
+        end: token.end,
+      });
+      continue;
+    }
+    if (explicitKind === "app") {
+      mentionTokens.push({
+        kind: "app",
+        text: token.text,
+        start: token.start,
+        end: token.end,
+      });
+      continue;
+    }
     if (skillMap.has(normalized)) {
       mentionTokens.push({
         kind: "skill",

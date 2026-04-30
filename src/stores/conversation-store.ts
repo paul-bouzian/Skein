@@ -377,7 +377,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       get().snapshotsByThreadId[threadId]?.composer;
     const previousSnapshot = get().snapshotsByThreadId[threadId];
     const optimisticMessage = previousSnapshot
-      ? buildOptimisticUserMessageSnapshot(previousSnapshot, text, images)
+      ? buildOptimisticUserMessageSnapshot(
+          previousSnapshot,
+          text,
+          images,
+          mentionBindings,
+        )
       : null;
 
     if (optimisticMessage) {
@@ -783,6 +788,7 @@ function buildOptimisticUserMessageSnapshot(
   snapshot: ThreadConversationSnapshot,
   text: string,
   images: ConversationImageAttachment[],
+  mentionBindings: ComposerMentionBindingInput[],
 ): {
   item: ConversationMessageItem;
   snapshot: ThreadConversationSnapshot;
@@ -797,6 +803,7 @@ function buildOptimisticUserMessageSnapshot(
     role: "user",
     text,
     images: images.length > 0 ? images : null,
+    mentionBindings: mentionBindings.length > 0 ? mentionBindings : null,
     isStreaming: false,
   };
 
@@ -819,14 +826,25 @@ function snapshotWithPendingOptimisticMessage(
     return snapshot;
   }
 
-  if (hasConfirmedUserMessage(snapshot, pending)) {
+  const confirmedIndex = findConfirmedUserMessageIndex(snapshot, pending);
+  if (confirmedIndex !== -1) {
     pendingOptimisticUserMessages.delete(threadId);
-    if (!snapshotContainsItem(snapshot, pending.item.id)) {
-      return snapshot;
-    }
     return {
       ...snapshot,
-      items: snapshot.items.filter((item) => item.id !== pending.item.id),
+      items: snapshot.items.flatMap((item, index) => {
+        if (item.id === pending.item.id) {
+          return [];
+        }
+        if (
+          index === confirmedIndex &&
+          item.kind === "message" &&
+          !item.mentionBindings?.length &&
+          pending.item.mentionBindings?.length
+        ) {
+          return [{ ...item, mentionBindings: pending.item.mentionBindings }];
+        }
+        return [item];
+      }),
     };
   }
 
@@ -853,17 +871,17 @@ function snapshotWithPendingOptimisticMessage(
   };
 }
 
-function hasConfirmedUserMessage(
+function findConfirmedUserMessageIndex(
   snapshot: ThreadConversationSnapshot,
   pending: PendingOptimisticUserMessage,
-): boolean {
+): number {
   const anchorIndex = pending.afterItemId
     ? snapshot.items.findIndex((item) => item.id === pending.afterItemId)
     : -1;
   const searchStart = anchorIndex >= 0
     ? anchorIndex + 1
     : Math.min(pending.baseItemCount, snapshot.items.length);
-  return snapshot.items.slice(searchStart).some(
+  const relativeIndex = snapshot.items.slice(searchStart).findIndex(
     (item) =>
       item.kind === "message" &&
       item.id !== pending.item.id &&
@@ -871,6 +889,7 @@ function hasConfirmedUserMessage(
       item.text === pending.item.text &&
       sameImageAttachments(item.images ?? null, pending.item.images ?? null),
   );
+  return relativeIndex === -1 ? -1 : searchStart + relativeIndex;
 }
 
 function sameImageAttachments(

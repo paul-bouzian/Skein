@@ -24,7 +24,10 @@ describe("ConversationItemRow", () => {
         item={messageItem({
           id: "user-command",
           role: "user",
-          text: "Use /prompts:review() with $create-pr and /release-notes",
+          text: "Use /prompts:review() with $create-pr, $github and /release-notes",
+          mentionBindings: [
+            { mention: "github", kind: "app", path: "app://github" },
+          ],
         })}
       />,
     );
@@ -38,11 +41,16 @@ describe("ConversationItemRow", () => {
     const slashBadge = screen
       .getByText("/release-notes")
       .closest(".tx-inline-token-badge");
+    const appBadge = screen
+      .getByText("$github")
+      .closest(".tx-inline-token-badge");
 
     expect(promptBadge).not.toBeNull();
     expect(promptBadge).toHaveAttribute("title", "/prompts:review()");
     expect(skillBadge).not.toBeNull();
     expect(skillBadge).toHaveAttribute("title", "$create-pr");
+    expect(appBadge).not.toBeNull();
+    expect(appBadge).toHaveClass("tx-inline-token--app");
     expect(slashBadge).not.toBeNull();
     expect(slashBadge).toHaveAttribute("title", "/release-notes");
     expect(

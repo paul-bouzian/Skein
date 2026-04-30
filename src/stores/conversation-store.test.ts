@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
 import type {
+  ComposerMentionBindingInput,
   ConversationImageAttachment,
   ConversationMessageItem,
   ThreadConversationSnapshot,
@@ -729,6 +730,45 @@ describe("conversation store", () => {
     expect(items[items.length - 1]).toMatchObject({
       id: "user-confirmed",
       text: "tu vas bien?",
+    });
+  });
+
+  it("preserves optimistic mention bindings on the confirmed user message", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const confirmedSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-mention-binding",
+      items: [
+        ...initialSnapshot.items,
+        userMessage("user-confirmed", "Use $github"),
+      ],
+    });
+    const mentionBindings: ComposerMentionBindingInput[] = [
+      { mention: "github", kind: "app", path: "app://github" },
+    ];
+
+    mockedBridge.sendThreadMessage.mockResolvedValue(confirmedSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    await useConversationStore
+      .getState()
+      .sendMessage("thread-1", "Use $github", [], mentionBindings);
+
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      text: "Use $github",
+      composer: initialSnapshot.composer,
+      mentionBindings,
+    });
+    const items = useConversationStore.getState().snapshotsByThreadId["thread-1"].items;
+    expect(items[items.length - 1]).toMatchObject({
+      id: "user-confirmed",
+      text: "Use $github",
+      mentionBindings,
     });
   });
 

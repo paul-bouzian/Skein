@@ -1,6 +1,10 @@
 import { Fragment } from "react";
 
-import type { ProviderKind, ThreadComposerCatalog } from "../../lib/types";
+import type {
+  ComposerMentionBindingInput,
+  ProviderKind,
+  ThreadComposerCatalog,
+} from "../../lib/types";
 import {
   CubeIcon,
   FolderIcon,
@@ -23,6 +27,7 @@ type ComposerTokenTextProps = {
   decorateUnknownTokens?: boolean;
   keyPrefix: string;
   linkifyText?: boolean;
+  mentionBindings?: ComposerMentionBindingInput[];
   showCaret?: boolean;
 };
 
@@ -35,11 +40,13 @@ export function ComposerTokenText({
   decorateUnknownTokens = false,
   keyPrefix,
   linkifyText = false,
+  mentionBindings = [],
   showCaret = false,
 }: ComposerTokenTextProps) {
   const segments = decorateComposerText(text, catalog, provider, {
     decorateAllProviderTokens,
     decorateUnknownTokens,
+    mentionBindings,
   });
   let sourceCursor = 0;
   let caretRendered = false;

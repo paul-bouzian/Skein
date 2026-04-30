@@ -278,6 +278,7 @@ function ConversationMessageRow({
                 provider={provider}
                 decorateAllProviderTokens={item.role === "user"}
                 decorateUnknownTokens
+                mentionBindings={item.mentionBindings ?? []}
                 keyPrefix={`message-${item.id}-collapsed`}
               />
             </div>
@@ -288,6 +289,7 @@ function ConversationMessageRow({
                 provider={provider}
                 decorateAllProviderTokens={item.role === "user"}
                 decorateUnknownTokens
+                mentionBindings={item.mentionBindings ?? []}
                 linkifyText
                 keyPrefix={`message-${item.id}`}
               />

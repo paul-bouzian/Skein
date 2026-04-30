@@ -222,6 +222,32 @@ describe("composer-model", () => {
     ]);
   });
 
+  it("uses explicit mention bindings when decorating without a catalog", () => {
+    const segments = decorateComposerText(
+      "Use $github and $create-pr",
+      null,
+      "codex",
+      {
+        decorateUnknownTokens: true,
+        mentionBindings: [
+          { mention: "github", kind: "app", path: "app://github" },
+          {
+            mention: "create-pr",
+            kind: "skill",
+            path: "/tmp/create-pr/SKILL.md",
+          },
+        ],
+      },
+    );
+
+    expect(segments).toEqual([
+      { kind: "text", text: "Use " },
+      { kind: "app", text: "$github", start: 4, end: 11 },
+      { kind: "text", text: " and " },
+      { kind: "skill", text: "$create-pr", start: 16, end: 26 },
+    ]);
+  });
+
   it("decorates catalog-backed Claude command tokens without treating paths as commands", () => {
     const segments = decorateComposerText(
       "Run /review but leave /Users/test/file alone",
