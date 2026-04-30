@@ -127,7 +127,12 @@ function renderComposerSegment(
     );
   }
 
-  if (cursorIndex !== null && cursorIndex < range.end) {
+  const shouldRenderSourceToken =
+    cursorIndex !== null &&
+    (cursorIndex < range.end ||
+      shouldRenderPromptSourceAtEnd(segment, cursorIndex, range));
+
+  if (shouldRenderSourceToken) {
     const display = displayForComposerToken(segment);
     const localCursor = Math.max(
       0,
@@ -149,6 +154,18 @@ function renderComposerSegment(
       <ComposerTokenBadge segment={segment} />
       {cursorIndex !== null ? <ComposerMirrorCaret /> : null}
     </Fragment>
+  );
+}
+
+function shouldRenderPromptSourceAtEnd(
+  segment: Exclude<ComposerMirrorSegment, { kind: "text" }>,
+  cursorIndex: number,
+  range: { start: number; end: number },
+) {
+  return (
+    segment.kind === "prompt" &&
+    segment.text.startsWith(PROMPT_PREFIX) &&
+    cursorIndex === range.end
   );
 }
 
