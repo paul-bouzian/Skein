@@ -13,8 +13,8 @@ import {
   AlertIcon,
   ArchiveIcon,
   ArrowRightIcon,
-  GitBranchIcon,
   SpinnerIcon,
+  WorktreeGlyph,
 } from "../../shared/Icons";
 import { ProviderLogo } from "../../shared/ProviderLogo";
 import { Tooltip } from "../../shared/Tooltip";
@@ -50,9 +50,9 @@ type SharedProps = {
   onContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
 };
 
-// Keep the worktree chip and its handlers aligned: a chip is only rendered
-// for worktree threads, and when it is the context-menu handler must be
-// provided — otherwise the chip would have no interactive fallback.
+// Keep the worktree glyph and its handlers aligned: the glyph is only
+// rendered for worktree threads, and when it is the context-menu handler
+// must be provided — otherwise the glyph would have no interactive fallback.
 type Props =
   | (SharedProps & {
       worktree?: null;
@@ -111,7 +111,7 @@ function SidebarThreadRowImpl(props: Props) {
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     // Only handle keys that landed on the row itself; nested controls (archive
-    // button, branch chip) need to receive their own Enter/Space.
+    // button, worktree glyph) need to receive their own Enter/Space.
     if (event.target !== event.currentTarget) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -133,81 +133,78 @@ function SidebarThreadRowImpl(props: Props) {
         onKeyDown={handleKeyDown}
         {...dragHandlers}
       >
-        <div className="tree-sidebar__thread-left">
-          <div className="tree-sidebar__thread-line tree-sidebar__thread-line--main">
-            <span
-              className="tree-sidebar__thread-indicator"
-              aria-hidden="true"
-            >
-              {renderThreadIndicator(tone, unread)}
+        <div className="tree-sidebar__thread-main">
+          <span
+            className="tree-sidebar__thread-indicator"
+            aria-hidden="true"
+          >
+            {renderThreadIndicator(tone, unread)}
+          </span>
+          {indicatorAccessibleLabel(tone, unread) ? (
+            <span className="tree-sidebar__sr-only">
+              {indicatorAccessibleLabel(tone, unread)}
             </span>
-            {indicatorAccessibleLabel(tone, unread) ? (
-              <span className="tree-sidebar__sr-only">
-                {indicatorAccessibleLabel(tone, unread)}
-              </span>
-            ) : null}
-            <span className="tree-sidebar__thread-title">{thread.title}</span>
-          </div>
-          {worktree && onBranchChipContextMenu && onBranchChipOpenPullRequest ? (
-            <div className="tree-sidebar__thread-line tree-sidebar__thread-line--branch">
-              <Tooltip
-                content={tooltipContent}
-                side="bottom"
-                repositionKey={tooltipRepositionKey}
-              >
-                <button
-                  type="button"
-                  className="tree-sidebar__thread-branch"
-                  data-pr-state={worktree.pullRequest?.state ?? "none"}
-                  aria-label={chipLabel}
-                  data-no-reorder-drag="true"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const pr = worktree.pullRequest;
-                    if (pr) {
-                      onBranchChipOpenPullRequest(pr.url);
-                    }
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onBranchChipContextMenu(event);
-                  }}
-                >
-                  {checks ? (
-                    <span
-                      className="tree-sidebar__thread-checks-dot"
-                      data-checks-state={checks.rollup}
-                      aria-hidden="true"
-                    />
-                  ) : null}
-                  <GitBranchIcon size={12} className="tree-sidebar__thread-branch-icon" />
-                  <span className="tree-sidebar__thread-branch-label">{chipLabel}</span>
-                </button>
-              </Tooltip>
-            </div>
           ) : null}
+          <span className="tree-sidebar__thread-title">{thread.title}</span>
         </div>
         <div className="tree-sidebar__thread-right">
-          <ThreadProviderMark thread={thread} />
-          <Tooltip content="Archive thread" side="bottom">
-            <button
-              type="button"
-              className="tree-sidebar__thread-archive"
-              aria-label="Archive thread"
-              data-no-reorder-drag="true"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onArchive();
-              }}
+          {worktree && onBranchChipContextMenu && onBranchChipOpenPullRequest ? (
+            <Tooltip
+              content={tooltipContent}
+              side="bottom"
+              repositionKey={tooltipRepositionKey}
             >
-              <ArchiveIcon size={14} />
-            </button>
-          </Tooltip>
+              <button
+                type="button"
+                className="tree-sidebar__thread-worktree-glyph"
+                data-pr-state={worktree.pullRequest?.state ?? "none"}
+                aria-label={chipLabel}
+                data-no-reorder-drag="true"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const pr = worktree.pullRequest;
+                  if (pr) {
+                    onBranchChipOpenPullRequest(pr.url);
+                  }
+                }}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onBranchChipContextMenu(event);
+                }}
+              >
+                <WorktreeGlyph size={16} />
+                {checks ? (
+                  <span
+                    className="tree-sidebar__thread-checks-dot"
+                    data-checks-state={checks.rollup}
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </button>
+            </Tooltip>
+          ) : null}
+          <span className="tree-sidebar__thread-end-slot">
+            <ThreadProviderMark thread={thread} />
+            <Tooltip content="Archive thread" side="bottom">
+              <button
+                type="button"
+                className="tree-sidebar__thread-archive"
+                aria-label="Archive thread"
+                data-no-reorder-drag="true"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onArchive();
+                }}
+              >
+                <ArchiveIcon size={16} />
+              </button>
+            </Tooltip>
+          </span>
         </div>
       </div>
     </div>
@@ -222,11 +219,11 @@ function renderThreadIndicator(
 ): ReactNode {
   if (tone === "progress") {
     return (
-      <SpinnerIcon size={12} className="tree-sidebar__thread-spinner" />
+      <SpinnerIcon size={16} className="tree-sidebar__thread-spinner" />
     );
   }
   if (tone === "waiting") {
-    return <AlertIcon size={12} className="tree-sidebar__thread-alert" />;
+    return <AlertIcon size={16} className="tree-sidebar__thread-alert" />;
   }
   if (unread) {
     return (

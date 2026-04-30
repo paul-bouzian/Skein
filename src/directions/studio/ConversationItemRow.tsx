@@ -6,6 +6,7 @@ import type {
   ProviderKind,
 } from "../../lib/types";
 import {
+  BrainIcon,
   CheckIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -61,6 +62,7 @@ export function ConversationItemRow({
                 size={11}
                 className={`tx-item__chevron ${expanded ? "tx-item__chevron--expanded" : ""}`}
               />
+              <BrainIcon size={13} className="tx-item__kind-icon" />
               <span className="tx-item__title">Thinking</span>
             </span>
           </div>
