@@ -629,7 +629,12 @@ export function InlineComposer({
               if (event.nativeEvent.isComposing) {
                 return;
               }
-              if (event.key === "Backspace") {
+              if (
+                event.key === "Backspace" &&
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.metaKey
+              ) {
                 if (deleteDecoratedTokenBeforeCursor()) {
                   event.preventDefault();
                   return;

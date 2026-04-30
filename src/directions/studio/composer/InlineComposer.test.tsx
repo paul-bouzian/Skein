@@ -520,6 +520,40 @@ describe("InlineComposer voice dictation", () => {
     });
   });
 
+  it("leaves modified Backspace shortcuts to the textarea", async () => {
+    mockedBridge.getComposerCatalog.mockResolvedValue({
+      prompts: [],
+      skills: [
+        {
+          name: "code-review",
+          description: "Review code changes",
+          path: "/tmp/.codex/skills/code-review/SKILL.md",
+        },
+      ],
+      apps: [],
+    });
+
+    renderComposer("");
+
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText("Message Skein...");
+    await user.type(input, "Use $code");
+    expect(
+      await screen.findByRole("option", { name: /Code Review/i }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Tab}");
+    await waitFor(() => {
+      expect(input).toHaveValue("Use $code-review ");
+    });
+
+    const tokenEnd = "Use $code-review".length;
+    (input as HTMLTextAreaElement).setSelectionRange(tokenEnd, tokenEnd);
+    fireEvent.keyDown(input, { key: "Backspace", altKey: true });
+
+    expect(input).toHaveValue("Use $code-review ");
+  });
+
   it("clears stale autocomplete items while a provider catalog reloads", async () => {
     const claudeCatalog = createDeferred<ThreadComposerCatalog>();
     mockedBridge.getComposerCatalog

@@ -225,7 +225,7 @@ function ConversationMessageRow({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [isCollapsible, item.text, hasImages]);
+  }, [isCollapsible, item.text, hasImages, provider, compact]);
 
   const handleCopy = useCallback(async () => {
     if (!hasText) {
