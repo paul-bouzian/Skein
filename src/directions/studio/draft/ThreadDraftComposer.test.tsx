@@ -45,6 +45,7 @@ let latestInlineComposerProps: {
     mentionBindings: [],
     draftMentionBindings: [],
   ) => void;
+  onInterrupt: () => void;
 } | null = null;
 
 vi.mock("../../../lib/bridge", () => ({
@@ -66,6 +67,7 @@ vi.mock("../composer/InlineComposer", () => ({
     fileSearchTarget,
     isBusy,
     transportEnabled,
+    onInterrupt,
     onSend,
   }: {
     composer: { model: string; provider?: string };
@@ -88,6 +90,7 @@ vi.mock("../composer/InlineComposer", () => ({
       mentionBindings: [],
       draftMentionBindings: [],
     ) => void;
+    onInterrupt: () => void;
   }) => {
     latestInlineComposerProps = {
       composer,
@@ -100,6 +103,7 @@ vi.mock("../composer/InlineComposer", () => ({
       isBusy,
       transportEnabled,
       onSend,
+      onInterrupt,
     };
     return (
       <div data-testid="inline-composer">
@@ -403,6 +407,58 @@ describe("ThreadDraftComposer", () => {
       expect(screen.queryByText("Bonjour instant")).toBeNull();
       expect(latestInlineComposerProps?.draft).toBe("Bonjour instant");
     });
+  });
+
+  it("cancels the optimistic draft send before handoff completion", async () => {
+    let resolveSend!: (value: { ok: false; error: string; cancelled?: boolean }) => void;
+    const sendPromise = new Promise<{
+      ok: false;
+      error: string;
+      cancelled?: boolean;
+    }>((resolve) => {
+      resolveSend = resolve;
+    });
+    mockedSendThreadDraft.mockReturnValueOnce(sendPromise);
+    mockedBridge.getDraftThreadState.mockResolvedValueOnce(
+      makeDraftThreadState({ text: "Cancel this send" }),
+    );
+
+    render(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.draft).toBe("Cancel this send");
+    });
+
+    act(() => {
+      latestInlineComposerProps?.onSend("Cancel this send", [], [], []);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancel this send")).toBeInTheDocument();
+      expect(latestInlineComposerProps?.isBusy).toBe(true);
+    });
+
+    act(() => {
+      latestInlineComposerProps?.onInterrupt();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Cancel this send")).toBeNull();
+      expect(latestInlineComposerProps?.draft).toBe("Cancel this send");
+      expect(latestInlineComposerProps?.isBusy).toBe(false);
+    });
+
+    await act(async () => {
+      resolveSend({ ok: false, error: "Cancelled", cancelled: true });
+      await sendPromise;
+    });
+
+    expect(screen.queryByText("Cancelled")).toBeNull();
   });
 
   it("moves the chat draft into the selected project and clears the chat draft", async () => {

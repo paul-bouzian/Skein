@@ -625,6 +625,41 @@ describe("studioActions", () => {
       expect(useWorkspaceStore.getState().selectedThreadId).toBe(newThread.id);
     });
 
+    it("sendThreadDraft stops before handoff mutations when cancellation is requested", async () => {
+      const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
+      mockedBridge.createThread.mockResolvedValue(newThread);
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("Hello", { kind: "local" }),
+        projectSelection: { kind: "local" },
+        text: "Hello",
+        isCancelled: () => true,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Cancelled",
+        cancelled: true,
+      });
+      expect(mockedBridge.createThread).toHaveBeenCalled();
+      expect(mockedBridge.saveThreadComposerDraft).not.toHaveBeenCalled();
+      expect(
+        useConversationStore.getState().pendingFirstMessageByThreadId[
+          newThread.id
+        ],
+      ).toBeUndefined();
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+        kind: "project",
+        projectId: "project-1",
+      });
+      expect(useWorkspaceStore.getState().selectedThreadId).not.toBe(
+        newThread.id,
+      );
+    });
+
     it("sendThreadDraft transfers the latest mention bindings into the new thread draft", async () => {
       const newThread = makeThread({ id: "thread-new", environmentId: "env-1" });
       mockedBridge.createThread.mockResolvedValue(newThread);

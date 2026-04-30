@@ -235,6 +235,37 @@ describe("conversation store", () => {
     });
   });
 
+  it("stages a pending first message after existing snapshot items", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        ...state.snapshotsByThreadId,
+        [thread.id]: makeConversationSnapshot({
+          threadId: thread.id,
+          environmentId: thread.environmentId,
+          items: [userMessage("user-existing", "Earlier")],
+        }),
+      },
+    }));
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore
+        .getState()
+        .snapshotsByThreadId[thread.id].items.filter(
+          (item) => item.kind === "message",
+        )
+        .map((item) => item.text),
+    ).toEqual(["Earlier", "Start now"]);
+  });
+
   it("keeps first-message work visible across stale idle snapshots", async () => {
     const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
     let callback: (payload: {

@@ -594,17 +594,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       return;
     }
     const composer = payload.composer;
+    const baseSnapshot =
+      get().snapshotsByThreadId[thread.id] ??
+      buildPendingFirstMessageSnapshot(thread, composer);
 
     pendingOptimisticUserMessages.set(thread.id, {
       item: optimisticItem,
-      afterItemId: null,
-      baseItemCount: 0,
+      afterItemId: baseSnapshot.items[baseSnapshot.items.length - 1]?.id ?? null,
+      baseItemCount: baseSnapshot.items.length,
     });
 
     set((state) => {
-      const baseSnapshot =
-        state.snapshotsByThreadId[thread.id] ??
-        buildPendingFirstMessageSnapshot(thread, composer);
       return {
         snapshotsByThreadId: {
           ...state.snapshotsByThreadId,

@@ -111,6 +111,7 @@ export function ThreadConversation({
   const lastSubagentHydrationKeyRef = useRef<string | null>(null);
   const submitInFlightRef = useRef(false);
   const submitGenerationRef = useRef(0);
+  const interruptAfterSubmitRef = useRef(false);
   const lastApproveOrSubmitKeyRef = useRef(approveOrSubmitKey);
   const approveShortcutThreadIdRef = useRef(thread.id);
   const draft = composerDraft.text;
@@ -316,6 +317,7 @@ export function ThreadConversation({
     submitGenerationRef.current += 1;
     const generation = submitGenerationRef.current;
     submitInFlightRef.current = true;
+    interruptAfterSubmitRef.current = false;
     timelineFollowBottomRef.current = true;
     setIsSubmitting(true);
     return generation;
@@ -333,6 +335,14 @@ export function ThreadConversation({
     return submitGenerationRef.current === generation;
   }
 
+  async function flushQueuedInterrupt(generation: number) {
+    if (!isCurrentSubmitCycle(generation) || !interruptAfterSubmitRef.current) {
+      return;
+    }
+    interruptAfterSubmitRef.current = false;
+    await interruptThread(thread.id);
+  }
+
   const approvePlan = useEffectEvent(async (nextComposer: typeof approveComposer) => {
     if (!nextComposer || submitInFlightRef.current) return;
     const submitGeneration = beginSubmitCycle();
@@ -344,6 +354,7 @@ export function ThreadConversation({
       });
       if (sent && isCurrentSubmitCycle(submitGeneration)) {
         resetComposerState();
+        await flushQueuedInterrupt(submitGeneration);
       }
     } finally {
       finishSubmitCycle(submitGeneration);
@@ -445,8 +456,11 @@ export function ThreadConversation({
       payload.images,
       payload.mentionBindings,
     )
-      .then((sent) => {
-        if (sent) return;
+      .then(async (sent) => {
+        if (sent) {
+          await flushQueuedInterrupt(submitGeneration);
+          return;
+        }
         handleFailedReplay(payload);
       })
       .catch(() => {
@@ -509,6 +523,10 @@ export function ThreadConversation({
       );
       return;
     }
+    if (isSubmitting && !isRunning) {
+      interruptAfterSubmitRef.current = true;
+      return;
+    }
     void interruptThread(thread.id);
   }
 
@@ -535,6 +553,7 @@ export function ThreadConversation({
         });
         if (sent && isCurrentSubmitCycle(submitGeneration)) {
           resetComposerState();
+          await flushQueuedInterrupt(submitGeneration);
         }
         return;
       }
@@ -549,6 +568,7 @@ export function ThreadConversation({
       resetComposerState();
       const sent = await sendPromise;
       if (sent) {
+        await flushQueuedInterrupt(submitGeneration);
         return;
       }
       if (isCurrentSubmitCycle(submitGeneration)) {

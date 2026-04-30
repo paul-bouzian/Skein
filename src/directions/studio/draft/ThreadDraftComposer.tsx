@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import skeinAppIcon from "../../../../desktop-backend/icons/icon.png";
 import * as bridge from "../../../lib/bridge";
@@ -317,6 +317,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [optimisticMessage, setOptimisticMessage] =
     useState<ConversationMessageItem | null>(null);
+  const sendCancelledRef = useRef(false);
+  const sendRollbackDraftRef = useRef<ConversationComposerDraft | null>(null);
 
   // Reset send-related layout state whenever the draft target changes —
   // the component is reused in-place when the user retargets the same pane.
@@ -327,6 +329,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     setError(null);
     setIsSending(false);
     setIsRetargeting(false);
+    sendCancelledRef.current = false;
+    sendRollbackDraftRef.current = null;
   }, [draftKey]);
 
   useEffect(() => {
@@ -608,6 +612,8 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   ) {
     if (isSending || isRetargeting) return;
     const previousComposerDraft = cloneComposerDraft(composerDraft);
+    sendCancelledRef.current = false;
+    sendRollbackDraftRef.current = previousComposerDraft;
     const optimisticUserMessage = buildOptimisticUserMessage(
       sendText,
       sendImages,
@@ -636,7 +642,11 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         images: sendImages,
         mentionBindings: sendMentionBindings,
         draftMentionBindings,
+        isCancelled: () => sendCancelledRef.current,
       });
+      if (sendCancelledRef.current || (!result.ok && result.cancelled)) {
+        return;
+      }
       if (!result.ok) {
         setError(result.error);
         setOptimisticMessage(null);
@@ -656,6 +666,20 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         composerDraft: previousComposerDraft,
       }));
       setIsSending(false);
+    }
+  }
+
+  function handleDraftInterrupt() {
+    if (!isSending) return;
+    sendCancelledRef.current = true;
+    setOptimisticMessage(null);
+    setIsSending(false);
+    const rollbackDraft = sendRollbackDraftRef.current;
+    if (rollbackDraft) {
+      updateDraftThreadState(draft, (current) => ({
+        ...current,
+        composerDraft: rollbackDraft,
+      }));
     }
   }
 
@@ -763,7 +787,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
             },
           }))
         }
-        onInterrupt={() => undefined}
+        onInterrupt={handleDraftInterrupt}
         onSend={(
           next,
           nextImages,

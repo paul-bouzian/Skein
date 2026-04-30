@@ -1680,6 +1680,58 @@ describe("ThreadConversation", () => {
     expect(screen.getByDisplayValue("Build the dashboard")).toBeInTheDocument();
   });
 
+  it("schedules an interrupt when stop is pressed before a regular send becomes active", async () => {
+    const sendDeferred = createDeferred<Awaited<ReturnType<typeof bridge.sendThreadMessage>>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot(),
+      capabilities: capabilitiesFixture,
+      composerDraft: null,
+    });
+    mockedBridge.sendThreadMessage.mockReturnValue(sendDeferred.promise);
+    mockedBridge.interruptThreadTurn.mockResolvedValue(
+      makeConversationSnapshot({ status: "idle", activeTurnId: null }),
+    );
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment()}
+        thread={makeThread()}
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText("Message Skein...");
+    await userEvent.type(input, "Stop after submit starts");
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(
+      screen.getByRole("button", { name: "Stop generation" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+    expect(mockedBridge.interruptThreadTurn).not.toHaveBeenCalled();
+
+    sendDeferred.resolve(
+      makeConversationSnapshot({
+        status: "running",
+        activeTurnId: "turn-live",
+        items: [
+          {
+            kind: "message",
+            id: "user-confirmed",
+            turnId: "turn-live",
+            role: "user",
+            text: "Stop after submit starts",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.interruptThreadTurn).toHaveBeenCalledWith("thread-1");
+    });
+  });
+
   it("renders subagents in the active tasks panel for active turns", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({

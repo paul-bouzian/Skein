@@ -94,11 +94,12 @@ export type SendThreadDraftInput = {
   images?: ConversationImageAttachment[];
   mentionBindings?: ComposerMentionBindingInput[];
   draftMentionBindings?: ConversationComposerDraft["mentionBindings"];
+  isCancelled?: () => boolean;
 };
 
 export type SendThreadDraftResult =
   | { ok: true; thread: ThreadRecord }
-  | { ok: false; error: string };
+  | { ok: false; error: string; cancelled?: boolean };
 
 export async function sendThreadDraft(
   input: SendThreadDraftInput,
@@ -108,6 +109,7 @@ export async function sendThreadDraft(
   const mentionBindings = input.mentionBindings ?? [];
   const draftMentionBindings =
     input.draftMentionBindings ?? persistedState.composerDraft.mentionBindings;
+  const isCancelled = input.isCancelled ?? (() => false);
   const composer = persistedState.composer;
   const defaultServiceTier =
     useWorkspaceStore.getState().snapshot?.settings.defaultServiceTier ?? null;
@@ -129,6 +131,9 @@ export async function sendThreadDraft(
     };
   }
   const { thread, environment } = resolved;
+  if (isCancelled()) {
+    return { ok: false, error: "Cancelled", cancelled: true };
+  }
   const projectId =
     environment?.projectId ??
     (draft.kind === "project"
@@ -154,6 +159,9 @@ export async function sendThreadDraft(
     });
   } catch {
     transferredDraftPersisted = false;
+  }
+  if (isCancelled()) {
+    return { ok: false, error: "Cancelled", cancelled: true };
   }
 
   // Stage the new thread in the local snapshot so pane resolution works
