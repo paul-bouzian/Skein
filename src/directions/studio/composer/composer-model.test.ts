@@ -221,10 +221,23 @@ describe("composer-model", () => {
     ]);
   });
 
-  it("can decorate submitted Claude command tokens without treating paths as commands", () => {
+  it("decorates catalog-backed Claude command tokens without treating paths as commands", () => {
     const segments = decorateComposerText(
       "Run /review but leave /Users/test/file alone",
-      null,
+      {
+        prompts: [
+          {
+            name: "review",
+            description: "Review the current diff",
+            argumentMode: "none",
+            argumentNames: [],
+            positionalCount: 0,
+            argumentHint: null,
+          },
+        ],
+        skills: [],
+        apps: [],
+      },
       "claude",
       { decorateUnknownTokens: true },
     );
@@ -244,7 +257,7 @@ describe("composer-model", () => {
 
   it("can decorate submitted commands without relying on the current provider", () => {
     const segments = decorateComposerText(
-      "Use /prompts:review() then /release-notes but keep /tmp raw",
+      "Use /prompts:review() then /release-notes but keep /workspace /run /mnt raw",
       null,
       "codex",
       { decorateAllProviderTokens: true, decorateUnknownTokens: true },
@@ -271,7 +284,7 @@ describe("composer-model", () => {
         start: 27,
         end: 41,
       },
-      { kind: "text", text: " but keep /tmp raw" },
+      { kind: "text", text: " but keep /workspace /run /mnt raw" },
     ]);
   });
 
