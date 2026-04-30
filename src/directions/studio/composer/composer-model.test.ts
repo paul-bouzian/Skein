@@ -256,6 +256,26 @@ describe("composer-model", () => {
     ]);
   });
 
+  it("decorates submitted single-word Claude commands without a catalog", () => {
+    const segments = decorateComposerText(
+      "Run /review",
+      null,
+      "claude",
+      { decorateUnknownTokens: true },
+    );
+
+    expect(segments).toEqual([
+      { kind: "text", text: "Run " },
+      {
+        kind: "prompt",
+        text: "/review",
+        parts: [{ text: "/review", tone: "base" }],
+        start: 4,
+        end: 11,
+      },
+    ]);
+  });
+
   it("can decorate submitted commands without relying on the current provider", () => {
     const segments = decorateComposerText(
       "Use /prompts:review() then /release-notes but keep /workspace /run /mnt raw",
@@ -298,6 +318,17 @@ describe("composer-model", () => {
         "codex",
       ),
     ).toEqual({ start: 4, end: 14 });
+  });
+
+  it("includes an appended token space when deleting at the trailing edge", () => {
+    expect(
+      findComposerTokenDeletionRange(
+        "Use $create-pr ",
+        "Use $create-pr ".length,
+        catalog,
+        "codex",
+      ),
+    ).toEqual({ start: 4, end: 15 });
   });
 
   it("does not delete a decorated prompt while editing inside its arguments", () => {

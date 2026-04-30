@@ -513,7 +513,15 @@ describe("InlineComposer voice dictation", () => {
       expect(input).toHaveValue("Use $code-review ");
     });
 
-    await user.keyboard("{Backspace}{Backspace}");
+    const cursorAfterAppendedSpace = "Use $code-review ".length;
+    input.focus();
+    (input as HTMLTextAreaElement).setSelectionRange(
+      cursorAfterAppendedSpace,
+      cursorAfterAppendedSpace,
+    );
+    fireEvent.select(input);
+    expect(input).toHaveProperty("selectionStart", cursorAfterAppendedSpace);
+    fireEvent.keyDown(input, { key: "Backspace" });
 
     await waitFor(() => {
       expect(input).toHaveValue("Use ");

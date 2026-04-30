@@ -393,7 +393,7 @@ export function decorateComposerText(
       const normalized = token.text.slice(1).toLowerCase();
       if (
         promptMap.has(normalized) ||
-        (decorateUnknownTokens && isSlashCommandToken(token.text))
+        (decorateUnknownTokens && isSlashCommandToken(token.text, provider))
       ) {
         mentionTokens.push({
           kind: "prompt",
@@ -482,6 +482,9 @@ export function findComposerTokenDeletionRange(
     }
     if (cursor === segment.end) {
       return { start: segment.start, end: segment.end };
+    }
+    if (text[cursor - 1] === " " && cursor - 1 === segment.end) {
+      return { start: segment.start, end: cursor };
     }
   }
 
@@ -597,9 +600,15 @@ function collectSpecialTokens(
   return tokens;
 }
 
-function isSlashCommandToken(text: string) {
+function isSlashCommandToken(text: string, provider: ProviderKind) {
   const match = /^\/([A-Za-z0-9][A-Za-z0-9._:-]*)$/.exec(text);
-  return Boolean(match && UNKNOWN_COMMAND_TOKEN_SIGNAL.test(match[1]));
+  if (!match) {
+    return false;
+  }
+  if (UNKNOWN_COMMAND_TOKEN_SIGNAL.test(match[1])) {
+    return true;
+  }
+  return provider === "claude" && /^[a-z][a-z0-9]*$/.test(match[1]);
 }
 
 function isDollarMentionToken(text: string) {
