@@ -51,6 +51,32 @@ describe("context-window", () => {
     ).toBeNull();
   });
 
+  it("prefers an explicit context window override over provider usage metadata", () => {
+    const snapshot = deriveContextWindowSnapshot(
+      {
+        total: {
+          totalTokens: 80_000,
+          inputTokens: 60_000,
+          cachedInputTokens: 0,
+          outputTokens: 20_000,
+          reasoningOutputTokens: 0,
+        },
+        last: {
+          totalTokens: 20_000,
+          inputTokens: 18_000,
+          cachedInputTokens: 0,
+          outputTokens: 2_000,
+          reasoningOutputTokens: 0,
+        },
+        modelContextWindow: 1_000_000,
+      },
+      200_000,
+    );
+
+    expect(snapshot?.maxTokens).toBe(200_000);
+    expect(snapshot?.usedPercentage).toBe(10);
+  });
+
   it("formats compact token counts", () => {
     expect(formatContextWindowTokens(999)).toBe("999");
     expect(formatContextWindowTokens(1_400)).toBe("1.4k");

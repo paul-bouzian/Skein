@@ -14,13 +14,14 @@ import "./ContextWindowMeter.css";
 
 type Props = {
   usage?: ThreadTokenUsageSnapshot | null;
+  contextWindowTokens?: number | null;
 };
 
 const TOOLTIP_GAP_PX = 10;
 const TOOLTIP_Z_INDEX = 60;
 
-export function ContextWindowMeter({ usage }: Props) {
-  const snapshot = deriveContextWindowSnapshot(usage);
+export function ContextWindowMeter({ contextWindowTokens, usage }: Props) {
+  const snapshot = deriveContextWindowSnapshot(usage, contextWindowTokens);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const tooltipId = useId();

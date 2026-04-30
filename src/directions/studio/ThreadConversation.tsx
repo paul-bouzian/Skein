@@ -40,6 +40,7 @@ import { ConversationBanner, ConversationItemRow } from "./ConversationItemRow";
 import { ConversationPlanCard } from "./ConversationPlanCard";
 import { ConversationWorkActivityGroup } from "./ConversationWorkActivityGroup";
 import { InlineComposer } from "./composer/InlineComposer";
+import { claudeModelContextTokens } from "./claudeModelContext";
 import {
   buildConversationTimeline,
   hasRenderableTaskPlan,
@@ -373,6 +374,10 @@ export function ThreadConversation({
         (candidate.provider ?? "codex") === resolvedComposer.provider,
     ) ?? null;
   const selectedModelSupportsImages = modelSupportsImageInput(selectedModel);
+  const contextWindowTokens = claudeModelContextTokens(
+    resolvedComposer.provider,
+    resolvedComposer.model,
+  );
   const selectedModelUnavailable =
     Boolean(capabilities?.models.length) && selectedModel === null;
   const effortOptions = selectedModel?.supportedReasoningEfforts ?? [
@@ -670,7 +675,10 @@ export function ThreadConversation({
         }}
       />
       <div className="tx-conversation__context-meter">
-        <ContextWindowMeter usage={snapshot?.tokenUsage} />
+        <ContextWindowMeter
+          usage={snapshot?.tokenUsage}
+          contextWindowTokens={contextWindowTokens}
+        />
       </div>
     </div>
   );

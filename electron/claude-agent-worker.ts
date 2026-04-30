@@ -21,6 +21,7 @@ import {
   type TokenUsageBreakdown,
   type UserInputQuestion,
 } from "./claude-agent-events.js";
+import { claudeContextWindowForModel } from "../src/lib/claude-context-window.js";
 import { allowClaudeTool } from "./claude-agent-permissions.js";
 import { resolveClaudeCodeExecutablePath } from "./claude-code-executable.js";
 
@@ -619,7 +620,6 @@ async function handleSend(requestId: number, payload: SendPayload) {
   let providerThreadId = payload.providerThreadId?.trim() || null;
   let resultError: string | null = null;
   let resultUsage: unknown = null;
-  let resultModelUsage: unknown = null;
   const activeQuery: ActiveQuery = {
     abortController: new AbortController(),
     interrupted: false,
@@ -693,7 +693,6 @@ async function handleSend(requestId: number, payload: SendPayload) {
       }
       if (message.type === "result") {
         resultUsage = "usage" in message ? message.usage : null;
-        resultModelUsage = "modelUsage" in message ? message.modelUsage : null;
       }
     }
   } catch (error) {
@@ -719,7 +718,6 @@ async function handleSend(requestId: number, payload: SendPayload) {
     conversation,
     payload.model,
     resultUsage,
-    resultModelUsage,
   );
   if (tokenUsage) {
     writeEvent(requestId, tokenUsage);
@@ -772,7 +770,6 @@ async function tokenUsageEventFor(
   conversation: { getContextUsage?: () => Promise<unknown> },
   model: string,
   resultUsage: unknown,
-  resultModelUsage: unknown,
 ): Promise<ClaudeEvent | null> {
   const contextUsage =
     typeof conversation.getContextUsage === "function"
@@ -782,11 +779,7 @@ async function tokenUsageEventFor(
   const totalBreakdown =
     tokenUsageBreakdownFromUsage(resultUsage) ?? contextBreakdown;
   const lastBreakdown = contextBreakdown ?? totalBreakdown;
-  const modelContextWindow =
-    numberField(contextUsage, "rawMaxTokens", "raw_max_tokens") ??
-    numberField(contextUsage, "maxTokens", "max_tokens") ??
-    modelUsageContextWindow(resultModelUsage, model) ??
-    claudeContextWindowForModel(model);
+  const modelContextWindow = claudeContextWindowForModel(model);
 
   if (!totalBreakdown || !lastBreakdown) {
     return null;
@@ -835,22 +828,6 @@ function tokenUsageBreakdownFromUsage(value: unknown): TokenUsageBreakdown | nul
     outputTokens,
     reasoningOutputTokens: 0,
   };
-}
-
-function modelUsageContextWindow(value: unknown, model: string): number | null {
-  if (!value || typeof value !== "object") return null;
-  const usageByModel = value as Record<string, unknown>;
-  const direct = numberField(usageByModel[model], "contextWindow", "context_window");
-  if (direct) return direct;
-  for (const entry of Object.values(usageByModel)) {
-    const contextWindow = numberField(entry, "contextWindow", "context_window");
-    if (contextWindow) return contextWindow;
-  }
-  return null;
-}
-
-function claudeContextWindowForModel(model: string): number {
-  return model.endsWith("[1m]") ? 1_000_000 : 200_000;
 }
 
 function numberField(value: unknown, ...keys: string[]): number | null {

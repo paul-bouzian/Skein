@@ -11,9 +11,10 @@ export type ContextWindowSnapshot = {
 
 export function deriveContextWindowSnapshot(
   usage: ThreadTokenUsageSnapshot | null | undefined,
+  contextWindowOverride?: number | null,
 ): ContextWindowSnapshot | null {
   const usedTokens = usage?.last.totalTokens ?? 0;
-  const maxTokens = usage?.modelContextWindow ?? null;
+  const maxTokens = contextWindowOverride ?? usage?.modelContextWindow ?? null;
 
   if (!maxTokens || maxTokens <= 0 || usedTokens <= 0) {
     return null;
