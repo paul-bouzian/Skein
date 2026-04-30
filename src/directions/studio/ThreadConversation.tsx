@@ -532,7 +532,10 @@ export function ThreadConversation({
       );
       return;
     }
-    if (isSubmitting && !isRunning) {
+    if (
+      isSubmitting &&
+      (!isRunning || snapshot?.activeTurnId === OPTIMISTIC_FIRST_TURN_ID)
+    ) {
       interruptAfterSubmitRef.current = true;
       return;
     }

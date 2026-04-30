@@ -461,6 +461,65 @@ describe("ThreadDraftComposer", () => {
     expect(screen.queryByText("Cancelled")).toBeNull();
   });
 
+  it("keeps draft send cancellation scoped to the interrupted send", async () => {
+    const firstSend = deferred<{ ok: false; error: string; cancelled?: boolean }>();
+    const secondSend = deferred<{ ok: false; error: string; cancelled?: boolean }>();
+    mockedSendThreadDraft
+      .mockReturnValueOnce(firstSend.promise)
+      .mockReturnValueOnce(secondSend.promise);
+    mockedBridge.getDraftThreadState.mockResolvedValueOnce(
+      makeDraftThreadState({ text: "First send" }),
+    );
+
+    render(
+      <ThreadDraftComposer
+        draft={{ kind: "project", projectId: "project-1" }}
+        paneId="topLeft"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.draft).toBe("First send");
+    });
+
+    act(() => {
+      latestInlineComposerProps?.onSend("First send", [], [], []);
+    });
+    await waitFor(() => {
+      expect(mockedSendThreadDraft).toHaveBeenCalledTimes(1);
+    });
+    const firstInput = mockedSendThreadDraft.mock.calls[0]?.[0];
+    expect(firstInput?.isCancelled?.()).toBe(false);
+
+    act(() => {
+      latestInlineComposerProps?.onInterrupt();
+    });
+    await waitFor(() => {
+      expect(latestInlineComposerProps?.draft).toBe("First send");
+      expect(latestInlineComposerProps?.isBusy).toBe(false);
+    });
+    expect(firstInput?.isCancelled?.()).toBe(true);
+
+    act(() => {
+      latestInlineComposerProps?.onSend("Second send", [], [], []);
+    });
+    await waitFor(() => {
+      expect(mockedSendThreadDraft).toHaveBeenCalledTimes(2);
+    });
+    const secondInput = mockedSendThreadDraft.mock.calls[1]?.[0];
+    expect(firstInput?.isCancelled?.()).toBe(true);
+    expect(secondInput?.isCancelled?.()).toBe(false);
+
+    await act(async () => {
+      firstSend.resolve({ ok: false, error: "Cancelled", cancelled: true });
+      secondSend.resolve({ ok: false, error: "Second failed" });
+      await firstSend.promise;
+      await secondSend.promise;
+    });
+
+    expect(screen.getByText("Second failed")).toBeInTheDocument();
+  });
+
   it("surfaces cleanup failures after an interrupted draft send", async () => {
     let resolveSend!: (value: { ok: false; error: string; cancelled?: boolean }) => void;
     const sendPromise = new Promise<{

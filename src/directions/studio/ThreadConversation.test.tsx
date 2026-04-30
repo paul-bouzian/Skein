@@ -1732,6 +1732,68 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("queues stop while a consumed first-message replay is still optimistic-running", async () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    const sendDeferred = createDeferred<Awaited<ReturnType<typeof bridge.sendThreadMessage>>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        threadId: thread.id,
+        environmentId: thread.environmentId,
+      }),
+      capabilities: capabilitiesFixture,
+      composerDraft: null,
+    });
+    mockedBridge.sendThreadMessage.mockReturnValue(sendDeferred.promise);
+    mockedBridge.interruptThreadTurn.mockResolvedValue(
+      makeConversationSnapshot({ status: "idle", activeTurnId: null }),
+    );
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Build the dashboard",
+      images: [],
+      mentionBindings: [],
+      composer: baseComposer,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment({ id: "env-1" })}
+        thread={thread}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+    expect(mockedBridge.interruptThreadTurn).not.toHaveBeenCalled();
+
+    sendDeferred.resolve(
+      makeConversationSnapshot({
+        threadId: thread.id,
+        environmentId: thread.environmentId,
+        status: "running",
+        activeTurnId: "turn-live",
+        items: [
+          {
+            kind: "message",
+            id: "user-confirmed",
+            turnId: "turn-live",
+            role: "user",
+            text: "Build the dashboard",
+            images: null,
+            isStreaming: false,
+          },
+        ],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.interruptThreadTurn).toHaveBeenCalledWith(thread.id);
+    });
+  });
+
   it("does not retry a failed first-message replay after queued stop", async () => {
     const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
     const sendDeferred = createDeferred<Awaited<ReturnType<typeof bridge.sendThreadMessage>>>();
