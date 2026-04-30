@@ -53,6 +53,7 @@ vi.mock("../../lib/bridge", () => ({
   createChatThread: vi.fn(),
   createManagedWorktree: vi.fn(),
   createThread: vi.fn(),
+  deleteWorktreeEnvironment: vi.fn(),
   getDraftThreadState: vi.fn(),
   saveDraftThreadState: vi.fn(),
   saveThreadComposerDraft: vi.fn(),
@@ -114,6 +115,10 @@ describe("studioActions", () => {
     mockedBridge.getDraftThreadState.mockResolvedValue(null);
     mockedBridge.saveDraftThreadState.mockResolvedValue(undefined);
     mockedBridge.saveThreadComposerDraft.mockResolvedValue(undefined);
+    mockedBridge.archiveThread.mockResolvedValue(
+      makeThread({ status: "archived" }),
+    );
+    mockedBridge.deleteWorktreeEnvironment.mockResolvedValue(undefined);
   });
 
   it("selects the first active thread when navigating next with no current selection", () => {
@@ -645,12 +650,66 @@ describe("studioActions", () => {
         cancelled: true,
       });
       expect(mockedBridge.createThread).toHaveBeenCalled();
+      expect(mockedBridge.archiveThread).toHaveBeenCalledWith({
+        threadId: newThread.id,
+      });
       expect(mockedBridge.saveThreadComposerDraft).not.toHaveBeenCalled();
       expect(
         useConversationStore.getState().pendingFirstMessageByThreadId[
           newThread.id
         ],
       ).toBeUndefined();
+      expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
+        kind: "project",
+        projectId: "project-1",
+      });
+      expect(useWorkspaceStore.getState().selectedThreadId).not.toBe(
+        newThread.id,
+      );
+    });
+
+    it("sendThreadDraft deletes a newly-created worktree when cancellation is requested", async () => {
+      const newEnv = makeEnvironment({
+        id: "env-new",
+        kind: "managedWorktree",
+      });
+      const newThread = makeThread({
+        id: "thread-new",
+        environmentId: newEnv.id,
+      });
+      mockedBridge.createManagedWorktree.mockResolvedValue({
+        environment: newEnv,
+        thread: newThread,
+      });
+      useWorkspaceStore.getState().openThreadDraft("project-1", "topLeft");
+
+      const result = await sendThreadDraft({
+        paneId: "topLeft",
+        draft: { kind: "project", projectId: "project-1" },
+        persistedState: makePersistedDraftState("Hello", {
+          kind: "new",
+          baseBranch: "main",
+          name: "cancel-me",
+        }),
+        projectSelection: {
+          kind: "new",
+          baseBranch: "main",
+          name: "cancel-me",
+        },
+        text: "Hello",
+        isCancelled: () => true,
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Cancelled",
+        cancelled: true,
+      });
+      expect(mockedBridge.deleteWorktreeEnvironment).toHaveBeenCalledWith(
+        newEnv.id,
+      );
+      expect(mockedBridge.archiveThread).not.toHaveBeenCalled();
+      expect(mockedBridge.saveThreadComposerDraft).not.toHaveBeenCalled();
       expect(useWorkspaceStore.getState().draftBySlot.topLeft).toEqual({
         kind: "project",
         projectId: "project-1",

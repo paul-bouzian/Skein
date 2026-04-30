@@ -132,7 +132,7 @@ export async function sendThreadDraft(
   }
   const { thread, environment } = resolved;
   if (isCancelled()) {
-    return { ok: false, error: "Cancelled", cancelled: true };
+    return cancelResolvedDraftThread(resolved);
   }
   const projectId =
     environment?.projectId ??
@@ -161,7 +161,7 @@ export async function sendThreadDraft(
     transferredDraftPersisted = false;
   }
   if (isCancelled()) {
-    return { ok: false, error: "Cancelled", cancelled: true };
+    return cancelResolvedDraftThread(resolved);
   }
 
   // Stage the new thread in the local snapshot so pane resolution works
@@ -222,6 +222,35 @@ type ResolvedDraftThread = {
   // returns the freshly-created environment alongside the thread.
   environment?: EnvironmentRecord;
 };
+
+async function cancelResolvedDraftThread(
+  resolved: ResolvedDraftThread,
+): Promise<SendThreadDraftResult> {
+  try {
+    await cleanupResolvedDraftThread(resolved);
+  } catch (cause: unknown) {
+    return {
+      ok: false,
+      error:
+        extractErrorMessage(cause) ??
+        "Cancelled, but failed to clean up the created thread.",
+    };
+  }
+
+  return { ok: false, error: "Cancelled", cancelled: true };
+}
+
+async function cleanupResolvedDraftThread({
+  thread,
+  environment,
+}: ResolvedDraftThread): Promise<void> {
+  if (environment?.kind === "managedWorktree") {
+    await bridge.deleteWorktreeEnvironment(environment.id);
+    return;
+  }
+
+  await bridge.archiveThread({ threadId: thread.id });
+}
 
 async function resolveDraftThread(
   draft: ThreadDraftState,
