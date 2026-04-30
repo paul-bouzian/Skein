@@ -244,6 +244,8 @@ describe("conversation store", () => {
         [thread.id]: makeConversationSnapshot({
           threadId: thread.id,
           environmentId: thread.environmentId,
+          status: "idle",
+          activeTurnId: null,
           items: [userMessage("user-existing", "Earlier")],
         }),
       },
@@ -264,6 +266,45 @@ describe("conversation store", () => {
         )
         .map((item) => item.text),
     ).toEqual(["Earlier", "Start now"]);
+  });
+
+  it("clears the optimistic first turn when cancelling a staged message after existing items", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        ...state.snapshotsByThreadId,
+        [thread.id]: makeConversationSnapshot({
+          threadId: thread.id,
+          environmentId: thread.environmentId,
+          status: "idle",
+          activeTurnId: null,
+          items: [userMessage("user-existing", "Earlier")],
+        }),
+      },
+    }));
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore.getState().cancelPendingFirstMessage(thread.id),
+    ).toMatchObject({ text: "Start now" });
+
+    expect(stateForThread(thread.id)).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
+      items: [
+        expect.objectContaining({
+          id: "user-existing",
+          text: "Earlier",
+        }),
+      ],
+    });
   });
 
   it("keeps first-message work visible until a stale idle snapshot confirms it", async () => {

@@ -972,10 +972,7 @@ function snapshotWithoutItem(
   itemId: string,
 ): ThreadConversationSnapshot {
   const nextItems = snapshot.items.filter((item) => item.id !== itemId);
-  if (
-    nextItems.length === 0 &&
-    snapshot.activeTurnId === OPTIMISTIC_FIRST_TURN_ID
-  ) {
+  if (snapshot.activeTurnId === OPTIMISTIC_FIRST_TURN_ID) {
     return {
       ...snapshot,
       status: "idle",

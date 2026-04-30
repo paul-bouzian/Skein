@@ -1732,6 +1732,74 @@ describe("ThreadConversation", () => {
     });
   });
 
+  it("does not retry a failed first-message replay after queued stop", async () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    const sendDeferred = createDeferred<Awaited<ReturnType<typeof bridge.sendThreadMessage>>>();
+    mockedBridge.openThreadConversation.mockResolvedValue({
+      snapshot: makeConversationSnapshot({
+        threadId: thread.id,
+        environmentId: thread.environmentId,
+      }),
+      capabilities: capabilitiesFixture,
+      composerDraft: null,
+    });
+    mockedBridge.sendThreadMessage.mockReturnValue(sendDeferred.promise);
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Build the dashboard",
+      images: [],
+      mentionBindings: [],
+      composer: baseComposer,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment({ id: "env-1" })}
+        thread={thread}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    });
+
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        ...state.snapshotsByThreadId,
+        [thread.id]: makeConversationSnapshot({
+          threadId: thread.id,
+          environmentId: thread.environmentId,
+          status: "idle",
+          activeTurnId: null,
+          items: [
+            {
+              kind: "message",
+              id: "user-confirmed",
+              role: "user",
+              text: "Build the dashboard",
+              images: null,
+              isStreaming: false,
+            },
+          ],
+        }),
+      },
+    }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+    sendDeferred.reject(new Error("transient failure"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Message Skein...")).toHaveValue(
+        "Build the dashboard",
+      );
+    });
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledTimes(1);
+    expect(
+      useConversationStore.getState().pendingFirstMessageByThreadId[thread.id],
+    ).toBeUndefined();
+  });
+
   it("renders subagents in the active tasks panel for active turns", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({

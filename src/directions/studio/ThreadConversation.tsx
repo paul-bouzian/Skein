@@ -471,6 +471,15 @@ export function ThreadConversation({
       });
 
     function handleFailedReplay(retryPayload: PendingFirstMessage) {
+      if (
+        isCurrentSubmitCycle(submitGeneration) &&
+        interruptAfterSubmitRef.current
+      ) {
+        interruptAfterSubmitRef.current = false;
+        pendingFirstMessageRetryRef.current = false;
+        restoreComposerState(retryPayload.text, retryPayload.images, []);
+        return;
+      }
       // First failure: put the payload back into the pending slot so the
       // effect retries once (transient hydration / network hiccups).
       if (!pendingFirstMessageRetryRef.current) {
