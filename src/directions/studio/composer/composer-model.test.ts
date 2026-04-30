@@ -332,6 +332,35 @@ describe("composer-model", () => {
     ]);
   });
 
+  it("keeps trailing punctuation outside unknown slash command badges", () => {
+    const segments = decorateComposerText(
+      "Run /review. Then /release-notes:",
+      null,
+      "claude",
+      { decorateUnknownTokens: true },
+    );
+
+    expect(segments).toEqual([
+      { kind: "text", text: "Run " },
+      {
+        kind: "prompt",
+        text: "/review",
+        parts: [{ text: "/review", tone: "base" }],
+        start: 4,
+        end: 11,
+      },
+      { kind: "text", text: ". Then " },
+      {
+        kind: "prompt",
+        text: "/release-notes",
+        parts: [{ text: "/release-notes", tone: "base" }],
+        start: 18,
+        end: 32,
+      },
+      { kind: "text", text: ":" },
+    ]);
+  });
+
   it("can decorate submitted commands without relying on the current provider", () => {
     const segments = decorateComposerText(
       "Use /prompts:review() then /release-notes but keep /workspace /run /mnt raw",

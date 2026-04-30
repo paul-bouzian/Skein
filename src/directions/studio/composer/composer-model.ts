@@ -397,17 +397,19 @@ export function decorateComposerText(
   const mentionTokens: DecoratedToken[] = [];
   if (provider === "claude" || decorateAllProviderTokens) {
     for (const token of collectSpecialTokens(text, "/", occupied)) {
-      const normalized = token.text.slice(1).toLowerCase();
-      if (
-        promptMap.has(normalized) ||
-        (decorateUnknownTokens && isSlashCommandToken(token.text, provider))
-      ) {
+      const resolved = resolveSlashCommandToken(
+        token.text,
+        promptMap,
+        decorateUnknownTokens,
+        provider,
+      );
+      if (resolved) {
         mentionTokens.push({
           kind: "prompt",
-          text: token.text,
-          parts: [{ text: token.text, tone: "base" }],
+          text: resolved,
+          parts: [{ text: resolved, tone: "base" }],
           start: token.start,
-          end: token.end,
+          end: token.start + resolved.length,
         });
       }
     }
@@ -595,6 +597,43 @@ function collectSpecialTokens(
   return tokens;
 }
 
+function resolveSlashCommandToken(
+  text: string,
+  promptMap: Map<string, unknown>,
+  decorateUnknownTokens: boolean,
+  provider: ProviderKind,
+) {
+  if (promptMap.has(text.slice(1).toLowerCase())) {
+    return text;
+  }
+
+  const trimmed = trimTrailingTokenPunctuation(text);
+  if (
+    shouldDecorateSlashCommandToken(
+      trimmed,
+      promptMap,
+      decorateUnknownTokens,
+      provider,
+    )
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+function shouldDecorateSlashCommandToken(
+  text: string,
+  promptMap: Map<string, unknown>,
+  decorateUnknownTokens: boolean,
+  provider: ProviderKind,
+) {
+  const normalized = text.slice(1).toLowerCase();
+  return (
+    promptMap.has(normalized) ||
+    (decorateUnknownTokens && isSlashCommandToken(text, provider))
+  );
+}
+
 function resolveDollarMentionToken(
   text: string,
   mentionBindingMap: Map<string, "skill" | "app">,
@@ -612,7 +651,7 @@ function resolveDollarMentionToken(
     return { kind: exactKind, text };
   }
 
-  const trimmed = trimTrailingMentionPunctuation(text);
+  const trimmed = trimTrailingTokenPunctuation(text);
   if (trimmed !== text) {
     const trimmedKind = lookupDollarMentionKind(
       trimmed,
@@ -651,7 +690,7 @@ function lookupDollarMentionKind(
   return null;
 }
 
-function trimTrailingMentionPunctuation(text: string) {
+function trimTrailingTokenPunctuation(text: string) {
   return text.replace(/[.!?:]+$/u, "");
 }
 
