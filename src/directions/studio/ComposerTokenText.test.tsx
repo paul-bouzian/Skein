@@ -71,4 +71,28 @@ describe("ComposerTokenText", () => {
       root.querySelector(".tx-inline-composer__visual-caret"),
     ).not.toBeNull();
   });
+
+  it("renders source skill text when the visual caret is at a token boundary", () => {
+    const text = "$create-pr";
+
+    render(
+      <div data-testid="text">
+        <ComposerTokenText
+          text={text}
+          catalog={catalog}
+          cursorIndex={text.length}
+          provider="codex"
+          keyPrefix="test"
+          showCaret
+        />
+      </div>,
+    );
+
+    const root = screen.getByTestId("text");
+    expect(root).toHaveTextContent(text);
+    expect(root.querySelector(".tx-inline-token-badge")).toBeNull();
+    expect(
+      root.querySelector(".tx-inline-composer__visual-caret"),
+    ).not.toBeNull();
+  });
 });
