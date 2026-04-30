@@ -16,6 +16,7 @@ import {
 } from "../test/fixtures/conversation";
 import {
   INITIAL_CONVERSATION_STATE,
+  OPTIMISTIC_FIRST_TURN_ID,
   teardownConversationListener,
   useConversationStore,
 } from "./conversation-store";
@@ -64,6 +65,10 @@ function resetConversationState() {
     ...state,
     ...INITIAL_CONVERSATION_STATE,
   });
+}
+
+function stateForThread(threadId: string) {
+  return useConversationStore.getState().snapshotsByThreadId[threadId];
 }
 
 function userMessage(
@@ -173,6 +178,202 @@ describe("conversation store", () => {
     expect(useConversationStore.getState().capabilitiesByEnvironmentId["env-1"]).toEqual(
       capabilitiesFixture,
     );
+  });
+
+  it("stages a pending first message before runtime hydration", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    const state = useConversationStore.getState();
+    expect(state.pendingFirstMessageByThreadId["thread-new"]).toMatchObject({
+      text: "Start now",
+    });
+    expect(state.snapshotsByThreadId["thread-new"]).toMatchObject({
+      threadId: "thread-new",
+      environmentId: "env-1",
+      status: "running",
+      activeTurnId: OPTIMISTIC_FIRST_TURN_ID,
+      items: [
+        expect.objectContaining({
+          kind: "message",
+          role: "user",
+          text: "Start now",
+          isStreaming: false,
+        }),
+      ],
+    });
+    expect(state.hydrationByThreadId["thread-new"]).toBe("ready");
+    expect(state.runtimeHydrationByThreadId["thread-new"]).toBe("loading");
+  });
+
+  it("cancels a staged first message before runtime hydration sends it", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore.getState().cancelPendingFirstMessage("thread-new"),
+    ).toMatchObject({ text: "Start now" });
+
+    const state = useConversationStore.getState();
+    expect(state.pendingFirstMessageByThreadId["thread-new"]).toBeUndefined();
+    expect(state.snapshotsByThreadId["thread-new"]).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
+      items: [],
+    });
+  });
+
+  it("stages a pending first message after existing snapshot items", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        ...state.snapshotsByThreadId,
+        [thread.id]: makeConversationSnapshot({
+          threadId: thread.id,
+          environmentId: thread.environmentId,
+          status: "idle",
+          activeTurnId: null,
+          items: [userMessage("user-existing", "Earlier")],
+        }),
+      },
+    }));
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore
+        .getState()
+        .snapshotsByThreadId[thread.id].items.filter(
+          (item) => item.kind === "message",
+        )
+        .map((item) => item.text),
+    ).toEqual(["Earlier", "Start now"]);
+  });
+
+  it("clears the optimistic first turn when cancelling a staged message after existing items", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: {
+        ...state.snapshotsByThreadId,
+        [thread.id]: makeConversationSnapshot({
+          threadId: thread.id,
+          environmentId: thread.environmentId,
+          status: "idle",
+          activeTurnId: null,
+          items: [userMessage("user-existing", "Earlier")],
+        }),
+      },
+    }));
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore.getState().cancelPendingFirstMessage(thread.id),
+    ).toMatchObject({ text: "Start now" });
+
+    expect(stateForThread(thread.id)).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
+      items: [
+        expect.objectContaining({
+          id: "user-existing",
+          text: "Earlier",
+        }),
+      ],
+    });
+  });
+
+  it("keeps first-message work visible until a stale idle snapshot confirms it", async () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    let callback: (payload: {
+      threadId: string;
+      environmentId: string;
+      snapshot: ThreadConversationSnapshot;
+    }) => void = () => undefined;
+    mockedBridge.listenToConversationEvents.mockImplementation(async (...args) => {
+      callback = args[0] as typeof callback;
+      return () => undefined;
+    });
+
+    await useConversationStore.getState().initializeListener();
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    callback({
+      threadId: "thread-new",
+      environmentId: "env-1",
+      snapshot: makeConversationSnapshot({
+        threadId: "thread-new",
+        environmentId: "env-1",
+        status: "idle",
+        activeTurnId: null,
+        items: [],
+      }),
+    });
+
+    expect(stateForThread("thread-new")).toMatchObject({
+      status: "running",
+      activeTurnId: OPTIMISTIC_FIRST_TURN_ID,
+      items: [
+        expect.objectContaining({
+          kind: "message",
+          role: "user",
+          text: "Start now",
+        }),
+      ],
+    });
+
+    callback({
+      threadId: "thread-new",
+      environmentId: "env-1",
+      snapshot: makeConversationSnapshot({
+        threadId: "thread-new",
+        environmentId: "env-1",
+        status: "idle",
+        activeTurnId: null,
+        items: [userMessage("user-confirmed", "Start now")],
+      }),
+    });
+
+    expect(stateForThread("thread-new")).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
+      items: [
+        expect.objectContaining({
+          id: "user-confirmed",
+          role: "user",
+          text: "Start now",
+        }),
+      ],
+    });
   });
 
   it("deduplicates concurrent environment capability loads", async () => {
@@ -730,6 +931,35 @@ describe("conversation store", () => {
       id: "user-confirmed",
       text: "tu vas bien?",
     });
+  });
+
+  it("reuses a staged first message when the runtime send starts", async () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    const confirmedSnapshot = makeConversationSnapshot({
+      threadId: "thread-new",
+      environmentId: "env-1",
+      items: [userMessage("user-confirmed", "Start now")],
+    });
+    mockedBridge.sendThreadMessage.mockResolvedValue(confirmedSnapshot);
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: confirmedSnapshot.composer,
+    });
+
+    await expect(
+      useConversationStore.getState().sendMessage("thread-new", "Start now"),
+    ).resolves.toBe(true);
+
+    const matchingMessages = useConversationStore
+      .getState()
+      .snapshotsByThreadId["thread-new"].items.filter(
+        (item) => item.kind === "message" && item.text === "Start now",
+      );
+    expect(matchingMessages).toHaveLength(1);
+    expect(matchingMessages[0]).toMatchObject({ id: "user-confirmed" });
   });
 
   it("does not confirm an optimistic repeat from older matching text", async () => {

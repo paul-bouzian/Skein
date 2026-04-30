@@ -22,6 +22,7 @@ import type {
 } from "../../lib/types";
 import { ThreadIcon } from "../../shared/Icons";
 import {
+  OPTIMISTIC_FIRST_TURN_ID,
   selectConversationCapabilities,
   selectConversationComposer,
   selectConversationDraft,
@@ -95,6 +96,9 @@ export function ThreadConversation({
   const consumePendingFirstMessage = useConversationStore(
     (state) => state.consumePendingFirstMessage,
   );
+  const cancelPendingFirstMessage = useConversationStore(
+    (state) => state.cancelPendingFirstMessage,
+  );
   const enqueuePendingFirstMessage = useConversationStore(
     (state) => state.enqueuePendingFirstMessage,
   );
@@ -107,6 +111,7 @@ export function ThreadConversation({
   const lastSubagentHydrationKeyRef = useRef<string | null>(null);
   const submitInFlightRef = useRef(false);
   const submitGenerationRef = useRef(0);
+  const interruptAfterSubmitRef = useRef(false);
   const lastApproveOrSubmitKeyRef = useRef(approveOrSubmitKey);
   const approveShortcutThreadIdRef = useRef(thread.id);
   const draft = composerDraft.text;
@@ -312,6 +317,7 @@ export function ThreadConversation({
     submitGenerationRef.current += 1;
     const generation = submitGenerationRef.current;
     submitInFlightRef.current = true;
+    interruptAfterSubmitRef.current = false;
     timelineFollowBottomRef.current = true;
     setIsSubmitting(true);
     return generation;
@@ -329,6 +335,14 @@ export function ThreadConversation({
     return submitGenerationRef.current === generation;
   }
 
+  async function flushQueuedInterrupt(generation: number) {
+    if (!isCurrentSubmitCycle(generation) || !interruptAfterSubmitRef.current) {
+      return;
+    }
+    interruptAfterSubmitRef.current = false;
+    await interruptThread(thread.id);
+  }
+
   const approvePlan = useEffectEvent(async (nextComposer: typeof approveComposer) => {
     if (!nextComposer || submitInFlightRef.current) return;
     const submitGeneration = beginSubmitCycle();
@@ -340,6 +354,7 @@ export function ThreadConversation({
       });
       if (sent && isCurrentSubmitCycle(submitGeneration)) {
         resetComposerState();
+        await flushQueuedInterrupt(submitGeneration);
       }
     } finally {
       finishSubmitCycle(submitGeneration);
@@ -388,6 +403,9 @@ export function ThreadConversation({
     Boolean(activePlan?.isAwaitingDecision && !isRefiningPlan) ||
     !transportReady;
   const isRunning = snapshot?.status === "running";
+  const isFirstMessageOpening = Boolean(
+    pendingFirstMessage || snapshot?.activeTurnId === OPTIMISTIC_FIRST_TURN_ID,
+  );
   const isMutating = isPending || isSubmitting;
   const hasDraftContent = draft.trim().length > 0;
   const hasAttachedImages = images.length > 0;
@@ -438,8 +456,11 @@ export function ThreadConversation({
       payload.images,
       payload.mentionBindings,
     )
-      .then((sent) => {
-        if (sent) return;
+      .then(async (sent) => {
+        if (sent) {
+          await flushQueuedInterrupt(submitGeneration);
+          return;
+        }
         handleFailedReplay(payload);
       })
       .catch(() => {
@@ -450,6 +471,15 @@ export function ThreadConversation({
       });
 
     function handleFailedReplay(retryPayload: PendingFirstMessage) {
+      if (
+        isCurrentSubmitCycle(submitGeneration) &&
+        interruptAfterSubmitRef.current
+      ) {
+        interruptAfterSubmitRef.current = false;
+        pendingFirstMessageRetryRef.current = false;
+        restoreComposerState(retryPayload.text, retryPayload.images, []);
+        return;
+      }
       // First failure: put the payload back into the pending slot so the
       // effect retries once (transient hydration / network hiccups).
       if (!pendingFirstMessageRetryRef.current) {
@@ -491,6 +521,27 @@ export function ThreadConversation({
     timelineFollowBottomRef.current = distance <= 64;
   }
 
+  function handleInterrupt() {
+    const cancelledFirstMessage = cancelPendingFirstMessage(thread.id);
+    if (cancelledFirstMessage) {
+      pendingFirstMessageRetryRef.current = false;
+      restoreComposerState(
+        cancelledFirstMessage.text,
+        cancelledFirstMessage.images,
+        [],
+      );
+      return;
+    }
+    if (
+      isSubmitting &&
+      (!isRunning || snapshot?.activeTurnId === OPTIMISTIC_FIRST_TURN_ID)
+    ) {
+      interruptAfterSubmitRef.current = true;
+      return;
+    }
+    void interruptThread(thread.id);
+  }
+
   async function handleSend(
     text: string,
     images: ConversationImageAttachment[],
@@ -514,6 +565,7 @@ export function ThreadConversation({
         });
         if (sent && isCurrentSubmitCycle(submitGeneration)) {
           resetComposerState();
+          await flushQueuedInterrupt(submitGeneration);
         }
         return;
       }
@@ -528,6 +580,7 @@ export function ThreadConversation({
       resetComposerState();
       const sent = await sendPromise;
       if (sent) {
+        await flushQueuedInterrupt(submitGeneration);
         return;
       }
       if (isCurrentSubmitCycle(submitGeneration)) {
@@ -539,7 +592,11 @@ export function ThreadConversation({
   }
 
   return (
-    <div className="tx-conversation">
+    <div
+      className={`tx-conversation ${
+        isFirstMessageOpening ? "tx-conversation--first-message-opening" : ""
+      }`}
+    >
       <div
         ref={timelineRef}
         className="tx-conversation__timeline"
@@ -635,7 +692,7 @@ export function ThreadConversation({
         effortOptions={effortOptions}
         focusKey={`${thread.id}:${composerFocusKey}`}
         images={images}
-        isBusy={isRunning || isPending}
+        isBusy={isRunning || isPending || isSubmitting || isFirstMessageOpening}
         isSending={isSubmitting}
         isRefiningPlan={isRefiningPlan}
         mentionBindings={mentionBindings}
@@ -663,7 +720,7 @@ export function ThreadConversation({
         onChangeMentionBindings={(bindings) =>
           updateDraft(thread.id, { mentionBindings: bindings })
         }
-        onInterrupt={() => void interruptThread(thread.id)}
+        onInterrupt={handleInterrupt}
         onSend={(text, images, mentionBindings, draftMentionBindings) =>
           void handleSend(text, images, mentionBindings, draftMentionBindings)
         }

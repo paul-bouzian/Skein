@@ -88,6 +88,23 @@
   min-width: 0;
 }
 
+.tx-conversation--first-message-opening > .tx-composer {
+  animation: tx-first-message-composer-land 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+@keyframes tx-first-message-composer-land {
+  0% {
+    transform: translateY(-22vh) scale(1.012);
+  }
+  68% {
+    transform: translateY(6px) scale(1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
 .tx-conversation__empty {
   display: flex;
   flex-direction: column;
@@ -942,6 +959,10 @@ ol.tx-markdown__list {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tx-conversation--first-message-opening > .tx-composer {
+    animation: none;
+  }
+
   .tx-work-activity__toggle--running .tx-work-activity__label,
   .tx-work-activity__toggle--waiting .tx-work-activity__label {
     animation: none;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import skeinAppIcon from "../../../../desktop-backend/icons/icon.png";
 import * as bridge from "../../../lib/bridge";
@@ -317,6 +317,12 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [optimisticMessage, setOptimisticMessage] =
     useState<ConversationMessageItem | null>(null);
+  const sendSequenceRef = useRef(0);
+  const activeSendRef = useRef<{
+    id: number;
+    cancelled: boolean;
+    rollbackDraft: ConversationComposerDraft;
+  } | null>(null);
 
   // Reset send-related layout state whenever the draft target changes —
   // the component is reused in-place when the user retargets the same pane.
@@ -327,6 +333,10 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
     setError(null);
     setIsSending(false);
     setIsRetargeting(false);
+    if (activeSendRef.current) {
+      activeSendRef.current.cancelled = true;
+    }
+    activeSendRef.current = null;
   }, [draftKey]);
 
   useEffect(() => {
@@ -608,6 +618,12 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   ) {
     if (isSending || isRetargeting) return;
     const previousComposerDraft = cloneComposerDraft(composerDraft);
+    const activeSend = {
+      id: ++sendSequenceRef.current,
+      cancelled: false,
+      rollbackDraft: previousComposerDraft,
+    };
+    activeSendRef.current = activeSend;
     const optimisticUserMessage = buildOptimisticUserMessage(
       sendText,
       sendImages,
@@ -636,7 +652,15 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         images: sendImages,
         mentionBindings: sendMentionBindings,
         draftMentionBindings,
+        isCancelled: () => activeSend.cancelled,
       });
+      if (activeSendRef.current?.id !== activeSend.id) {
+        return;
+      }
+      if (!result.ok && result.cancelled) {
+        activeSendRef.current = null;
+        return;
+      }
       if (!result.ok) {
         setError(result.error);
         setOptimisticMessage(null);
@@ -645,8 +669,12 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
           composerDraft: previousComposerDraft,
         }));
         setIsSending(false);
+        activeSendRef.current = null;
       }
     } catch (cause: unknown) {
+      if (activeSendRef.current?.id !== activeSend.id) {
+        return;
+      }
       setError(
         cause instanceof Error ? cause.message : "Failed to send message",
       );
@@ -656,6 +684,24 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         composerDraft: previousComposerDraft,
       }));
       setIsSending(false);
+      activeSendRef.current = null;
+    }
+  }
+
+  function handleDraftInterrupt() {
+    if (!isSending) return;
+    const activeSend = activeSendRef.current;
+    if (activeSend) {
+      activeSend.cancelled = true;
+    }
+    setOptimisticMessage(null);
+    setIsSending(false);
+    const rollbackDraft = activeSend?.rollbackDraft ?? null;
+    if (rollbackDraft) {
+      updateDraftThreadState(draft, (current) => ({
+        ...current,
+        composerDraft: rollbackDraft,
+      }));
     }
   }
 
@@ -675,7 +721,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
   return (
     <div
       className={`tx-conversation thread-draft ${
-        hasSentOnce ? "" : "thread-draft--centered"
+        hasSentOnce ? "thread-draft--sent" : "thread-draft--centered"
       }`}
     >
       {optimisticMessage ? (
@@ -717,7 +763,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
         effortOptions={effortOptions}
         focusKey={`draft:${paneId}`}
         images={composerDraft.images}
-        isBusy={isRetargeting}
+        isBusy={isSending || isRetargeting}
         isSending={isSending}
         isRefiningPlan={false}
         mentionBindings={composerDraft.mentionBindings}
@@ -763,7 +809,7 @@ export function ThreadDraftComposer({ draft, paneId }: Props) {
             },
           }))
         }
-        onInterrupt={() => undefined}
+        onInterrupt={handleDraftInterrupt}
         onSend={(
           next,
           nextImages,

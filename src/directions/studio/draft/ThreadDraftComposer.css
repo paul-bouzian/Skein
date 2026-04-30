@@ -12,6 +12,15 @@
   align-content: center;
 }
 
+.thread-draft--sent > .tx-composer {
+  animation: thread-draft-composer-land 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+.thread-draft--sent .tx-conversation__timeline {
+  animation: thread-draft-timeline-enter 260ms ease-out;
+}
+
 .thread-draft--centered .thread-draft-env {
   position: static;
   left: auto;
@@ -80,6 +89,36 @@
   background: color-mix(in srgb, var(--tx-accent) 14%, transparent);
   color: var(--tx-text-primary);
   font-size: var(--tx-text-xs);
+}
+
+@keyframes thread-draft-composer-land {
+  0% {
+    transform: translateY(-22vh) scale(1.012);
+  }
+  68% {
+    transform: translateY(6px) scale(1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes thread-draft-timeline-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-draft--sent > .tx-composer,
+  .thread-draft--sent .tx-conversation__timeline {
+    animation: none;
+  }
 }
 
 /* ── Env selector (floats in the reserved bottom slot) ── */

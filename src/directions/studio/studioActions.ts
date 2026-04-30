@@ -94,11 +94,12 @@ export type SendThreadDraftInput = {
   images?: ConversationImageAttachment[];
   mentionBindings?: ComposerMentionBindingInput[];
   draftMentionBindings?: ConversationComposerDraft["mentionBindings"];
+  isCancelled?: () => boolean;
 };
 
 export type SendThreadDraftResult =
   | { ok: true; thread: ThreadRecord }
-  | { ok: false; error: string };
+  | { ok: false; error: string; cancelled?: boolean };
 
 export async function sendThreadDraft(
   input: SendThreadDraftInput,
@@ -108,6 +109,7 @@ export async function sendThreadDraft(
   const mentionBindings = input.mentionBindings ?? [];
   const draftMentionBindings =
     input.draftMentionBindings ?? persistedState.composerDraft.mentionBindings;
+  const isCancelled = input.isCancelled ?? (() => false);
   const composer = persistedState.composer;
   const defaultServiceTier =
     useWorkspaceStore.getState().snapshot?.settings.defaultServiceTier ?? null;
@@ -129,6 +131,9 @@ export async function sendThreadDraft(
     };
   }
   const { thread, environment } = resolved;
+  if (isCancelled()) {
+    return cancelResolvedDraftThread(resolved);
+  }
   const projectId =
     environment?.projectId ??
     (draft.kind === "project"
@@ -154,6 +159,9 @@ export async function sendThreadDraft(
     });
   } catch {
     transferredDraftPersisted = false;
+  }
+  if (isCancelled()) {
+    return cancelResolvedDraftThread(resolved);
   }
 
   // Stage the new thread in the local snapshot so pane resolution works
@@ -185,10 +193,10 @@ export async function sendThreadDraft(
         }),
   }));
 
-  // Hand the message off to ThreadConversation: it consumes the pending
-  // first message on mount and runs its own handleSend, which wires up the
-  // optimistic user message while background naming stays hidden.
-  useConversationStore.getState().enqueuePendingFirstMessage(thread.id, {
+  // Hand the message off to ThreadConversation and project it into the new
+  // thread immediately. The real send still goes through the canonical
+  // conversation path once runtime hydration is ready.
+  useConversationStore.getState().stagePendingFirstMessage(thread, {
     text: text.trim(),
     images,
     mentionBindings,
@@ -214,6 +222,35 @@ type ResolvedDraftThread = {
   // returns the freshly-created environment alongside the thread.
   environment?: EnvironmentRecord;
 };
+
+async function cancelResolvedDraftThread(
+  resolved: ResolvedDraftThread,
+): Promise<SendThreadDraftResult> {
+  try {
+    await cleanupResolvedDraftThread(resolved);
+  } catch (cause: unknown) {
+    return {
+      ok: false,
+      error:
+        extractErrorMessage(cause) ??
+        "Cancelled, but failed to clean up the created thread.",
+    };
+  }
+
+  return { ok: false, error: "Cancelled", cancelled: true };
+}
+
+async function cleanupResolvedDraftThread({
+  thread,
+  environment,
+}: ResolvedDraftThread): Promise<void> {
+  if (environment?.kind === "managedWorktree") {
+    await bridge.deleteWorktreeEnvironment(environment.id);
+    return;
+  }
+
+  await bridge.archiveThread({ threadId: thread.id });
+}
 
 async function resolveDraftThread(
   draft: ThreadDraftState,
