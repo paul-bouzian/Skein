@@ -6,10 +6,32 @@ import type {
   ThreadComposerCatalog,
 } from "../../../lib/types";
 
-const PROMPT_PREFIX = "/prompts:";
+export const PROMPT_PREFIX = "/prompts:";
 const TOKEN_BOUNDARY = /[\s([{'"`,.;:!?)}\]]/;
 const TOKEN_STOP = /[\s)\]},"'`;]/;
 const SPACE_APPEND_STOP = /[\s,.;:!?)}\]>"'`]/;
+const UNKNOWN_COMMAND_TOKEN_SIGNAL = /[-_.:]/;
+const AMBIGUOUS_SLASH_PATH_ROOTS = new Set([
+  "applications",
+  "bin",
+  "dev",
+  "etc",
+  "home",
+  "library",
+  "mnt",
+  "opt",
+  "private",
+  "proc",
+  "run",
+  "sbin",
+  "sys",
+  "tmp",
+  "users",
+  "usr",
+  "var",
+  "volumes",
+  "workspace",
+]);
 
 function formatSlugLabel(slug: string): string {
   return slug
@@ -43,10 +65,23 @@ export type ComposerMirrorPart = {
 
 export type ComposerMirrorSegment =
   | { kind: "text"; text: string }
-  | { kind: "prompt"; text: string; parts: ComposerMirrorPart[] }
-  | { kind: "skill"; text: string }
-  | { kind: "app"; text: string }
-  | { kind: "file"; text: string };
+  | {
+      kind: "prompt";
+      text: string;
+      parts: ComposerMirrorPart[];
+      start: number;
+      end: number;
+    }
+  | { kind: "skill"; text: string; start: number; end: number }
+  | { kind: "app"; text: string; start: number; end: number }
+  | { kind: "file"; text: string; start: number; end: number };
+
+export type DecorateComposerTextOptions = {
+  decorateAllProviderTokens?: boolean;
+  decorateFileTokens?: boolean;
+  decorateUnknownTokens?: boolean;
+  mentionBindings?: ComposerMentionBindingInput[];
+};
 
 type DecoratedToken =
   | ({ kind: "prompt"; text: string; parts: ComposerMirrorPart[] } & {
@@ -338,11 +373,21 @@ export function decorateComposerText(
   text: string,
   catalog: ThreadComposerCatalog | null,
   provider: ProviderKind = "codex",
+  options: DecorateComposerTextOptions = {},
 ): ComposerMirrorSegment[] {
   if (!text) {
     return [];
   }
 
+  const decorateAllProviderTokens = options.decorateAllProviderTokens === true;
+  const decorateFileTokens = options.decorateFileTokens !== false;
+  const decorateUnknownTokens = options.decorateUnknownTokens === true;
+  const mentionBindingMap = new Map(
+    (options.mentionBindings ?? []).map((binding) => [
+      binding.mention.toLowerCase(),
+      binding.kind,
+    ]),
+  );
   const promptMap = new Map(
     (catalog?.prompts ?? []).map((prompt) => [prompt.name, prompt]),
   );
@@ -353,13 +398,18 @@ export function decorateComposerText(
     (catalog?.apps ?? []).map((app) => [app.slug.toLowerCase(), app]),
   );
   const promptInvocations =
-    provider === "claude" ? [] : parsePromptInvocations(text);
+    provider === "claude" && !decorateAllProviderTokens
+      ? []
+      : parsePromptInvocations(text);
   const occupied = promptInvocations.map((invocation) => ({
     start: invocation.start,
     end: invocation.end,
   }));
   const promptTokens: DecoratedToken[] = promptInvocations
-    .filter((invocation) => promptMap.has(invocation.name))
+    .filter(
+      (invocation) =>
+        decorateUnknownTokens || promptMap.has(invocation.name),
+    )
     .map((invocation) => ({
       kind: "prompt",
       text: invocation.raw,
@@ -368,50 +418,51 @@ export function decorateComposerText(
       end: invocation.end,
     }));
   const mentionTokens: DecoratedToken[] = [];
-  if (provider === "claude") {
+  if (provider === "claude" || decorateAllProviderTokens) {
     for (const token of collectSpecialTokens(text, "/", occupied)) {
-      const normalized = token.text.slice(1).toLowerCase();
-      if (promptMap.has(normalized)) {
+      const resolved = resolveSlashCommandToken(
+        token.text,
+        promptMap,
+        decorateUnknownTokens,
+        decorateAllProviderTokens,
+        provider,
+      );
+      if (resolved) {
         mentionTokens.push({
           kind: "prompt",
-          text: token.text,
-          parts: [{ text: token.text, tone: "base" }],
+          text: resolved,
+          parts: [{ text: resolved, tone: "base" }],
           start: token.start,
-          end: token.end,
+          end: token.start + resolved.length,
         });
       }
     }
   }
   for (const token of collectSpecialTokens(text, "$", occupied)) {
-    const normalized = token.text.slice(1).toLowerCase();
-    if (skillMap.has(normalized)) {
+    const resolved = resolveDollarMentionToken(
+      token.text,
+      mentionBindingMap,
+      skillMap,
+      appMap,
+      decorateUnknownTokens,
+    );
+    if (resolved) {
       mentionTokens.push({
-        kind: "skill",
-        text: token.text,
+        kind: resolved.kind,
+        text: resolved.text,
         start: token.start,
-        end: token.end,
-      });
-      continue;
-    }
-    if (appMap.has(normalized)) {
-      mentionTokens.push({
-        kind: "app",
-        text: token.text,
-        start: token.start,
-        end: token.end,
+        end: token.start + resolved.text.length,
       });
     }
   }
-  const fileTokens: DecoratedToken[] = collectSpecialTokens(
-    text,
-    "@",
-    occupied,
-  ).map((token) => ({
-    kind: "file",
-    text: token.text,
-    start: token.start,
-    end: token.end,
-  }));
+  const fileTokens: DecoratedToken[] = decorateFileTokens
+    ? collectSpecialTokens(text, "@", occupied).map((token) => ({
+        kind: "file",
+        text: token.text,
+        start: token.start,
+        end: token.end,
+      }))
+    : [];
   const tokens: DecoratedToken[] = [
     ...promptTokens,
     ...mentionTokens,
@@ -431,6 +482,32 @@ export function decorateComposerText(
     segments.push({ kind: "text", text: text.slice(cursor) });
   }
   return segments;
+}
+
+export function findComposerTokenDeletionRange(
+  text: string,
+  cursor: number,
+  catalog: ThreadComposerCatalog | null,
+  provider: ProviderKind = "codex",
+) {
+  if (cursor <= 0 || cursor > text.length) {
+    return null;
+  }
+
+  const segments = decorateComposerText(text, catalog, provider);
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      continue;
+    }
+    if (cursor === segment.end) {
+      return { start: segment.start, end: segment.end };
+    }
+    if (text[cursor - 1] === " " && cursor - 1 === segment.end) {
+      return { start: segment.start, end: cursor };
+    }
+  }
+
+  return null;
 }
 
 function parsePromptInvocations(text: string): PromptInvocation[] {
@@ -540,6 +617,132 @@ function collectSpecialTokens(
     index = end;
   }
   return tokens;
+}
+
+function resolveSlashCommandToken(
+  text: string,
+  promptMap: Map<string, unknown>,
+  decorateUnknownTokens: boolean,
+  decorateAllProviderTokens: boolean,
+  provider: ProviderKind,
+) {
+  if (promptMap.has(text.slice(1).toLowerCase())) {
+    return text;
+  }
+
+  const trimmed = trimTrailingTokenPunctuation(text);
+  if (
+    shouldDecorateSlashCommandToken(
+      trimmed,
+      promptMap,
+      decorateUnknownTokens,
+      decorateAllProviderTokens,
+      provider,
+    )
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+function shouldDecorateSlashCommandToken(
+  text: string,
+  promptMap: Map<string, unknown>,
+  decorateUnknownTokens: boolean,
+  decorateAllProviderTokens: boolean,
+  provider: ProviderKind,
+) {
+  const normalized = text.slice(1).toLowerCase();
+  return (
+    promptMap.has(normalized) ||
+    (decorateUnknownTokens &&
+      isSlashCommandToken(text, provider, decorateAllProviderTokens))
+  );
+}
+
+function resolveDollarMentionToken(
+  text: string,
+  mentionBindingMap: Map<string, "skill" | "app">,
+  skillMap: Map<string, unknown>,
+  appMap: Map<string, unknown>,
+  decorateUnknownTokens: boolean,
+): { kind: "skill" | "app"; text: string } | null {
+  const exactKind = lookupDollarMentionKind(
+    text,
+    mentionBindingMap,
+    skillMap,
+    appMap,
+  );
+  if (exactKind) {
+    return { kind: exactKind, text };
+  }
+
+  const trimmed = trimTrailingTokenPunctuation(text);
+  if (trimmed !== text) {
+    const trimmedKind = lookupDollarMentionKind(
+      trimmed,
+      mentionBindingMap,
+      skillMap,
+      appMap,
+    );
+    if (trimmedKind) {
+      return { kind: trimmedKind, text: trimmed };
+    }
+  }
+
+  if (decorateUnknownTokens && isDollarMentionToken(trimmed)) {
+    return { kind: "skill", text: trimmed };
+  }
+  return null;
+}
+
+function lookupDollarMentionKind(
+  text: string,
+  mentionBindingMap: Map<string, "skill" | "app">,
+  skillMap: Map<string, unknown>,
+  appMap: Map<string, unknown>,
+) {
+  const normalized = text.slice(1).toLowerCase();
+  const explicitKind = mentionBindingMap.get(normalized);
+  if (explicitKind) {
+    return explicitKind;
+  }
+  if (skillMap.has(normalized)) {
+    return "skill";
+  }
+  if (appMap.has(normalized)) {
+    return "app";
+  }
+  return null;
+}
+
+function trimTrailingTokenPunctuation(text: string) {
+  return text.replace(/[.!?:]+$/u, "");
+}
+
+function isSlashCommandToken(
+  text: string,
+  provider: ProviderKind,
+  decorateAllProviderTokens: boolean,
+) {
+  const match = /^\/([A-Za-z0-9][A-Za-z0-9._:-]*)$/.exec(text);
+  if (!match) {
+    return false;
+  }
+  if (UNKNOWN_COMMAND_TOKEN_SIGNAL.test(match[1])) {
+    return true;
+  }
+  const normalized = match[1].toLowerCase();
+  return (
+    (provider === "claude" || decorateAllProviderTokens) &&
+    /^[a-z][a-z0-9]*$/.test(match[1]) &&
+    !AMBIGUOUS_SLASH_PATH_ROOTS.has(normalized)
+  );
+}
+
+function isDollarMentionToken(text: string) {
+  const match = /^\$([a-z][a-z0-9._:-]*)$/.exec(text);
+  return Boolean(match && UNKNOWN_COMMAND_TOKEN_SIGNAL.test(match[1]));
 }
 
 function buildPromptMirrorParts(raw: string): ComposerMirrorPart[] {

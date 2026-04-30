@@ -388,12 +388,18 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           threadId,
           text,
           images,
+          mentionBindings,
           previousSnapshot,
         )
       : null;
     const optimisticMessage =
       previousSnapshot && !stagedOptimisticMessage
-        ? buildOptimisticUserMessageSnapshot(previousSnapshot, text, images)
+        ? buildOptimisticUserMessageSnapshot(
+            previousSnapshot,
+            text,
+            images,
+            mentionBindings,
+          )
         : null;
     const rollbackSnapshot =
       stagedOptimisticMessage && previousSnapshot
@@ -588,6 +594,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const optimisticItem = createOptimisticUserMessage(
       payload.text,
       payload.images,
+      payload.mentionBindings,
     );
     if (!optimisticItem || !payload.composer) {
       get().enqueuePendingFirstMessage(thread.id, payload);
@@ -888,11 +895,16 @@ function buildOptimisticUserMessageSnapshot(
   snapshot: ThreadConversationSnapshot,
   text: string,
   images: ConversationImageAttachment[],
+  mentionBindings: ComposerMentionBindingInput[],
 ): {
   item: ConversationMessageItem;
   snapshot: ThreadConversationSnapshot;
 } | null {
-  const messageItem = createOptimisticUserMessage(text, images);
+  const messageItem = createOptimisticUserMessage(
+    text,
+    images,
+    mentionBindings,
+  );
   if (!messageItem) return null;
 
   return {
@@ -908,6 +920,7 @@ function buildOptimisticUserMessageSnapshot(
 function createOptimisticUserMessage(
   text: string,
   images: ConversationImageAttachment[],
+  mentionBindings: ComposerMentionBindingInput[] = [],
 ): ConversationMessageItem | null {
   if (text.length === 0 && images.length === 0) {
     return null;
@@ -919,6 +932,7 @@ function createOptimisticUserMessage(
     role: "user",
     text,
     images: images.length > 0 ? images : null,
+    mentionBindings: mentionBindings.length > 0 ? mentionBindings : null,
     isStreaming: false,
   };
 }
@@ -952,6 +966,7 @@ function reusablePendingOptimisticUserMessage(
   threadId: string,
   text: string,
   images: ConversationImageAttachment[],
+  mentionBindings: ComposerMentionBindingInput[],
   snapshot: ThreadConversationSnapshot,
 ): PendingOptimisticUserMessage | null {
   const pending = pendingOptimisticUserMessages.get(threadId);
@@ -962,6 +977,14 @@ function reusablePendingOptimisticUserMessage(
     return null;
   }
   if (!sameImageAttachments(pending.item.images ?? null, images)) {
+    return null;
+  }
+  if (
+    !sameMentionBindingInputs(
+      pending.item.mentionBindings ?? [],
+      mentionBindings,
+    )
+  ) {
     return null;
   }
   return pending;
@@ -995,12 +1018,25 @@ function snapshotWithPendingOptimisticMessage(
     return snapshot;
   }
 
-  if (hasConfirmedUserMessage(snapshot, pending)) {
+  const confirmedIndex = findConfirmedUserMessageIndex(snapshot, pending);
+  if (confirmedIndex !== -1) {
     pendingOptimisticUserMessages.delete(threadId);
-    if (!snapshotContainsItem(snapshot, pending.item.id)) return snapshot;
     return {
       ...snapshot,
-      items: snapshot.items.filter((item) => item.id !== pending.item.id),
+      items: snapshot.items.flatMap((item, index) => {
+        if (item.id === pending.item.id) {
+          return [];
+        }
+        if (
+          index === confirmedIndex &&
+          item.kind === "message" &&
+          !item.mentionBindings?.length &&
+          pending.item.mentionBindings?.length
+        ) {
+          return [{ ...item, mentionBindings: pending.item.mentionBindings }];
+        }
+        return [item];
+      }),
     };
   }
 
@@ -1047,23 +1083,42 @@ function snapshotWithOptimisticTurn(
   };
 }
 
-function hasConfirmedUserMessage(
+function findConfirmedUserMessageIndex(
   snapshot: ThreadConversationSnapshot,
   pending: PendingOptimisticUserMessage,
-): boolean {
+): number {
   const anchorIndex = pending.afterItemId
     ? snapshot.items.findIndex((item) => item.id === pending.afterItemId)
     : -1;
   const searchStart = anchorIndex >= 0
     ? anchorIndex + 1
     : Math.min(pending.baseItemCount, snapshot.items.length);
-  return snapshot.items.slice(searchStart).some(
+  const relativeIndex = snapshot.items.slice(searchStart).findIndex(
     (item) =>
       item.kind === "message" &&
       item.id !== pending.item.id &&
       item.role === "user" &&
       item.text === pending.item.text &&
       sameImageAttachments(item.images ?? null, pending.item.images ?? null),
+  );
+  return relativeIndex === -1 ? -1 : searchStart + relativeIndex;
+}
+
+function sameMentionBindingInputs(
+  left: ComposerMentionBindingInput[],
+  right: ComposerMentionBindingInput[],
+) {
+  return (
+    left.length === right.length &&
+    left.every((binding, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        binding.mention === other.mention &&
+        binding.kind === other.kind &&
+        binding.path === other.path
+      );
+    })
   );
 }
 

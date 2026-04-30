@@ -21,6 +21,7 @@ import {
   type IconProps,
 } from "../../shared/Icons";
 import { SmoothCollapse } from "../../shared/SmoothCollapse";
+import { ComposerTokenText } from "./ComposerTokenText";
 import { ConversationLinkedText } from "./ConversationLinkedText";
 import { ConversationMessageImages } from "./ConversationMessageImages";
 import { ConversationMarkdown } from "./ConversationMarkdown";
@@ -226,7 +227,7 @@ function ConversationMessageRow({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [isCollapsible, item.text, hasImages]);
+  }, [isCollapsible, item.text, hasImages, provider, compact]);
 
   const handleCopy = useCallback(async () => {
     if (!hasText) {
@@ -273,9 +274,30 @@ function ConversationMessageRow({
             // URLs below the fold don't sit in the tab order, and visible
             // URLs above the fold don't look clickable while the user is
             // still supposed to press "Show more" to interact with them.
-            <div className={bodyClassName}>{item.text}</div>
+            <div className={bodyClassName}>
+              <ComposerTokenText
+                text={item.text}
+                provider={provider}
+                decorateAllProviderTokens={item.role === "user"}
+                decorateFileTokens={false}
+                decorateUnknownTokens={item.role === "user"}
+                mentionBindings={item.mentionBindings ?? []}
+                keyPrefix={`message-${item.id}-collapsed`}
+              />
+            </div>
           ) : (
-            <ConversationLinkedText as="div" className={bodyClassName} text={item.text} />
+            <div className={bodyClassName}>
+              <ComposerTokenText
+                text={item.text}
+                provider={provider}
+                decorateAllProviderTokens={item.role === "user"}
+                decorateFileTokens={false}
+                decorateUnknownTokens={item.role === "user"}
+                mentionBindings={item.mentionBindings ?? []}
+                linkifyText
+                keyPrefix={`message-${item.id}`}
+              />
+            </div>
           )}
         </div>
       ) : null}

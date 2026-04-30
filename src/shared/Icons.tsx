@@ -120,6 +120,26 @@ export function CopyIcon({ size = 16, className }: IconProps) {
   );
 }
 
+export function CubeIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M8 1.8 13 4.6v6.8L8 14.2l-5-2.8V4.6L8 1.8Z"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.2 4.8 8 7.5l4.8-2.7M8 7.5v6.3"
+        stroke="currentColor"
+        strokeWidth="1.15"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function SparklesIcon({ size = 16, className }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

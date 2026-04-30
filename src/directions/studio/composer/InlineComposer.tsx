@@ -58,6 +58,7 @@ import { ComposerTextMirror } from "./ComposerTextMirror";
 import {
   buildAutocompleteItems,
   findActiveComposerToken,
+  findComposerTokenDeletionRange,
   replaceComposerToken,
   type ComposerAutocompleteItem,
 } from "./composer-model";
@@ -148,6 +149,7 @@ export function InlineComposer({
     [],
   );
   const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [inputFocused, setInputFocused] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissedTokenKey, setDismissedTokenKey] = useState<string | null>(
@@ -410,6 +412,11 @@ export function InlineComposer({
     ],
   );
   const hasAutocompleteItems = autocompleteItems.length > 0;
+  const showVisualCaret =
+    inputFocused &&
+    !inputDisabled &&
+    selection.start === selection.end &&
+    draft.length > 0;
 
   useEffect(() => {
     setActiveIndex((current) =>
@@ -475,6 +482,39 @@ export function InlineComposer({
     setDismissedTokenKey(null);
   }
 
+  function deleteDecoratedTokenBeforeCursor() {
+    const element = textareaRef.current;
+    const start = element?.selectionStart ?? selection.start;
+    const end = element?.selectionEnd ?? selection.end;
+    if (start !== end) {
+      return false;
+    }
+
+    const deletionRange = findComposerTokenDeletionRange(
+      draft,
+      start,
+      catalog,
+      composer.provider,
+    );
+    if (!deletionRange) {
+      return false;
+    }
+
+    const nextDraft = `${draft.slice(0, deletionRange.start)}${draft.slice(
+      deletionRange.end,
+    )}`;
+    const nextBindings = rebaseComposerMentionBindings(
+      draft,
+      nextDraft,
+      mentionBindings,
+    );
+    previousDraftRef.current = nextDraft;
+    onChangeDraft(nextDraft, nextBindings);
+    setPendingCursor(deletionRange.start);
+    setDismissedTokenKey(null);
+    return true;
+  }
+
   function sendDraft() {
     if (sendDisabled) {
       return;
@@ -534,6 +574,7 @@ export function InlineComposer({
             "tx-inline-composer",
             inputDisabled ? "tx-inline-composer--disabled" : null,
             isDragOver ? "tx-inline-composer--drag-over" : null,
+            showVisualCaret ? "tx-inline-composer--visual-caret" : null,
           ]
             .filter(Boolean)
             .join(" ")}
@@ -541,8 +582,10 @@ export function InlineComposer({
           <ComposerTextMirror
             draft={draft}
             catalog={catalog}
+            cursorIndex={selection.start}
             placeholder={placeholder}
             provider={composer.provider}
+            showCaret={showVisualCaret}
             scrollTop={scrollTop}
           />
           <textarea
@@ -573,6 +616,11 @@ export function InlineComposer({
               setDismissedTokenKey(null);
             }}
             onClick={syncSelection}
+            onBlur={() => setInputFocused(false)}
+            onFocus={() => {
+              setInputFocused(true);
+              syncSelection();
+            }}
             onKeyUp={syncSelection}
             onPaste={(event) => void handlePaste(event)}
             onSelect={syncSelection}
@@ -580,6 +628,17 @@ export function InlineComposer({
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) {
                 return;
+              }
+              if (
+                event.key === "Backspace" &&
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.metaKey
+              ) {
+                if (deleteDecoratedTokenBeforeCursor()) {
+                  event.preventDefault();
+                  return;
+                }
               }
               if (hasAutocompleteItems) {
                 if (event.key === "ArrowDown") {

@@ -849,6 +849,7 @@ export type ConversationMessageItem = {
   role: ConversationRole;
   text: string;
   images?: ConversationImageAttachment[] | null;
+  mentionBindings?: ComposerMentionBindingInput[] | null;
   isStreaming: boolean;
 };
 

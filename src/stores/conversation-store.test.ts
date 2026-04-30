@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as bridge from "../lib/bridge";
 import type {
+  ComposerMentionBindingInput,
   ConversationImageAttachment,
   ConversationMessageItem,
   ThreadConversationSnapshot,
@@ -933,33 +934,80 @@ describe("conversation store", () => {
     });
   });
 
+  it("preserves optimistic mention bindings on the confirmed user message", async () => {
+    const initialSnapshot = makeConversationSnapshot({ status: "idle" });
+    const confirmedSnapshot = makeConversationSnapshot({
+      status: "running",
+      activeTurnId: "turn-mention-binding",
+      items: [
+        ...initialSnapshot.items,
+        userMessage("user-confirmed", "Use $github"),
+      ],
+    });
+    const mentionBindings: ComposerMentionBindingInput[] = [
+      { mention: "github", kind: "app", path: "app://github" },
+    ];
+
+    mockedBridge.sendThreadMessage.mockResolvedValue(confirmedSnapshot);
+    useConversationStore.setState((state) => ({
+      ...state,
+      snapshotsByThreadId: { "thread-1": initialSnapshot },
+      composerByThreadId: { "thread-1": initialSnapshot.composer },
+    }));
+
+    await useConversationStore
+      .getState()
+      .sendMessage("thread-1", "Use $github", [], mentionBindings);
+
+    expect(mockedBridge.sendThreadMessage).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      text: "Use $github",
+      composer: initialSnapshot.composer,
+      mentionBindings,
+    });
+    const items = useConversationStore.getState().snapshotsByThreadId["thread-1"].items;
+    expect(items[items.length - 1]).toMatchObject({
+      id: "user-confirmed",
+      text: "Use $github",
+      mentionBindings,
+    });
+  });
+
   it("reuses a staged first message when the runtime send starts", async () => {
     const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    const mentionBindings: ComposerMentionBindingInput[] = [
+      { mention: "github", kind: "app", path: "app://github" },
+    ];
     const confirmedSnapshot = makeConversationSnapshot({
       threadId: "thread-new",
       environmentId: "env-1",
-      items: [userMessage("user-confirmed", "Start now")],
+      items: [userMessage("user-confirmed", "Start $github")],
     });
     mockedBridge.sendThreadMessage.mockResolvedValue(confirmedSnapshot);
 
     useConversationStore.getState().stagePendingFirstMessage(thread, {
-      text: "Start now",
+      text: "Start $github",
       images: [],
-      mentionBindings: [],
+      mentionBindings,
       composer: confirmedSnapshot.composer,
     });
 
     await expect(
-      useConversationStore.getState().sendMessage("thread-new", "Start now"),
+      useConversationStore
+        .getState()
+        .sendMessage("thread-new", "Start $github", [], mentionBindings),
     ).resolves.toBe(true);
 
     const matchingMessages = useConversationStore
       .getState()
       .snapshotsByThreadId["thread-new"].items.filter(
-        (item) => item.kind === "message" && item.text === "Start now",
+        (item) => item.kind === "message" && item.text === "Start $github",
       );
     expect(matchingMessages).toHaveLength(1);
-    expect(matchingMessages[0]).toMatchObject({ id: "user-confirmed" });
+    expect(matchingMessages[0]).toMatchObject({
+      id: "user-confirmed",
+      mentionBindings,
+    });
   });
 
   it("does not confirm an optimistic repeat from older matching text", async () => {

@@ -16,6 +16,78 @@ describe("ConversationItemRow", () => {
     expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(screen.queryByText("Codex")).toBeNull();
   });
+
+  it("renders user composer commands as visual badges", () => {
+    render(
+      <ConversationItemRow
+        provider="claude"
+        item={messageItem({
+          id: "user-command",
+          role: "user",
+          text: "Use /prompts:review() with $create-pr, $github and /release-notes",
+          mentionBindings: [
+            { mention: "github", kind: "app", path: "app://github" },
+          ],
+        })}
+      />,
+    );
+
+    const promptBadge = screen
+      .getByText("/review")
+      .closest(".tx-inline-token-badge");
+    const skillBadge = screen
+      .getByText("$create-pr")
+      .closest(".tx-inline-token-badge");
+    const slashBadge = screen
+      .getByText("/release-notes")
+      .closest(".tx-inline-token-badge");
+    const appBadge = screen
+      .getByText("$github")
+      .closest(".tx-inline-token-badge");
+
+    expect(promptBadge).not.toBeNull();
+    expect(promptBadge).toHaveAttribute("title", "/prompts:review()");
+    expect(skillBadge).not.toBeNull();
+    expect(skillBadge).toHaveAttribute("title", "$create-pr");
+    expect(appBadge).not.toBeNull();
+    expect(appBadge).toHaveClass("tx-inline-token--app");
+    expect(slashBadge).not.toBeNull();
+    expect(slashBadge).toHaveAttribute("title", "/release-notes");
+    expect(
+      screen.getByRole("button", { name: "Copy message" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render assistant text as unknown composer badges", () => {
+    const { container } = render(
+      <ConversationItemRow
+        provider="claude"
+        item={messageItem({
+          id: "assistant-command-text",
+          role: "assistant",
+          text: "Assistant output can mention /review and $foo-bar literally.",
+        })}
+      />,
+    );
+
+    expect(container.querySelector(".tx-inline-token-badge")).toBeNull();
+  });
+
+  it("does not render arbitrary user at-mentions as file badges", () => {
+    const { container } = render(
+      <ConversationItemRow
+        provider="codex"
+        item={messageItem({
+          id: "user-at-mention-text",
+          role: "user",
+          text: "Please ask @alice and @qa-team.",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Please ask @alice and @qa-team.")).toBeInTheDocument();
+    expect(container.querySelector(".tx-inline-token--file")).toBeNull();
+  });
 });
 
 function messageItem(
