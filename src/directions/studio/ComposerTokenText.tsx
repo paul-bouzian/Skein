@@ -120,6 +120,23 @@ function renderComposerSegment(
     );
   }
 
+  if (cursorIndex !== null && cursorIndex < range.end) {
+    const display = displayForComposerToken(segment);
+    const localCursor = Math.max(
+      0,
+      Math.min(segment.text.length, cursorIndex - range.start),
+    );
+    return (
+      <Fragment key={key}>
+        <span className={`tx-inline-token tx-inline-token--${display.tone}`}>
+          {segment.text.slice(0, localCursor)}
+          <ComposerMirrorCaret />
+          {segment.text.slice(localCursor)}
+        </span>
+      </Fragment>
+    );
+  }
+
   return (
     <Fragment key={key}>
       <ComposerTokenBadge segment={segment} />

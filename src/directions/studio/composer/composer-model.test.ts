@@ -244,7 +244,7 @@ describe("composer-model", () => {
 
   it("can decorate submitted commands without relying on the current provider", () => {
     const segments = decorateComposerText(
-      "Use /prompts:review() then /release-notes",
+      "Use /prompts:review() then /release-notes but keep /tmp raw",
       null,
       "codex",
       { decorateAllProviderTokens: true, decorateUnknownTokens: true },
@@ -271,6 +271,7 @@ describe("composer-model", () => {
         start: 27,
         end: 41,
       },
+      { kind: "text", text: " but keep /tmp raw" },
     ]);
   });
 

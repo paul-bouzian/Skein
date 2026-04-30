@@ -10,6 +10,24 @@ export const PROMPT_PREFIX = "/prompts:";
 const TOKEN_BOUNDARY = /[\s([{'"`,.;:!?)}\]]/;
 const TOKEN_STOP = /[\s)\]},"'`;]/;
 const SPACE_APPEND_STOP = /[\s,.;:!?)}\]>"'`]/;
+const COMMON_ABSOLUTE_PATH_ROOTS = new Set([
+  "applications",
+  "bin",
+  "dev",
+  "etc",
+  "home",
+  "library",
+  "opt",
+  "private",
+  "proc",
+  "sbin",
+  "sys",
+  "tmp",
+  "users",
+  "usr",
+  "var",
+  "volumes",
+]);
 
 function formatSlugLabel(slug: string): string {
   return slug
@@ -597,7 +615,10 @@ function collectSpecialTokens(
 }
 
 function isSlashCommandToken(text: string) {
-  return /^\/[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(text);
+  const match = /^\/([A-Za-z0-9][A-Za-z0-9._:-]*)$/.exec(text);
+  return Boolean(
+    match && !COMMON_ABSOLUTE_PATH_ROOTS.has(match[1].toLowerCase()),
+  );
 }
 
 function isDollarMentionToken(text: string) {
