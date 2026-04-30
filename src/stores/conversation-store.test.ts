@@ -212,6 +212,29 @@ describe("conversation store", () => {
     expect(state.runtimeHydrationByThreadId["thread-new"]).toBe("loading");
   });
 
+  it("cancels a staged first message before runtime hydration sends it", () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Start now",
+      images: [],
+      mentionBindings: [],
+      composer: makeConversationSnapshot().composer,
+    });
+
+    expect(
+      useConversationStore.getState().cancelPendingFirstMessage("thread-new"),
+    ).toMatchObject({ text: "Start now" });
+
+    const state = useConversationStore.getState();
+    expect(state.pendingFirstMessageByThreadId["thread-new"]).toBeUndefined();
+    expect(state.snapshotsByThreadId["thread-new"]).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
+      items: [],
+    });
+  });
+
   it("keeps first-message work visible across stale idle snapshots", async () => {
     const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
     let callback: (payload: {
@@ -271,6 +294,30 @@ describe("conversation store", () => {
     expect(stateForThread("thread-new")).toMatchObject({
       status: "running",
       activeTurnId: OPTIMISTIC_FIRST_TURN_ID,
+      items: [
+        expect.objectContaining({
+          id: "user-confirmed",
+          role: "user",
+          text: "Start now",
+        }),
+      ],
+    });
+
+    callback({
+      threadId: "thread-new",
+      environmentId: "env-1",
+      snapshot: makeConversationSnapshot({
+        threadId: "thread-new",
+        environmentId: "env-1",
+        status: "idle",
+        activeTurnId: null,
+        items: [userMessage("user-confirmed", "Start now")],
+      }),
+    });
+
+    expect(stateForThread("thread-new")).toMatchObject({
+      status: "idle",
+      activeTurnId: null,
       items: [
         expect.objectContaining({
           id: "user-confirmed",

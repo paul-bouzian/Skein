@@ -107,6 +107,7 @@ type ConversationState = {
     thread: ThreadRecord,
     payload: PendingFirstMessage,
   ) => void;
+  cancelPendingFirstMessage: (threadId: string) => PendingFirstMessage | null;
   consumePendingFirstMessage: (threadId: string) => PendingFirstMessage | null;
 };
 
@@ -633,6 +634,41 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
   },
 
+  cancelPendingFirstMessage: (threadId) => {
+    const pendingFirstMessage = get().pendingFirstMessageByThreadId[threadId] ?? null;
+    if (!pendingFirstMessage) return null;
+
+    const pendingOptimisticMessage =
+      pendingOptimisticUserMessages.get(threadId) ?? null;
+    pendingOptimisticUserMessages.delete(threadId);
+
+    set((state) => {
+      const nextPendingFirstMessages = {
+        ...state.pendingFirstMessageByThreadId,
+      };
+      delete nextPendingFirstMessages[threadId];
+
+      const currentSnapshot = state.snapshotsByThreadId[threadId];
+      const nextSnapshot =
+        pendingOptimisticMessage && currentSnapshot
+          ? snapshotWithoutItem(currentSnapshot, pendingOptimisticMessage.item.id)
+          : currentSnapshot;
+
+      return {
+        pendingFirstMessageByThreadId: nextPendingFirstMessages,
+        snapshotsByThreadId:
+          nextSnapshot && nextSnapshot !== currentSnapshot
+            ? {
+                ...state.snapshotsByThreadId,
+                [threadId]: nextSnapshot,
+              }
+            : state.snapshotsByThreadId,
+      };
+    });
+
+    return pendingFirstMessage;
+  },
+
   consumePendingFirstMessage: (threadId) => {
     const pending = get().pendingFirstMessageByThreadId[threadId] ?? null;
     if (!pending) return null;
@@ -964,6 +1000,7 @@ function snapshotWithPendingOptimisticMessage(
 
   if (hasConfirmedUserMessage(snapshot, pending)) {
     if (isStalePreRunSnapshot(snapshot)) {
+      pendingOptimisticUserMessages.delete(threadId);
       return snapshotWithOptimisticTurn(snapshot);
     }
     pendingOptimisticUserMessages.delete(threadId);

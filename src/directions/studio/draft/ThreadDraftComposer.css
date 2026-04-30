@@ -92,23 +92,23 @@
 }
 
 @keyframes thread-draft-composer-land {
-  from {
+  0% {
     transform: translateY(-22vh) scale(1.012);
   }
   68% {
     transform: translateY(6px) scale(1);
   }
-  to {
+  100% {
     transform: translateY(0) scale(1);
   }
 }
 
 @keyframes thread-draft-timeline-enter {
-  from {
+  0% {
     opacity: 0;
     transform: translateY(10px);
   }
-  to {
+  100% {
     opacity: 1;
     transform: translateY(0);
   }

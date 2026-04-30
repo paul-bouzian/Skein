@@ -96,6 +96,9 @@ export function ThreadConversation({
   const consumePendingFirstMessage = useConversationStore(
     (state) => state.consumePendingFirstMessage,
   );
+  const cancelPendingFirstMessage = useConversationStore(
+    (state) => state.cancelPendingFirstMessage,
+  );
   const enqueuePendingFirstMessage = useConversationStore(
     (state) => state.enqueuePendingFirstMessage,
   );
@@ -495,6 +498,20 @@ export function ThreadConversation({
     timelineFollowBottomRef.current = distance <= 64;
   }
 
+  function handleInterrupt() {
+    const cancelledFirstMessage = cancelPendingFirstMessage(thread.id);
+    if (cancelledFirstMessage) {
+      pendingFirstMessageRetryRef.current = false;
+      restoreComposerState(
+        cancelledFirstMessage.text,
+        cancelledFirstMessage.images,
+        [],
+      );
+      return;
+    }
+    void interruptThread(thread.id);
+  }
+
   async function handleSend(
     text: string,
     images: ConversationImageAttachment[],
@@ -671,7 +688,7 @@ export function ThreadConversation({
         onChangeMentionBindings={(bindings) =>
           updateDraft(thread.id, { mentionBindings: bindings })
         }
-        onInterrupt={() => void interruptThread(thread.id)}
+        onInterrupt={handleInterrupt}
         onSend={(text, images, mentionBindings, draftMentionBindings) =>
           void handleSend(text, images, mentionBindings, draftMentionBindings)
         }

@@ -94,13 +94,13 @@
 }
 
 @keyframes tx-first-message-composer-land {
-  from {
+  0% {
     transform: translateY(-22vh) scale(1.012);
   }
   68% {
     transform: translateY(6px) scale(1);
   }
-  to {
+  100% {
     transform: translateY(0) scale(1);
   }
 }

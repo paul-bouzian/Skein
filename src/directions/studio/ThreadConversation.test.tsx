@@ -1648,6 +1648,38 @@ describe("ThreadConversation", () => {
     expect(screen.getByText("Build the dashboard")).toBeInTheDocument();
   });
 
+  it("lets the optimistic first-message stop button cancel the pending send", async () => {
+    const thread = makeThread({ id: "thread-new", environmentId: "env-1" });
+    const runtimeOpen = createDeferred<Awaited<ReturnType<typeof bridge.openThreadConversation>>>();
+    mockedBridge.openThreadConversation.mockReturnValue(runtimeOpen.promise);
+
+    useConversationStore.getState().stagePendingFirstMessage(thread, {
+      text: "Build the dashboard",
+      images: [],
+      mentionBindings: [],
+      composer: baseComposer,
+    });
+
+    render(
+      <ThreadConversation
+        environment={makeEnvironment({ id: "env-1" })}
+        thread={thread}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop generation" }));
+
+    expect(mockedBridge.interruptThreadTurn).not.toHaveBeenCalled();
+    expect(
+      useConversationStore.getState().pendingFirstMessageByThreadId[thread.id],
+    ).toBeUndefined();
+    expect(
+      useConversationStore.getState().snapshotsByThreadId[thread.id]?.items,
+    ).toEqual([]);
+    expect(screen.queryByText(/Working/)).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Build the dashboard")).toBeInTheDocument();
+  });
+
   it("renders subagents in the active tasks panel for active turns", async () => {
     setCompactWorkActivity(false);
     mockedBridge.openThreadConversation.mockResolvedValue({
