@@ -693,7 +693,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                         );
                       }}
                     >
-                      <DotsHorizontalIcon size={13} />
+                      <DotsHorizontalIcon size={16} />
                     </button>
                   </Tooltip>
                   <Tooltip content="New thread" side="bottom">
@@ -709,7 +709,7 @@ export function TreeSidebar({ theme, collapsed = false, onOpenSettings, onToggle
                         handleOpenThreadDraft(project.id);
                       }}
                     >
-                      <SquarePenIcon size={13} />
+                      <SquarePenIcon size={16} />
                     </button>
                   </Tooltip>
                 </div>
