@@ -16,6 +16,7 @@ export type ConversationStatusTone =
 export type ConversationIndicatorTone =
   | "neutral"
   | "progress"
+  | "planning"
   | "completed"
   | "warning"
   | "failed"
@@ -72,6 +73,37 @@ export function indicatorToneForConversationStatus(
     case "failed":
       return "failed";
   }
+}
+
+export function indicatorToneForThreadConversation(
+  snapshot: ThreadConversationSnapshot | null,
+): ConversationIndicatorTone {
+  if (!snapshot) {
+    return "neutral";
+  }
+
+  if (threadConversationNeedsAction(snapshot)) {
+    return "waiting";
+  }
+
+  if (
+    snapshot.status === "running" &&
+    snapshot.composer.collaborationMode === "plan"
+  ) {
+    return "planning";
+  }
+
+  return indicatorToneForConversationStatus(snapshot.status);
+}
+
+function threadConversationNeedsAction(
+  snapshot: ThreadConversationSnapshot,
+): boolean {
+  return (
+    snapshot.status === "waitingForExternalAction" ||
+    snapshot.pendingInteractions.length > 0 ||
+    snapshot.proposedPlan?.isAwaitingDecision === true
+  );
 }
 
 export function deriveEnvironmentConversationStatus(

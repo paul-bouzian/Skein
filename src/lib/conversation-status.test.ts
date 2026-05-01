@@ -3,10 +3,36 @@ import { describe, expect, it } from "vitest";
 import {
   deriveEnvironmentConversationStatus,
   indicatorToneForConversationStatus,
+  indicatorToneForThreadConversation,
   labelForConversationStatus,
   toneForConversationStatus,
 } from "./conversation-status";
-import { makeConversationSnapshot, makeEnvironment, makeThread } from "../test/fixtures/conversation";
+import {
+  baseComposer,
+  makeApprovalRequest,
+  makeConversationSnapshot,
+  makeEnvironment,
+  makeProposedPlan,
+  makeThread,
+} from "../test/fixtures/conversation";
+import type {
+  CollaborationMode,
+  ThreadConversationSnapshot,
+} from "./types";
+
+function makeRunningSnapshot(
+  collaborationMode: CollaborationMode,
+  overrides: Partial<ThreadConversationSnapshot> = {},
+): ThreadConversationSnapshot {
+  return makeConversationSnapshot({
+    status: "running",
+    composer: {
+      ...baseComposer,
+      collaborationMode,
+    },
+    ...overrides,
+  });
+}
 
 describe("conversation status helpers", () => {
   it("maps waiting threads to an awaiting-action label and tone", () => {
@@ -18,6 +44,36 @@ describe("conversation status helpers", () => {
   it("treats interrupted threads as neutral instead of warning", () => {
     expect(toneForConversationStatus("interrupted")).toBe("neutral");
     expect(indicatorToneForConversationStatus("interrupted")).toBe("neutral");
+  });
+
+  it("maps running plan-mode threads to the planning indicator", () => {
+    expect(
+      indicatorToneForThreadConversation(makeRunningSnapshot("plan")),
+    ).toBe("planning");
+  });
+
+  it("maps running build-mode threads to the progress indicator", () => {
+    expect(
+      indicatorToneForThreadConversation(makeRunningSnapshot("build")),
+    ).toBe("progress");
+  });
+
+  it("prioritizes awaiting action over planning", () => {
+    expect(
+      indicatorToneForThreadConversation(
+        makeRunningSnapshot("plan", {
+          pendingInteractions: [makeApprovalRequest()],
+        }),
+      ),
+    ).toBe("waiting");
+
+    expect(
+      indicatorToneForThreadConversation(
+        makeRunningSnapshot("plan", {
+          proposedPlan: makeProposedPlan({ isAwaitingDecision: true }),
+        }),
+      ),
+    ).toBe("waiting");
   });
 
   it("prioritizes waiting snapshots over completed ones for an environment", () => {

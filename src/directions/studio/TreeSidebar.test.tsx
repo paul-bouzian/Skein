@@ -9,8 +9,11 @@ import {
   openExternalMock,
 } from "../../test/desktop-mock";
 import {
+  baseComposer,
+  makeApprovalRequest,
   makeConversationSnapshot,
   makeEnvironment,
+  makeProposedPlan,
   makeProject,
   makeThread,
   makeWorkspaceSnapshot,
@@ -18,6 +21,10 @@ import {
 import { useConversationStore } from "../../stores/conversation-store";
 import { useWorktreeScriptStore } from "../../stores/worktree-script-store";
 import { useWorkspaceStore } from "../../stores/workspace-store";
+import type {
+  CollaborationMode,
+  ThreadConversationSnapshot,
+} from "../../lib/types";
 import { TreeSidebar } from "./TreeSidebar";
 
 vi.mock("../../lib/bridge", () => ({
@@ -181,7 +188,76 @@ function makeProjectWithLocalAndWorktree() {
   });
 }
 
+function setThreadConversationSnapshot(
+  overrides: Partial<ThreadConversationSnapshot>,
+) {
+  useConversationStore.setState((state) => ({
+    ...state,
+    snapshotsByThreadId: {
+      "thread-1": makeConversationSnapshot({
+        threadId: "thread-1",
+        ...overrides,
+      }),
+    },
+  }));
+}
+
+function makeRunningThreadSnapshot(
+  collaborationMode: CollaborationMode,
+  overrides: Partial<ThreadConversationSnapshot> = {},
+): Partial<ThreadConversationSnapshot> {
+  return {
+    status: "running",
+    composer: {
+      ...baseComposer,
+      collaborationMode,
+    },
+    ...overrides,
+  };
+}
+
 describe("TreeSidebar", () => {
+  it("shows a planning indicator for running plan-mode threads", () => {
+    setThreadConversationSnapshot(makeRunningThreadSnapshot("plan"));
+
+    renderSidebar();
+
+    const row = screen.getByRole("button", { name: "Thread 1" });
+    expect(row.querySelector(".tree-sidebar__thread-planning")).not.toBeNull();
+    expect(row.querySelector(".tree-sidebar__thread-spinner")).toBeNull();
+    expect(row).toHaveAccessibleDescription("Planning");
+    expect(screen.getByText("Planning")).toBeInTheDocument();
+  });
+
+  it("keeps the spinner for running build-mode threads", () => {
+    setThreadConversationSnapshot(makeRunningThreadSnapshot("build"));
+
+    renderSidebar();
+
+    const row = screen.getByRole("button", { name: "Thread 1" });
+    expect(row.querySelector(".tree-sidebar__thread-spinner")).not.toBeNull();
+    expect(row.querySelector(".tree-sidebar__thread-planning")).toBeNull();
+    expect(row).toHaveAccessibleDescription("Running");
+    expect(screen.getByText("Running")).toBeInTheDocument();
+  });
+
+  it("prioritizes the awaiting-action indicator over planning", () => {
+    setThreadConversationSnapshot(
+      makeRunningThreadSnapshot("plan", {
+        pendingInteractions: [makeApprovalRequest()],
+        proposedPlan: makeProposedPlan({ isAwaitingDecision: true }),
+      }),
+    );
+
+    renderSidebar();
+
+    const row = screen.getByRole("button", { name: "Thread 1" });
+    expect(row.querySelector(".tree-sidebar__thread-alert")).not.toBeNull();
+    expect(row.querySelector(".tree-sidebar__thread-planning")).toBeNull();
+    expect(row).toHaveAccessibleDescription("Awaiting action");
+    expect(screen.getByText("Awaiting action")).toBeInTheDocument();
+  });
+
   it.skip("creates a managed worktree from the project-row plus button", async () => {
     const updatedSnapshot = makeWorkspaceSnapshot({
       projects: [

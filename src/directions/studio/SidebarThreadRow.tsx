@@ -1,7 +1,12 @@
-import { memo, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  memo,
+  useId,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import {
-  indicatorToneForConversationStatus,
+  indicatorToneForThreadConversation,
   type ConversationIndicatorTone,
 } from "../../lib/conversation-status";
 import type {
@@ -13,6 +18,7 @@ import {
   AlertIcon,
   ArchiveIcon,
   ArrowRightIcon,
+  PencilIcon,
   SpinnerIcon,
   WorktreeGlyph,
 } from "../../shared/Icons";
@@ -76,14 +82,16 @@ function SidebarThreadRowImpl(props: Props) {
   const onBranchChipContextMenu = props.onBranchChipContextMenu;
   const onBranchChipOpenPullRequest = props.onBranchChipOpenPullRequest;
   const tone = useConversationStore((state) =>
-    indicatorToneForConversationStatus(
-      state.snapshotsByThreadId[thread.id]?.status ?? null,
+    indicatorToneForThreadConversation(
+      state.snapshotsByThreadId[thread.id] ?? null,
     ),
   );
   const inAnyPane = useWorkspaceStore(selectThreadInAnyPane(thread.id));
   const inFocusedPane = useWorkspaceStore(selectThreadInFocusedPane(thread.id));
   const unread = useThreadUnreadStore(selectThreadUnread(thread.id));
   const dragHandlers = useThreadDrag(thread.id, thread.title, onSelect);
+  const indicatorLabel = indicatorAccessibleLabel(tone, unread);
+  const indicatorDescriptionId = useId();
 
   const classes = [
     "tree-sidebar__thread",
@@ -127,6 +135,7 @@ function SidebarThreadRowImpl(props: Props) {
         className={classes}
         title={paneHint ?? thread.title}
         aria-label={thread.title}
+        aria-describedby={indicatorLabel ? indicatorDescriptionId : undefined}
         data-thread-id={thread.id}
         aria-pressed={inFocusedPane}
         onContextMenu={onContextMenu}
@@ -140,9 +149,9 @@ function SidebarThreadRowImpl(props: Props) {
           >
             {renderThreadIndicator(tone, unread)}
           </span>
-          {indicatorAccessibleLabel(tone, unread) ? (
-            <span className="tree-sidebar__sr-only">
-              {indicatorAccessibleLabel(tone, unread)}
+          {indicatorLabel ? (
+            <span id={indicatorDescriptionId} className="tree-sidebar__sr-only">
+              {indicatorLabel}
             </span>
           ) : null}
           <span className="tree-sidebar__thread-title">{thread.title}</span>
@@ -222,6 +231,9 @@ function renderThreadIndicator(
       <SpinnerIcon size={16} className="tree-sidebar__thread-spinner" />
     );
   }
+  if (tone === "planning") {
+    return <PencilIcon size={15} className="tree-sidebar__thread-planning" />;
+  }
   if (tone === "waiting") {
     return <AlertIcon size={16} className="tree-sidebar__thread-alert" />;
   }
@@ -238,6 +250,7 @@ function indicatorAccessibleLabel(
   unread: boolean,
 ): string | null {
   if (tone === "progress") return "Running";
+  if (tone === "planning") return "Planning";
   if (tone === "waiting") return "Awaiting action";
   if (unread) return "Unread";
   return null;
