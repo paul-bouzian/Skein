@@ -255,6 +255,7 @@ function ConversationMessageRow({
   const [isOverflowing, setIsOverflowing] = useState(false);
   const bodyWrapRef = useRef<HTMLDivElement | null>(null);
   const copyTimerRef = useRef<number | null>(null);
+  const copyAttemptRef = useRef(0);
   const shouldRenderMarkdown = item.role === "assistant";
   const hasText = item.text.trim().length > 0;
   const hasImages = Boolean(item.images && item.images.length > 0);
@@ -336,6 +337,11 @@ function ConversationMessageRow({
       return;
     }
 
+    // Tag this copy attempt so async handlers from earlier clicks cannot
+    // cancel the feedback owned by a later click — a slow `writeText` from
+    // click N that rejects after click N+1 must not clear N+1's timer or
+    // flip `copied` back to false.
+    const attempt = ++copyAttemptRef.current;
     // Apply the copied state synchronously so the CSS transition runs in the
     // same frame as the click — otherwise a row remount during the awaited
     // clipboard write (e.g. assistant message id stabilizing at end of stream)
@@ -349,6 +355,9 @@ function ConversationMessageRow({
       window.clearTimeout(copyTimerRef.current);
     }
     copyTimerRef.current = window.setTimeout(() => {
+      if (copyAttemptRef.current !== attempt) {
+        return;
+      }
       copyTimerRef.current = null;
       setCopied(false);
     }, 1100);
@@ -356,6 +365,9 @@ function ConversationMessageRow({
     try {
       await clipboard.writeText(item.text);
     } catch {
+      if (copyAttemptRef.current !== attempt) {
+        return;
+      }
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current);
         copyTimerRef.current = null;

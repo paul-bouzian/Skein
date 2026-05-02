@@ -253,6 +253,43 @@ describe("ConversationItemRow", () => {
       expect(button.classList.contains("is-copied")).toBe(true);
     });
 
+    it("ignores stale clipboard rejections from earlier clicks", async () => {
+      // First click rejects late; second click resolves. The stale rejection
+      // must not clear the second click's timer or flip the icon back.
+      let rejectFirst: (reason: Error) => void = () => {};
+      const writeText = vi
+        .fn<(value: string) => Promise<void>>()
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((_, reject) => {
+              rejectFirst = reject;
+            }),
+        )
+        .mockImplementationOnce(() => Promise.resolve());
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+
+      render(
+        <ConversationItemRow
+          provider="claude"
+          item={messageItem({ id: "copy-race", text: "Bonjour" })}
+        />,
+      );
+
+      const button = screen.getByRole("button", { name: "Copy message" });
+      await userEvent.click(button);
+      await userEvent.click(button);
+      expect(button.classList.contains("is-copied")).toBe(true);
+
+      rejectFirst(new Error("clipboard unavailable"));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(button.classList.contains("is-copied")).toBe(true);
+    });
+
     it("restarts the auto-revert timer on each consecutive click", async () => {
       // Without a timer reset, the first click's timeout would fire shortly
       // after the second click and the checkmark would disappear early. We
