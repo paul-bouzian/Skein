@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import type {
   ConversationAutoApprovalReviewItem,
   ConversationMessageItem,
+  ConversationReasoningItem,
+  ConversationToolItem,
 } from "../../lib/types";
 import { ConversationItemRow } from "./ConversationItemRow";
 
@@ -119,7 +121,102 @@ describe("ConversationItemRow", () => {
     expect(screen.getByText("User explicitly requested this action.")).toBeInTheDocument();
     expect(screen.getByText(/Auth: High/)).toBeInTheDocument();
   });
+
+  it.each([
+    [
+      "Codex tool summary",
+      toolItem({
+        id: "codex-command",
+        toolType: "commandExecution",
+        title: "Command",
+        summary: "bun run verify",
+        output: "All checks passed",
+      }),
+      "codex",
+      "bun run verify",
+    ],
+    [
+      "Claude tool output fallback",
+      toolItem({
+        id: "claude-web",
+        toolType: "WebSearch",
+        title: "Web",
+        summary: "   ",
+        output: "Streaming output\nhttps://code.claude.com/docs",
+      }),
+      "claude",
+      "Streaming output https://code.claude.com/docs",
+    ],
+    [
+      "reasoning summary",
+      reasoningItem({
+        summary: "Inspecting the workspace",
+        content: "Reading package manifests.",
+      }),
+      "codex",
+      "Inspecting the workspace",
+    ],
+    [
+      "reasoning content fallback",
+      reasoningItem({
+        summary: "\n",
+        content: "Checking runtime session state\nand provider events.",
+      }),
+      "codex",
+      "Checking runtime session state and provider events.",
+    ],
+    [
+      "bounded long output fallback",
+      toolItem({
+        summary: "",
+        output: `${"a".repeat(700)} visible after limit`,
+      }),
+      "codex",
+      "a".repeat(600),
+    ],
+  ] as const)("renders a compact preview from %s", (_case, item, provider, expected) => {
+    const { container } = render(
+      <ConversationItemRow
+        compact
+        provider={provider}
+        item={item}
+      />,
+    );
+
+    expect(previewElement(container)).toHaveTextContent(expected);
+  });
+
+  it("omits compact previews when the source content is blank", () => {
+    const { container } = render(
+      <ConversationItemRow
+        compact
+        item={toolItem({ summary: "   ", output: "\n\n" })}
+      />,
+    );
+
+    expect(previewElement(container)).toBeNull();
+  });
+
+  it("exposes compact previews as button descriptions", () => {
+    render(
+      <ConversationItemRow
+        compact
+        item={toolItem({ summary: "bun run verify" })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Show Command details",
+        description: "bun run verify",
+      }),
+    ).toBeInTheDocument();
+  });
 });
+
+function previewElement(container: HTMLElement) {
+  return container.querySelector(".tx-item__preview");
+}
 
 function messageItem(
   overrides: Partial<ConversationMessageItem> = {},
@@ -152,6 +249,34 @@ function autoReviewItem(
     userAuthorization: null,
     rationale: "User explicitly requested this action.",
     summary: "git push origin feature",
+    ...overrides,
+  };
+}
+
+function toolItem(overrides: Partial<ConversationToolItem> = {}): ConversationToolItem {
+  return {
+    kind: "tool",
+    id: "tool-1",
+    turnId: "turn-1",
+    toolType: "commandExecution",
+    title: "Command",
+    status: "completed",
+    summary: "bun run test",
+    output: "3 tests passed",
+    ...overrides,
+  };
+}
+
+function reasoningItem(
+  overrides: Partial<ConversationReasoningItem> = {},
+): ConversationReasoningItem {
+  return {
+    kind: "reasoning",
+    id: "reasoning-1",
+    turnId: "turn-1",
+    summary: "Thinking through the task",
+    content: "",
+    isStreaming: false,
     ...overrides,
   };
 }
