@@ -18,10 +18,9 @@ import {
   textFromContent,
   summarizeTool,
   type ClaudeEvent,
-  type TokenUsageBreakdown,
   type UserInputQuestion,
 } from "./claude-agent-events.js";
-import { claudeContextWindowForModel } from "../src/lib/claude-context-window.js";
+import { tokenUsageEventFor } from "./claude-agent-usage.js";
 import { allowClaudeTool } from "./claude-agent-permissions.js";
 import { resolveClaudeCodeExecutablePath } from "./claude-code-executable.js";
 import {
@@ -766,82 +765,6 @@ function emitClaudeEvents(
     }
     writeEvent(requestId, event);
   }
-}
-
-async function tokenUsageEventFor(
-  conversation: { getContextUsage?: () => Promise<unknown> },
-  model: string,
-  resultUsage: unknown,
-): Promise<ClaudeEvent | null> {
-  const contextUsage =
-    typeof conversation.getContextUsage === "function"
-      ? await conversation.getContextUsage().catch(() => null)
-      : null;
-  const contextBreakdown = tokenUsageBreakdownFromContextUsage(contextUsage);
-  const totalBreakdown =
-    tokenUsageBreakdownFromUsage(resultUsage) ?? contextBreakdown;
-  const lastBreakdown = contextBreakdown ?? totalBreakdown;
-  const modelContextWindow = claudeContextWindowForModel(model);
-
-  if (!totalBreakdown || !lastBreakdown) {
-    return null;
-  }
-
-  return {
-    kind: "tokenUsage",
-    total: totalBreakdown,
-    last: lastBreakdown,
-    modelContextWindow,
-  };
-}
-
-function tokenUsageBreakdownFromContextUsage(
-  value: unknown,
-): TokenUsageBreakdown | null {
-  const totalTokens = numberField(value, "totalTokens", "total_tokens");
-  if (!totalTokens || totalTokens <= 0) return null;
-  return {
-    totalTokens,
-    inputTokens: totalTokens,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    reasoningOutputTokens: 0,
-  };
-}
-
-function tokenUsageBreakdownFromUsage(value: unknown): TokenUsageBreakdown | null {
-  const inputTokens = numberField(value, "input_tokens", "inputTokens") ?? 0;
-  const cacheReadInputTokens =
-    numberField(value, "cache_read_input_tokens", "cacheReadInputTokens") ?? 0;
-  const cacheCreationInputTokens =
-    numberField(
-      value,
-      "cache_creation_input_tokens",
-      "cacheCreationInputTokens",
-    ) ?? 0;
-  const outputTokens = numberField(value, "output_tokens", "outputTokens") ?? 0;
-  const totalTokens =
-    inputTokens + cacheReadInputTokens + cacheCreationInputTokens + outputTokens;
-  if (totalTokens <= 0) return null;
-  return {
-    totalTokens,
-    inputTokens,
-    cachedInputTokens: cacheReadInputTokens + cacheCreationInputTokens,
-    outputTokens,
-    reasoningOutputTokens: 0,
-  };
-}
-
-function numberField(value: unknown, ...keys: string[]): number | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  for (const key of keys) {
-    const raw = record[key];
-    if (typeof raw === "number" && Number.isFinite(raw)) {
-      return raw;
-    }
-  }
-  return null;
 }
 
 async function handleRequest(request: WorkerRequest) {

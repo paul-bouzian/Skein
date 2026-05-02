@@ -51,30 +51,52 @@ describe("context-window", () => {
     ).toBeNull();
   });
 
-  it("prefers an explicit context window override over provider usage metadata", () => {
-    const snapshot = deriveContextWindowSnapshot(
-      {
-        total: {
-          totalTokens: 80_000,
-          inputTokens: 60_000,
-          cachedInputTokens: 0,
-          outputTokens: 20_000,
-          reasoningOutputTokens: 0,
-        },
-        last: {
-          totalTokens: 20_000,
-          inputTokens: 18_000,
-          cachedInputTokens: 0,
-          outputTokens: 2_000,
-          reasoningOutputTokens: 0,
-        },
-        modelContextWindow: 1_000_000,
+  it("uses provider usage metadata as the context window source", () => {
+    const snapshot = deriveContextWindowSnapshot({
+      total: {
+        totalTokens: 80_000,
+        inputTokens: 60_000,
+        cachedInputTokens: 0,
+        outputTokens: 20_000,
+        reasoningOutputTokens: 0,
       },
-      200_000,
-    );
+      last: {
+        totalTokens: 20_000,
+        inputTokens: 18_000,
+        cachedInputTokens: 0,
+        outputTokens: 2_000,
+        reasoningOutputTokens: 0,
+      },
+      modelContextWindow: 1_000_000,
+    });
 
-    expect(snapshot?.maxTokens).toBe(200_000);
-    expect(snapshot?.usedPercentage).toBe(10);
+    expect(snapshot?.maxTokens).toBe(1_000_000);
+    expect(snapshot?.usedPercentage).toBe(2);
+  });
+
+  it("caps impossible current usage at the context window while preserving total processed", () => {
+    const snapshot = deriveContextWindowSnapshot({
+      total: {
+        totalTokens: 1_200_000,
+        inputTokens: 1_200_000,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+      },
+      last: {
+        totalTokens: 1_200_000,
+        inputTokens: 1_200_000,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        reasoningOutputTokens: 0,
+      },
+      modelContextWindow: 200_000,
+    });
+
+    expect(snapshot?.usedTokens).toBe(200_000);
+    expect(snapshot?.remainingTokens).toBe(0);
+    expect(snapshot?.usedPercentage).toBe(100);
+    expect(snapshot?.totalProcessedTokens).toBe(1_200_000);
   });
 
   it("formats compact token counts", () => {

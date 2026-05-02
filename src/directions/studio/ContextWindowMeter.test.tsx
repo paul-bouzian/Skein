@@ -43,11 +43,10 @@ describe("ContextWindowMeter", () => {
     expect(tooltip).toHaveTextContent("0% · 384/128k context used");
   });
 
-  it("uses the selected context window override in the tooltip", async () => {
+  it("uses provider usage metadata in the tooltip", async () => {
     render(
       <ContextWindowMeter
         usage={{ ...usageFixture, modelContextWindow: 1_000_000 }}
-        contextWindowTokens={200_000}
       />,
     );
     const user = userEvent.setup();
@@ -57,8 +56,36 @@ describe("ContextWindowMeter", () => {
     );
 
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "0% · 384/200k context used",
+      "0% · 384/1m context used",
     );
+  });
+
+  it("keeps rendering when observed usage exceeds the reported window", async () => {
+    render(
+      <ContextWindowMeter
+        usage={{
+          ...usageFixture,
+          total: {
+            ...usageFixture.total,
+            totalTokens: 1_200_000,
+          },
+          last: {
+            ...usageFixture.last,
+            totalTokens: 1_200_000,
+          },
+          modelContextWindow: 200_000,
+        }}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.hover(
+      screen.getByRole("button", { name: "Context window 100% used" }),
+    );
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("100% · 200k/200k context used");
+    expect(tooltip).toHaveTextContent("Total processed: 1.2m tokens");
   });
 
   it("opens on focus and closes on blur", async () => {

@@ -1,7 +1,6 @@
-import type { ModelOption, ProviderKind } from "../../lib/types";
+import type { ModelOption } from "../../lib/types";
 import {
   claudeBaseModelId,
-  claudeContextWindowForModel,
   claudeOneMillionModelId,
   claudeUsesOneMillionContext,
 } from "../../lib/claude-context-window";
@@ -21,14 +20,6 @@ export function claudeModelSupportsOneMillionContext(
     (model) =>
       (model.provider ?? "codex") === "claude" && model.id === oneMillionId,
   );
-}
-
-export function claudeModelContextTokens(
-  provider: ProviderKind,
-  modelId: string,
-): number | null {
-  if (provider !== "claude") return null;
-  return claudeContextWindowForModel(modelId);
 }
 
 export function stripClaudeContextSuffix(label: string): string {

@@ -11,15 +11,15 @@ export type ContextWindowSnapshot = {
 
 export function deriveContextWindowSnapshot(
   usage: ThreadTokenUsageSnapshot | null | undefined,
-  contextWindowOverride?: number | null,
 ): ContextWindowSnapshot | null {
-  const usedTokens = usage?.last.totalTokens ?? 0;
-  const maxTokens = contextWindowOverride ?? usage?.modelContextWindow ?? null;
+  const observedUsedTokens = usage?.last.totalTokens ?? 0;
+  const maxTokens = usage?.modelContextWindow ?? null;
 
-  if (!maxTokens || maxTokens <= 0 || usedTokens <= 0) {
+  if (!maxTokens || maxTokens <= 0 || observedUsedTokens <= 0) {
     return null;
   }
 
+  const usedTokens = Math.min(observedUsedTokens, maxTokens);
   const usedPercentage = Math.min(100, (usedTokens / maxTokens) * 100);
   return {
     usedTokens,
@@ -27,7 +27,11 @@ export function deriveContextWindowSnapshot(
     remainingTokens: Math.max(0, Math.round(maxTokens - usedTokens)),
     usedPercentage,
     remainingPercentage: Math.max(0, 100 - usedPercentage),
-    totalProcessedTokens: totalProcessedTokens(usage, usedTokens),
+    totalProcessedTokens: totalProcessedTokens(
+      usage,
+      observedUsedTokens,
+      usedTokens,
+    ),
   };
 }
 
@@ -49,8 +53,10 @@ export function formatContextWindowTokens(value: number) {
 
 function totalProcessedTokens(
   usage: ThreadTokenUsageSnapshot | null | undefined,
-  usedTokens: number,
+  observedUsedTokens: number,
+  displayedUsedTokens: number,
 ) {
   const totalTokens = usage?.total.totalTokens ?? 0;
-  return totalTokens > usedTokens ? totalTokens : null;
+  if (totalTokens > observedUsedTokens) return totalTokens;
+  return observedUsedTokens > displayedUsedTokens ? observedUsedTokens : null;
 }
