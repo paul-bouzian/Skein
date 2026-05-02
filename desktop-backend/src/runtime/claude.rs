@@ -1665,6 +1665,7 @@ fn conversation_item_id(item: &ConversationItem) -> &str {
         ConversationItem::Message(item) => &item.id,
         ConversationItem::Reasoning(item) => &item.id,
         ConversationItem::Tool(item) => &item.id,
+        ConversationItem::AutoApprovalReview(item) => &item.id,
         ConversationItem::System(item) => &item.id,
     }
 }
@@ -1820,6 +1821,7 @@ fn conversation_item_turn_id(item: &ConversationItem) -> Option<&str> {
         ConversationItem::Message(item) => item.turn_id.as_deref(),
         ConversationItem::Reasoning(item) => item.turn_id.as_deref(),
         ConversationItem::Tool(item) => item.turn_id.as_deref(),
+        ConversationItem::AutoApprovalReview(item) => item.turn_id.as_deref(),
         ConversationItem::System(item) => item.turn_id.as_deref(),
     }
 }
@@ -1976,6 +1978,9 @@ fn complete_current_claude_turn(
             reasoning.turn_id.as_deref() == Some(turn_id.as_str())
         }
         ConversationItem::Tool(tool) => tool.turn_id.as_deref() == Some(turn_id.as_str()),
+        ConversationItem::AutoApprovalReview(review) => {
+            review.turn_id.as_deref() == Some(turn_id.as_str())
+        }
         ConversationItem::System(system) => system.turn_id.as_deref() == Some(turn_id.as_str()),
     });
     let latest_user_index = if include_visible_user_message {

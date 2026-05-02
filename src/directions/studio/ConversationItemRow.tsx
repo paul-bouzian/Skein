@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type {
+  ConversationAutoApprovalReviewItem,
   ConversationItem,
   ConversationMessageItem,
   ProviderKind,
@@ -131,7 +132,103 @@ export function ConversationItemRow({
     );
   }
 
+  if (item.kind === "autoApprovalReview") {
+    return (
+      <AutoApprovalReviewRow
+        item={item}
+        compact={compact}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
+      />
+    );
+  }
+
   return <ConversationBanner tone={item.tone} title={item.title} body={item.body} compact={compact} />;
+}
+
+function AutoApprovalReviewRow({
+  item,
+  compact,
+  expanded,
+  onToggle,
+}: {
+  item: ConversationAutoApprovalReviewItem;
+  compact: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const statusLabel = autoReviewStatusLabel(item.status);
+  const riskLabel = item.riskLevel ? `Risk: ${autoReviewRiskLabel(item.riskLevel)}` : null;
+  const authorizationLabel = item.userAuthorization
+    ? `Auth: ${autoReviewAuthorizationLabel(item.userAuthorization)}`
+    : null;
+  const metaParts = [
+    authorizationLabel,
+    item.targetItemId ? `Target: ${item.targetItemId}` : null,
+  ].filter(Boolean);
+  const statusId = `${item.id}-auto-review-status`;
+  const riskId = `${item.id}-auto-review-risk`;
+  const describedBy = [riskLabel ? riskId : null, statusId]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className={`tx-item tx-item--auto-review ${compact ? "tx-item--compact" : ""}`}>
+      <button
+        type="button"
+        className="tx-item__toggle"
+        aria-label={expanded ? `Hide ${item.title} details` : `Show ${item.title} details`}
+        aria-describedby={describedBy}
+        onClick={onToggle}
+      >
+        <div className="tx-item__header">
+          <span className="tx-item__header-main">
+            <ChevronRightIcon
+              size={11}
+              className={`tx-item__chevron ${expanded ? "tx-item__chevron--expanded" : ""}`}
+            />
+            <SparklesIcon size={13} className="tx-item__kind-icon" />
+            <span className="tx-item__title">{item.title}</span>
+          </span>
+          <span className="tx-auto-review__badges">
+            {riskLabel ? (
+              <span
+                id={riskId}
+                className={`tx-auto-review__badge tx-auto-review__badge--risk-${item.riskLevel}`}
+              >
+                {riskLabel}
+              </span>
+            ) : null}
+            <span
+              id={statusId}
+              className={`tx-auto-review__badge tx-auto-review__badge--status-${item.status}`}
+            >
+              {statusLabel}
+            </span>
+          </span>
+        </div>
+      </button>
+      <SmoothCollapse open={expanded}>
+        {item.summary ? (
+          <ConversationLinkedText
+            as="pre"
+            className="tx-item__body tx-item__body--auto-review"
+            text={item.summary}
+          />
+        ) : null}
+        {item.rationale ? (
+          <ConversationLinkedText
+            as="p"
+            className="tx-auto-review__rationale"
+            text={item.rationale}
+          />
+        ) : null}
+        {metaParts.length > 0 ? (
+          <p className="tx-auto-review__meta">{metaParts.join(" / ")}</p>
+        ) : null}
+      </SmoothCollapse>
+    </div>
+  );
 }
 
 const USER_MESSAGE_COLLAPSE_MAX_HEIGHT = 280;
@@ -333,6 +430,53 @@ function ConversationMessageRow({
 
 function assistantLabelForProvider(provider: ProviderKind) {
   return provider === "claude" ? "Claude" : "Codex";
+}
+
+function autoReviewStatusLabel(status: ConversationAutoApprovalReviewItem["status"]) {
+  switch (status) {
+    case "approved":
+      return "Approved";
+    case "denied":
+      return "Denied";
+    case "timedOut":
+      return "Timed out";
+    case "aborted":
+      return "Stopped";
+    default:
+      return "Reviewing";
+  }
+}
+
+function autoReviewRiskLabel(risk: NonNullable<ConversationAutoApprovalReviewItem["riskLevel"]>) {
+  switch (risk) {
+    case "critical":
+      return "Critical";
+    case "high":
+      return "High";
+    case "medium":
+      return "Medium";
+    case "low":
+      return "Low";
+    default:
+      return risk;
+  }
+}
+
+function autoReviewAuthorizationLabel(
+  authorization: NonNullable<ConversationAutoApprovalReviewItem["userAuthorization"]>,
+) {
+  switch (authorization) {
+    case "unknown":
+      return "Unknown";
+    case "high":
+      return "High";
+    case "medium":
+      return "Medium";
+    case "low":
+      return "Low";
+    default:
+      return authorization;
+  }
 }
 
 export function ConversationBanner({

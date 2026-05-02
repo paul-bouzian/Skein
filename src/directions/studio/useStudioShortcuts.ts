@@ -22,6 +22,7 @@ import {
   selectAdjacentEnvironment,
   selectAdjacentThread,
 } from "./studioActions";
+import { APPROVAL_OPTIONS } from "./composerOptions";
 import { setPreferredActionIdForProject } from "./projectActions";
 
 type Props = {
@@ -33,7 +34,7 @@ type Props = {
   onToggleReviewPanel: () => void;
 };
 
-const APPROVAL_VALUES: ApprovalPolicy[] = ["askToEdit", "fullAccess"];
+const APPROVAL_VALUES: ApprovalPolicy[] = APPROVAL_OPTIONS.map((option) => option.value);
 const DEFAULT_SPLIT_ACTIVE_THREAD = "mod+\\";
 const DEFAULT_CLOSE_FOCUSED_PANE = "mod+shift+w";
 

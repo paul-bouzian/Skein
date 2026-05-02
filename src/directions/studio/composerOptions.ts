@@ -84,6 +84,7 @@ export const COLLABORATION_OPTIONS: ComposerPickerOption<CollaborationMode>[] = 
 
 export const APPROVAL_OPTIONS: ComposerPickerOption<ApprovalPolicy>[] = [
   { value: "askToEdit", label: "Ask to edit" },
+  { value: "autoReview", label: "Auto review" },
   { value: "fullAccess", label: "Full access" },
 ];
 

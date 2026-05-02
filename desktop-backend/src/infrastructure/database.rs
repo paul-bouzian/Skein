@@ -497,6 +497,7 @@ impl AppDatabase {
             ConversationItem::Message(m) => (&m.id, m.turn_id.as_deref()),
             ConversationItem::Reasoning(r) => (&r.id, r.turn_id.as_deref()),
             ConversationItem::Tool(t) => (&t.id, t.turn_id.as_deref()),
+            ConversationItem::AutoApprovalReview(a) => (&a.id, a.turn_id.as_deref()),
             ConversationItem::System(s) => (&s.id, s.turn_id.as_deref()),
         };
         let payload =

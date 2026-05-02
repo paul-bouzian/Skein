@@ -28,6 +28,34 @@ pub enum ConversationItemStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum AutoApprovalReviewStatus {
+    InProgress,
+    Approved,
+    Denied,
+    TimedOut,
+    Aborted,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AutoApprovalReviewRiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AutoApprovalReviewAuthorization {
+    Unknown,
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum ConversationRole {
     User,
     Assistant,
@@ -540,6 +568,7 @@ pub enum ConversationItem {
     Message(ConversationMessageItem),
     Reasoning(ConversationReasoningItem),
     Tool(ConversationToolItem),
+    AutoApprovalReview(ConversationAutoApprovalReviewItem),
     System(ConversationSystemItem),
 }
 
@@ -574,6 +603,22 @@ pub struct ConversationToolItem {
     pub status: ConversationItemStatus,
     pub summary: Option<String>,
     pub output: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationAutoApprovalReviewItem {
+    pub id: String,
+    pub turn_id: Option<String>,
+    pub review_id: String,
+    pub target_item_id: Option<String>,
+    pub action_kind: String,
+    pub title: String,
+    pub status: AutoApprovalReviewStatus,
+    pub risk_level: Option<AutoApprovalReviewRiskLevel>,
+    pub user_authorization: Option<AutoApprovalReviewAuthorization>,
+    pub rationale: Option<String>,
+    pub summary: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

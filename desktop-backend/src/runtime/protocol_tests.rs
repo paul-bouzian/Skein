@@ -9,8 +9,9 @@ use crate::domain::settings::{
 };
 
 use super::protocol::{
-    approval_policy_value, build_history_snapshot, collaboration_mode_options_from_response,
-    complete_proposed_plan, loaded_subagents_for_primary, model_options_from_response,
+    approval_policy_value, approvals_reviewer_value, build_history_snapshot,
+    collaboration_mode_options_from_response, complete_proposed_plan, loaded_subagents_for_primary,
+    model_options_from_response, normalize_auto_approval_review_notification,
     normalize_server_interaction, parse_incoming_message, proposed_plan_from_item,
     sandbox_policy_value, subagents_from_collab_item, task_plan_from_item,
     task_status_from_turn_status, user_input_payload, AccountRateLimitsReadResponse,
@@ -179,6 +180,87 @@ fn builds_history_snapshot_from_thread_turns() {
         item,
         ConversationItem::Tool(tool) if tool.summary.as_deref() == Some("ls")
     )));
+}
+
+#[test]
+fn auto_review_notification_normalizes_review_item() {
+    let item = normalize_auto_approval_review_notification(&json!({
+        "threadId": "thr-1",
+        "turnId": "turn-1",
+        "reviewId": "review-1",
+        "targetItemId": "tool-1",
+        "action": {
+            "type": "command",
+            "command": "git push origin feature",
+            "cwd": "/workspace/app",
+            "source": "shell"
+        },
+        "review": {
+            "status": "approved",
+            "riskLevel": "high",
+            "userAuthorization": "high",
+            "rationale": "The push targets the current feature branch."
+        }
+    }))
+    .expect("auto review notification should normalize");
+
+    match item {
+        ConversationItem::AutoApprovalReview(review) => {
+            assert_eq!(review.id, "auto-review-review-1");
+            assert_eq!(review.turn_id.as_deref(), Some("turn-1"));
+            assert_eq!(review.target_item_id.as_deref(), Some("tool-1"));
+            assert_eq!(review.title, "Command auto-review");
+            assert_eq!(review.action_kind, "command");
+            assert_eq!(
+                review.summary,
+                "git push origin feature\ncwd: /workspace/app"
+            );
+            assert_eq!(
+                review.status,
+                crate::domain::conversation::AutoApprovalReviewStatus::Approved
+            );
+            assert_eq!(
+                review.risk_level,
+                Some(crate::domain::conversation::AutoApprovalReviewRiskLevel::High)
+            );
+            assert_eq!(
+                review.user_authorization,
+                Some(crate::domain::conversation::AutoApprovalReviewAuthorization::High)
+            );
+            assert_eq!(
+                review.rationale.as_deref(),
+                Some("The push targets the current feature branch.")
+            );
+        }
+        _ => panic!("expected auto approval review item"),
+    }
+}
+
+#[test]
+fn auto_review_network_summary_omits_missing_port() {
+    let item = normalize_auto_approval_review_notification(&json!({
+        "threadId": "thr-1",
+        "turnId": "turn-1",
+        "reviewId": "review-1",
+        "action": {
+            "type": "networkAccess",
+            "protocol": "https",
+            "host": "example.com",
+            "target": "api"
+        },
+        "review": {
+            "status": "inProgress"
+        }
+    }))
+    .expect("auto review notification should normalize");
+
+    match item {
+        ConversationItem::AutoApprovalReview(review) => {
+            assert_eq!(review.title, "Network auto-review");
+            assert_eq!(review.summary, "https://example.com\ntarget: api");
+        }
+        _ => panic!("expected auto approval review item"),
+    }
 }
 
 #[test]
@@ -962,7 +1044,20 @@ fn normalizes_collaboration_modes_and_sandbox_mapping() {
         "on-request"
     );
     assert_eq!(
+        approval_policy_value(ApprovalPolicy::AutoReview),
+        "on-request"
+    );
+    assert_eq!(approvals_reviewer_value(ApprovalPolicy::AskToEdit), "user");
+    assert_eq!(
+        approvals_reviewer_value(ApprovalPolicy::AutoReview),
+        "auto_review"
+    );
+    assert_eq!(
         sandbox_policy_value(ApprovalPolicy::AskToEdit, "/tmp/skein")["type"],
+        "workspaceWrite"
+    );
+    assert_eq!(
+        sandbox_policy_value(ApprovalPolicy::AutoReview, "/tmp/skein")["type"],
         "workspaceWrite"
     );
     assert_eq!(

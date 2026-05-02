@@ -16,7 +16,7 @@ type Props = {
   compact?: boolean;
   disabled?: boolean;
   menuZIndex?: number;
-  tone?: "default" | "accent" | "warning";
+  tone?: "default" | "accent" | "info" | "warning";
   onChange: (value: string) => void;
 };
 
@@ -44,11 +44,13 @@ export function ComposerPicker({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const isAccent = tone === "accent";
+  const isInfo = tone === "info";
   const isWarning = tone === "warning";
   const pickerClassName = `tx-picker ${open ? "tx-picker--open" : ""} ${compact ? "tx-picker--compact" : ""}`;
   const triggerClassName = [
     "tx-picker__trigger",
     isAccent ? "tx-picker__trigger--accent" : null,
+    isInfo ? "tx-picker__trigger--info" : null,
     isWarning ? "tx-picker__trigger--warning" : null,
   ]
     .filter(Boolean)
@@ -56,6 +58,7 @@ export function ComposerPicker({
   const valueClassName = [
     "tx-picker__value",
     isAccent ? "tx-picker__value--accent" : null,
+    isInfo ? "tx-picker__value--info" : null,
     isWarning ? "tx-picker__value--warning" : null,
   ]
     .filter(Boolean)

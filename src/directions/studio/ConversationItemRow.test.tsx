@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { ConversationMessageItem } from "../../lib/types";
+import type {
+  ConversationAutoApprovalReviewItem,
+  ConversationMessageItem,
+} from "../../lib/types";
 import { ConversationItemRow } from "./ConversationItemRow";
 
 describe("ConversationItemRow", () => {
@@ -88,6 +92,33 @@ describe("ConversationItemRow", () => {
     expect(screen.getByText("Please ask @alice and @qa-team.")).toBeInTheDocument();
     expect(container.querySelector(".tx-inline-token--file")).toBeNull();
   });
+
+  it("renders Codex auto-review status and risk details", async () => {
+    render(
+      <ConversationItemRow
+        provider="codex"
+        item={autoReviewItem({
+          status: "approved",
+          riskLevel: "high",
+          userAuthorization: "high",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Command auto-review")).toBeInTheDocument();
+    expect(screen.getByText("Approved")).toBeInTheDocument();
+    expect(screen.getByText("Risk: High")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", {
+      name: "Show Command auto-review details",
+      description: "Risk: High Approved",
+    });
+    await userEvent.click(toggle);
+
+    expect(screen.getByText("git push origin feature")).toBeInTheDocument();
+    expect(screen.getByText("User explicitly requested this action.")).toBeInTheDocument();
+    expect(screen.getByText(/Auth: High/)).toBeInTheDocument();
+  });
 });
 
 function messageItem(
@@ -101,6 +132,26 @@ function messageItem(
     text: "Ready.",
     images: null,
     isStreaming: false,
+    ...overrides,
+  };
+}
+
+function autoReviewItem(
+  overrides: Partial<ConversationAutoApprovalReviewItem> = {},
+): ConversationAutoApprovalReviewItem {
+  return {
+    kind: "autoApprovalReview",
+    id: "auto-review-review-1",
+    turnId: "turn-1",
+    reviewId: "review-1",
+    targetItemId: "tool-1",
+    actionKind: "command",
+    title: "Command auto-review",
+    status: "inProgress",
+    riskLevel: null,
+    userAuthorization: null,
+    rationale: "User explicitly requested this action.",
+    summary: "git push origin feature",
     ...overrides,
   };
 }

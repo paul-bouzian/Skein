@@ -22,6 +22,7 @@ fn should_persist(item: &ConversationItem) -> bool {
     match item {
         ConversationItem::Tool(_)
         | ConversationItem::System(_)
+        | ConversationItem::AutoApprovalReview(_)
         | ConversationItem::Reasoning(_) => true,
         ConversationItem::Message(message) => {
             message.role == crate::domain::conversation::ConversationRole::Assistant
@@ -91,7 +92,8 @@ pub fn remove_turn(thread_id: &str, turn_id: &str) {
 mod tests {
     use super::*;
     use crate::domain::conversation::{
-        ConversationMessageItem, ConversationReasoningItem, ConversationRole,
+        AutoApprovalReviewStatus, ConversationAutoApprovalReviewItem, ConversationMessageItem,
+        ConversationReasoningItem, ConversationRole,
     };
 
     #[test]
@@ -137,5 +139,24 @@ mod tests {
         });
 
         assert!(should_persist(&reasoning));
+    }
+
+    #[test]
+    fn persists_auto_approval_review_items() {
+        let review = ConversationItem::AutoApprovalReview(ConversationAutoApprovalReviewItem {
+            id: "auto-review-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            review_id: "review-1".to_string(),
+            target_item_id: Some("tool-1".to_string()),
+            action_kind: "command".to_string(),
+            title: "Command auto-review".to_string(),
+            status: AutoApprovalReviewStatus::Approved,
+            risk_level: None,
+            user_authorization: None,
+            rationale: None,
+            summary: "git push origin feature".to_string(),
+        });
+
+        assert!(should_persist(&review));
     }
 }

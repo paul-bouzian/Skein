@@ -36,26 +36,28 @@ use crate::runtime::proposed_plan_markup::{
 use crate::runtime::protocol::{
     append_agent_delta, append_plan_delta, append_reasoning_boundary, append_reasoning_content,
     append_reasoning_summary, append_task_plan_delta, append_tool_output, approval_policy_value,
-    build_history_snapshot, clear_streaming_flags, collaboration_mode_from_plan_item_heading,
-    collaboration_mode_options_from_response, collaboration_mode_payload, complete_proposed_plan,
-    complete_task_plan, conversation_status_from_turn_status, error_snapshot, initialize_params,
+    approvals_reviewer_value, build_history_snapshot, clear_streaming_flags,
+    collaboration_mode_from_plan_item_heading, collaboration_mode_options_from_response,
+    collaboration_mode_payload, complete_proposed_plan, complete_task_plan,
+    conversation_status_from_turn_status, error_snapshot, initialize_params,
     initialized_notification, is_hidden_assistant_control_item,
     is_hidden_assistant_control_message, is_hidden_assistant_control_message_prefix,
     loaded_subagents_for_primary, mark_plan_approved, mark_plan_superseded, merge_persisted_items,
-    model_options_from_response, normalize_item, normalize_server_interaction,
-    parse_incoming_message, plan_approval_message, proposed_plan_from_item,
-    proposed_plan_from_turn_update, reconcile_snapshot_status, sandbox_policy_value,
-    subagent_thread_start_from_thread, subagents_from_collab_item, task_plan_from_item,
-    task_plan_from_turn_update, task_status_from_turn_status, token_usage_snapshot, upsert_item,
-    user_input_payload, AccountRateLimitsReadResponse, AccountReadResponse, AppInfoWire,
-    AppsListResponse, CollaborationModeListResponse, ErrorNotification,
-    FuzzyFileSearchMatchTypeWire, FuzzyFileSearchResponse, IncomingMessage, ItemDeltaNotification,
-    ItemNotification, ModelListResponse, OutgoingNamedInput, OutgoingTextElement,
-    OutgoingUserInputPayload, PlanDeltaNotification, ReasoningBoundaryNotification,
-    SkillsListResponse, ThreadListResponse, ThreadLoadedListResponse, ThreadMetadataReadResponse,
-    ThreadReadResponse, ThreadStartResponse, ThreadStatusChangedNotification,
-    TokenUsageNotification, TurnCompletedNotification, TurnPlanUpdatedNotification, TurnResponse,
-    TurnStartedNotification, AGENT_MESSAGE_DELTA_METHOD, CONVERSATION_EVENT_NAME,
+    model_options_from_response, normalize_auto_approval_review_notification, normalize_item,
+    normalize_server_interaction, parse_incoming_message, plan_approval_message,
+    proposed_plan_from_item, proposed_plan_from_turn_update, reconcile_snapshot_status,
+    sandbox_policy_value, subagent_thread_start_from_thread, subagents_from_collab_item,
+    task_plan_from_item, task_plan_from_turn_update, task_status_from_turn_status,
+    token_usage_snapshot, upsert_item, user_input_payload, AccountRateLimitsReadResponse,
+    AccountReadResponse, AppInfoWire, AppsListResponse, CollaborationModeListResponse,
+    ErrorNotification, FuzzyFileSearchMatchTypeWire, FuzzyFileSearchResponse, IncomingMessage,
+    ItemDeltaNotification, ItemNotification, ModelListResponse, OutgoingNamedInput,
+    OutgoingTextElement, OutgoingUserInputPayload, PlanDeltaNotification,
+    ReasoningBoundaryNotification, SkillsListResponse, ThreadListResponse,
+    ThreadLoadedListResponse, ThreadMetadataReadResponse, ThreadReadResponse, ThreadStartResponse,
+    ThreadStatusChangedNotification, TokenUsageNotification, TurnCompletedNotification,
+    TurnPlanUpdatedNotification, TurnResponse, TurnStartedNotification, AGENT_MESSAGE_DELTA_METHOD,
+    CONVERSATION_EVENT_NAME,
 };
 use crate::runtime::supervisor::RuntimeUsageUpdate;
 use crate::runtime::{item_store, snapshot_store};
@@ -1248,6 +1250,7 @@ impl RuntimeSession {
                         serde_json::json!({
                             "cwd": context.environment_path,
                             "approvalPolicy": approval_policy_value(context.composer.approval_policy),
+                            "approvalsReviewer": approvals_reviewer_value(context.composer.approval_policy),
                             "serviceTier": requested_service_tier,
                         }),
                     )
@@ -1284,6 +1287,7 @@ impl RuntimeSession {
                     "input": user_input_payload(&outgoing_input),
                     "cwd": context.environment_path,
                     "approvalPolicy": approval_policy_value(context.composer.approval_policy),
+                    "approvalsReviewer": approvals_reviewer_value(context.composer.approval_policy),
                     "sandboxPolicy": sandbox_policy_value(
                         context.composer.approval_policy,
                         &context.environment_path,
@@ -2356,6 +2360,50 @@ async fn handle_notification(
                 }
             }
         }
+        "item/autoApprovalReview/started" | "item/autoApprovalReview/completed" => {
+            if let Some(item) = normalize_auto_approval_review_notification(&notification.params) {
+                let review_status_completed =
+                    notification.method == "item/autoApprovalReview/completed";
+                let thread_id = notification
+                    .params
+                    .get("threadId")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let maybe_snapshot = {
+                    let mut state = state.lock().await;
+                    let Some(local_thread_id) =
+                        state.local_thread_by_codex_id.get(&thread_id).cloned()
+                    else {
+                        return;
+                    };
+                    let Some(snapshot) = state.snapshots_by_thread.get_mut(&local_thread_id) else {
+                        return;
+                    };
+                    let item_id = conversation_item_id(&item).to_string();
+                    upsert_item(&mut snapshot.items, item);
+                    reconcile_snapshot_status(snapshot);
+                    let item_to_persist = review_status_completed
+                        .then(|| {
+                            snapshot
+                                .items
+                                .iter()
+                                .find(|candidate| conversation_item_id(candidate) == item_id)
+                                .cloned()
+                        })
+                        .flatten();
+                    let snapshot = snapshot.clone();
+                    Some((snapshot, local_thread_id, item_to_persist))
+                };
+
+                if let Some((snapshot, local_thread_id, item_to_persist)) = maybe_snapshot {
+                    if let Some(item) = item_to_persist {
+                        item_store::save(&local_thread_id, &item);
+                    }
+                    emit_snapshot_from_handle(events, snapshot);
+                }
+            }
+        }
         "item/plan/delta" => {
             if let Ok(event) = serde_json::from_value::<PlanDeltaNotification>(notification.params)
             {
@@ -2715,6 +2763,7 @@ fn conversation_item_id(item: &ConversationItem) -> &str {
         ConversationItem::Message(message) => message.id.as_str(),
         ConversationItem::Reasoning(reasoning) => reasoning.id.as_str(),
         ConversationItem::Tool(tool) => tool.id.as_str(),
+        ConversationItem::AutoApprovalReview(review) => review.id.as_str(),
         ConversationItem::System(system) => system.id.as_str(),
     }
 }
@@ -3502,7 +3551,9 @@ fn conversation_item_is_streaming(item: &ConversationItem) -> bool {
     match item {
         ConversationItem::Message(message) => message.is_streaming,
         ConversationItem::Reasoning(reasoning) => reasoning.is_streaming,
-        ConversationItem::Tool(_) | ConversationItem::System(_) => false,
+        ConversationItem::Tool(_)
+        | ConversationItem::AutoApprovalReview(_)
+        | ConversationItem::System(_) => false,
     }
 }
 
@@ -3516,6 +3567,7 @@ impl ConversationItemSnapshotExt for ConversationItem {
             ConversationItem::Message(message) => message.id.as_str(),
             ConversationItem::Reasoning(reasoning) => reasoning.id.as_str(),
             ConversationItem::Tool(tool) => tool.id.as_str(),
+            ConversationItem::AutoApprovalReview(review) => review.id.as_str(),
             ConversationItem::System(system) => system.id.as_str(),
         }
     }

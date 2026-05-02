@@ -180,6 +180,12 @@ export function InlineComposer({
   );
   const effectiveEffortOptions =
     selectedModel?.supportedReasoningEfforts ?? effortOptions;
+  let approvalPickerTone: "default" | "info" | "warning" = "default";
+  if (composer.approvalPolicy === "fullAccess") {
+    approvalPickerTone = "warning";
+  } else if (composer.approvalPolicy === "autoReview") {
+    approvalPickerTone = "info";
+  }
   const fastModeSupported = modelSupportsFastMode(selectedModel);
   const fastModeEnabled = fastModeSupported && composer.serviceTier === "fast";
   const selectedModelLabel = selectedModel
@@ -746,9 +752,7 @@ export function InlineComposer({
           <ComposerPicker
             label="Access"
             value={composer.approvalPolicy}
-            tone={
-              composer.approvalPolicy === "fullAccess" ? "warning" : "default"
-            }
+            tone={approvalPickerTone}
             options={APPROVAL_OPTIONS}
             compact
             disabled={controlsDisabled}

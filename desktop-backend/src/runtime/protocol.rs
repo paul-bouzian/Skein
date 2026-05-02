@@ -4,17 +4,19 @@ use serde_json::{json, Value};
 
 pub use crate::app_identity::CONVERSATION_EVENT_NAME;
 use crate::domain::conversation::{
-    CollaborationModeOption, ConversationApprovalKind, ConversationComposerSettings,
-    ConversationErrorSnapshot, ConversationImageAttachment, ConversationInteraction,
-    ConversationItem, ConversationItemStatus, ConversationMessageItem, ConversationReasoningItem,
-    ConversationRole, ConversationStatus, ConversationSystemItem, ConversationTaskSnapshot,
-    ConversationTaskStatus, ConversationTone, ConversationToolItem, FileSystemPermissionSnapshot,
-    InputModality, ModelOption, NetworkApprovalContextSnapshot, NetworkPermissionSnapshot,
-    NetworkPolicyAmendmentSnapshot, NetworkPolicyRuleAction, PendingApprovalRequest,
-    PendingUserInputOption, PendingUserInputQuestion, PendingUserInputRequest,
-    PermissionProfileSnapshot, ProposedPlanSnapshot, ProposedPlanStatus, ProposedPlanStep,
-    ProposedPlanStepStatus, SubagentStatus, SubagentThreadSnapshot, ThreadConversationSnapshot,
-    ThreadTokenUsageSnapshot, TokenUsageBreakdown, UnsupportedInteractionRequest,
+    AutoApprovalReviewAuthorization, AutoApprovalReviewRiskLevel, AutoApprovalReviewStatus,
+    CollaborationModeOption, ConversationApprovalKind, ConversationAutoApprovalReviewItem,
+    ConversationComposerSettings, ConversationErrorSnapshot, ConversationImageAttachment,
+    ConversationInteraction, ConversationItem, ConversationItemStatus, ConversationMessageItem,
+    ConversationReasoningItem, ConversationRole, ConversationStatus, ConversationSystemItem,
+    ConversationTaskSnapshot, ConversationTaskStatus, ConversationTone, ConversationToolItem,
+    FileSystemPermissionSnapshot, InputModality, ModelOption, NetworkApprovalContextSnapshot,
+    NetworkPermissionSnapshot, NetworkPolicyAmendmentSnapshot, NetworkPolicyRuleAction,
+    PendingApprovalRequest, PendingUserInputOption, PendingUserInputQuestion,
+    PendingUserInputRequest, PermissionProfileSnapshot, ProposedPlanSnapshot, ProposedPlanStatus,
+    ProposedPlanStep, ProposedPlanStepStatus, SubagentStatus, SubagentThreadSnapshot,
+    ThreadConversationSnapshot, ThreadTokenUsageSnapshot, TokenUsageBreakdown,
+    UnsupportedInteractionRequest,
 };
 use crate::domain::settings::{
     ApprovalPolicy, CollaborationMode, ProviderKind, ReasoningEffort, ServiceTier,
@@ -662,14 +664,21 @@ pub fn initialized_notification() -> Value {
 
 pub fn approval_policy_value(policy: ApprovalPolicy) -> &'static str {
     match policy {
-        ApprovalPolicy::AskToEdit => "on-request",
+        ApprovalPolicy::AskToEdit | ApprovalPolicy::AutoReview => "on-request",
         ApprovalPolicy::FullAccess => "never",
+    }
+}
+
+pub fn approvals_reviewer_value(policy: ApprovalPolicy) -> &'static str {
+    match policy {
+        ApprovalPolicy::AskToEdit | ApprovalPolicy::FullAccess => "user",
+        ApprovalPolicy::AutoReview => "auto_review",
     }
 }
 
 pub fn sandbox_policy_value(policy: ApprovalPolicy, workspace_path: &str) -> Value {
     match policy {
-        ApprovalPolicy::AskToEdit => json!({
+        ApprovalPolicy::AskToEdit | ApprovalPolicy::AutoReview => json!({
             "type": "workspaceWrite",
             "writableRoots": [workspace_path],
             "networkAccess": true
@@ -1634,6 +1643,188 @@ pub fn normalize_item(turn_id: Option<&str>, value: &Value) -> Option<Conversati
     }
 }
 
+pub fn normalize_auto_approval_review_notification(value: &Value) -> Option<ConversationItem> {
+    let review_id = value.get("reviewId")?.as_str()?.to_string();
+    let turn_id = value.get("turnId")?.as_str()?.to_string();
+    let target_item_id = value
+        .get("targetItemId")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let review = value.get("review")?;
+    let action = value.get("action")?;
+    let (action_kind, title, summary) = auto_approval_review_action(action);
+    let rationale = first_string_field(review, &["rationale"]);
+
+    Some(ConversationItem::AutoApprovalReview(
+        ConversationAutoApprovalReviewItem {
+            id: format!("auto-review-{review_id}"),
+            turn_id: Some(turn_id),
+            review_id,
+            target_item_id,
+            action_kind,
+            title,
+            status: auto_approval_review_status(review.get("status").and_then(Value::as_str)),
+            risk_level: auto_approval_review_risk_level(
+                review.get("riskLevel").and_then(Value::as_str),
+            ),
+            user_authorization: auto_approval_review_authorization(
+                review.get("userAuthorization").and_then(Value::as_str),
+            ),
+            rationale,
+            summary,
+        },
+    ))
+}
+
+fn auto_approval_review_status(status: Option<&str>) -> AutoApprovalReviewStatus {
+    match status {
+        Some("approved") => AutoApprovalReviewStatus::Approved,
+        Some("denied") => AutoApprovalReviewStatus::Denied,
+        Some("timedOut") => AutoApprovalReviewStatus::TimedOut,
+        Some("aborted") => AutoApprovalReviewStatus::Aborted,
+        _ => AutoApprovalReviewStatus::InProgress,
+    }
+}
+
+fn auto_approval_review_risk_level(
+    risk_level: Option<&str>,
+) -> Option<AutoApprovalReviewRiskLevel> {
+    match risk_level {
+        Some("low") => Some(AutoApprovalReviewRiskLevel::Low),
+        Some("medium") => Some(AutoApprovalReviewRiskLevel::Medium),
+        Some("high") => Some(AutoApprovalReviewRiskLevel::High),
+        Some("critical") => Some(AutoApprovalReviewRiskLevel::Critical),
+        _ => None,
+    }
+}
+
+fn auto_approval_review_authorization(
+    authorization: Option<&str>,
+) -> Option<AutoApprovalReviewAuthorization> {
+    match authorization {
+        Some("unknown") => Some(AutoApprovalReviewAuthorization::Unknown),
+        Some("low") => Some(AutoApprovalReviewAuthorization::Low),
+        Some("medium") => Some(AutoApprovalReviewAuthorization::Medium),
+        Some("high") => Some(AutoApprovalReviewAuthorization::High),
+        _ => None,
+    }
+}
+
+fn auto_approval_review_action(action: &Value) -> (String, String, String) {
+    match action
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "command" => {
+            let command = string_field(action, "command");
+            let cwd = string_field(action, "cwd");
+            (
+                "command".to_string(),
+                "Command auto-review".to_string(),
+                join_lines([Some(command), prefixed_detail("cwd", cwd)].into_iter()),
+            )
+        }
+        "execve" => {
+            let program = string_field(action, "program");
+            let argv = string_array_field(action, "argv").join(" ");
+            let cwd = string_field(action, "cwd");
+            (
+                "execve".to_string(),
+                "Command auto-review".to_string(),
+                join_lines(
+                    [
+                        Some(if argv.is_empty() {
+                            program
+                        } else {
+                            format!("{program} {argv}")
+                        }),
+                        prefixed_detail("cwd", cwd),
+                    ]
+                    .into_iter(),
+                ),
+            )
+        }
+        "applyPatch" => {
+            let files = string_array_field(action, "files").join(", ");
+            (
+                "applyPatch".to_string(),
+                "Patch auto-review".to_string(),
+                files,
+            )
+        }
+        "networkAccess" => {
+            let protocol = string_field(action, "protocol");
+            let host = string_field(action, "host");
+            let port = action
+                .get("port")
+                .and_then(Value::as_u64)
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            let target = string_field(action, "target");
+            let endpoint = if port.is_empty() {
+                format!("{protocol}://{host}")
+            } else {
+                format!("{protocol}://{host}:{port}")
+            };
+            (
+                "networkAccess".to_string(),
+                "Network auto-review".to_string(),
+                join_lines([Some(endpoint), prefixed_detail("target", target)].into_iter()),
+            )
+        }
+        "mcpToolCall" => {
+            let server = string_field(action, "server");
+            let tool_title =
+                first_string_field(action, &["toolTitle", "toolName", "connectorName"])
+                    .unwrap_or_else(|| "MCP tool".to_string());
+            (
+                "mcpToolCall".to_string(),
+                "MCP auto-review".to_string(),
+                join_lines([Some(tool_title), prefixed_detail("server", server)].into_iter()),
+            )
+        }
+        "requestPermissions" => {
+            let reason = action
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let permissions = action
+                .get("permissions")
+                .map(compact_json)
+                .unwrap_or_default();
+            (
+                "requestPermissions".to_string(),
+                "Permission auto-review".to_string(),
+                join_lines([Some(reason), prefixed_detail("permissions", permissions)].into_iter()),
+            )
+        }
+        other => (
+            if other.is_empty() {
+                "unknown".to_string()
+            } else {
+                other.to_string()
+            },
+            "Auto-review".to_string(),
+            compact_json(action),
+        ),
+    }
+}
+
+fn prefixed_detail(label: &str, value: String) -> Option<String> {
+    (!value.is_empty()).then(|| format!("{label}: {value}"))
+}
+
+fn join_lines(lines: impl Iterator<Item = Option<String>>) -> String {
+    lines
+        .flatten()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn normalize_server_interaction(
     interaction_id: &str,
     request: &ServerRequestEnvelope,
@@ -2062,7 +2253,9 @@ pub fn clear_streaming_flags(items: &mut [ConversationItem]) {
         match item {
             ConversationItem::Message(message) => message.is_streaming = false,
             ConversationItem::Reasoning(reasoning) => reasoning.is_streaming = false,
-            ConversationItem::Tool(_) | ConversationItem::System(_) => {}
+            ConversationItem::Tool(_)
+            | ConversationItem::AutoApprovalReview(_)
+            | ConversationItem::System(_) => {}
         }
     }
 }
@@ -2184,6 +2377,30 @@ fn merge_conversation_items(
                 },
             })
         }
+        (
+            ConversationItem::AutoApprovalReview(existing_review),
+            ConversationItem::AutoApprovalReview(incoming_review),
+        ) => ConversationItem::AutoApprovalReview(ConversationAutoApprovalReviewItem {
+            id: incoming_review.id,
+            turn_id: incoming_review.turn_id.or(existing_review.turn_id),
+            review_id: incoming_review.review_id,
+            target_item_id: incoming_review
+                .target_item_id
+                .or(existing_review.target_item_id),
+            action_kind: incoming_review.action_kind,
+            title: incoming_review.title,
+            status: incoming_review.status,
+            risk_level: incoming_review.risk_level.or(existing_review.risk_level),
+            user_authorization: incoming_review
+                .user_authorization
+                .or(existing_review.user_authorization),
+            rationale: incoming_review.rationale.or(existing_review.rationale),
+            summary: if incoming_review.summary.is_empty() {
+                existing_review.summary
+            } else {
+                incoming_review.summary
+            },
+        }),
         (_, incoming) => incoming,
     }
 }
@@ -2578,6 +2795,7 @@ fn item_id(item: &ConversationItem) -> &str {
         ConversationItem::Message(message) => &message.id,
         ConversationItem::Reasoning(reasoning) => &reasoning.id,
         ConversationItem::Tool(tool) => &tool.id,
+        ConversationItem::AutoApprovalReview(review) => &review.id,
         ConversationItem::System(system) => &system.id,
     }
 }
@@ -2587,6 +2805,7 @@ fn item_turn_id(item: &ConversationItem) -> Option<&str> {
         ConversationItem::Message(message) => message.turn_id.as_deref(),
         ConversationItem::Reasoning(reasoning) => reasoning.turn_id.as_deref(),
         ConversationItem::Tool(tool) => tool.turn_id.as_deref(),
+        ConversationItem::AutoApprovalReview(review) => review.turn_id.as_deref(),
         ConversationItem::System(system) => system.turn_id.as_deref(),
     }
 }
@@ -2662,6 +2881,30 @@ fn merge_existing_with_persisted_item(
                 existing_reasoning.content
             },
             is_streaming: existing_reasoning.is_streaming,
+        }),
+        (
+            ConversationItem::AutoApprovalReview(existing_review),
+            ConversationItem::AutoApprovalReview(persisted_review),
+        ) => ConversationItem::AutoApprovalReview(ConversationAutoApprovalReviewItem {
+            id: existing_review.id,
+            turn_id: existing_review.turn_id.or(persisted_review.turn_id),
+            review_id: existing_review.review_id,
+            target_item_id: existing_review
+                .target_item_id
+                .or(persisted_review.target_item_id),
+            action_kind: existing_review.action_kind,
+            title: existing_review.title,
+            status: existing_review.status,
+            risk_level: existing_review.risk_level.or(persisted_review.risk_level),
+            user_authorization: existing_review
+                .user_authorization
+                .or(persisted_review.user_authorization),
+            rationale: existing_review.rationale.or(persisted_review.rationale),
+            summary: if existing_review.summary.is_empty() {
+                persisted_review.summary
+            } else {
+                existing_review.summary
+            },
         }),
         (existing, _) => existing,
     }

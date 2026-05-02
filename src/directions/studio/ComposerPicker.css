@@ -34,6 +34,11 @@
   color: var(--tx-accent);
 }
 
+.tx-picker__trigger--info .tx-picker__value,
+.tx-picker__value--info {
+  color: var(--tx-info);
+}
+
 .tx-picker__trigger--warning .tx-picker__value,
 .tx-picker__value--warning {
   color: var(--tx-warning);

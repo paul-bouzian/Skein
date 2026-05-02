@@ -45,7 +45,7 @@ export type SubagentStatus = "running" | "completed" | "failed";
 export type ProviderKind = "codex" | "claude";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 export type CollaborationMode = "build" | "plan";
-export type ApprovalPolicy = "askToEdit" | "fullAccess";
+export type ApprovalPolicy = "askToEdit" | "autoReview" | "fullAccess";
 export type OpenTargetKind = "app" | "fileManager";
 export type ServiceTier = "fast" | "flex";
 export type DefaultDraftEnvironment = "local" | "newWorktree";
@@ -75,6 +75,22 @@ export type ConversationItemStatus =
   | "completed"
   | "failed"
   | "declined";
+export type AutoApprovalReviewStatus =
+  | "inProgress"
+  | "approved"
+  | "denied"
+  | "timedOut"
+  | "aborted";
+export type AutoApprovalReviewRiskLevel =
+  | "low"
+  | "medium"
+  | "high"
+  | "critical";
+export type AutoApprovalReviewAuthorization =
+  | "unknown"
+  | "low"
+  | "medium"
+  | "high";
 export type ConversationRole = "user" | "assistant";
 export type ConversationTone = "info" | "warning" | "error";
 export type ProposedPlanStatus =
@@ -873,6 +889,21 @@ export type ConversationToolItem = {
   output: string;
 };
 
+export type ConversationAutoApprovalReviewItem = {
+  kind: "autoApprovalReview";
+  id: string;
+  turnId?: string | null;
+  reviewId: string;
+  targetItemId?: string | null;
+  actionKind: string;
+  title: string;
+  status: AutoApprovalReviewStatus;
+  riskLevel?: AutoApprovalReviewRiskLevel | null;
+  userAuthorization?: AutoApprovalReviewAuthorization | null;
+  rationale?: string | null;
+  summary: string;
+};
+
 export type ConversationSystemItem = {
   kind: "system";
   id: string;
@@ -886,6 +917,7 @@ export type ConversationItem =
   | ConversationMessageItem
   | ConversationReasoningItem
   | ConversationToolItem
+  | ConversationAutoApprovalReviewItem
   | ConversationSystemItem;
 
 export type ThreadConversationSnapshot = {

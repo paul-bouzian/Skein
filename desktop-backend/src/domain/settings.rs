@@ -100,6 +100,8 @@ pub enum DefaultDraftEnvironment {
 pub enum ApprovalPolicy {
     #[serde(rename = "askToEdit")]
     AskToEdit,
+    #[serde(rename = "autoReview")]
+    AutoReview,
     #[serde(rename = "fullAccess")]
     FullAccess,
 }
@@ -879,6 +881,23 @@ mod tests {
             settings.default_draft_environment,
             DefaultDraftEnvironment::Local
         );
+    }
+
+    #[test]
+    fn deserializes_auto_review_approval_policy() {
+        let settings: GlobalSettings = serde_json::from_str(
+            r#"{
+                "defaultProvider":"codex",
+                "defaultModel":"gpt-5.4",
+                "defaultReasoningEffort":"high",
+                "defaultCollaborationMode":"build",
+                "defaultApprovalPolicy":"autoReview",
+                "defaultServiceTier":null
+            }"#,
+        )
+        .expect("auto review settings should deserialize");
+
+        assert_eq!(settings.default_approval_policy, ApprovalPolicy::AutoReview);
     }
 
     #[test]

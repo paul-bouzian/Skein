@@ -227,6 +227,31 @@ describe("useStudioShortcuts", () => {
     );
   });
 
+  it("cycles approval policy through auto review from the composer textarea", () => {
+    render(<Harness renderComposerInput />);
+
+    const textarea = screen.getByLabelText("Composer input");
+    fireEvent.keyDown(textarea, {
+      key: "A",
+      shiftKey: true,
+      ...primaryModifier(),
+    });
+
+    expect(
+      useConversationStore.getState().composerByThreadId["thread-1"]?.approvalPolicy,
+    ).toBe("autoReview");
+
+    fireEvent.keyDown(textarea, {
+      key: "A",
+      shiftKey: true,
+      ...primaryModifier(),
+    });
+
+    expect(
+      useConversationStore.getState().composerByThreadId["thread-1"]?.approvalPolicy,
+    ).toBe("fullAccess");
+  });
+
   it("keeps composer shortcuts blocked in unrelated editable fields", () => {
     render(<Harness />);
 

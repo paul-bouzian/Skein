@@ -24,6 +24,11 @@ import {
 import { claudeContextWindowForModel } from "../src/lib/claude-context-window.js";
 import { allowClaudeTool } from "./claude-agent-permissions.js";
 import { resolveClaudeCodeExecutablePath } from "./claude-code-executable.js";
+import {
+  claudePermissionMode,
+  type ClaudeApprovalPolicy,
+  type ClaudeCollaborationMode,
+} from "./claude-agent-permission-mode.js";
 
 type WorkerRequest<T = unknown> = {
   id: number;
@@ -56,8 +61,8 @@ type SendPayload = {
   supportsThinking: boolean;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   serviceTier?: "fast" | "flex" | null;
-  collaborationMode: "build" | "plan";
-  approvalPolicy: "askToEdit" | "fullAccess";
+  collaborationMode: ClaudeCollaborationMode;
+  approvalPolicy: ClaudeApprovalPolicy;
   claudeBinaryPath?: string | null;
   appVersion: string;
   visibleText: string;
@@ -144,18 +149,15 @@ const SAFE_BUILD_TOOLS = new Set([
   ...READ_ONLY_PLAN_TOOLS,
 ]);
 
-function permissionMode(payload: SendPayload): PermissionMode {
-  if (payload.collaborationMode === "plan") return "plan";
-  if (payload.approvalPolicy === "fullAccess") return "bypassPermissions";
-  return "default";
-}
-
 function optionsFor(
   payload: SendPayload,
   requestId: number,
   abortController: AbortController,
 ): Options {
-  const mode = permissionMode(payload);
+  const mode: PermissionMode = claudePermissionMode(
+    payload.collaborationMode,
+    payload.approvalPolicy,
+  );
   return {
     abortController,
     cwd: payload.cwd,

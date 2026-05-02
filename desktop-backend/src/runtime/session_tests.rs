@@ -730,11 +730,18 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
     );
 
     let requests = harness.requests().await;
+    let thread_start = requests
+        .iter()
+        .find(|request| request.method == "thread/start")
+        .expect("thread/start should be issued");
     let turn_start = requests
         .iter()
         .find(|request| request.method == "turn/start")
         .expect("turn/start should be issued");
+    assert_eq!(thread_start.params["approvalPolicy"], "on-request");
+    assert_eq!(thread_start.params["approvalsReviewer"], "user");
     assert_eq!(turn_start.params["approvalPolicy"], "on-request");
+    assert_eq!(turn_start.params["approvalsReviewer"], "user");
     assert_eq!(turn_start.params["sandboxPolicy"]["type"], "workspaceWrite");
     assert_eq!(turn_start.params["collaborationMode"]["mode"], "default");
     assert_eq!(
@@ -750,6 +757,42 @@ async fn send_message_starts_new_codex_thread_with_real_turn_params() {
         .iter()
         .any(|request| request.method == "skills/list"));
     assert!(!requests.iter().any(|request| request.method == "app/list"));
+}
+
+#[tokio::test]
+async fn send_message_uses_auto_review_without_full_access_sandbox() {
+    let (session, harness) = FakeCodexHarness::new().await;
+    let runtime_context = context(
+        "thread-auto-review",
+        None,
+        CollaborationMode::Build,
+        ApprovalPolicy::AutoReview,
+    );
+
+    session
+        .send_message(
+            runtime_context,
+            "Review and update safely".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    let requests = harness.requests().await;
+    let thread_start = requests
+        .iter()
+        .find(|request| request.method == "thread/start")
+        .expect("thread/start should be issued");
+    let turn_start = requests
+        .iter()
+        .find(|request| request.method == "turn/start")
+        .expect("turn/start should be issued");
+
+    assert_eq!(thread_start.params["approvalPolicy"], "on-request");
+    assert_eq!(thread_start.params["approvalsReviewer"], "auto_review");
+    assert_eq!(turn_start.params["approvalPolicy"], "on-request");
+    assert_eq!(turn_start.params["approvalsReviewer"], "auto_review");
+    assert_eq!(turn_start.params["sandboxPolicy"]["type"], "workspaceWrite");
 }
 
 #[tokio::test]
@@ -1823,6 +1866,115 @@ async fn streamed_notifications_update_the_open_snapshot() {
         crate::domain::conversation::ConversationItem::Tool(tool)
             if tool.id == "tool-1" && tool.output == "ok\n"
     )));
+}
+
+#[tokio::test]
+async fn auto_review_notifications_update_the_open_snapshot() {
+    let (session, harness) = FakeCodexHarness::new().await;
+
+    session
+        .send_message(
+            context(
+                "thread-auto-review-visible",
+                None,
+                CollaborationMode::Build,
+                ApprovalPolicy::AutoReview,
+            ),
+            "Run a reviewed command".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("message should send");
+
+    harness
+        .emit_notification(
+            "item/autoApprovalReview/started",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "reviewId": "review-1",
+                "targetItemId": "tool-1",
+                "action": {
+                    "type": "command",
+                    "command": "git push origin feature",
+                    "cwd": "/tmp/skein",
+                    "source": "shell"
+                },
+                "review": {
+                    "status": "inProgress",
+                    "riskLevel": null,
+                    "userAuthorization": null,
+                    "rationale": null
+                }
+            }),
+        )
+        .await;
+    harness
+        .emit_notification(
+            "item/autoApprovalReview/completed",
+            json!({
+                "threadId": "thr-new",
+                "turnId": "turn-live-1",
+                "reviewId": "review-1",
+                "targetItemId": "tool-1",
+                "action": {
+                    "type": "command",
+                    "command": "git push origin feature",
+                    "cwd": "/tmp/skein",
+                    "source": "shell"
+                },
+                "decisionSource": "agent",
+                "review": {
+                    "status": "approved",
+                    "riskLevel": "high",
+                    "userAuthorization": "high",
+                    "rationale": "User explicitly requested pushing this feature branch."
+                }
+            }),
+        )
+        .await;
+
+    let snapshot =
+        wait_for_snapshot(
+            &session,
+            context(
+                "thread-auto-review-visible",
+                Some("thr-new"),
+                CollaborationMode::Build,
+                ApprovalPolicy::AutoReview,
+            ),
+            |snapshot| {
+                snapshot.items.iter().any(|item| matches!(
+                item,
+                crate::domain::conversation::ConversationItem::AutoApprovalReview(review)
+                    if review.review_id == "review-1"
+                        && review.status
+                            == crate::domain::conversation::AutoApprovalReviewStatus::Approved
+            ))
+            },
+        )
+        .await;
+
+    let review = snapshot
+        .items
+        .iter()
+        .find_map(|item| match item {
+            crate::domain::conversation::ConversationItem::AutoApprovalReview(review) => {
+                Some(review)
+            }
+            _ => None,
+        })
+        .expect("auto review item should be visible");
+    assert_eq!(review.title, "Command auto-review");
+    assert_eq!(review.summary, "git push origin feature\ncwd: /tmp/skein");
+    assert_eq!(
+        review.risk_level,
+        Some(crate::domain::conversation::AutoApprovalReviewRiskLevel::High)
+    );
+    assert_eq!(
+        review.rationale.as_deref(),
+        Some("User explicitly requested pushing this feature branch.")
+    );
 }
 
 #[tokio::test]

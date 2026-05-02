@@ -167,6 +167,13 @@
   background: color-mix(in srgb, var(--tx-bg-raised) 30%, transparent);
 }
 
+.tx-item--auto-review {
+  padding: var(--tx-space-sm) var(--tx-space-md);
+  border: 1px solid color-mix(in srgb, var(--tx-info) 24%, var(--tx-border-subtle));
+  border-radius: var(--tx-radius-lg);
+  background: color-mix(in srgb, var(--tx-info) 8%, var(--tx-bg-raised));
+}
+
 .tx-item--compact {
   gap: 2px;
   padding: 0;
@@ -175,7 +182,8 @@
 }
 
 .tx-item--compact.tx-item--tool,
-.tx-item--compact.tx-item--reasoning {
+.tx-item--compact.tx-item--reasoning,
+.tx-item--compact.tx-item--auto-review {
   border: none;
   background: transparent;
   padding: 0;
@@ -481,6 +489,61 @@
   font-family: var(--tx-font-mono);
   font-size: var(--tx-text-xs);
   overflow-x: auto;
+}
+
+.tx-item__body--auto-review {
+  padding: var(--tx-space-md);
+  border-radius: var(--tx-radius-md);
+  background: color-mix(in srgb, var(--tx-info) 6%, var(--tx-bg-base));
+  border: 1px solid color-mix(in srgb, var(--tx-info) 18%, var(--tx-border-subtle));
+  font-family: var(--tx-font-mono);
+  font-size: var(--tx-text-xs);
+  white-space: pre-wrap;
+}
+
+.tx-auto-review__badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tx-auto-review__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 6px;
+  border-radius: var(--tx-radius-sm);
+  background: color-mix(in srgb, var(--tx-info) 14%, transparent);
+  color: var(--tx-info);
+  font-size: 10px;
+  font-weight: var(--tx-weight-semibold);
+}
+
+.tx-auto-review__badge--status-denied,
+.tx-auto-review__badge--risk-critical {
+  background: color-mix(in srgb, var(--tx-accent) 14%, transparent);
+  color: var(--tx-accent);
+}
+
+.tx-auto-review__badge--status-timedOut,
+.tx-auto-review__badge--status-aborted,
+.tx-auto-review__badge--risk-high {
+  background: color-mix(in srgb, var(--tx-warning) 16%, transparent);
+  color: var(--tx-warning);
+}
+
+.tx-auto-review__rationale {
+  margin: var(--tx-space-sm) 0 0;
+  color: var(--tx-text-secondary);
+  font-size: var(--tx-text-sm);
+  line-height: 1.55;
+}
+
+.tx-auto-review__meta {
+  margin: var(--tx-space-xs) 0 0;
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-xs);
 }
 
 /* ── Plan card & Interaction panel ── */
