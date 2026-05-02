@@ -254,6 +254,7 @@ function ConversationMessageRow({
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const bodyWrapRef = useRef<HTMLDivElement | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
   const shouldRenderMarkdown = item.role === "assistant";
   const hasText = item.text.trim().length > 0;
   const hasImages = Boolean(item.images && item.images.length > 0);
@@ -290,12 +291,13 @@ function ConversationMessageRow({
     .join(" ");
 
   useEffect(() => {
-    if (!copied) {
-      return;
-    }
-    const timer = window.setTimeout(() => setCopied(false), 1100);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (!isCollapsible) {
@@ -339,9 +341,25 @@ function ConversationMessageRow({
     // clipboard write (e.g. assistant message id stabilizing at end of stream)
     // can drop the state update and the icon swap never plays.
     setCopied(true);
+    // Reset the auto-revert timer on every click so rapid consecutive copies
+    // each get the full feedback window — tying the timer to a `copied`
+    // false→true transition would let the first click's timeout fire shortly
+    // after the second click, making the checkmark vanish too early.
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      copyTimerRef.current = null;
+      setCopied(false);
+    }, 1100);
+
     try {
       await clipboard.writeText(item.text);
     } catch {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = null;
+      }
       setCopied(false);
     }
   }, [hasText, item.text]);

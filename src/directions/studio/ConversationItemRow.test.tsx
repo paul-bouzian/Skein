@@ -220,6 +220,7 @@ describe("ConversationItemRow", () => {
     );
 
     afterEach(() => {
+      vi.restoreAllMocks();
       if (originalClipboard) {
         Object.defineProperty(globalThis.navigator, "clipboard", originalClipboard);
       } else {
@@ -250,6 +251,43 @@ describe("ConversationItemRow", () => {
 
       expect(writeText).toHaveBeenCalledWith("Bonjour");
       expect(button.classList.contains("is-copied")).toBe(true);
+    });
+
+    it("restarts the auto-revert timer on each consecutive click", async () => {
+      // Without a timer reset, the first click's timeout would fire shortly
+      // after the second click and the checkmark would disappear early. We
+      // assert the reset directly: every click must clear the prior timeout
+      // and schedule a fresh one.
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(globalThis.navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+      const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+
+      render(
+        <ConversationItemRow
+          provider="claude"
+          item={messageItem({ id: "copy-rapid", text: "Bonjour" })}
+        />,
+      );
+
+      const button = screen.getByRole("button", { name: "Copy message" });
+      await userEvent.click(button);
+      const scheduledAfterFirst = setTimeoutSpy.mock.calls.filter(
+        ([, delay]) => delay === 1100,
+      ).length;
+      expect(scheduledAfterFirst).toBe(1);
+
+      const clearedBeforeSecond = clearTimeoutSpy.mock.calls.length;
+      await userEvent.click(button);
+
+      const scheduledAfterSecond = setTimeoutSpy.mock.calls.filter(
+        ([, delay]) => delay === 1100,
+      ).length;
+      expect(scheduledAfterSecond).toBe(2);
+      expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThan(clearedBeforeSecond);
     });
   });
 });
