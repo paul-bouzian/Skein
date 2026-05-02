@@ -67,6 +67,8 @@ import { useComposerImageInput } from "./useComposerImageInput";
 import { useComposerVoiceInput } from "./useComposerVoiceInput";
 import "./ComposerVoice.css";
 
+const COMPOSER_CATALOG_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+
 type Props = {
   environmentId: string;
   threadId: string;
@@ -285,21 +287,40 @@ export function InlineComposer({
       return;
     }
 
+    const target = catalogTarget;
     let cancelled = false;
+    let retryTimer: number | null = null;
     setCatalog(null);
-    void getComposerCatalog(catalogTarget)
-      .then((nextCatalog) => {
-        if (!cancelled) {
-          setCatalog(nextCatalog);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCatalog(null);
-        }
-      });
+
+    function loadCatalog(attempt: number) {
+      void getComposerCatalog(target)
+        .then((nextCatalog) => {
+          if (!cancelled) {
+            setCatalog(nextCatalog);
+          }
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+          const retryDelay = COMPOSER_CATALOG_RETRY_DELAYS_MS[attempt];
+          if (retryDelay === undefined) {
+            setCatalog(null);
+            return;
+          }
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            loadCatalog(attempt + 1);
+          }, retryDelay);
+        });
+    }
+
+    loadCatalog(0);
     return () => {
       cancelled = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
     };
   }, [catalogRefreshKey, catalogTarget]);
 

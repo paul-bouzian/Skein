@@ -596,6 +596,36 @@ describe("InlineComposer voice dictation", () => {
     expect(screen.queryByText("prompts:release")).toBeNull();
   });
 
+  it("retries a transient catalog load failure and restores autocomplete", async () => {
+    mockedBridge.getComposerCatalog
+      .mockRejectedValueOnce(new Error("transient catalog failure"))
+      .mockResolvedValueOnce({
+        prompts: [],
+        skills: [
+          {
+            name: "code-review",
+            description: "Review code changes",
+            path: "/tmp/.codex/skills/code-review/SKILL.md",
+          },
+        ],
+        apps: [],
+      });
+
+    renderComposer("");
+
+    const user = userEvent.setup();
+    const input = screen.getByPlaceholderText("Message Skein...");
+    await user.type(input, "Use $code");
+    expect(screen.queryByRole("option", { name: /Code Review/i })).toBeNull();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("option", { name: /Code Review/i }),
+      ).toBeInTheDocument();
+      expect(mockedBridge.getComposerCatalog).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("applies a completed transcript after returning to the owner thread", async () => {
     const transcription = createDeferred<{ text: string }>();
     mockedStartVoiceCapture.mockResolvedValue(makeCapture());
