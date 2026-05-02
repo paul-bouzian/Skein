@@ -156,4 +156,31 @@ describe("Claude agent usage", () => {
 
     expect(event?.modelContextWindow).toBe(1_000_000);
   });
+
+  it("ignores negative usage counters before computing totals", async () => {
+    const event = await tokenUsageEventFor(
+      {},
+      "claude-opus-4-7",
+      {
+        input_tokens: -10,
+        cache_read_input_tokens: 20,
+        cache_creation_input_tokens: -30,
+        output_tokens: 5,
+      },
+    );
+
+    expect(event).toMatchObject({
+      kind: "tokenUsage",
+      total: {
+        totalTokens: 25,
+        inputTokens: 0,
+        cachedInputTokens: 20,
+        outputTokens: 5,
+      },
+      last: {
+        totalTokens: 25,
+      },
+      modelContextWindow: 200_000,
+    });
+  });
 });

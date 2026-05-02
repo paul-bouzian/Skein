@@ -53,16 +53,18 @@ function tokenUsageBreakdownFromContextUsage(
 }
 
 function tokenUsageBreakdownFromUsage(value: unknown): TokenUsageBreakdown | null {
-  const inputTokens = numberField(value, "input_tokens", "inputTokens") ?? 0;
-  const cacheReadInputTokens =
-    numberField(value, "cache_read_input_tokens", "cacheReadInputTokens") ?? 0;
-  const cacheCreationInputTokens =
-    numberField(
-      value,
-      "cache_creation_input_tokens",
-      "cacheCreationInputTokens",
-    ) ?? 0;
-  const outputTokens = numberField(value, "output_tokens", "outputTokens") ?? 0;
+  const inputTokens = tokenCountField(value, "input_tokens", "inputTokens");
+  const cacheReadInputTokens = tokenCountField(
+    value,
+    "cache_read_input_tokens",
+    "cacheReadInputTokens",
+  );
+  const cacheCreationInputTokens = tokenCountField(
+    value,
+    "cache_creation_input_tokens",
+    "cacheCreationInputTokens",
+  );
+  const outputTokens = tokenCountField(value, "output_tokens", "outputTokens");
   const totalTokens =
     inputTokens + cacheReadInputTokens + cacheCreationInputTokens + outputTokens;
   if (totalTokens <= 0) return null;
@@ -73,6 +75,10 @@ function tokenUsageBreakdownFromUsage(value: unknown): TokenUsageBreakdown | nul
     outputTokens,
     reasoningOutputTokens: 0,
   };
+}
+
+function tokenCountField(value: unknown, ...keys: string[]): number {
+  return Math.max(0, numberField(value, ...keys) ?? 0);
 }
 
 function numberField(value: unknown, ...keys: string[]): number | null {
