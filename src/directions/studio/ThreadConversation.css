@@ -1159,6 +1159,10 @@ ol.tx-markdown__list {
   background: var(--tx-bg-hover);
 }
 
+.tx-composer__icon-toggle--active svg {
+  stroke-width: 2.5;
+}
+
 .tx-composer__send-button:hover:not(:disabled) {
   background: var(--tx-accent-hover);
   transform: translateY(-1px);
