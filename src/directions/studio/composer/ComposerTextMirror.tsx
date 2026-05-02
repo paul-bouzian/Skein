@@ -1,4 +1,10 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { ProviderKind, ThreadComposerCatalog } from "../../../lib/types";
 import { ComposerTokenText } from "../ComposerTokenText";
@@ -33,7 +39,7 @@ export function ComposerTextMirror({
     null,
   );
 
-  useLayoutEffect(() => {
+  const updateCaretPosition = useCallback(() => {
     const content = contentRef.current;
     if (
       !showCaret ||
@@ -48,7 +54,25 @@ export function ComposerTextMirror({
     setCaretPosition((current) =>
       sameCaretPosition(current, next) ? current : next,
     );
-  }, [draft, cursorIndex, showCaret]);
+  }, [showCaret, cursorIndex, draft]);
+
+  // `catalog` and `provider` change the mirror DOM (badges, classes) without
+  // changing the draft string, so they must invalidate the cached caret rect.
+  useLayoutEffect(() => {
+    updateCaretPosition();
+  }, [updateCaretPosition, catalog, provider]);
+
+  // Window resizes and pane width changes can rewrap the mirror without a
+  // draft or cursor change; observe the content box to keep the caret aligned.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() => updateCaretPosition());
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [updateCaretPosition]);
 
   const isEmpty = draft.length === 0;
 
