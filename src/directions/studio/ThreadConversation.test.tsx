@@ -376,6 +376,17 @@ describe("ThreadConversation", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Toggle work activity" }),
     );
+    const workGroup = screen
+      .getByRole("button", { name: "Toggle work activity" })
+      .closest("section");
+    expect(workGroup).not.toBeNull();
+    const workGroupScope = within(workGroup as HTMLElement);
+    expect(workGroupScope.getByText("Inspecting the workspace")).toHaveClass(
+      "tx-item__preview",
+    );
+    expect(workGroupScope.getByText("bun run test")).toHaveClass(
+      "tx-item__preview",
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Show thinking details" }),
     );
@@ -495,18 +506,29 @@ describe("ThreadConversation", () => {
     });
     const group = toggle.closest("section");
     expect(group).not.toBeNull();
+    const groupScope = within(group as HTMLElement);
     if (toggle.getAttribute("aria-expanded") !== "true") {
       await userEvent.click(toggle);
     }
 
     expect(
-      within(group!).getByRole("button", { name: "Show thinking details" }),
+      groupScope.getByText("Checking the Claude Agent SDK stream shape."),
+    ).toHaveClass("tx-item__preview");
+    expect(groupScope.getByText("Claude Agent SDK streaming")).toHaveClass(
+      "tx-item__preview",
+    );
+    expect(
+      groupScope.getByRole("button", { name: "Show thinking details" }),
     ).toBeInTheDocument();
     await userEvent.click(
-      within(group!).getByRole("button", { name: "Show Web details" }),
+      groupScope.getByRole("button", { name: "Show Web details" }),
     );
-    expect(within(group!).getByText("Claude Agent SDK streaming")).toBeInTheDocument();
-    expect(within(group!).getByText(/Streaming output/)).toBeInTheDocument();
+    expect(
+      groupScope
+        .getAllByText("Claude Agent SDK streaming")
+        .some((element) => element.classList.contains("tx-item__summary")),
+    ).toBe(true);
+    expect(groupScope.getByText(/Streaming output/)).toBeInTheDocument();
   });
 
   it("groups turnless live updates under the active compact work activity", async () => {

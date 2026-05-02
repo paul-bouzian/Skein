@@ -176,6 +176,7 @@
 
 .tx-item--compact {
   gap: 2px;
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
@@ -194,6 +195,12 @@
   font-weight: var(--tx-weight-normal);
   color: var(--tx-text-secondary);
   gap: var(--tx-space-sm);
+  min-width: 0;
+  width: 100%;
+}
+
+.tx-item--compact .tx-item__header-main {
+  flex: 0 0 auto;
 }
 
 .tx-item--compact .tx-pill {
@@ -233,9 +240,22 @@
   min-width: 0;
 }
 
+.tx-item__preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tx-text-muted);
+  font-size: var(--tx-text-sm);
+  font-weight: var(--tx-weight-normal);
+  opacity: 0.72;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tx-item__toggle {
   display: grid;
   gap: var(--tx-space-sm);
+  min-width: 0;
   width: 100%;
   padding: 0;
   border: none;
@@ -961,6 +981,7 @@ ol.tx-markdown__list {
   display: flex;
   flex-direction: column;
   gap: var(--tx-space-xs);
+  min-width: 0;
 }
 
 .tx-work-activity__toggle {
@@ -1052,6 +1073,7 @@ ol.tx-markdown__list {
   display: flex;
   flex-direction: column;
   gap: var(--tx-space-xs);
+  min-width: 0;
   padding: 0 0 0 12px;
   border-left: 1px solid var(--tx-border-subtle);
   margin-left: 5px;
