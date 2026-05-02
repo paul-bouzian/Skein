@@ -1151,12 +1151,12 @@ ol.tx-markdown__list {
 
 .tx-composer__icon-toggle--active {
   color: var(--tx-accent);
-  background: color-mix(in srgb, var(--tx-accent) 12%, transparent);
+  background: transparent;
 }
 
 .tx-composer__icon-toggle--active:hover:not(:disabled) {
   color: var(--tx-accent-hover);
-  background: color-mix(in srgb, var(--tx-accent) 18%, transparent);
+  background: var(--tx-bg-hover);
 }
 
 .tx-composer__send-button:hover:not(:disabled) {

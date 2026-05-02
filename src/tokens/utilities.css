@@ -14,7 +14,7 @@
      Never fill backgrounds with accent tints.
 
    Intentional full-accent backgrounds (do NOT neutralize):
-     .tx-composer__send-button, .tx-composer__icon-toggle--active,
+     .tx-composer__send-button,
      .settings-toggle__control--checked, focus-visible rings,
      live status chips (voice, failed subagent, notices).
    ========================================================================== */
